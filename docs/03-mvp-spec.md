@@ -410,49 +410,51 @@ M1 → M2 → M3 → M4 → M5 → M6 → M7 → M8 → M9
 - [x] API endpoints for worktree ops
 - [x] Auto-create worktree on status change
 
-### Milestone 5: Agent Execution
+### Milestone 5: Agent Execution ✓
 
-- [ ] Tmux session management
-- [ ] Claude executor (spawn, parse output)
-- [ ] Session database operations
-- [ ] WebSocket server
-- [ ] Real-time output streaming
-- [ ] MCP server for callbacks
+- [x] Tmux session management
+- [x] Claude executor (spawn, parse output)
+- [x] Session database operations
+- [x] WebSocket server
+- [x] Real-time output streaming
+- [ ] MCP server for callbacks (deferred - tmux-based approach works)
 
-### Milestone 6: Agent UI
+### Milestone 6: Agent UI ✓
 
-- [ ] Agent session component
-- [ ] Message list with streaming
-- [ ] Message input
-- [ ] Tool call display
-- [ ] Session status indicator
-- [ ] Send message via WebSocket
+- [x] Agent session component
+- [x] Message list with streaming
+- [x] Message input
+- [x] Tool call display
+- [x] Session status indicator
+- [x] Send message via WebSocket
+- [x] TaskDetail page with session integration
+- [x] SessionList component for session navigation
 
-### Milestone 7: Terminal Escape Hatch
+### Milestone 7: Terminal Escape Hatch ✓
 
-- [ ] xterm.js integration
-- [ ] WebSocket terminal backend (or tmux attach)
-- [ ] Terminal modal component
-- [ ] Connect to specific tmux pane
+- [x] xterm.js integration
+- [x] WebSocket terminal backend with PTY
+- [x] Terminal modal component
+- [x] Connect to specific tmux pane via attach-session
 
-### Milestone 8: Justfile & Tunnels
+### Milestone 8: Justfile & Tunnels ✓
 
-- [ ] Justfile parser
-- [ ] Run command endpoint
-- [ ] Command output streaming
-- [ ] JustfilePanel component
-- [ ] Cloudflared tunnel spawn/kill
-- [ ] TunnelPanel component
+- [x] Justfile parser (using `just --list`)
+- [x] Run command endpoint with output
+- [x] Command output streaming (SSE)
+- [x] JustfilePanel component
+- [x] Cloudflared tunnel spawn/kill (quick tunnels)
+- [x] TunnelPanel component
 
-### Milestone 9: Polish & Deploy
+### Milestone 9: Polish & Deploy ✓
 
-- [ ] Mobile responsive CSS
-- [ ] Error handling throughout
-- [ ] Loading states
-- [ ] Empty states
-- [ ] Build scripts
-- [ ] Systemd service file
-- [ ] Basic documentation
+- [x] Mobile responsive CSS (already built into Tailwind components)
+- [x] Error handling throughout (API client, mutations)
+- [x] Loading states (queries with isLoading)
+- [x] Empty states (kanban, sessions, justfile, tunnels)
+- [x] Build scripts (npm run build, go build)
+- [ ] Systemd service file (optional - can run directly)
+- [x] Basic documentation (CLAUDE.md updated)
 
 ## Success Criteria
 

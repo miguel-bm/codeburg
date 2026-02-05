@@ -1,8 +1,10 @@
 import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from './stores/auth';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
+import { TaskDetail } from './pages/TaskDetail';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -13,7 +15,7 @@ const queryClient = new QueryClient({
   },
 });
 
-function AuthGate() {
+function AuthGate({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading, needsSetup, checkStatus } = useAuthStore();
 
   useEffect(() => {
@@ -32,13 +34,21 @@ function AuthGate() {
     return <Login />;
   }
 
-  return <Dashboard />;
+  return <>{children}</>;
 }
 
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthGate />
+      <BrowserRouter>
+        <AuthGate>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/tasks/:id" element={<TaskDetail />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </AuthGate>
+      </BrowserRouter>
     </QueryClientProvider>
   );
 }

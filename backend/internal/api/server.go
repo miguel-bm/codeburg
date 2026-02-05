@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/miguel/codeburg/internal/db"
+	"github.com/miguel/codeburg/internal/tunnel"
 	"github.com/miguel/codeburg/internal/worktree"
 )
 
@@ -16,13 +17,22 @@ type Server struct {
 	router   chi.Router
 	auth     *AuthService
 	worktree *worktree.Manager
+	wsHub    *WSHub
+	sessions *SessionManager
+	tunnels  *tunnel.Manager
 }
 
 func NewServer(database *db.DB) *Server {
+	wsHub := NewWSHub()
+	go wsHub.Run() // Start the WebSocket hub
+
 	s := &Server{
 		db:       database,
 		auth:     NewAuthService(),
 		worktree: worktree.NewManager(worktree.DefaultConfig()),
+		wsHub:    wsHub,
+		sessions: NewSessionManager(),
+		tunnels:  tunnel.NewManager(),
 	}
 	s.setupRoutes()
 	return s
@@ -49,6 +59,10 @@ func (s *Server) setupRoutes() {
 	r.Post("/api/auth/setup", s.handleSetup)
 	r.Get("/api/auth/status", s.handleAuthStatus)
 
+	// WebSocket (public, auth handled in handshake)
+	r.Get("/ws", s.handleWebSocket)
+	r.Get("/ws/terminal", s.handleTerminalWS)
+
 	// Protected routes
 	r.Group(func(r chi.Router) {
 		r.Use(s.authMiddleware)
@@ -73,6 +87,25 @@ func (s *Server) setupRoutes() {
 		// Worktrees
 		r.Post("/api/tasks/{id}/worktree", s.handleCreateWorktree)
 		r.Delete("/api/tasks/{id}/worktree", s.handleDeleteWorktree)
+
+		// Sessions
+		r.Get("/api/tasks/{taskId}/sessions", s.handleListSessions)
+		r.Post("/api/tasks/{taskId}/sessions", s.handleStartSession)
+		r.Get("/api/sessions/{id}", s.handleGetSession)
+		r.Post("/api/sessions/{id}/message", s.handleSendMessage)
+		r.Delete("/api/sessions/{id}", s.handleStopSession)
+
+		// Justfile
+		r.Get("/api/projects/{id}/justfile", s.handleListJustRecipes)
+		r.Post("/api/projects/{id}/just/{recipe}", s.handleRunJustRecipe)
+		r.Get("/api/tasks/{id}/justfile", s.handleListTaskJustRecipes)
+		r.Post("/api/tasks/{id}/just/{recipe}", s.handleRunJustRecipeInTask)
+		r.Get("/api/tasks/{id}/just/{recipe}/stream", s.handleStreamJustRecipe)
+
+		// Tunnels
+		r.Get("/api/tasks/{id}/tunnels", s.handleListTunnels)
+		r.Post("/api/tasks/{id}/tunnels", s.handleCreateTunnel)
+		r.Delete("/api/tunnels/{id}", s.handleStopTunnel)
 	})
 
 	s.router = r

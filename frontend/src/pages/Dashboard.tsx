@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/layout/Layout';
 import { tasksApi, projectsApi } from '../api';
@@ -284,6 +285,12 @@ interface TaskCardProps {
 }
 
 function TaskCard({ task, projectName, onDragStart, onDragEnd, isMobile, onLongPress }: TaskCardProps) {
+  const navigate = useNavigate();
+  const handleClick = () => {
+    // Navigate to task detail on click (but not on drag)
+    navigate(`/tasks/${task.id}`);
+  };
+
   const longPressHandlers = useLongPress({
     onLongPress: () => {
       if (onLongPress) {
@@ -294,6 +301,7 @@ function TaskCard({ task, projectName, onDragStart, onDragEnd, isMobile, onLongP
         }
       }
     },
+    onClick: handleClick,
     delay: 500,
   });
 
@@ -303,9 +311,9 @@ function TaskCard({ task, projectName, onDragStart, onDragEnd, isMobile, onLongP
       draggable={!isMobile}
       onDragStart={!isMobile ? (e) => onDragStart(e, task.id) : undefined}
       onDragEnd={!isMobile ? onDragEnd : undefined}
-      {...(isMobile ? longPressHandlers : {})}
-      className={`bg-primary p-3 border border-subtle hover:border-accent transition-colors ${
-        isMobile ? 'select-none' : 'cursor-grab active:cursor-grabbing'
+      {...(isMobile ? longPressHandlers : { onClick: handleClick })}
+      className={`bg-primary p-3 border border-subtle hover:border-accent transition-colors cursor-pointer ${
+        isMobile ? 'select-none' : ''
       }`}
     >
       <h4 className="font-medium text-sm">

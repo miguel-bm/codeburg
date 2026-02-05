@@ -1,0 +1,407 @@
+import { useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Layout } from '../components/layout/Layout';
+import { SessionView, SessionList } from '../components/session';
+import { TerminalModal } from '../components/terminal';
+import { JustfilePanel } from '../components/justfile';
+import { TunnelPanel } from '../components/tunnel';
+import { tasksApi, projectsApi, sessionsApi } from '../api';
+import type { AgentSession } from '../api';
+
+type RightPanel = 'session' | 'justfile' | 'tunnel';
+
+export function TaskDetail() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [activeSession, setActiveSession] = useState<AgentSession | null>(null);
+  const [showStartSession, setShowStartSession] = useState(false);
+  const [showTerminal, setShowTerminal] = useState(false);
+  const [rightPanel, setRightPanel] = useState<RightPanel>('session');
+
+  const { data: task, isLoading: taskLoading } = useQuery({
+    queryKey: ['task', id],
+    queryFn: () => tasksApi.get(id!),
+    enabled: !!id,
+  });
+
+  const { data: project } = useQuery({
+    queryKey: ['project', task?.projectId],
+    queryFn: () => projectsApi.get(task!.projectId),
+    enabled: !!task?.projectId,
+  });
+
+  const { data: sessions, isLoading: sessionsLoading } = useQuery({
+    queryKey: ['sessions', id],
+    queryFn: () => sessionsApi.list(id!),
+    enabled: !!id,
+    refetchInterval: 5000, // Poll for updates
+  });
+
+  const startSessionMutation = useMutation({
+    mutationFn: ({ prompt }: { prompt: string }) =>
+      sessionsApi.start(id!, { prompt }),
+    onSuccess: (session) => {
+      queryClient.invalidateQueries({ queryKey: ['sessions', id] });
+      setActiveSession(session);
+      setShowStartSession(false);
+    },
+  });
+
+  const stopSessionMutation = useMutation({
+    mutationFn: (sessionId: string) => sessionsApi.stop(sessionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sessions', id] });
+      setActiveSession(null);
+    },
+  });
+
+  if (taskLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-full text-dim">
+          loading...
+        </div>
+      </Layout>
+    );
+  }
+
+  if (!task) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-full text-dim">
+          task not found
+        </div>
+      </Layout>
+    );
+  }
+
+  const hasActiveSession = sessions?.some(
+    (s) => s.status === 'running' || s.status === 'waiting_input'
+  );
+
+  return (
+    <Layout>
+      <div className="flex flex-col h-full">
+        {/* Header */}
+        <header className="bg-secondary border-b border-subtle px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => navigate('/')}
+                className="text-dim hover:text-[var(--color-text-primary)] transition-colors"
+              >
+                &lt; back
+              </button>
+              <div>
+                <h1 className="text-lg font-medium">{task.title}</h1>
+                <div className="flex items-center gap-3 mt-1">
+                  <span className="text-xs text-dim">
+                    {project?.name || 'unknown'}
+                  </span>
+                  <StatusBadge status={task.status} />
+                  {task.branch && (
+                    <span className="text-xs text-dim font-mono">
+                      [{task.branch}]
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              {activeSession?.tmuxWindow && (
+                <button
+                  onClick={() => setShowTerminal(true)}
+                  className="px-4 py-2 border border-subtle text-dim text-sm hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-primary)] transition-colors"
+                >
+                  terminal
+                </button>
+              )}
+              {activeSession && (
+                <button
+                  onClick={() => stopSessionMutation.mutate(activeSession.id)}
+                  disabled={stopSessionMutation.isPending}
+                  className="px-4 py-2 border border-[var(--color-status-blocked)] text-[var(--color-status-blocked)] text-sm hover:bg-[var(--color-status-blocked)] hover:text-[var(--color-bg-primary)] transition-colors"
+                >
+                  stop
+                </button>
+              )}
+              {!hasActiveSession && (
+                <button
+                  onClick={() => setShowStartSession(true)}
+                  className="px-4 py-2 border border-accent text-accent text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors"
+                >
+                  + session
+                </button>
+              )}
+            </div>
+          </div>
+        </header>
+
+        {/* Main Content */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Sidebar - Session List */}
+          <div className="w-64 border-r border-subtle bg-secondary overflow-y-auto hidden md:block">
+            <div className="px-4 py-3 border-b border-subtle">
+              <h2 className="text-sm text-dim">// sessions</h2>
+            </div>
+            {sessionsLoading ? (
+              <div className="p-4 text-sm text-dim">loading...</div>
+            ) : (
+              <SessionList
+                sessions={sessions || []}
+                activeSessionId={activeSession?.id}
+                onSelect={(session) => {
+                  setActiveSession(session);
+                  setRightPanel('session');
+                }}
+              />
+            )}
+          </div>
+
+          {/* Main - Session View, Task Info, or Justfile */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Panel Tabs */}
+            <div className="flex border-b border-subtle bg-secondary">
+              <button
+                onClick={() => setRightPanel('session')}
+                className={`px-4 py-2 text-sm transition-colors ${
+                  rightPanel === 'session'
+                    ? 'text-accent border-b-2 border-accent'
+                    : 'text-dim hover:text-[var(--color-text-primary)]'
+                }`}
+              >
+                agent
+              </button>
+              <button
+                onClick={() => setRightPanel('justfile')}
+                className={`px-4 py-2 text-sm transition-colors ${
+                  rightPanel === 'justfile'
+                    ? 'text-accent border-b-2 border-accent'
+                    : 'text-dim hover:text-[var(--color-text-primary)]'
+                }`}
+              >
+                justfile
+              </button>
+              <button
+                onClick={() => setRightPanel('tunnel')}
+                className={`px-4 py-2 text-sm transition-colors ${
+                  rightPanel === 'tunnel'
+                    ? 'text-accent border-b-2 border-accent'
+                    : 'text-dim hover:text-[var(--color-text-primary)]'
+                }`}
+              >
+                tunnels
+              </button>
+            </div>
+
+            {/* Panel Content */}
+            <div className="flex-1 overflow-hidden">
+              {rightPanel === 'session' ? (
+                activeSession ? (
+                  <SessionView
+                    sessionId={activeSession.id}
+                    onStatusChange={() => {
+                      queryClient.invalidateQueries({ queryKey: ['sessions', id] });
+                    }}
+                  />
+                ) : (
+                  <TaskInfo task={task} project={project} />
+                )
+              ) : rightPanel === 'justfile' ? (
+                <JustfilePanel taskId={id!} />
+              ) : (
+                <TunnelPanel taskId={id!} />
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Start Session Modal */}
+      {showStartSession && (
+        <StartSessionModal
+          onClose={() => setShowStartSession(false)}
+          onStart={(prompt) => startSessionMutation.mutate({ prompt })}
+          isPending={startSessionMutation.isPending}
+          error={startSessionMutation.error?.message}
+        />
+      )}
+
+      {/* Terminal Modal */}
+      {showTerminal && activeSession?.tmuxWindow && (
+        <TerminalModal
+          target={`codeburg:${activeSession.tmuxWindow}${activeSession.tmuxPane ? '.' + activeSession.tmuxPane : ''}`}
+          onClose={() => setShowTerminal(false)}
+        />
+      )}
+    </Layout>
+  );
+}
+
+interface StatusBadgeProps {
+  status: string;
+}
+
+function StatusBadge({ status }: StatusBadgeProps) {
+  const statusColors: Record<string, string> = {
+    backlog: 'status-backlog',
+    in_progress: 'status-in-progress',
+    blocked: 'status-blocked',
+    done: 'status-done',
+  };
+
+  return (
+    <span className={`text-xs ${statusColors[status] || 'text-dim'}`}>
+      [{status}]
+    </span>
+  );
+}
+
+interface TaskInfoProps {
+  task: {
+    title: string;
+    description?: string;
+    status: string;
+    branch?: string;
+    worktreePath?: string;
+    createdAt: string;
+    startedAt?: string;
+  };
+  project?: {
+    name: string;
+    path: string;
+  };
+}
+
+function TaskInfo({ task, project }: TaskInfoProps) {
+  return (
+    <div className="flex-1 overflow-y-auto p-6">
+      <div className="max-w-2xl space-y-6">
+        {/* Description */}
+        {task.description && (
+          <div>
+            <h3 className="text-sm text-dim mb-2">// description</h3>
+            <p className="text-sm whitespace-pre-wrap">{task.description}</p>
+          </div>
+        )}
+
+        {/* Details */}
+        <div>
+          <h3 className="text-sm text-dim mb-2">// details</h3>
+          <div className="space-y-2 text-sm">
+            <div className="flex gap-4">
+              <span className="text-dim w-24">status</span>
+              <span>{task.status}</span>
+            </div>
+            {task.branch && (
+              <div className="flex gap-4">
+                <span className="text-dim w-24">branch</span>
+                <span className="font-mono">{task.branch}</span>
+              </div>
+            )}
+            {task.worktreePath && (
+              <div className="flex gap-4">
+                <span className="text-dim w-24">worktree</span>
+                <span className="font-mono text-xs">{task.worktreePath}</span>
+              </div>
+            )}
+            {project && (
+              <div className="flex gap-4">
+                <span className="text-dim w-24">project</span>
+                <span>{project.name}</span>
+              </div>
+            )}
+            <div className="flex gap-4">
+              <span className="text-dim w-24">created</span>
+              <span>{new Date(task.createdAt).toLocaleString()}</span>
+            </div>
+            {task.startedAt && (
+              <div className="flex gap-4">
+                <span className="text-dim w-24">started</span>
+                <span>{new Date(task.startedAt).toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Instructions */}
+        <div>
+          <h3 className="text-sm text-dim mb-2">// getting_started</h3>
+          <p className="text-sm text-dim">
+            Click "+ session" to start an AI agent session for this task.
+            The agent will work in the task's worktree directory.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface StartSessionModalProps {
+  onClose: () => void;
+  onStart: (prompt: string) => void;
+  isPending: boolean;
+  error?: string;
+}
+
+function StartSessionModal({ onClose, onStart, isPending, error }: StartSessionModalProps) {
+  const [prompt, setPrompt] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (prompt.trim()) {
+      onStart(prompt.trim());
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-[var(--color-bg-primary)]/80 flex items-center justify-center p-4 z-50">
+      <div className="bg-secondary border border-subtle w-full max-w-lg">
+        <div className="px-4 py-3 border-b border-subtle">
+          <h2 className="text-sm text-accent">// start_session</h2>
+        </div>
+        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          {error && (
+            <div className="border border-[var(--color-status-blocked)] p-3 text-sm text-[var(--color-status-blocked)]">
+              {error}
+            </div>
+          )}
+          <div>
+            <label className="block text-sm text-dim mb-1">
+              initial prompt
+            </label>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              rows={4}
+              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none resize-none"
+              placeholder="What would you like the agent to do?"
+              autoFocus
+            />
+          </div>
+          <div className="text-xs text-dim">
+            The agent will start with this prompt and work in the task's worktree.
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2 px-4 border border-subtle text-dim text-sm hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-primary)] transition-colors"
+            >
+              cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isPending || !prompt.trim()}
+              className="flex-1 py-2 px-4 border border-accent text-accent text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50"
+            >
+              {isPending ? 'starting...' : 'start'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

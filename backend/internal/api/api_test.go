@@ -1,0 +1,815 @@
+package api
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/miguel/codeburg/internal/db"
+	"github.com/miguel/codeburg/internal/tunnel"
+	"github.com/miguel/codeburg/internal/worktree"
+)
+
+// testEnv holds a test server with all dependencies
+type testEnv struct {
+	server *Server
+	t      *testing.T
+	token  string // auth token after setup
+}
+
+// setupTestEnv creates a fully configured test server
+func setupTestEnv(t *testing.T) *testEnv {
+	t.Helper()
+
+	// In-memory database
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open test db: %v", err)
+	}
+	if err := database.Migrate(); err != nil {
+		t.Fatalf("migrate test db: %v", err)
+	}
+
+	// Temp directory for auth config
+	tmpDir := t.TempDir()
+
+	// Create auth service with temp dir
+	secret := make([]byte, 32)
+	rand.Read(secret)
+	auth := &AuthService{
+		configPath: filepath.Join(tmpDir, "config.yaml"),
+		jwtSecret:  secret,
+	}
+
+	// Create WebSocket hub
+	wsHub := NewWSHub()
+	go wsHub.Run()
+
+	// Create server
+	s := &Server{
+		db:       database,
+		auth:     auth,
+		worktree: worktree.NewManager(worktree.DefaultConfig()),
+		wsHub:    wsHub,
+		sessions: NewSessionManager(),
+		tunnels:  tunnel.NewManager(),
+	}
+	s.setupRoutes()
+
+	t.Cleanup(func() {
+		database.Close()
+	})
+
+	return &testEnv{server: s, t: t}
+}
+
+// setup runs the auth setup flow and stores the token
+func (e *testEnv) setup(password string) {
+	e.t.Helper()
+	resp := e.post("/api/auth/setup", map[string]string{"password": password})
+	if resp.Code != http.StatusOK {
+		e.t.Fatalf("setup failed: %d %s", resp.Code, resp.Body.String())
+	}
+	var body map[string]string
+	json.Unmarshal(resp.Body.Bytes(), &body)
+	e.token = body["token"]
+}
+
+// request makes an HTTP request to the server
+func (e *testEnv) request(method, path string, body interface{}) *httptest.ResponseRecorder {
+	e.t.Helper()
+	var bodyReader *strings.Reader
+	if body != nil {
+		data, _ := json.Marshal(body)
+		bodyReader = strings.NewReader(string(data))
+	} else {
+		bodyReader = strings.NewReader("")
+	}
+
+	req := httptest.NewRequest(method, path, bodyReader)
+	req.Header.Set("Content-Type", "application/json")
+	if e.token != "" {
+		req.Header.Set("Authorization", "Bearer "+e.token)
+	}
+
+	w := httptest.NewRecorder()
+	e.server.router.ServeHTTP(w, req)
+	return w
+}
+
+func (e *testEnv) get(path string) *httptest.ResponseRecorder {
+	return e.request("GET", path, nil)
+}
+
+func (e *testEnv) post(path string, body interface{}) *httptest.ResponseRecorder {
+	return e.request("POST", path, body)
+}
+
+func (e *testEnv) patch(path string, body interface{}) *httptest.ResponseRecorder {
+	return e.request("PATCH", path, body)
+}
+
+func (e *testEnv) delete(path string) *httptest.ResponseRecorder {
+	return e.request("DELETE", path, nil)
+}
+
+// decodeResponse decodes JSON response body into v
+func decodeResponse(t *testing.T, resp *httptest.ResponseRecorder, v interface{}) {
+	t.Helper()
+	if err := json.Unmarshal(resp.Body.Bytes(), v); err != nil {
+		t.Fatalf("decode response: %v (body: %s)", err, resp.Body.String())
+	}
+}
+
+// --- Auth Tests ---
+
+func TestAuthStatus_NotSetup(t *testing.T) {
+	env := setupTestEnv(t)
+
+	resp := env.get("/api/auth/status")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	var body map[string]bool
+	decodeResponse(t, resp, &body)
+	if body["setup"] {
+		t.Error("expected setup=false")
+	}
+}
+
+func TestAuthSetup(t *testing.T) {
+	env := setupTestEnv(t)
+
+	resp := env.post("/api/auth/setup", map[string]string{
+		"password": "testpass123",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]string
+	decodeResponse(t, resp, &body)
+	if body["token"] == "" {
+		t.Error("expected token in response")
+	}
+
+	// Status should now show setup=true
+	statusResp := env.get("/api/auth/status")
+	var status map[string]bool
+	decodeResponse(t, statusResp, &status)
+	if !status["setup"] {
+		t.Error("expected setup=true after setup")
+	}
+}
+
+func TestAuthSetup_ShortPassword(t *testing.T) {
+	env := setupTestEnv(t)
+
+	resp := env.post("/api/auth/setup", map[string]string{
+		"password": "short",
+	})
+	if resp.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.Code)
+	}
+}
+
+func TestAuthSetup_AlreadySetup(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	resp := env.post("/api/auth/setup", map[string]string{
+		"password": "anotherpass123",
+	})
+	if resp.Code != http.StatusConflict {
+		t.Errorf("expected 409 for already setup, got %d", resp.Code)
+	}
+}
+
+func TestAuthLogin(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+	env.token = "" // Clear token to test login
+
+	resp := env.post("/api/auth/login", map[string]string{
+		"password": "testpass123",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	var body map[string]string
+	decodeResponse(t, resp, &body)
+	if body["token"] == "" {
+		t.Error("expected token in response")
+	}
+}
+
+func TestAuthLogin_WrongPassword(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+	env.token = "" // Clear token
+
+	resp := env.post("/api/auth/login", map[string]string{
+		"password": "wrongpassword",
+	})
+	if resp.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", resp.Code)
+	}
+}
+
+func TestAuthMe(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	resp := env.get("/api/auth/me")
+	if resp.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.Code)
+	}
+}
+
+func TestAuthMe_NoToken(t *testing.T) {
+	env := setupTestEnv(t)
+	env.token = ""
+
+	resp := env.get("/api/auth/me")
+	if resp.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", resp.Code)
+	}
+}
+
+func TestAuthMe_InvalidToken(t *testing.T) {
+	env := setupTestEnv(t)
+	env.token = "invalid-token"
+
+	resp := env.get("/api/auth/me")
+	if resp.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", resp.Code)
+	}
+}
+
+// --- Protected Routes Without Auth ---
+
+func TestProtectedRoute_NoAuth(t *testing.T) {
+	env := setupTestEnv(t)
+
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/api/projects"},
+		{"GET", "/api/tasks"},
+	}
+
+	for _, r := range routes {
+		resp := env.request(r.method, r.path, nil)
+		if resp.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s: expected 401, got %d", r.method, r.path, resp.Code)
+		}
+	}
+}
+
+// --- Project API Tests ---
+
+// createTestGitRepo creates a temporary git repository for testing
+func createTestGitRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	// Initialize git repo
+	cmd := exec.Command("git", "init", dir)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	// Configure git user (required for commits)
+	cmd = exec.Command("git", "-C", dir, "config", "user.email", "test@test.com")
+	cmd.Run()
+	cmd = exec.Command("git", "-C", dir, "config", "user.name", "Test")
+	cmd.Run()
+
+	// Create initial commit
+	testFile := filepath.Join(dir, "README.md")
+	os.WriteFile(testFile, []byte("# Test"), 0644)
+	cmd = exec.Command("git", "-C", dir, "add", ".")
+	cmd.Run()
+	cmd = exec.Command("git", "-C", dir, "commit", "-m", "init")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+
+	return dir
+}
+
+func TestCreateProject(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+
+	resp := env.post("/api/projects", map[string]string{
+		"name": "test-project",
+		"path": repoPath,
+	})
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var project db.Project
+	decodeResponse(t, resp, &project)
+
+	if project.Name != "test-project" {
+		t.Errorf("expected name 'test-project', got %q", project.Name)
+	}
+	if project.Path != repoPath {
+		t.Errorf("expected path %q, got %q", repoPath, project.Path)
+	}
+}
+
+func TestCreateProject_NoName(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	resp := env.post("/api/projects", map[string]string{
+		"path": "/tmp/whatever",
+	})
+	if resp.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.Code)
+	}
+}
+
+func TestCreateProject_InvalidPath(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	resp := env.post("/api/projects", map[string]string{
+		"name": "bad-path",
+		"path": "/nonexistent/path/that/doesnt/exist",
+	})
+	if resp.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.Code)
+	}
+}
+
+func TestCreateProject_NotGitRepo(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	dir := t.TempDir() // Not a git repo
+
+	resp := env.post("/api/projects", map[string]string{
+		"name": "not-git",
+		"path": dir,
+	})
+	if resp.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.Code)
+	}
+}
+
+func TestListProjects(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repo1 := createTestGitRepo(t)
+	repo2 := createTestGitRepo(t)
+
+	env.post("/api/projects", map[string]string{"name": "alpha", "path": repo1})
+	env.post("/api/projects", map[string]string{"name": "beta", "path": repo2})
+
+	resp := env.get("/api/projects")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	var projects []db.Project
+	decodeResponse(t, resp, &projects)
+
+	if len(projects) != 2 {
+		t.Fatalf("expected 2 projects, got %d", len(projects))
+	}
+}
+
+func TestGetProject(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	createResp := env.post("/api/projects", map[string]string{
+		"name": "get-test",
+		"path": repoPath,
+	})
+
+	var created db.Project
+	decodeResponse(t, createResp, &created)
+
+	resp := env.get("/api/projects/" + created.ID)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	var project db.Project
+	decodeResponse(t, resp, &project)
+	if project.Name != "get-test" {
+		t.Errorf("expected 'get-test', got %q", project.Name)
+	}
+}
+
+func TestDeleteProject(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	createResp := env.post("/api/projects", map[string]string{
+		"name": "to-delete",
+		"path": repoPath,
+	})
+
+	var created db.Project
+	decodeResponse(t, createResp, &created)
+
+	resp := env.delete("/api/projects/" + created.ID)
+	if resp.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d", resp.Code)
+	}
+
+	// Verify it's gone
+	getResp := env.get("/api/projects/" + created.ID)
+	if getResp.Code != http.StatusNotFound {
+		t.Errorf("expected 404 after delete, got %d", getResp.Code)
+	}
+}
+
+// --- Task API Tests ---
+
+func TestCreateTask(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "task-proj",
+		"path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	resp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Test Task",
+	})
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var task db.Task
+	decodeResponse(t, resp, &task)
+
+	if task.Title != "Test Task" {
+		t.Errorf("expected 'Test Task', got %q", task.Title)
+	}
+	if task.ProjectID != project.ID {
+		t.Errorf("expected project ID %q, got %q", project.ID, task.ProjectID)
+	}
+	if task.Status != "backlog" {
+		t.Errorf("expected status 'backlog', got %q", task.Status)
+	}
+}
+
+func TestCreateTask_NoTitle(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "p", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	resp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{})
+	if resp.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.Code)
+	}
+}
+
+func TestCreateTask_InvalidProject(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	resp := env.post("/api/projects/nonexistent/tasks", map[string]string{
+		"title": "Orphan Task",
+	})
+	if resp.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.Code)
+	}
+}
+
+func TestUpdateTask_Status(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "p", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Status Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	// Update status to blocked
+	resp := env.patch("/api/tasks/"+task.ID, map[string]string{
+		"status": "blocked",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var updated db.Task
+	decodeResponse(t, resp, &updated)
+	if updated.Status != "blocked" {
+		t.Errorf("expected status 'blocked', got %q", updated.Status)
+	}
+}
+
+func TestUpdateTask_InvalidStatus(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "p", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Invalid Status",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	resp := env.patch("/api/tasks/"+task.ID, map[string]string{
+		"status": "invalid_status",
+	})
+	if resp.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.Code)
+	}
+}
+
+func TestListTasks(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "p", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	env.post("/api/projects/"+project.ID+"/tasks", map[string]string{"title": "Task 1"})
+	env.post("/api/projects/"+project.ID+"/tasks", map[string]string{"title": "Task 2"})
+	env.post("/api/projects/"+project.ID+"/tasks", map[string]string{"title": "Task 3"})
+
+	resp := env.get("/api/tasks")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	var tasks []db.Task
+	decodeResponse(t, resp, &tasks)
+	if len(tasks) != 3 {
+		t.Errorf("expected 3 tasks, got %d", len(tasks))
+	}
+}
+
+func TestListTasks_FilterByProject(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repo1 := createTestGitRepo(t)
+	repo2 := createTestGitRepo(t)
+
+	projResp1 := env.post("/api/projects", map[string]string{"name": "p1", "path": repo1})
+	projResp2 := env.post("/api/projects", map[string]string{"name": "p2", "path": repo2})
+
+	var p1, p2 db.Project
+	decodeResponse(t, projResp1, &p1)
+	decodeResponse(t, projResp2, &p2)
+
+	env.post("/api/projects/"+p1.ID+"/tasks", map[string]string{"title": "P1 Task"})
+	env.post("/api/projects/"+p2.ID+"/tasks", map[string]string{"title": "P2 Task 1"})
+	env.post("/api/projects/"+p2.ID+"/tasks", map[string]string{"title": "P2 Task 2"})
+
+	resp := env.get("/api/tasks?project=" + p2.ID)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	var tasks []db.Task
+	decodeResponse(t, resp, &tasks)
+	if len(tasks) != 2 {
+		t.Errorf("expected 2 tasks for p2, got %d", len(tasks))
+	}
+}
+
+func TestDeleteTask(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "p", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "To Delete",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	resp := env.delete("/api/tasks/" + task.ID)
+	if resp.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d", resp.Code)
+	}
+
+	getResp := env.get("/api/tasks/" + task.ID)
+	if getResp.Code != http.StatusNotFound {
+		t.Errorf("expected 404 after delete, got %d", getResp.Code)
+	}
+}
+
+// --- Session API Tests (limited - no tmux/claude in CI) ---
+
+func TestListSessions_EmptyTask(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "p", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Session Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	resp := env.get("/api/tasks/" + task.ID + "/sessions")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	var sessions []db.AgentSession
+	decodeResponse(t, resp, &sessions)
+	if len(sessions) != 0 {
+		t.Errorf("expected 0 sessions, got %d", len(sessions))
+	}
+}
+
+func TestListSessions_InvalidTask(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	resp := env.get("/api/tasks/nonexistent/sessions")
+	if resp.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.Code)
+	}
+}
+
+// --- Justfile API Tests ---
+
+func TestListJustRecipes_NoJustfile(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "no-justfile", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	resp := env.get("/api/projects/" + project.ID + "/justfile")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	var body map[string]interface{}
+	decodeResponse(t, resp, &body)
+
+	if body["hasJustfile"].(bool) {
+		t.Error("expected hasJustfile=false")
+	}
+}
+
+func TestListTaskJustRecipes_NoJustfile(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "p", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Just Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	resp := env.get("/api/tasks/" + task.ID + "/justfile")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	var body map[string]interface{}
+	decodeResponse(t, resp, &body)
+	if body["hasJustfile"].(bool) {
+		t.Error("expected hasJustfile=false for task without justfile")
+	}
+}
+
+// --- Tunnel API Tests ---
+
+func TestListTunnels_Empty(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "p", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Tunnel Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	resp := env.get("/api/tasks/" + task.ID + "/tunnels")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	var tunnels []map[string]interface{}
+	decodeResponse(t, resp, &tunnels)
+	if len(tunnels) != 0 {
+		t.Errorf("expected 0 tunnels, got %d", len(tunnels))
+	}
+}
+
+func TestCreateTunnel_InvalidPort(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "p", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Tunnel Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	resp := env.post("/api/tasks/"+task.ID+"/tunnels", map[string]int{
+		"port": -1,
+	})
+	if resp.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid port, got %d", resp.Code)
+	}
+
+	resp = env.post("/api/tasks/"+task.ID+"/tunnels", map[string]int{
+		"port": 99999,
+	})
+	if resp.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for port > 65535, got %d", resp.Code)
+	}
+}
+
+// --- Helper to suppress unused import ---
+var _ = hex.EncodeToString
