@@ -78,6 +78,16 @@ func (m *Manager) Create(opts CreateOptions) (*CreateResult, error) {
 		return nil, fmt.Errorf("worktree already exists at %s", worktreePath)
 	}
 
+	// Check if repository has any commits
+	if !m.hasCommits(opts.ProjectPath) {
+		return nil, fmt.Errorf("repository has no commits - please make an initial commit before creating worktrees")
+	}
+
+	// Verify the base branch exists
+	if !m.branchExists(opts.ProjectPath, opts.BaseBranch) {
+		return nil, fmt.Errorf("base branch '%s' does not exist - check project's default branch setting", opts.BaseBranch)
+	}
+
 	// Fetch latest from remote to ensure we have up-to-date refs
 	if err := m.gitFetch(opts.ProjectPath); err != nil {
 		// Non-fatal: continue even if fetch fails (might be offline)
@@ -184,6 +194,18 @@ func (m *Manager) gitFetch(repoPath string) error {
 	cmd := exec.Command("git", "fetch", "--prune")
 	cmd.Dir = repoPath
 	return cmd.Run()
+}
+
+func (m *Manager) hasCommits(repoPath string) bool {
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = repoPath
+	return cmd.Run() == nil
+}
+
+func (m *Manager) branchExists(repoPath, branchName string) bool {
+	cmd := exec.Command("git", "rev-parse", "--verify", branchName)
+	cmd.Dir = repoPath
+	return cmd.Run() == nil
 }
 
 func (m *Manager) createBranchAndWorktree(repoPath, worktreePath, branchName, baseBranch string) error {
