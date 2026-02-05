@@ -1,0 +1,197 @@
+@import "tailwindcss";
+
+/* Codeburg Design System
+ * Dark-first, high contrast, Matrix-inspired
+ * Monospace typography, sharp corners, minimal elevation
+ */
+
+@theme {
+  /* Background colors - very dark (dark mode default) */
+  --color-bg-primary: oklch(0.08 0 0);
+  --color-bg-secondary: oklch(0.11 0 0);
+  --color-bg-tertiary: oklch(0.14 0 0);
+
+  /* Text colors - high contrast */
+  --color-text-primary: oklch(0.95 0 0);
+  --color-text-secondary: oklch(0.75 0 0);
+  --color-text-dim: oklch(0.6 0 0);        /* Brightened for readability */
+
+  /* Accent - Matrix green */
+  --color-accent: oklch(0.75 0.2 145);
+  --color-accent-dim: oklch(0.55 0.15 145);
+  --color-accent-glow: oklch(0.75 0.2 145 / 0.3);
+
+  /* Status colors */
+  --color-status-backlog: oklch(0.5 0 0);
+  --color-status-in-progress: oklch(0.75 0.2 145);
+  --color-status-blocked: oklch(0.7 0.2 30);
+  --color-status-done: oklch(0.6 0.1 145);
+
+  /* Borders - brightened for visibility */
+  --color-border: oklch(0.35 0 0);
+  --color-border-accent: oklch(0.75 0.2 145 / 0.6);
+
+  /* Fonts - all monospace */
+  --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", ui-monospace, monospace;
+}
+
+/* Base styles */
+:root {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.6;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  border-radius: 0 !important;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
+/* Light mode overrides via CSS custom properties */
+@media (prefers-color-scheme: light) {
+  :root {
+    --color-bg-primary: oklch(0.98 0 0);
+    --color-bg-secondary: oklch(0.95 0 0);
+    --color-bg-tertiary: oklch(0.92 0 0);
+    --color-text-primary: oklch(0.1 0 0);
+    --color-text-secondary: oklch(0.35 0 0);
+    --color-text-dim: oklch(0.55 0 0);
+    --color-accent: oklch(0.45 0.2 145);
+    --color-accent-dim: oklch(0.35 0.15 145);
+    --color-accent-glow: oklch(0.45 0.2 145 / 0.2);
+    --color-border: oklch(0.8 0 0);
+    --color-border-accent: oklch(0.45 0.2 145 / 0.5);
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border: 1px solid var(--color-bg-primary);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-accent-dim);
+}
+
+/* Selection */
+::selection {
+  background: var(--color-accent-glow);
+  color: var(--color-text-primary);
+}
+
+/* Focus styles */
+:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* Clickable elements should have pointer cursor */
+button,
+[role="button"],
+select,
+a,
+[onclick],
+[draggable="true"] {
+  cursor: pointer;
+}
+
+button:disabled,
+[disabled] {
+  cursor: not-allowed;
+}
+
+/* Utility classes */
+@utility text-accent {
+  color: var(--color-accent);
+}
+
+@utility text-dim {
+  color: var(--color-text-dim);
+}
+
+@utility bg-primary {
+  background-color: var(--color-bg-primary);
+}
+
+@utility bg-secondary {
+  background-color: var(--color-bg-secondary);
+}
+
+@utility bg-tertiary {
+  background-color: var(--color-bg-tertiary);
+}
+
+@utility border-subtle {
+  border-color: var(--color-border);
+}
+
+@utility border-accent {
+  border-color: var(--color-accent);
+}
+
+@utility glow-accent {
+  box-shadow: 0 0 10px var(--color-accent-glow), 0 0 20px var(--color-accent-glow);
+}
+
+/* Drop target highlight */
+@utility drop-target {
+  border-color: var(--color-accent) !important;
+  background-color: oklch(0.75 0.2 145 / 0.1) !important;
+}
+
+/* Status badge utilities */
+@utility status-backlog {
+  color: var(--color-status-backlog);
+}
+
+@utility status-in-progress {
+  color: var(--color-status-in-progress);
+}
+
+@utility status-blocked {
+  color: var(--color-status-blocked);
+}
+
+@utility status-done {
+  color: var(--color-status-done);
+}
+
+/* Animation for active/pulsing elements */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 5px var(--color-accent-glow);
+  }
+  50% {
+    box-shadow: 0 0 15px var(--color-accent-glow), 0 0 25px var(--color-accent-glow);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-glow {
+    animation: none;
+  }
+}
