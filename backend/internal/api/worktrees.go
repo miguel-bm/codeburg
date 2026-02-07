@@ -3,8 +3,8 @@ package api
 import (
 	"net/http"
 
-	"github.com/miguel/codeburg/internal/db"
-	"github.com/miguel/codeburg/internal/worktree"
+	"github.com/miguel-bm/codeburg/internal/db"
+	"github.com/miguel-bm/codeburg/internal/worktree"
 )
 
 // WorktreeResponse is the response for worktree operations

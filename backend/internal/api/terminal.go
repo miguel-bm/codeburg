@@ -12,7 +12,7 @@ import (
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
-	"github.com/miguel/codeburg/internal/db"
+	"github.com/miguel-bm/codeburg/internal/db"
 )
 
 // TerminalSession manages a single terminal WebSocket connection

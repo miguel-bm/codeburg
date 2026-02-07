@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/miguel/codeburg/internal/db"
-	"github.com/miguel/codeburg/internal/gitclone"
-	"github.com/miguel/codeburg/internal/tunnel"
-	"github.com/miguel/codeburg/internal/worktree"
+	"github.com/miguel-bm/codeburg/internal/db"
+	"github.com/miguel-bm/codeburg/internal/gitclone"
+	"github.com/miguel-bm/codeburg/internal/tunnel"
+	"github.com/miguel-bm/codeburg/internal/worktree"
 )
 
 // testEnv holds a test server with all dependencies

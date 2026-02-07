@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/miguel/codeburg/internal/api"
-	"github.com/miguel/codeburg/internal/db"
+	"github.com/miguel-bm/codeburg/internal/api"
+	"github.com/miguel-bm/codeburg/internal/db"
 )
 
 func main() {

@@ -11,10 +11,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
-	"github.com/miguel/codeburg/internal/db"
-	"github.com/miguel/codeburg/internal/gitclone"
-	"github.com/miguel/codeburg/internal/tunnel"
-	"github.com/miguel/codeburg/internal/worktree"
+	"github.com/miguel-bm/codeburg/internal/db"
+	"github.com/miguel-bm/codeburg/internal/gitclone"
+	"github.com/miguel-bm/codeburg/internal/tunnel"
+	"github.com/miguel-bm/codeburg/internal/worktree"
 )
 
 // allowedOrigins defines which origins may make cross-origin requests.

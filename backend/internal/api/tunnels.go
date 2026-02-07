@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/miguel/codeburg/internal/tunnel"
+	"github.com/miguel-bm/codeburg/internal/tunnel"
 	"github.com/oklog/ulid/v2"
 )
 

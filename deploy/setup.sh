@@ -7,7 +7,7 @@
 set -euo pipefail
 
 CODEBURG_USER="codeburg"
-CODEBURG_REPO="https://github.com/miguel/codeburg.git"  # Update with actual repo URL
+CODEBURG_REPO="https://github.com/miguel-bm/codeburg.git"
 INSTALL_DIR="/opt/codeburg"
 GO_VERSION="1.24.1"
 NODE_MAJOR=22

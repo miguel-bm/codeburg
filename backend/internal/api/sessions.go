@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/miguel/codeburg/internal/db"
-	"github.com/miguel/codeburg/internal/tmux"
+	"github.com/miguel-bm/codeburg/internal/db"
+	"github.com/miguel-bm/codeburg/internal/tmux"
 )
 
 // SessionManager manages active agent sessions

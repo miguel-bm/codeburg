@@ -168,8 +168,8 @@ Manual Testing Plan
       "strings"
       "testing"
 
-      "github.com/miguel/codeburg/internal/api"
-      "github.com/miguel/codeburg/internal/db"
+      "github.com/miguel-bm/codeburg/internal/api"
+      "github.com/miguel-bm/codeburg/internal/db"
   )
 
   func setupTestServer(t *testing.T) (*api.Server, func()) {

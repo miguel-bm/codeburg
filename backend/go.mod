@@ -1,4 +1,4 @@
-module github.com/miguel/codeburg
+module github.com/miguel-bm/codeburg
 
 go 1.24.0
 

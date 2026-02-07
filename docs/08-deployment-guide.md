@@ -39,22 +39,23 @@ On your dev machine you need:
    ```bash
    ssh root@<VM_IP>
    ```
-
+   
 ## Step 2: Run the Setup Script
 
-From the VM (as root):
+SSH into the VM and run the setup script as root. Two options depending on repo visibility:
 
 ```bash
-# Option A: If the repo is public, run directly
-curl -sSL https://raw.githubusercontent.com/miguel/codeburg/main/deploy/setup.sh | bash
+# Option A: If the repo is public
+sudo bash -c "curl -sSL https://raw.githubusercontent.com/miguel-bm/codeburg/main/deploy/setup.sh | bash"
 
-# Option B: Clone first, then run
-apt-get update && apt-get install -y git
-git clone <your-repo-url> /opt/codeburg
-bash /opt/codeburg/deploy/setup.sh
+# Option B: If the repo is private, copy the script from your dev machine first:
+#   (from dev machine) scp deploy/setup.sh root@<VM_IP>:/root/setup.sh
+#   (on VM)            sudo bash /root/setup.sh
 ```
 
 The setup script installs everything: Go, Node.js, pnpm, tmux, just, cloudflared, creates the `codeburg` user, builds the project, and starts the systemd service.
+
+**Note:** The build happens on the server (Linux amd64). Do not commit locally-built binaries — `backend/codeburg` is in `.gitignore`.
 
 When it finishes, verify Codeburg is running:
 
@@ -147,14 +148,17 @@ Open `https://codeburg.miscellanics.com` in your browser — you should see the 
 
 ### 4f. Install as System Service
 
+The cloudflared service needs root to install. Switch to root (or use a sudoer account):
+
 ```bash
-# Exit back to root
+# Exit codeburg user back to your admin user
 exit
 
-# As root:
-sudo cloudflared service install
-sudo systemctl enable cloudflared
-sudo systemctl start cloudflared
+# As root (su - or sudo):
+su -
+cloudflared service install
+systemctl enable cloudflared
+systemctl start cloudflared
 ```
 
 Verify:
@@ -163,6 +167,8 @@ Verify:
 systemctl status cloudflared
 curl https://codeburg.miscellanics.com/api/auth/status
 ```
+
+**Note:** `cloudflared service install` reads the config from `/home/codeburg/.cloudflared/config.yml` (the codeburg user who ran `tunnel login`). If it can't find the config, copy it to `/etc/cloudflared/config.yml`.
 
 ## Step 5: Initial Codeburg Setup
 
@@ -193,26 +199,33 @@ just deploy
 ### Check Server Status
 
 ```bash
-ssh codeburg-server 'systemctl status codeburg'
+ssh codeburg-server 'sudo systemctl status codeburg'
 ```
 
 ### View Server Logs
 
 ```bash
-ssh codeburg-server 'journalctl -u codeburg -f'
+ssh codeburg-server 'sudo journalctl -u codeburg -f'
 ```
 
 ### View Tunnel Logs
 
 ```bash
-ssh codeburg-server 'journalctl -u cloudflared -f'
+ssh codeburg-server 'sudo journalctl -u cloudflared -f'
 ```
 
 ### Restart Services
 
+The `codeburg` user has passwordless sudo for `systemctl` commands on the codeburg service:
+
 ```bash
 ssh codeburg-server 'sudo systemctl restart codeburg'
-ssh codeburg-server 'sudo systemctl restart cloudflared'
+```
+
+For cloudflared, you'll need root access:
+
+```bash
+ssh root@<VM_IP> 'systemctl restart cloudflared'
 ```
 
 ### Backup Database

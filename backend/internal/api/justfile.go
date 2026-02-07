@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/miguel/codeburg/internal/justfile"
+	"github.com/miguel-bm/codeburg/internal/justfile"
 )
 
 var justMgr = justfile.NewManager()

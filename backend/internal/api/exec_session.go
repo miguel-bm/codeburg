@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/miguel/codeburg/internal/db"
+	"github.com/miguel-bm/codeburg/internal/db"
 )
 
 // Session represents a running agent session in memory (all sessions are terminal-based).

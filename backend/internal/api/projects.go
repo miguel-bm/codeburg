@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/miguel/codeburg/internal/db"
-	"github.com/miguel/codeburg/internal/gitclone"
+	"github.com/miguel-bm/codeburg/internal/db"
+	"github.com/miguel-bm/codeburg/internal/gitclone"
 )
 
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {

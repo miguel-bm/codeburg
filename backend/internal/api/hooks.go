@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/miguel/codeburg/internal/db"
+	"github.com/miguel-bm/codeburg/internal/db"
 )
 
 // HookPayload represents the JSON data from a Claude Code hook or Codex notify callback.
