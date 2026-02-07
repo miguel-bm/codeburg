@@ -26,6 +26,7 @@ interface ContextMenu {
 export function Dashboard() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>();
   const [showCreateTask, setShowCreateTask] = useState(false);
+  const [createTaskStatus, setCreateTaskStatus] = useState<TaskStatus>('backlog');
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [dragOverColumn, setDragOverColumn] = useState<TaskStatus | null>(null);
   const [activeColumnIndex, setActiveColumnIndex] = useState(0);
@@ -176,7 +177,8 @@ export function Dashboard() {
         if (task) {
           navigate(`/tasks/${task.id}`);
         } else if (hasProjects) {
-          // On the "new task" placeholder
+          // On the "new task" placeholder — create in focused column
+          setCreateTaskStatus(COLUMNS[focus.col].id);
           setShowCreateTask(true);
         }
       },
@@ -199,7 +201,12 @@ export function Dashboard() {
         const maxCard = Math.max(getColumnTasks(newCol).length, 0);
         setFocus({ col: newCol, card: Math.min(focus.card, maxCard) });
       },
-      n: () => { if (hasProjects) setShowCreateTask(true); },
+      n: () => {
+        if (hasProjects) {
+          setCreateTaskStatus(COLUMNS[focus?.col ?? 0].id);
+          setShowCreateTask(true);
+        }
+      },
       p: () => setShowCreateProject(true),
       f: () => filterRef.current?.focus(),
       '1': () => setFocus({ col: 0, card: 0 }),
@@ -254,7 +261,7 @@ export function Dashboard() {
               <span className="md:hidden">+P</span>
             </button>
             <button
-              onClick={() => setShowCreateTask(true)}
+              onClick={() => { setCreateTaskStatus(COLUMNS[focus?.col ?? 0].id); setShowCreateTask(true); }}
               disabled={!hasProjects}
               className="px-2 md:px-4 py-1.5 md:py-2 border border-accent text-accent text-xs md:text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -312,7 +319,7 @@ export function Dashboard() {
                 ))}
                 <NewTaskPlaceholder
                   focused={focus?.col === activeColumnIndex && focus?.card === getTasksByStatus(COLUMNS[activeColumnIndex].id).length}
-                  onClick={() => { if (hasProjects) setShowCreateTask(true); }}
+                  onClick={() => { if (hasProjects) { setCreateTaskStatus(COLUMNS[activeColumnIndex].id); setShowCreateTask(true); } }}
                 />
               </div>
             )}
@@ -328,7 +335,9 @@ export function Dashboard() {
                 className={`w-80 flex flex-col bg-secondary border transition-colors ${
                   dragOverColumn === column.id
                     ? 'border-accent bg-[oklch(0.75_0.2_145_/_0.08)]'
-                    : 'border-subtle'
+                    : focus?.col === colIdx
+                      ? 'border-accent'
+                      : 'border-subtle'
                 }`}
                 onDragOver={(e) => handleDragOver(e, column.id)}
                 onDragLeave={handleDragLeave}
@@ -366,7 +375,7 @@ export function Dashboard() {
                       ))}
                       <NewTaskPlaceholder
                         focused={focus?.col === colIdx && focus?.card === getTasksByStatus(column.id).length}
-                        onClick={() => { if (hasProjects) setShowCreateTask(true); }}
+                        onClick={() => { if (hasProjects) { setCreateTaskStatus(column.id); setShowCreateTask(true); } }}
                       />
                     </>
                   )}
@@ -402,6 +411,7 @@ export function Dashboard() {
         <CreateTaskModal
           projects={projects!}
           defaultProjectId={selectedProjectId}
+          defaultStatus={createTaskStatus}
           onClose={() => setShowCreateTask(false)}
         />
       )}
@@ -496,9 +506,9 @@ function TaskCard({ task, projectName, onDragStart, onDragEnd, isMobile, onLongP
       onDragStart={!isMobile ? (e) => onDragStart(e, task.id) : undefined}
       onDragEnd={!isMobile ? onDragEnd : undefined}
       {...(isMobile ? longPressHandlers : { onClick: handleClick })}
-      className={`bg-primary p-3 border-l-2 border border-subtle hover:border-accent transition-colors cursor-pointer ${
+      className={`bg-primary p-3 border-l-2 border transition-colors cursor-pointer ${
         isMobile ? 'select-none' : ''
-      } ${focused ? 'border-accent bg-[var(--color-accent-glow)]' : ''}`}
+      } ${focused ? 'border-accent bg-[var(--color-accent-glow)]' : 'border-subtle hover:border-accent'}`}
       style={{ borderLeftColor: STATUS_COLORS[task.status] }}
     >
       <h4 className="font-medium text-sm">
@@ -731,10 +741,11 @@ function CreateProjectModal({ onClose }: CreateProjectModalProps) {
 interface CreateTaskModalProps {
   projects: { id: string; name: string }[];
   defaultProjectId?: string;
+  defaultStatus?: TaskStatus;
   onClose: () => void;
 }
 
-function CreateTaskModal({ projects, defaultProjectId, onClose }: CreateTaskModalProps) {
+function CreateTaskModal({ projects, defaultProjectId, defaultStatus = 'backlog', onClose }: CreateTaskModalProps) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', h);
@@ -745,13 +756,24 @@ function CreateTaskModal({ projects, defaultProjectId, onClose }: CreateTaskModa
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [error, setError] = useState('');
+  const titleRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    titleRef.current?.focus();
+  }, []);
 
   const createMutation = useMutation({
     mutationFn: ({ projectId, input }: { projectId: string; input: CreateTaskInput }) =>
       tasksApi.create(projectId, input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    onSuccess: (task) => {
+      if (defaultStatus !== 'backlog') {
+        tasksApi.update(task.id, { status: defaultStatus }).then(() => {
+          queryClient.invalidateQueries({ queryKey: ['tasks'] });
+        });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      }
       onClose();
     },
     onError: (err) => {
@@ -759,13 +781,23 @@ function CreateTaskModal({ projects, defaultProjectId, onClose }: CreateTaskModa
     },
   });
 
+  const canSubmit = title.trim().length > 0 && !createMutation.isPending;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canSubmit) return;
     setError('');
     createMutation.mutate({
       projectId,
       input: { title, description: description || undefined },
     });
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canSubmit) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
   };
 
   return (
@@ -774,7 +806,7 @@ function CreateTaskModal({ projects, defaultProjectId, onClose }: CreateTaskModa
         <div className="px-4 py-3 border-b border-subtle">
           <h2 className="text-sm text-accent">// new_task</h2>
         </div>
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+        <form onSubmit={handleSubmit} onKeyDown={handleKeyDown} className="p-4 space-y-4">
           {error && (
             <div className="border border-[var(--color-status-blocked)] p-3 text-sm text-[var(--color-status-blocked)]">
               {error}
@@ -797,6 +829,7 @@ function CreateTaskModal({ projects, defaultProjectId, onClose }: CreateTaskModa
           <div>
             <label className="block text-sm text-dim mb-1">title</label>
             <input
+              ref={titleRef}
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -825,8 +858,8 @@ function CreateTaskModal({ projects, defaultProjectId, onClose }: CreateTaskModa
             </button>
             <button
               type="submit"
-              disabled={createMutation.isPending}
-              className="flex-1 py-2 px-4 border border-accent text-accent text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50"
+              disabled={!canSubmit}
+              className="flex-1 py-2 px-4 border border-accent text-accent text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {createMutation.isPending ? 'creating...' : 'create'}
             </button>
