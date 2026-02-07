@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Codeburg server setup script
-# Run as root on a fresh Debian 12 (Bookworm) VM
+# Run as root on a fresh Debian 12+ VM
 #
-# Usage: curl -sSL <raw-url> | bash
-#   or:  bash setup.sh
+# Usage: sudo bash setup.sh
 set -euo pipefail
 
 CODEBURG_USER="codeburg"
@@ -13,12 +12,12 @@ GO_VERSION="1.24.1"
 NODE_MAJOR=22
 
 echo "========================================="
-echo "  Codeburg Server Setup - Debian 12"
+echo "  Codeburg Server Setup"
 echo "========================================="
 
 # --- Must be root ---
 if [[ $EUID -ne 0 ]]; then
-    echo "ERROR: This script must be run as root."
+    echo "ERROR: This script must be run as root (use: sudo bash setup.sh)"
     exit 1
 fi
 
@@ -62,11 +61,12 @@ if ! command -v node &>/dev/null; then
 fi
 echo "    Node $(node --version)"
 
-# --- pnpm ---
+# --- pnpm (install globally via npm, avoids corepack issues) ---
 echo ""
 echo "==> Installing pnpm..."
-corepack enable
-corepack prepare pnpm@latest --activate
+if ! command -v pnpm &>/dev/null; then
+    npm install -g pnpm
+fi
 echo "    pnpm $(pnpm --version)"
 
 # --- just ---
@@ -100,24 +100,31 @@ else
     echo "    User ${CODEBURG_USER} already exists"
 fi
 
-# Add to sudo for systemctl restart
+# Sudoers: allow codeburg to restart its own service and reload systemd
 cat > /etc/sudoers.d/codeburg << 'SUDOEOF'
 codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart codeburg
-codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl status codeburg
-codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop codeburg
 codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl start codeburg
+codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop codeburg
+codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl status codeburg
+codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl daemon-reload
 SUDOEOF
 chmod 0440 /etc/sudoers.d/codeburg
 echo "    Sudoers configured for systemctl"
 
-# --- Go path for codeburg user ---
-sudo -u "${CODEBURG_USER}" bash -c 'mkdir -p ~/go/bin'
-cat >> "/home/${CODEBURG_USER}/.bashrc" << 'BASHEOF'
+# --- Shell environment for codeburg user ---
+sudo -u "${CODEBURG_USER}" mkdir -p /home/${CODEBURG_USER}/go/bin
 
-# Go
-export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"
+# Write a clean profile block (idempotent — only add once)
+MARKER="# --- Codeburg environment ---"
+BASHRC="/home/${CODEBURG_USER}/.bashrc"
+if ! grep -qF "${MARKER}" "${BASHRC}" 2>/dev/null; then
+    cat >> "${BASHRC}" << 'BASHEOF'
+
+# --- Codeburg environment ---
+export PATH="/usr/local/go/bin:$HOME/go/bin:/usr/local/bin:/usr/bin:$PATH"
 export GOTOOLCHAIN=auto
 BASHEOF
+fi
 
 # --- Clone repository ---
 echo ""
@@ -131,6 +138,12 @@ else
     chown -R "${CODEBURG_USER}:${CODEBURG_USER}" "${INSTALL_DIR}"
 fi
 
+# Configure git for the deploy workflow (no local commits, always rebase on pull)
+cd "${INSTALL_DIR}"
+sudo -u "${CODEBURG_USER}" git config user.email "codeburg@localhost"
+sudo -u "${CODEBURG_USER}" git config user.name "Codeburg Deploy"
+sudo -u "${CODEBURG_USER}" git config pull.rebase true
+
 # --- Create data directory ---
 sudo -u "${CODEBURG_USER}" mkdir -p "/home/${CODEBURG_USER}/.codeburg"
 
@@ -138,9 +151,9 @@ sudo -u "${CODEBURG_USER}" mkdir -p "/home/${CODEBURG_USER}/.codeburg"
 echo ""
 echo "==> Building Codeburg..."
 cd "${INSTALL_DIR}"
-sudo -u "${CODEBURG_USER}" bash -c "
-    export PATH='/usr/local/go/bin:\$HOME/go/bin:\$PATH'
-    export GOTOOLCHAIN=auto
+sudo -u "${CODEBURG_USER}" bash -lc "
+    set -euo pipefail
+    export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
     cd ${INSTALL_DIR}
     pnpm --dir frontend install
     cd frontend && pnpm build && cd ..
@@ -156,7 +169,13 @@ cp "${INSTALL_DIR}/deploy/codeburg.service" /etc/systemd/system/codeburg.service
 systemctl daemon-reload
 systemctl enable codeburg
 systemctl start codeburg
-echo "    Service installed and started"
+
+sleep 2
+if systemctl is-active --quiet codeburg; then
+    echo "    Service installed and running!"
+else
+    echo "    WARNING: Service failed to start. Check: journalctl -u codeburg -n 50"
+fi
 
 # --- Done ---
 echo ""
@@ -179,9 +198,17 @@ echo "   # Note the tunnel ID, then:"
 echo "   cp /opt/codeburg/deploy/cloudflared.yml ~/.cloudflared/config.yml"
 echo "   # Edit config.yml to replace <TUNNEL_ID>"
 echo "   cloudflared tunnel route dns codeburg codeburg.miscellanics.com"
-echo "   sudo cloudflared service install"
-echo "   sudo systemctl enable cloudflared"
-echo "   sudo systemctl start cloudflared"
+echo "   exit  # back to root/admin user"
+echo ""
+echo "   # Copy config to system location and install service (as root):"
+echo "   su -"
+echo "   mkdir -p /etc/cloudflared"
+echo "   cp /home/codeburg/.cloudflared/config.yml /etc/cloudflared/config.yml"
+echo "   cp /home/codeburg/.cloudflared/*.json /etc/cloudflared/"
+echo "   sed -i 's|/home/codeburg/.cloudflared/|/etc/cloudflared/|g' /etc/cloudflared/config.yml"
+echo "   cloudflared service install"
+echo "   systemctl enable cloudflared"
+echo "   systemctl start cloudflared"
 echo ""
 echo "3. Open https://codeburg.miscellanics.com and set your password"
 echo ""
@@ -193,6 +220,8 @@ echo ""
 echo "5. Deploy updates with: just deploy"
 echo ""
 echo "6. Install agent CLIs (optional, as codeburg user):"
+echo "   su - codeburg"
+echo ""
 echo "   # Claude Code (native installer, auto-updates)"
 echo "   curl -fsSL https://claude.ai/install.sh | bash"
 echo "   claude  # Follow login prompts"

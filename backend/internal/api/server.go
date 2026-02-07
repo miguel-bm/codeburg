@@ -3,8 +3,12 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -161,7 +165,58 @@ func (s *Server) setupRoutes() {
 		r.Delete("/api/tunnels/{id}", s.handleStopTunnel)
 	})
 
+	// Serve frontend static files (SPA with index.html fallback)
+	s.serveFrontend(r)
+
 	s.router = r
+}
+
+// serveFrontend serves the built frontend from frontend/dist/.
+// For SPA routing, any path that doesn't match a static file falls back to index.html.
+func (s *Server) serveFrontend(r chi.Router) {
+	// Look for frontend/dist relative to the working directory
+	distPath := "frontend/dist"
+	if _, err := os.Stat(distPath); os.IsNotExist(err) {
+		// Try relative to the binary location
+		exe, _ := os.Executable()
+		distPath = filepath.Join(filepath.Dir(exe), "..", "frontend", "dist")
+	}
+	if _, err := os.Stat(distPath); os.IsNotExist(err) {
+		slog.Warn("frontend dist not found, skipping static file serving", "path", distPath)
+		return
+	}
+
+	absPath, _ := filepath.Abs(distPath)
+	slog.Info("serving frontend", "path", absPath)
+	fsys := http.Dir(absPath)
+
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+
+		// Try to serve the file directly
+		if f, err := fsys.Open(path); err == nil {
+			stat, _ := f.Stat()
+			f.Close()
+			if !stat.IsDir() {
+				http.FileServer(fsys).ServeHTTP(w, r)
+				return
+			}
+			// Check for index.html in directory
+			if idx, err := fsys.Open(filepath.Join(path, "index.html")); err == nil {
+				idx.Close()
+				http.FileServer(fsys).ServeHTTP(w, r)
+				return
+			}
+		}
+
+		// SPA fallback: serve index.html for client-side routing
+		indexPath := filepath.Join(absPath, "index.html")
+		if _, err := os.Stat(indexPath); errors.Is(err, fs.ErrNotExist) {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, indexPath)
+	})
 }
 
 func (s *Server) ListenAndServe(addr string) error {

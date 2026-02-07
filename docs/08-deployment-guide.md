@@ -148,7 +148,7 @@ Open `https://codeburg.miscellanics.com` in your browser — you should see the 
 
 ### 4f. Install as System Service
 
-The cloudflared service needs root to install. Switch to root (or use a sudoer account):
+The cloudflared system service looks for config in `/etc/cloudflared/`, not the codeburg user's home. Copy the config and credentials there, then install the service as root:
 
 ```bash
 # Exit codeburg user back to your admin user
@@ -156,6 +156,16 @@ exit
 
 # As root (su - or sudo):
 su -
+
+# Copy tunnel config and credentials to system location
+mkdir -p /etc/cloudflared
+cp /home/codeburg/.cloudflared/config.yml /etc/cloudflared/config.yml
+cp /home/codeburg/.cloudflared/*.json /etc/cloudflared/
+
+# Update credentials path in system config to match new location
+sed -i 's|/home/codeburg/.cloudflared/|/etc/cloudflared/|g' /etc/cloudflared/config.yml
+
+# Install and start
 cloudflared service install
 systemctl enable cloudflared
 systemctl start cloudflared
@@ -167,8 +177,6 @@ Verify:
 systemctl status cloudflared
 curl https://codeburg.miscellanics.com/api/auth/status
 ```
-
-**Note:** `cloudflared service install` reads the config from `/home/codeburg/.cloudflared/config.yml` (the codeburg user who ran `tunnel login`). If it can't find the config, copy it to `/etc/cloudflared/config.yml`.
 
 ## Step 5: Initial Codeburg Setup
 

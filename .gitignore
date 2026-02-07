@@ -1,0 +1,5 @@
+# Build output
+backend/codeburg
+
+# OS files
+.DS_Store

@@ -1,7 +1,9 @@
 # Cloudflare Tunnel configuration for Codeburg
-# Install to: /home/codeburg/.cloudflared/config.yml
 #
-# Replace <TUNNEL_ID> with the ID from: cloudflared tunnel create codeburg
+# 1. Copy to: /home/codeburg/.cloudflared/config.yml
+# 2. Replace <TUNNEL_ID> with the ID from: cloudflared tunnel create codeburg
+# 3. Before installing as system service, copy to /etc/cloudflared/config.yml
+#    and update the credentials-file path to /etc/cloudflared/<TUNNEL_ID>.json
 
 tunnel: <TUNNEL_ID>
 credentials-file: /home/codeburg/.cloudflared/<TUNNEL_ID>.json
