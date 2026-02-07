@@ -39,5 +39,8 @@ export const sessionsApi = {
     api.post<{ status: string }>(`/sessions/${sessionId}/message`, { content }),
 
   stop: (sessionId: string) =>
+    api.post(`/sessions/${sessionId}/stop`),
+
+  delete: (sessionId: string) =>
     api.delete(`/sessions/${sessionId}`),
 };

@@ -150,7 +150,8 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/tasks/{taskId}/sessions", s.handleStartSession)
 		r.Get("/api/sessions/{id}", s.handleGetSession)
 		r.Post("/api/sessions/{id}/message", s.handleSendMessage)
-		r.Delete("/api/sessions/{id}", s.handleStopSession)
+		r.Post("/api/sessions/{id}/stop", s.handleStopSession)
+		r.Delete("/api/sessions/{id}", s.handleDeleteSession)
 
 		// Justfile
 		r.Get("/api/projects/{id}/justfile", s.handleListJustRecipes)

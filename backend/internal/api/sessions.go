@@ -466,6 +466,50 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	id := urlParam(r, "id")
+
+	// Get session from database
+	dbSession, err := s.db.GetSession(id)
+	if err != nil {
+		writeDBError(w, err, "session")
+		return
+	}
+
+	// Stop if still active (destroy tmux window, clean up in-memory state)
+	execSession := s.sessions.getOrRestore(id, s.db)
+	if execSession != nil {
+		s.sessions.mu.Lock()
+		delete(s.sessions.sessions, id)
+		s.sessions.mu.Unlock()
+		s.sessions.tmux.DestroyWindow(execSession.TmuxWindow)
+	} else if dbSession.TmuxWindow != nil {
+		if err := s.sessions.tmux.DestroyWindow(*dbSession.TmuxWindow); err != nil {
+			slog.Debug("best-effort tmux window cleanup failed", "session_id", id, "error", err)
+		}
+	}
+
+	// Clean up token file
+	removeHookToken(id)
+
+	// Remove session log file
+	removeSessionLog(id)
+
+	// Delete from database
+	if err := s.db.DeleteSession(id); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete session")
+		return
+	}
+
+	// Broadcast to WebSocket
+	s.wsHub.BroadcastToSession(id, "session_deleted", nil)
+	s.wsHub.BroadcastToTask(dbSession.TaskID, "session_deleted", map[string]string{
+		"sessionId": id,
+	})
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // setSessionRunning updates a session's status to running if it's currently waiting_input
 func (sm *SessionManager) setSessionRunning(sessionID string, database *db.DB, wsHub *WSHub) {
 	session := sm.getOrRestore(sessionID, database)
@@ -560,6 +604,15 @@ func removeHookToken(sessionID string) {
 		return
 	}
 	os.Remove(filepath.Join(home, ".codeburg", "tokens", sessionID))
+}
+
+// removeSessionLog deletes the log file for a session.
+func removeSessionLog(sessionID string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	os.Remove(filepath.Join(home, ".codeburg", "logs", "sessions", sessionID+".jsonl"))
 }
 
 // writeClaudeHooks writes .claude/settings.local.json with hooks that call back to Codeburg.

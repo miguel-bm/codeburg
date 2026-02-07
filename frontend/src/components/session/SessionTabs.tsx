@@ -5,6 +5,7 @@ interface Props {
   activeSessionId?: string;
   onSelect: (session: AgentSession) => void;
   onResume?: (session: AgentSession) => void;
+  onDelete?: (session: AgentSession) => void;
   onNewSession: () => void;
   hasActiveSession: boolean;
 }
@@ -24,7 +25,7 @@ function getStatusDotClass(status: SessionStatus): string {
   }
 }
 
-export function SessionTabs({ sessions, activeSessionId, onSelect, onResume, onNewSession, hasActiveSession }: Props) {
+export function SessionTabs({ sessions, activeSessionId, onSelect, onResume, onDelete, onNewSession, hasActiveSession }: Props) {
   // Sort by createdAt to get stable 1-indexed numbers
   const sorted = [...sessions].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
@@ -35,32 +36,46 @@ export function SessionTabs({ sessions, activeSessionId, onSelect, onResume, onN
       {sorted.map((session, i) => {
         const isActive = session.id === activeSessionId;
         const canResume = onResume && session.provider === 'claude' && session.status === 'completed';
+        const canDelete = onDelete && (session.status === 'completed' || session.status === 'error');
 
         return (
-          <button
-            key={session.id}
-            onClick={() => onSelect(session)}
-            className={`flex items-center gap-2 px-3 py-2 text-xs transition-colors whitespace-nowrap ${
-              isActive
-                ? 'border-b-2 border-accent text-accent bg-accent/10'
-                : 'text-dim hover:text-[var(--color-text-primary)]'
-            }`}
-          >
-            <div className={`w-1.5 h-1.5 ${getStatusDotClass(session.status)}`} />
-            <span>#{i + 1}</span>
-            <span className="text-dim">{session.provider}</span>
-            {canResume && (
-              <span
+          <div key={session.id} className="flex items-center">
+            <button
+              onClick={() => onSelect(session)}
+              className={`flex items-center gap-2 px-3 py-2 text-xs transition-colors whitespace-nowrap ${
+                isActive
+                  ? 'border-b-2 border-accent text-accent bg-accent/10'
+                  : 'text-dim hover:text-[var(--color-text-primary)]'
+              }`}
+            >
+              <div className={`w-1.5 h-1.5 ${getStatusDotClass(session.status)}`} />
+              <span>#{i + 1}</span>
+              <span className="text-dim">{session.provider}</span>
+              {canResume && (
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onResume!(session);
+                  }}
+                  className="text-accent hover:underline ml-1"
+                >
+                  resume
+                </span>
+              )}
+            </button>
+            {canDelete && (
+              <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onResume!(session);
+                  onDelete!(session);
                 }}
-                className="text-accent hover:underline ml-1"
+                className="px-1 py-2 text-xs text-dim hover:text-[var(--color-error)] transition-colors"
+                title="Delete session"
               >
-                resume
-              </span>
+                x
+              </button>
             )}
-          </button>
+          </div>
         );
       })}
       <button

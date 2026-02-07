@@ -69,6 +69,16 @@ export function TaskDetail() {
     },
   });
 
+  const deleteSessionMutation = useMutation({
+    mutationFn: (sessionId: string) => sessionsApi.delete(sessionId),
+    onSuccess: (_data, deletedId) => {
+      queryClient.invalidateQueries({ queryKey: ['sessions', id] });
+      if (activeSession?.id === deletedId) {
+        setActiveSession(null);
+      }
+    },
+  });
+
   const hasActiveSession = sessions?.some(
     (s) => s.status === 'running' || s.status === 'waiting_input'
   );
@@ -206,6 +216,9 @@ export function TaskDetail() {
                   prompt: '',
                   resumeSessionId: session.id,
                 });
+              }}
+              onDelete={(session) => {
+                deleteSessionMutation.mutate(session.id);
               }}
               onNewSession={() => setShowStartSession(true)}
               hasActiveSession={!!hasActiveSession}
