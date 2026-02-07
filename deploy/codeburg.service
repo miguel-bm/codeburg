@@ -12,6 +12,7 @@ ExecStart=/opt/codeburg/backend/codeburg serve --host 127.0.0.1 --port 8080
 Restart=on-failure
 RestartSec=5
 Environment=HOME=/home/codeburg
+Environment=TERM=xterm-256color
 
 # Security hardening
 NoNewPrivileges=true
