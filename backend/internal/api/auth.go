@@ -5,10 +5,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -48,7 +50,14 @@ func NewAuthService() *AuthService {
 		os.MkdirAll(filepath.Dir(secretPath), 0700)
 		os.WriteFile(secretPath, []byte(hex.EncodeToString(secret)), 0600)
 	} else {
-		secret, _ = hex.DecodeString(string(secret))
+		decoded, decErr := hex.DecodeString(strings.TrimSpace(string(secret)))
+		if decErr != nil {
+			slog.Warn("corrupt jwt secret file, regenerating", "error", decErr)
+			decoded = make([]byte, 32)
+			rand.Read(decoded)
+			os.WriteFile(secretPath, []byte(hex.EncodeToString(decoded)), 0600)
+		}
+		secret = decoded
 	}
 
 	return &AuthService{
@@ -133,8 +142,127 @@ func (a *AuthService) ValidateToken(tokenString string) bool {
 		}
 		return a.jwtSecret, nil
 	})
+	if err != nil || !token.Valid {
+		return false
+	}
 
-	return err == nil && token.Valid
+	// Reject scoped tokens — they should only be accepted by ValidateHookToken
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return false
+	}
+	if scope, _ := claims["scope"].(string); scope != "" {
+		return false
+	}
+
+	return true
+}
+
+// GenerateHookToken creates a scoped JWT that can only call the hook endpoint for a specific session.
+func (a *AuthService) GenerateHookToken(sessionID string) (string, error) {
+	claims := jwt.MapClaims{
+		"sub":   "hook",
+		"scope": "session_hook",
+		"sid":   sessionID,
+		"iat":   time.Now().Unix(),
+		"exp":   time.Now().Add(7 * 24 * time.Hour).Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(a.jwtSecret)
+}
+
+// ValidateHookToken checks that a JWT is a valid scoped hook token for the given session.
+func (a *AuthService) ValidateHookToken(tokenString, sessionID string) bool {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
+		return a.jwtSecret, nil
+	})
+	if err != nil || !token.Valid {
+		return false
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return false
+	}
+
+	scope, _ := claims["scope"].(string)
+	sid, _ := claims["sid"].(string)
+	return scope == "session_hook" && sid == sessionID
+}
+
+// loginRateLimiter tracks failed auth attempts per IP.
+type loginRateLimiter struct {
+	mu       sync.Mutex
+	attempts map[string][]time.Time // IP → timestamps of recent failures
+	window   time.Duration
+	max      int
+}
+
+func newLoginRateLimiter(max int, window time.Duration) *loginRateLimiter {
+	return &loginRateLimiter{
+		attempts: make(map[string][]time.Time),
+		window:   window,
+		max:      max,
+	}
+}
+
+// allow returns true if the IP has not exceeded the rate limit.
+func (rl *loginRateLimiter) allow(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-rl.window)
+
+	// Prune old entries
+	recent := rl.attempts[ip][:0]
+	for _, t := range rl.attempts[ip] {
+		if t.After(cutoff) {
+			recent = append(recent, t)
+		}
+	}
+	rl.attempts[ip] = recent
+
+	return len(recent) < rl.max
+}
+
+// record adds a failed attempt for the IP.
+func (rl *loginRateLimiter) record(ip string) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	rl.attempts[ip] = append(rl.attempts[ip], time.Now())
+}
+
+// reset clears attempts for the IP (called on successful login).
+func (rl *loginRateLimiter) reset(ip string) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	delete(rl.attempts, ip)
+}
+
+// clientIP extracts the real client IP, checking reverse-proxy headers
+// in order: CF-Connecting-IP (cloudflared), X-Forwarded-For, RemoteAddr.
+func clientIP(r *http.Request) string {
+	if ip := r.Header.Get("CF-Connecting-IP"); ip != "" {
+		return ip
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// First entry is the original client
+		if i := strings.IndexByte(xff, ','); i > 0 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return strings.TrimSpace(xff)
+	}
+	// Strip port from RemoteAddr
+	addr := r.RemoteAddr
+	if i := strings.LastIndex(addr, ":"); i > 0 {
+		return addr[:i]
+	}
+	return addr
 }
 
 // HTTP Handlers
@@ -170,6 +298,12 @@ func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if !s.authLimiter.allow(ip) {
+		writeError(w, http.StatusTooManyRequests, "too many attempts, try again later")
+		return
+	}
+
 	var input struct {
 		Password string `json:"password"`
 	}
@@ -190,12 +324,15 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.auth.Setup(input.Password); err != nil {
 		if err.Error() == "already setup" {
+			s.authLimiter.record(ip)
 			writeError(w, http.StatusConflict, "already setup")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to setup")
 		return
 	}
+
+	s.authLimiter.reset(ip)
 
 	// Generate token after setup
 	token, err := s.auth.GenerateToken()
@@ -210,6 +347,12 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if !s.authLimiter.allow(ip) {
+		writeError(w, http.StatusTooManyRequests, "too many attempts, try again later")
+		return
+	}
+
 	var input struct {
 		Password string `json:"password"`
 	}
@@ -219,9 +362,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !s.auth.ValidatePassword(input.Password) {
+		s.authLimiter.record(ip)
 		writeError(w, http.StatusUnauthorized, "invalid password")
 		return
 	}
+
+	s.authLimiter.reset(ip)
 
 	token, err := s.auth.GenerateToken()
 	if err != nil {

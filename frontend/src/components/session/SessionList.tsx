@@ -1,12 +1,13 @@
-import type { AgentSession } from '../../api/sessions';
+import type { AgentSession, SessionStatus } from '../../api/sessions';
 
 interface SessionListProps {
   sessions: AgentSession[];
   activeSessionId?: string;
   onSelect: (session: AgentSession) => void;
+  onResume?: (session: AgentSession) => void;
 }
 
-export function SessionList({ sessions, activeSessionId, onSelect }: SessionListProps) {
+export function SessionList({ sessions, activeSessionId, onSelect, onResume }: SessionListProps) {
   if (sessions.length === 0) {
     return (
       <div className="p-4 text-center text-sm text-dim">
@@ -33,8 +34,21 @@ export function SessionList({ sessions, activeSessionId, onSelect }: SessionList
             </span>
             <SessionStatusBadge status={session.status} />
           </div>
-          <div className="text-xs text-dim mt-1">
-            {session.provider} · {formatDate(session.createdAt)}
+          <div className="flex items-center justify-between mt-1">
+            <span className="text-xs text-dim">
+              {session.provider} · {formatDate(session.createdAt)}
+            </span>
+            {onResume && session.provider === 'claude' && session.status === 'completed' && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onResume(session);
+                }}
+                className="text-xs text-accent hover:underline"
+              >
+                resume
+              </button>
+            )}
           </div>
         </button>
       ))}
@@ -43,7 +57,7 @@ export function SessionList({ sessions, activeSessionId, onSelect }: SessionList
 }
 
 interface SessionStatusBadgeProps {
-  status: string;
+  status: SessionStatus;
 }
 
 function SessionStatusBadge({ status }: SessionStatusBadgeProps) {

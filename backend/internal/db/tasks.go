@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -73,7 +74,11 @@ func (db *DB) GetTask(id string) (*Task, error) {
 		FROM tasks WHERE id = ?
 	`, id)
 
-	return scanTask(row)
+	t, err := scanTask(row.Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return t, err
 }
 
 // ListTasks retrieves tasks with optional filtering
@@ -102,9 +107,9 @@ func (db *DB) ListTasks(filter TaskFilter) ([]*Task, error) {
 	}
 	defer rows.Close()
 
-	var tasks []*Task
+	tasks := make([]*Task, 0)
 	for rows.Next() {
-		t, err := scanTaskRows(rows)
+		t, err := scanTask(rows.Scan)
 		if err != nil {
 			return nil, err
 		}
@@ -174,7 +179,7 @@ func (db *DB) UpdateTask(id string, input UpdateTaskInput) (*Task, error) {
 		return nil, err
 	}
 	if rows == 0 {
-		return nil, sql.ErrNoRows
+		return nil, ErrNotFound
 	}
 
 	return db.GetTask(id)
@@ -192,40 +197,18 @@ func (db *DB) DeleteTask(id string) error {
 		return err
 	}
 	if rows == 0 {
-		return sql.ErrNoRows
+		return ErrNotFound
 	}
 
 	return nil
 }
 
-func scanTask(row *sql.Row) (*Task, error) {
+func scanTask(scan scanFunc) (*Task, error) {
 	var t Task
 	var description, branch, worktreePath sql.NullString
 	var startedAt, completedAt sql.NullTime
 
-	err := row.Scan(
-		&t.ID, &t.ProjectID, &t.Title, &description, &t.Status,
-		&branch, &worktreePath, &t.Pinned, &t.CreatedAt, &startedAt, &completedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	t.Description = StringPtr(description)
-	t.Branch = StringPtr(branch)
-	t.WorktreePath = StringPtr(worktreePath)
-	t.StartedAt = TimePtr(startedAt)
-	t.CompletedAt = TimePtr(completedAt)
-
-	return &t, nil
-}
-
-func scanTaskRows(rows *sql.Rows) (*Task, error) {
-	var t Task
-	var description, branch, worktreePath sql.NullString
-	var startedAt, completedAt sql.NullTime
-
-	err := rows.Scan(
+	err := scan(
 		&t.ID, &t.ProjectID, &t.Title, &description, &t.Status,
 		&branch, &worktreePath, &t.Pinned, &t.CreatedAt, &startedAt, &completedAt,
 	)

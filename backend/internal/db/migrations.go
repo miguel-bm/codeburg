@@ -153,4 +153,20 @@ var migrations = []migration{
 			ALTER TABLE projects ADD COLUMN teardown_script TEXT;
 		`,
 	},
+	{
+		version: 3,
+		sql: `
+			-- Add session type to distinguish claude agent sessions from terminal sessions
+			ALTER TABLE agent_sessions ADD COLUMN session_type TEXT DEFAULT 'claude';
+		`,
+	},
+	{
+		version: 4,
+		sql: `
+			-- All sessions are now terminal-based (rendered via xterm.js)
+			UPDATE agent_sessions SET session_type = 'terminal' WHERE session_type = 'claude';
+			-- Add activity tracking for terminal sessions
+			ALTER TABLE agent_sessions ADD COLUMN last_activity_at TIMESTAMP;
+		`,
+	},
 }

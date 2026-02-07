@@ -9,6 +9,7 @@ interface UseWebSocketOptions {
   onDisconnect?: () => void;
   autoReconnect?: boolean;
   reconnectInterval?: number;
+  maxReconnectAttempts?: number;
 }
 
 interface WebSocketState {
@@ -23,26 +24,41 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     onConnect,
     onDisconnect,
     autoReconnect = true,
-    reconnectInterval = 3000,
+    reconnectInterval = 1000,
+    maxReconnectAttempts = 10,
   } = options;
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const connectingRef = useRef(false);
+  const mountedRef = useRef(true);
   const [state, setState] = useState<WebSocketState>({
     connected: false,
     connecting: false,
     error: null,
   });
 
+  // Use refs for callbacks to avoid recreating connect on every render
+  const onMessageRef = useRef(onMessage);
+  const onConnectRef = useRef(onConnect);
+  const onDisconnectRef = useRef(onDisconnect);
+  onMessageRef.current = onMessage;
+  onConnectRef.current = onConnect;
+  onDisconnectRef.current = onDisconnect;
+
   const token = useAuthStore((s) => s.token);
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
-    if (state.connecting) return;
+    if (connectingRef.current) return;
+    if (!mountedRef.current) return;
 
+    connectingRef.current = true;
     setState((s) => ({ ...s, connecting: true, error: null }));
 
-    // Build WebSocket URL
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const url = `${protocol}//${host}/ws`;
@@ -51,25 +67,30 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     wsRef.current = ws;
 
     ws.onopen = () => {
+      connectingRef.current = false;
+      reconnectAttemptsRef.current = 0;
       setState({ connected: true, connecting: false, error: null });
-      onConnect?.();
+      onConnectRef.current?.();
 
-      // Send auth token if available
-      if (token) {
-        ws.send(JSON.stringify({ type: 'auth', token }));
+      if (tokenRef.current) {
+        ws.send(JSON.stringify({ type: 'auth', token: tokenRef.current }));
       }
     };
 
     ws.onclose = () => {
+      connectingRef.current = false;
       setState((s) => ({ ...s, connected: false, connecting: false }));
       wsRef.current = null;
-      onDisconnect?.();
+      onDisconnectRef.current?.();
 
-      // Auto-reconnect
-      if (autoReconnect) {
+      if (autoReconnect && mountedRef.current && reconnectAttemptsRef.current < maxReconnectAttempts) {
+        const attempt = reconnectAttemptsRef.current;
+        // Exponential backoff: 1s, 2s, 4s, 8s, ... capped at 30s
+        const delay = Math.min(reconnectInterval * Math.pow(2, attempt), 30000);
+        reconnectAttemptsRef.current++;
         reconnectTimeoutRef.current = window.setTimeout(() => {
           connect();
-        }, reconnectInterval);
+        }, delay);
       }
     };
 
@@ -80,12 +101,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        onMessage?.(data);
+        onMessageRef.current?.(data);
       } catch {
         console.error('Invalid WebSocket message:', event.data);
       }
     };
-  }, [token, onConnect, onDisconnect, onMessage, autoReconnect, reconnectInterval, state.connecting]);
+    // Only stable values in deps - no state, no callback props
+  }, [autoReconnect, reconnectInterval, maxReconnectAttempts]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -116,10 +138,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     send({ type: 'message', sessionId, content });
   }, [send]);
 
-  // Connect on mount
   useEffect(() => {
+    mountedRef.current = true;
     connect();
-    return () => disconnect();
+    return () => {
+      mountedRef.current = false;
+      disconnect();
+    };
   }, [connect, disconnect]);
 
   return {

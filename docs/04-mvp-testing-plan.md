@@ -15,7 +15,8 @@ Manual Testing Plan
   ┌─────┬───────────────┬───────────────────────────────────────────────────────┬───────────────────────────────────┐
   │  #  │     Test      │                         Steps                         │             Expected              │
   ├─────┼───────────────┼───────────────────────────────────────────────────────┼───────────────────────────────────┤
-  │ 1.1 │ Fresh setup   │ Delete ~/.codeburg/codeburg.db, start server, visit   │ Shows password setup form         │
+  │ 1.1 │ Fresh setup   │ Delete ~/.codeburg/codeburg.db AND                    │ Shows password setup form         │
+  │     │               │ ~/.codeburg/config.yaml, start server, visit          │                                   │
   │     │               │ app                                                   │                                   │
   ├─────┼───────────────┼───────────────────────────────────────────────────────┼───────────────────────────────────┤
   │ 1.2 │ Set password  │ Enter password, submit                                │ Logged in, redirected to          │

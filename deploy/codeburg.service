@@ -1,0 +1,23 @@
+[Unit]
+Description=Codeburg Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=codeburg
+Group=codeburg
+WorkingDirectory=/opt/codeburg
+ExecStart=/opt/codeburg/backend/codeburg serve --host 127.0.0.1 --port 8080
+Restart=on-failure
+RestartSec=5
+Environment=HOME=/home/codeburg
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/home/codeburg/.codeburg
+ReadWritePaths=/opt/codeburg
+
+[Install]
+WantedBy=multi-user.target

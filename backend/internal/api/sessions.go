@@ -1,38 +1,136 @@
 package api
 
 import (
-	"context"
-	"database/sql"
+	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/miguel/codeburg/internal/db"
-	"github.com/miguel/codeburg/internal/executor"
 	"github.com/miguel/codeburg/internal/tmux"
 )
 
 // SessionManager manages active agent sessions
 type SessionManager struct {
 	tmux     *tmux.Manager
-	executor *executor.ClaudeExecutor
-	sessions map[string]*executor.Session // sessionID -> running session
+	sessions map[string]*Session // sessionID -> running session
+	mu       sync.RWMutex
 }
 
 // NewSessionManager creates a new session manager
 func NewSessionManager() *SessionManager {
-	tmuxMgr := tmux.NewManager()
 	return &SessionManager{
-		tmux:     tmuxMgr,
-		executor: executor.NewClaudeExecutor(tmuxMgr),
-		sessions: make(map[string]*executor.Session),
+		tmux:     tmux.NewManager(),
+		sessions: make(map[string]*Session),
 	}
+}
+
+// getOrRestore looks up a session in the in-memory map, falling back to the DB.
+// If the DB session has a live tmux window, it is restored to the in-memory map.
+func (sm *SessionManager) getOrRestore(sessionID string, database *db.DB) *Session {
+	// Fast path: check in-memory map
+	sm.mu.RLock()
+	session, ok := sm.sessions[sessionID]
+	sm.mu.RUnlock()
+	if ok {
+		return session
+	}
+
+	// Slow path: check DB
+	dbSession, err := database.GetSession(sessionID)
+	if err != nil {
+		return nil
+	}
+
+	if dbSession.TmuxWindow == nil {
+		return nil
+	}
+
+	if !sm.tmux.WindowExists(*dbSession.TmuxWindow) {
+		return nil
+	}
+
+	// Restore to in-memory map
+	pane := ""
+	if dbSession.TmuxPane != nil {
+		pane = *dbSession.TmuxPane
+	}
+	restored := &Session{
+		ID:         dbSession.ID,
+		Provider:   dbSession.Provider,
+		Status:     dbSession.Status,
+		TmuxWindow: *dbSession.TmuxWindow,
+		TmuxPane:   pane,
+	}
+	sm.mu.Lock()
+	sm.sessions[dbSession.ID] = restored
+	sm.mu.Unlock()
+
+	slog.Info("session restored from DB", "session_id", sessionID, "provider", dbSession.Provider)
+	return restored
+}
+
+// Reconcile restores in-memory session state from the database on startup.
+// Sessions with live tmux windows are restored; stale sessions are marked completed.
+func (sm *SessionManager) Reconcile(database *db.DB) {
+	sessions, err := database.ListActiveSessions()
+	if err != nil {
+		slog.Error("session reconciliation failed", "error", err)
+		return
+	}
+
+	var restored, cleaned int
+	for _, s := range sessions {
+		if s.TmuxWindow == nil {
+			// No tmux window recorded — mark completed
+			completedStatus := db.SessionStatusCompleted
+			database.UpdateSession(s.ID, db.UpdateSessionInput{Status: &completedStatus})
+			cleaned++
+			continue
+		}
+
+		if sm.tmux.WindowExists(*s.TmuxWindow) {
+			// Tmux window still alive — restore to in-memory map
+			pane := ""
+			if s.TmuxPane != nil {
+				pane = *s.TmuxPane
+			}
+			execSession := &Session{
+				ID:         s.ID,
+				Provider:   s.Provider,
+				Status:     s.Status,
+				TmuxWindow: *s.TmuxWindow,
+				TmuxPane:   pane,
+			}
+			sm.mu.Lock()
+			sm.sessions[s.ID] = execSession
+			sm.mu.Unlock()
+			slog.Info("session restored", "session_id", s.ID, "provider", s.Provider, "tmux_window", *s.TmuxWindow)
+			restored++
+		} else {
+			// Tmux window gone — mark completed
+			completedStatus := db.SessionStatusCompleted
+			database.UpdateSession(s.ID, db.UpdateSessionInput{Status: &completedStatus})
+			slog.Info("stale session cleaned up", "session_id", s.ID, "provider", s.Provider)
+			cleaned++
+		}
+	}
+
+	slog.Info("session reconciliation complete", "restored", restored, "cleaned", cleaned)
 }
 
 // StartSessionRequest contains the request body for starting a session
 type StartSessionRequest struct {
-	Provider string `json:"provider"` // "claude" (default)
-	Prompt   string `json:"prompt"`   // Initial prompt
-	Model    string `json:"model"`    // Optional model override
+	Provider        string `json:"provider"`        // "claude", "codex", "terminal" (default: "claude")
+	Prompt          string `json:"prompt"`           // Initial prompt (claude/codex sessions)
+	Model           string `json:"model"`            // Optional model override
+	ResumeSessionID string `json:"resumeSessionId"`  // Codeburg session ID to resume (claude only)
 }
 
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
@@ -41,11 +139,7 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	// Verify task exists
 	_, err := s.db.GetTask(taskID)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "task not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to get task")
+		writeDBError(w, err, "task")
 		return
 	}
 
@@ -53,10 +147,6 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list sessions")
 		return
-	}
-
-	if sessions == nil {
-		sessions = []*db.AgentSession{}
 	}
 
 	writeJSON(w, http.StatusOK, sessions)
@@ -68,11 +158,7 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 	// Verify task exists and get it
 	task, err := s.db.GetTask(taskID)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "task not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to get task")
+		writeDBError(w, err, "task")
 		return
 	}
 
@@ -83,16 +169,28 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Default to claude
+	// Default provider to "claude"
 	provider := req.Provider
 	if provider == "" {
 		provider = "claude"
 	}
 
+	// Validate provider
+	if provider != "claude" && provider != "codex" && provider != "terminal" {
+		writeError(w, http.StatusBadRequest, "invalid provider: "+provider)
+		return
+	}
+
+	// Validate model name if provided (interpolated into shell commands)
+	if req.Model != "" && !isValidModelName(req.Model) {
+		writeError(w, http.StatusBadRequest, "invalid model name: must start with a letter and contain only letters, digits, hyphens, dots, and colons")
+		return
+	}
+
 	// Get project for worktree path
 	project, err := s.db.GetProject(task.ProjectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get project")
+		writeDBError(w, err, "project")
 		return
 	}
 
@@ -102,62 +200,132 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		workDir = *task.WorktreePath
 	}
 
-	// Check if executor is available
-	if !s.sessions.executor.Available() {
-		writeError(w, http.StatusServiceUnavailable, "claude CLI not available")
-		return
-	}
-
-	// Check if tmux is available
+	// Check tmux availability
 	if !s.sessions.tmux.Available() {
 		writeError(w, http.StatusServiceUnavailable, "tmux not available")
 		return
 	}
 
-	// Create database session first
+	// Ensure tmux session exists
+	if err := s.sessions.tmux.EnsureSession(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to ensure tmux session: "+err.Error())
+		return
+	}
+
+	// Create tmux window
+	windowName := fmt.Sprintf("%s-%d", provider, time.Now().Unix())
+	windowInfo, err := s.sessions.tmux.CreateWindow(windowName, workDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create terminal window: "+err.Error())
+		return
+	}
+
+	// Create database session (all sessions are terminal type now)
 	dbSession, err := s.db.CreateSession(db.CreateSessionInput{
-		TaskID:   taskID,
-		Provider: provider,
+		TaskID:      taskID,
+		Provider:    provider,
+		SessionType: "terminal",
+		TmuxWindow:  &windowInfo.Window,
+		TmuxPane:    &windowInfo.Pane,
 	})
 	if err != nil {
+		s.sessions.tmux.DestroyWindow(windowInfo.Window)
 		writeError(w, http.StatusInternalServerError, "failed to create session record")
 		return
 	}
 
-	// Start the agent session
-	ctx := context.Background()
-	execSession, err := s.sessions.executor.Start(ctx, executor.StartOptions{
-		WorkDir: workDir,
-		Prompt:  req.Prompt,
-		Model:   req.Model,
-	})
+	// Generate a scoped JWT token for hook callbacks
+	hookToken, err := s.auth.GenerateHookToken(dbSession.ID)
 	if err != nil {
-		// Clean up database record
+		s.sessions.tmux.DestroyWindow(windowInfo.Window)
 		s.db.DeleteSession(dbSession.ID)
-		writeError(w, http.StatusInternalServerError, "failed to start agent: "+err.Error())
+		writeError(w, http.StatusInternalServerError, "failed to generate hook token")
 		return
 	}
 
-	// Update database with tmux info
-	runningStatus := db.SessionStatusRunning
-	_, err = s.db.UpdateSession(dbSession.ID, db.UpdateSessionInput{
-		Status:     &runningStatus,
-		TmuxWindow: &execSession.TmuxWindow,
-		TmuxPane:   &execSession.TmuxPane,
-	})
+	// Write token to ~/.codeburg/tokens/{sessionID}
+	tokenPath, err := writeHookToken(dbSession.ID, hookToken)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update session")
-		return
+		slog.Warn("failed to write hook token file", "session_id", dbSession.ID, "error", err)
+		// Fall through — scripts will fail but session still works
 	}
 
-	// Store running session
-	execSession.ID = dbSession.ID
+	// Get API base URL
+	apiURL := os.Getenv("CODEBURG_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:8080"
+	}
+
+	target := windowInfo.Target
+
+	switch provider {
+	case "claude":
+		// Write Claude Code hooks config to workDir
+		if err := writeClaudeHooks(workDir, dbSession.ID, tokenPath, apiURL); err != nil {
+			slog.Warn("failed to write Claude hooks", "session_id", dbSession.ID, "error", err)
+		}
+
+		// Build claude command
+		var cmd string
+		if req.ResumeSessionID != "" {
+			// Resuming a previous session
+			oldSession, err := s.db.GetSession(req.ResumeSessionID)
+			if err == nil && oldSession.ProviderSessionID != nil && *oldSession.ProviderSessionID != "" {
+				cmd = fmt.Sprintf("claude --resume %s", *oldSession.ProviderSessionID)
+				slog.Info("resuming claude session", "session_id", dbSession.ID, "provider_session_id", *oldSession.ProviderSessionID)
+			} else {
+				cmd = "claude --continue"
+				slog.Info("resuming claude session with --continue", "session_id", dbSession.ID)
+			}
+		} else {
+			cmd = fmt.Sprintf("claude %q", req.Prompt)
+			if req.Model != "" {
+				cmd = fmt.Sprintf("claude --model %s %q", req.Model, req.Prompt)
+			}
+		}
+		if err := s.sessions.tmux.SendKeys(target, cmd, true); err != nil {
+			slog.Error("failed to inject claude command", "session_id", dbSession.ID, "error", err)
+		}
+
+	case "codex":
+		// Write codex notify script
+		if err := writeCodexNotifyScript(workDir, dbSession.ID, tokenPath, apiURL); err != nil {
+			slog.Warn("failed to write codex notify script", "session_id", dbSession.ID, "error", err)
+		}
+
+		// Inject codex command using -c to set notify via config override
+		notifyScript := filepath.Join(workDir, ".codeburg-notify.sh")
+		notifyFlag := fmt.Sprintf(`-c 'notify=["%s"]'`, notifyScript)
+		cmd := fmt.Sprintf("codex %s %q", notifyFlag, req.Prompt)
+		if req.Model != "" {
+			cmd = fmt.Sprintf("codex --model %s %s %q", req.Model, notifyFlag, req.Prompt)
+		}
+		if err := s.sessions.tmux.SendKeys(target, cmd, true); err != nil {
+			slog.Error("failed to inject codex command", "session_id", dbSession.ID, "error", err)
+		}
+
+	case "terminal":
+		// No command injection - plain shell
+	}
+
+	// Update status to running
+	runningStatus := db.SessionStatusRunning
+	s.db.UpdateSession(dbSession.ID, db.UpdateSessionInput{
+		Status: &runningStatus,
+	})
+
+	// Store in-memory session
+	execSession := &Session{
+		ID:         dbSession.ID,
+		Provider:   provider,
+		Status:     db.SessionStatusRunning,
+		TmuxWindow: windowInfo.Window,
+		TmuxPane:   windowInfo.Pane,
+	}
+	s.sessions.mu.Lock()
 	s.sessions.sessions[dbSession.ID] = execSession
+	s.sessions.mu.Unlock()
 
-	// Start goroutine to forward events to WebSocket
-	go s.forwardSessionEvents(dbSession.ID, taskID, execSession)
-
-	// Return updated session
 	updatedSession, _ := s.db.GetSession(dbSession.ID)
 	writeJSON(w, http.StatusCreated, updatedSession)
 }
@@ -167,11 +335,7 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 
 	session, err := s.db.GetSession(id)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "session not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to get session")
+		writeDBError(w, err, "session")
 		return
 	}
 
@@ -189,11 +353,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	// Get session from database
 	session, err := s.db.GetSession(id)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "session not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to get session")
+		writeDBError(w, err, "session")
 		return
 	}
 
@@ -215,25 +375,15 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get the running session
-	execSession, ok := s.sessions.sessions[id]
-	if !ok {
+	// Get the running session (with DB fallback)
+	execSession := s.sessions.getOrRestore(id, s.db)
+	if execSession == nil {
 		writeError(w, http.StatusBadRequest, "session not running on this server")
 		return
 	}
 
-	// Send message via tmux
-	target := ""
-	if session.TmuxWindow != nil {
-		target = *session.TmuxWindow
-		if session.TmuxPane != nil {
-			target = *session.TmuxWindow + "." + *session.TmuxPane
-		}
-	}
-	if target == "" {
-		writeError(w, http.StatusBadRequest, "session has no tmux target")
-		return
-	}
+	// All sessions use tmux for message delivery
+	target := fmt.Sprintf("%s:%s.%s", tmux.SessionName, execSession.TmuxWindow, execSession.TmuxPane)
 	if err := s.sessions.tmux.SendKeys(target, req.Content, true); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to send message: "+err.Error())
 		return
@@ -250,8 +400,6 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		"content": req.Content,
 	})
 
-	// Return updated session
-	_ = execSession // suppress unused warning
 	writeJSON(w, http.StatusOK, map[string]string{"status": "sent"})
 }
 
@@ -259,23 +407,24 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 	id := urlParam(r, "id")
 
 	// Get session from database
-	session, err := s.db.GetSession(id)
+	dbSession, err := s.db.GetSession(id)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "session not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to get session")
+		writeDBError(w, err, "session")
 		return
 	}
 
-	// Stop the running session if it exists
-	if execSession, ok := s.sessions.sessions[id]; ok {
-		s.sessions.executor.Stop(execSession)
+	// Try to get from in-memory map (with DB fallback)
+	execSession := s.sessions.getOrRestore(id, s.db)
+	if execSession != nil {
+		s.sessions.mu.Lock()
 		delete(s.sessions.sessions, id)
-	} else if session.TmuxWindow != nil {
-		// Try to kill the tmux window directly
-		s.sessions.tmux.DestroyWindow(*session.TmuxWindow)
+		s.sessions.mu.Unlock()
+		s.sessions.tmux.DestroyWindow(execSession.TmuxWindow)
+	} else if dbSession.TmuxWindow != nil {
+		// Best-effort cleanup: try killing tmux window from DB record
+		if err := s.sessions.tmux.DestroyWindow(*dbSession.TmuxWindow); err != nil {
+			slog.Debug("best-effort tmux window cleanup failed", "session_id", id, "tmux_window", *dbSession.TmuxWindow, "error", err)
+		}
 	}
 
 	// Update status
@@ -284,57 +433,233 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 		Status: &completedStatus,
 	})
 
+	// Clean up token file
+	removeHookToken(id)
+
 	// Broadcast to WebSocket
 	s.wsHub.BroadcastToSession(id, "session_stopped", nil)
+	s.wsHub.BroadcastToTask(dbSession.TaskID, "session_status_changed", map[string]string{
+		"sessionId": id,
+		"status":    string(db.SessionStatusCompleted),
+	})
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// forwardSessionEvents forwards agent events to WebSocket subscribers
-func (s *Server) forwardSessionEvents(sessionID, taskID string, session *executor.Session) {
-	for event := range session.Events {
-		// Broadcast event to session subscribers
-		s.wsHub.BroadcastToSession(sessionID, "agent_event", event)
-
-		// Also broadcast to task subscribers
-		s.wsHub.BroadcastToTask(taskID, "agent_event", map[string]interface{}{
-			"sessionId": sessionID,
-			"event":     event,
-		})
-
-		// Update session status based on events
-		if event.Type == executor.EventTypeStatus {
-			var status db.SessionStatus
-			switch event.Content {
-			case string(executor.StatusCompleted):
-				status = db.SessionStatusCompleted
-			case string(executor.StatusWaitingInput):
-				status = db.SessionStatusWaitingInput
-			case string(executor.StatusError):
-				status = db.SessionStatusError
-			default:
-				continue
-			}
-			s.db.UpdateSession(sessionID, db.UpdateSessionInput{
-				Status: &status,
-			})
-		}
+// setSessionRunning updates a session's status to running if it's currently waiting_input
+func (sm *SessionManager) setSessionRunning(sessionID string, database *db.DB, wsHub *WSHub) {
+	session := sm.getOrRestore(sessionID, database)
+	if session == nil {
+		return
 	}
 
-	// Session ended
-	<-session.Done()
+	if session.CompareAndSetStatus(db.SessionStatusWaitingInput, db.SessionStatusRunning) {
+		runningStatus := db.SessionStatusRunning
+		database.UpdateSession(sessionID, db.UpdateSessionInput{
+			Status: &runningStatus,
+		})
+		wsHub.BroadcastToSession(sessionID, "status_changed", map[string]string{
+			"status": "running",
+		})
+	}
+}
 
-	// Update final status
-	completedStatus := db.SessionStatusCompleted
-	s.db.UpdateSession(sessionID, db.UpdateSessionInput{
-		Status: &completedStatus,
-	})
+// StartCleanupLoop runs a background goroutine that detects zombie sessions
+// (sessions in-memory whose tmux windows have disappeared) and marks them completed.
+func (sm *SessionManager) StartCleanupLoop(database *db.DB, wsHub *WSHub) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
 
-	// Clean up
-	delete(s.sessions.sessions, sessionID)
+	for range ticker.C {
+		// Copy session IDs under read lock
+		sm.mu.RLock()
+		ids := make([]string, 0, len(sm.sessions))
+		for id := range sm.sessions {
+			ids = append(ids, id)
+		}
+		sm.mu.RUnlock()
 
-	// Notify subscribers
-	s.wsHub.BroadcastToSession(sessionID, "session_ended", map[string]interface{}{
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-	})
+		var cleaned int
+		for _, id := range ids {
+			sm.mu.RLock()
+			session, ok := sm.sessions[id]
+			sm.mu.RUnlock()
+			if !ok {
+				continue
+			}
+
+			if !sm.tmux.WindowExists(session.TmuxWindow) {
+				// Window gone — clean up
+				sm.mu.Lock()
+				delete(sm.sessions, id)
+				sm.mu.Unlock()
+
+				completedStatus := db.SessionStatusCompleted
+				database.UpdateSession(id, db.UpdateSessionInput{Status: &completedStatus})
+				removeHookToken(id)
+
+				// Get task ID for broadcast
+				if dbSession, err := database.GetSession(id); err == nil {
+					wsHub.BroadcastToTask(dbSession.TaskID, "session_status_changed", map[string]string{
+						"sessionId": id,
+						"status":    string(db.SessionStatusCompleted),
+					})
+				}
+				wsHub.BroadcastToSession(id, "session_stopped", nil)
+
+				slog.Info("zombie session cleaned up", "session_id", id, "provider", session.Provider)
+				cleaned++
+			}
+		}
+
+		slog.Debug("cleanup tick", "checked", len(ids), "cleaned", cleaned)
+	}
+}
+
+// writeHookToken writes a scoped token to ~/.codeburg/tokens/{sessionID} and returns the path.
+func writeHookToken(sessionID, token string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("get home dir: %w", err)
+	}
+	dir := filepath.Join(home, ".codeburg", "tokens")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", fmt.Errorf("create tokens dir: %w", err)
+	}
+	tokenPath := filepath.Join(dir, sessionID)
+	if err := os.WriteFile(tokenPath, []byte(token), 0600); err != nil {
+		return "", fmt.Errorf("write token file: %w", err)
+	}
+	return tokenPath, nil
+}
+
+// removeHookToken deletes the token file for a session.
+func removeHookToken(sessionID string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	os.Remove(filepath.Join(home, ".codeburg", "tokens", sessionID))
+}
+
+// writeClaudeHooks writes .claude/settings.local.json with hooks that call back to Codeburg.
+// Existing user hooks on other events (and other matcher entries on the same events) are preserved.
+func writeClaudeHooks(workDir, sessionID, tokenPath, apiURL string) error {
+	claudeDir := filepath.Join(workDir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		return fmt.Errorf("create .claude dir: %w", err)
+	}
+
+	settingsPath := filepath.Join(claudeDir, "settings.local.json")
+
+	// Read existing settings if present
+	var settings map[string]interface{}
+	if data, err := os.ReadFile(settingsPath); err == nil {
+		json.Unmarshal(data, &settings)
+	}
+	if settings == nil {
+		settings = make(map[string]interface{})
+	}
+
+	hookURL := fmt.Sprintf("%s/api/sessions/%s/hook", apiURL, sessionID)
+	curlCmd := fmt.Sprintf(
+		"curl -s -X POST -H \"Authorization: Bearer $(cat '%s')\" -H 'Content-Type: application/json' -d @- '%s'",
+		tokenPath, hookURL,
+	)
+
+	codeburgEntry := map[string]interface{}{
+		"matcher": "",
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":    "command",
+				"command": curlCmd,
+			},
+		},
+	}
+
+	// Get or create the top-level hooks object
+	hooksObj, _ := settings["hooks"].(map[string]interface{})
+	if hooksObj == nil {
+		hooksObj = make(map[string]interface{})
+	}
+
+	// For each event Codeburg needs, strip old Codeburg entries then append the new one
+	for _, event := range []string{"Notification", "Stop", "SessionEnd"} {
+		var kept []interface{}
+
+		// Preserve existing non-Codeburg matcher entries
+		if existing, ok := hooksObj[event].([]interface{}); ok {
+			for _, entry := range existing {
+				if !isCodeburgHookEntry(entry) {
+					kept = append(kept, entry)
+				}
+			}
+		}
+
+		hooksObj[event] = append(kept, codeburgEntry)
+	}
+
+	settings["hooks"] = hooksObj
+
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal settings: %w", err)
+	}
+
+	return os.WriteFile(settingsPath, data, 0644)
+}
+
+// isCodeburgHookEntry returns true if a matcher entry was written by Codeburg.
+// Identified by a command hook containing "/api/sessions/" and "/hook".
+func isCodeburgHookEntry(entry interface{}) bool {
+	m, ok := entry.(map[string]interface{})
+	if !ok {
+		return false
+	}
+	hooks, ok := m["hooks"].([]interface{})
+	if !ok {
+		return false
+	}
+	for _, h := range hooks {
+		hook, ok := h.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		cmd, _ := hook["command"].(string)
+		if strings.Contains(cmd, "/api/sessions/") && strings.Contains(cmd, "/hook") {
+			return true
+		}
+	}
+	return false
+}
+
+// writeCodexNotifyScript writes a .codeburg-notify.sh script that calls back to Codeburg.
+// Codex invokes the notify script with the event JSON as the last positional argument ($1).
+func writeCodexNotifyScript(workDir, sessionID, tokenPath, apiURL string) error {
+	hookURL := fmt.Sprintf("%s/api/sessions/%s/hook", apiURL, sessionID)
+	scriptPath := filepath.Join(workDir, ".codeburg-notify.sh")
+
+	script := fmt.Sprintf(`#!/bin/bash
+TOKEN=$(cat '%s')
+curl -s -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "$1" \
+  '%s'
+`, tokenPath, hookURL)
+
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		return fmt.Errorf("write notify script: %w", err)
+	}
+
+	return nil
+}
+
+// validModelName matches model names safe to interpolate into shell commands.
+// Must start with a letter, then letters, digits, hyphens, dots, colons, or slashes.
+// e.g. "claude-sonnet-4-5-20250929", "gpt-5.2-codex", "o3", "anthropic/claude-3"
+var validModelName = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9\-.:\/_]*$`)
+
+func isValidModelName(name string) bool {
+	return validModelName.MatchString(name)
 }

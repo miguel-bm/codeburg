@@ -13,7 +13,8 @@ export interface Project {
 
 export interface CreateProjectInput {
   name: string;
-  path: string;
+  path?: string;
+  githubUrl?: string;
   gitOrigin?: string;
   defaultBranch?: string;
   symlinkPaths?: string[];

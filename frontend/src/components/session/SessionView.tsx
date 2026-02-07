@@ -1,67 +1,43 @@
-import { useSession } from '../../hooks/useSession';
-import { MessageList } from './MessageList';
-import { MessageInput } from './MessageInput';
-import type { SessionStatus } from '../../api/sessions';
+import { TerminalView } from './TerminalView';
+import type { AgentSession, SessionStatus } from '../../api/sessions';
 
 interface SessionViewProps {
-  sessionId: string;
-  onStatusChange?: (status: SessionStatus) => void;
+  session: AgentSession;
 }
 
-export function SessionView({ sessionId, onStatusChange }: SessionViewProps) {
-  const { messages, status, isConnected, sendMessage } = useSession({
-    sessionId,
-    onStatusChange,
-  });
+export function SessionView({ session }: SessionViewProps) {
+  const tmuxTarget = session.tmuxWindow
+    ? `codeburg:${session.tmuxWindow}${session.tmuxPane ? '.' + session.tmuxPane : ''}`
+    : undefined;
 
-  const isActive = status === 'running' || status === 'waiting_input' || status === 'idle';
-  const canSendMessage = isConnected && (status === 'waiting_input' || status === 'idle');
+  if (!tmuxTarget) {
+    return (
+      <div className="flex items-center justify-center h-full text-dim">
+        // no terminal target
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">
       {/* Status Bar */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-subtle bg-secondary">
         <div className="flex items-center gap-3">
-          <StatusIndicator status={status} />
+          <StatusIndicator status={session.status} />
+          <span className="text-xs text-dim">{session.provider}</span>
           <span className="text-sm text-dim">
-            session: {sessionId.slice(0, 8)}...
+            session: {session.id.slice(0, 8)}...
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          {!isConnected && (
-            <span className="text-xs text-[var(--color-status-blocked)]">
-              disconnected
-            </span>
-          )}
-        </div>
+        {session.lastActivityAt && (
+          <ActivityIndicator lastActivityAt={session.lastActivityAt} />
+        )}
       </div>
 
-      {/* Messages */}
-      <MessageList messages={messages} />
-
-      {/* Input */}
-      {isActive && (
-        <MessageInput
-          onSend={sendMessage}
-          disabled={!canSendMessage}
-          placeholder={
-            status === 'running'
-              ? 'Agent is working...'
-              : status === 'waiting_input'
-              ? 'Agent is waiting for input...'
-              : 'Type a message...'
-          }
-        />
-      )}
-
-      {/* Completed/Error State */}
-      {!isActive && (
-        <div className="p-4 border-t border-subtle bg-secondary text-center">
-          <span className="text-sm text-dim">
-            {status === 'completed' ? '// session_completed' : '// session_error'}
-          </span>
-        </div>
-      )}
+      {/* Terminal */}
+      <div className="flex-1 overflow-hidden">
+        <TerminalView target={tmuxTarget} sessionId={session.id} />
+      </div>
     </div>
   );
 }
@@ -107,4 +83,24 @@ function StatusIndicator({ status }: StatusIndicatorProps) {
       <span className="text-xs text-dim">{getStatusText()}</span>
     </div>
   );
+}
+
+interface ActivityIndicatorProps {
+  lastActivityAt: string;
+}
+
+function ActivityIndicator({ lastActivityAt }: ActivityIndicatorProps) {
+  const lastActivity = new Date(lastActivityAt);
+  const secondsAgo = Math.floor((Date.now() - lastActivity.getTime()) / 1000);
+
+  if (secondsAgo < 10) {
+    return (
+      <div className="flex items-center gap-1">
+        <div className="w-1.5 h-1.5 bg-accent animate-pulse" />
+        <span className="text-xs text-dim">active</span>
+      </div>
+    );
+  }
+
+  return null;
 }

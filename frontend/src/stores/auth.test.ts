@@ -88,7 +88,7 @@ describe('Auth Store', () => {
   it('checkStatus validates existing token', async () => {
     localStorage.setItem('token', 'existing-token');
     mockedAuthApi.getStatus.mockResolvedValue({ setup: true });
-    mockedAuthApi.me.mockResolvedValue(undefined);
+    mockedAuthApi.me.mockResolvedValue({ user: 'admin' });
 
     await useAuthStore.getState().checkStatus();
 

@@ -3,7 +3,7 @@ package api
 import (
 	"bufio"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -20,7 +20,7 @@ func (s *Server) handleListJustRecipes(w http.ResponseWriter, r *http.Request) {
 
 	project, err := s.db.GetProject(projectID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "project not found")
+		writeDBError(w, err, "project")
 		return
 	}
 
@@ -47,7 +47,7 @@ func (s *Server) handleRunJustRecipe(w http.ResponseWriter, r *http.Request) {
 
 	project, err := s.db.GetProject(projectID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "project not found")
+		writeDBError(w, err, "project")
 		return
 	}
 
@@ -75,7 +75,7 @@ func (s *Server) handleRunJustRecipeInTask(w http.ResponseWriter, r *http.Reques
 
 	task, err := s.db.GetTask(taskID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "task not found")
+		writeDBError(w, err, "task")
 		return
 	}
 
@@ -87,7 +87,7 @@ func (s *Server) handleRunJustRecipeInTask(w http.ResponseWriter, r *http.Reques
 		// Fall back to project path
 		project, err := s.db.GetProject(task.ProjectID)
 		if err != nil {
-			writeError(w, http.StatusNotFound, "project not found")
+			writeDBError(w, err, "project")
 			return
 		}
 		workDir = project.Path
@@ -117,7 +117,7 @@ func (s *Server) handleStreamJustRecipe(w http.ResponseWriter, r *http.Request) 
 
 	task, err := s.db.GetTask(taskID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "task not found")
+		writeDBError(w, err, "task")
 		return
 	}
 
@@ -128,7 +128,7 @@ func (s *Server) handleStreamJustRecipe(w http.ResponseWriter, r *http.Request) 
 	} else {
 		project, err := s.db.GetProject(task.ProjectID)
 		if err != nil {
-			writeError(w, http.StatusNotFound, "project not found")
+			writeDBError(w, err, "project")
 			return
 		}
 		workDir = project.Path
@@ -172,22 +172,32 @@ func (s *Server) handleStreamJustRecipe(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Stream output
-	done := make(chan struct{})
+	// Funnel all output through a single channel to avoid concurrent ResponseWriter writes
+	type sseEvent struct {
+		event string
+		data  interface{}
+	}
+	events := make(chan sseEvent, 64)
+
+	// Read stdout
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
-			sendSSE(w, flusher, "stdout", scanner.Text())
-		}
-	}()
-	go func() {
-		scanner := bufio.NewScanner(stderr)
-		for scanner.Scan() {
-			sendSSE(w, flusher, "stderr", scanner.Text())
+			events <- sseEvent{"stdout", scanner.Text()}
 		}
 	}()
 
-	// Wait for command to complete
+	// Read stderr
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			events <- sseEvent{"stderr", scanner.Text()}
+		}
+	}()
+
+	// Wait for command to complete, then close the events channel.
+	// cmd.Wait blocks until stdout/stderr are fully read, so all output
+	// events are sent before the "done" event.
 	go func() {
 		err := cmd.Wait()
 		exitCode := 0
@@ -196,15 +206,22 @@ func (s *Server) handleStreamJustRecipe(w http.ResponseWriter, r *http.Request) 
 				exitCode = exitErr.ExitCode()
 			}
 		}
-		sendSSE(w, flusher, "done", map[string]int{"exitCode": exitCode})
-		close(done)
+		events <- sseEvent{"done", map[string]int{"exitCode": exitCode}}
+		close(events)
 	}()
 
-	// Wait for completion or client disconnect
-	select {
-	case <-done:
-	case <-r.Context().Done():
-		cmd.Process.Kill()
+	// Drain events from the single goroutine that owns the ResponseWriter
+	for {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			sendSSE(w, flusher, ev.event, ev.data)
+		case <-r.Context().Done():
+			cmd.Process.Kill()
+			return
+		}
 	}
 }
 
@@ -232,7 +249,7 @@ func (s *Server) handleListTaskJustRecipes(w http.ResponseWriter, r *http.Reques
 
 	task, err := s.db.GetTask(taskID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "task not found")
+		writeDBError(w, err, "task")
 		return
 	}
 
@@ -243,7 +260,7 @@ func (s *Server) handleListTaskJustRecipes(w http.ResponseWriter, r *http.Reques
 	} else {
 		project, err := s.db.GetProject(task.ProjectID)
 		if err != nil {
-			writeError(w, http.StatusNotFound, "project not found")
+			writeDBError(w, err, "project")
 			return
 		}
 		workDir = project.Path
@@ -251,7 +268,7 @@ func (s *Server) handleListTaskJustRecipes(w http.ResponseWriter, r *http.Reques
 
 	recipes, err := justMgr.ListRecipes(workDir)
 	if err != nil {
-		log.Printf("Error listing recipes: %v", err)
+		slog.Error("failed to list recipes", "error", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

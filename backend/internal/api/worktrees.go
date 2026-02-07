@@ -1,7 +1,6 @@
 package api
 
 import (
-	"database/sql"
 	"net/http"
 
 	"github.com/miguel/codeburg/internal/db"
@@ -20,11 +19,7 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 	// Get task
 	task, err := s.db.GetTask(taskID)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "task not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to get task")
+		writeDBError(w, err, "task")
 		return
 	}
 
@@ -42,7 +37,7 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 	// Get project
 	project, err := s.db.GetProject(task.ProjectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get project")
+		writeDBError(w, err, "project")
 		return
 	}
 
@@ -82,11 +77,7 @@ func (s *Server) handleDeleteWorktree(w http.ResponseWriter, r *http.Request) {
 	// Get task
 	task, err := s.db.GetTask(taskID)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "task not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to get task")
+		writeDBError(w, err, "task")
 		return
 	}
 
@@ -99,7 +90,7 @@ func (s *Server) handleDeleteWorktree(w http.ResponseWriter, r *http.Request) {
 	// Get project for teardown script
 	project, err := s.db.GetProject(task.ProjectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get project")
+		writeDBError(w, err, "project")
 		return
 	}
 

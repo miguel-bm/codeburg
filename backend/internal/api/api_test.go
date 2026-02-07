@@ -11,8 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/miguel/codeburg/internal/db"
+	"github.com/miguel/codeburg/internal/gitclone"
 	"github.com/miguel/codeburg/internal/tunnel"
 	"github.com/miguel/codeburg/internal/worktree"
 )
@@ -54,12 +56,14 @@ func setupTestEnv(t *testing.T) *testEnv {
 
 	// Create server
 	s := &Server{
-		db:       database,
-		auth:     auth,
-		worktree: worktree.NewManager(worktree.DefaultConfig()),
-		wsHub:    wsHub,
-		sessions: NewSessionManager(),
-		tunnels:  tunnel.NewManager(),
+		db:          database,
+		auth:        auth,
+		worktree:    worktree.NewManager(worktree.DefaultConfig()),
+		wsHub:       wsHub,
+		sessions:    NewSessionManager(),
+		tunnels:     tunnel.NewManager(),
+		gitclone:    gitclone.Config{BaseDir: filepath.Join(tmpDir, "repos")},
+		authLimiter: newLoginRateLimiter(5, 1*time.Minute),
 	}
 	s.setupRoutes()
 
@@ -808,6 +812,397 @@ func TestCreateTunnel_InvalidPort(t *testing.T) {
 	})
 	if resp.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for port > 65535, got %d", resp.Code)
+	}
+}
+
+// --- GitHub URL Project Tests ---
+
+func TestCreateProject_InvalidGitHubURL(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	resp := env.post("/api/projects", map[string]string{
+		"githubUrl": "https://gitlab.com/user/repo",
+	})
+	if resp.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for non-GitHub URL, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]string
+	decodeResponse(t, resp, &body)
+	if body["error"] != "invalid GitHub URL" {
+		t.Errorf("expected 'invalid GitHub URL' error, got %q", body["error"])
+	}
+}
+
+// --- Hook Endpoint Tests ---
+
+func TestSessionHook_Notification(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "hook-project", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Hook Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	// Create a session directly in the DB
+	session, err := env.server.db.CreateSession(db.CreateSessionInput{
+		TaskID:      task.ID,
+		Provider:    "claude",
+		SessionType: "terminal",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	// Set session to running
+	runningStatus := db.SessionStatusRunning
+	env.server.db.UpdateSession(session.ID, db.UpdateSessionInput{
+		Status: &runningStatus,
+	})
+
+	// POST Notification hook -> should set status to waiting_input
+	resp := env.post("/api/sessions/"+session.ID+"/hook", map[string]string{
+		"hook_event_name": "Notification",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	// Verify status changed
+	updated, err := env.server.db.GetSession(session.ID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if updated.Status != db.SessionStatusWaitingInput {
+		t.Errorf("expected status waiting_input, got %q", updated.Status)
+	}
+}
+
+func TestSessionHook_SessionEnd(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "hook-project", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Hook Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	// Create a session directly in the DB
+	session, err := env.server.db.CreateSession(db.CreateSessionInput{
+		TaskID:      task.ID,
+		Provider:    "claude",
+		SessionType: "terminal",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	// Set session to running
+	runningStatus := db.SessionStatusRunning
+	env.server.db.UpdateSession(session.ID, db.UpdateSessionInput{
+		Status: &runningStatus,
+	})
+
+	// POST SessionEnd hook -> should set status to completed
+	resp := env.post("/api/sessions/"+session.ID+"/hook", map[string]string{
+		"hook_event_name": "SessionEnd",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	// Verify status changed
+	updated, err := env.server.db.GetSession(session.ID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if updated.Status != db.SessionStatusCompleted {
+		t.Errorf("expected status completed, got %q", updated.Status)
+	}
+}
+
+func TestSessionHook_Stop(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "hook-project", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Hook Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	// Create a session and set it to waiting_input
+	session, err := env.server.db.CreateSession(db.CreateSessionInput{
+		TaskID:      task.ID,
+		Provider:    "claude",
+		SessionType: "terminal",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	waitingStatus := db.SessionStatusWaitingInput
+	env.server.db.UpdateSession(session.ID, db.UpdateSessionInput{
+		Status: &waitingStatus,
+	})
+
+	// POST Stop hook -> should set status to running
+	resp := env.post("/api/sessions/"+session.ID+"/hook", map[string]string{
+		"hook_event_name": "Stop",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	// Verify status changed
+	updated, err := env.server.db.GetSession(session.ID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if updated.Status != db.SessionStatusRunning {
+		t.Errorf("expected status running, got %q", updated.Status)
+	}
+}
+
+func TestSessionHook_AgentTurnComplete(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "hook-project", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Codex Hook Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	session, err := env.server.db.CreateSession(db.CreateSessionInput{
+		TaskID:      task.ID,
+		Provider:    "codex",
+		SessionType: "terminal",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	runningStatus := db.SessionStatusRunning
+	env.server.db.UpdateSession(session.ID, db.UpdateSessionInput{
+		Status: &runningStatus,
+	})
+
+	// POST agent-turn-complete -> should set status to waiting_input
+	resp := env.post("/api/sessions/"+session.ID+"/hook", map[string]string{
+		"hook_event_name": "agent-turn-complete",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	updated, err := env.server.db.GetSession(session.ID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if updated.Status != db.SessionStatusWaitingInput {
+		t.Errorf("expected status waiting_input, got %q", updated.Status)
+	}
+}
+
+func TestSessionHook_NotFound(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	resp := env.post("/api/sessions/nonexistent/hook", map[string]string{
+		"hook_event_name": "Notification",
+	})
+	if resp.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.Code)
+	}
+}
+
+// --- Scoped Hook Token Tests ---
+
+// requestWithToken makes a request using a specific token (not the env default)
+func (e *testEnv) requestWithToken(method, path string, body interface{}, token string) *httptest.ResponseRecorder {
+	e.t.Helper()
+	var bodyReader *strings.Reader
+	if body != nil {
+		data, _ := json.Marshal(body)
+		bodyReader = strings.NewReader(string(data))
+	} else {
+		bodyReader = strings.NewReader("")
+	}
+
+	req := httptest.NewRequest(method, path, bodyReader)
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	w := httptest.NewRecorder()
+	e.server.router.ServeHTTP(w, req)
+	return w
+}
+
+func TestSessionHook_ScopedToken(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "scoped-hook-project", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Scoped Hook Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	session, err := env.server.db.CreateSession(db.CreateSessionInput{
+		TaskID:      task.ID,
+		Provider:    "claude",
+		SessionType: "terminal",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	runningStatus := db.SessionStatusRunning
+	env.server.db.UpdateSession(session.ID, db.UpdateSessionInput{
+		Status: &runningStatus,
+	})
+
+	// Generate scoped hook token for this session
+	scopedToken, err := env.server.auth.GenerateHookToken(session.ID)
+	if err != nil {
+		t.Fatalf("generate hook token: %v", err)
+	}
+
+	// Scoped token for correct session → 200
+	resp := env.requestWithToken("POST", "/api/sessions/"+session.ID+"/hook",
+		map[string]string{"hook_event_name": "Notification"}, scopedToken)
+	if resp.Code != http.StatusOK {
+		t.Errorf("expected 200 with scoped token, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	// Verify status changed
+	updated, err := env.server.db.GetSession(session.ID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if updated.Status != db.SessionStatusWaitingInput {
+		t.Errorf("expected status waiting_input, got %q", updated.Status)
+	}
+}
+
+func TestSessionHook_ScopedTokenWrongSession(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "scoped-hook-project", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Scoped Hook Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	session, err := env.server.db.CreateSession(db.CreateSessionInput{
+		TaskID:      task.ID,
+		Provider:    "claude",
+		SessionType: "terminal",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	runningStatus := db.SessionStatusRunning
+	env.server.db.UpdateSession(session.ID, db.UpdateSessionInput{
+		Status: &runningStatus,
+	})
+
+	// Generate scoped token for a DIFFERENT session ID
+	wrongToken, err := env.server.auth.GenerateHookToken("wrong-session-id")
+	if err != nil {
+		t.Fatalf("generate hook token: %v", err)
+	}
+
+	// Scoped token for wrong session → 401
+	resp := env.requestWithToken("POST", "/api/sessions/"+session.ID+"/hook",
+		map[string]string{"hook_event_name": "Notification"}, wrongToken)
+	if resp.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 with wrong-session scoped token, got %d", resp.Code)
+	}
+}
+
+func TestSessionHook_NoToken(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "no-token-project", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "No Token Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	session, err := env.server.db.CreateSession(db.CreateSessionInput{
+		TaskID:      task.ID,
+		Provider:    "claude",
+		SessionType: "terminal",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	// No token → 401
+	resp := env.requestWithToken("POST", "/api/sessions/"+session.ID+"/hook",
+		map[string]string{"hook_event_name": "Notification"}, "")
+	if resp.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 with no token, got %d", resp.Code)
 	}
 }
 

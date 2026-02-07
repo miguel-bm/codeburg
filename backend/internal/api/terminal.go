@@ -3,7 +3,7 @@ package api
 import (
 	"encoding/json"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -12,22 +12,25 @@ import (
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
+	"github.com/miguel/codeburg/internal/db"
 )
 
 // TerminalSession manages a single terminal WebSocket connection
 type TerminalSession struct {
-	conn   *websocket.Conn
-	ptmx   *os.File
-	cmd    *exec.Cmd
-	mu     sync.Mutex
-	closed bool
+	conn      *websocket.Conn
+	ptmx      *os.File
+	cmd       *exec.Cmd
+	mu        sync.Mutex
+	closed    bool
+	sessionID string  // Codeburg session ID (optional)
+	server    *Server // For DB/WS access (optional)
+	lastInput time.Time
 }
 
 // handleTerminalWS handles WebSocket connections for terminal access
 // Query params:
 //   - target: tmux target (e.g., "codeburg:@1.%1")
-//   - cols: terminal columns (default 80)
-//   - rows: terminal rows (default 24)
+//   - session: codeburg session ID (optional, for activity tracking)
 func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	target := r.URL.Query().Get("target")
 	if target == "" {
@@ -35,21 +38,25 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sessionID := r.URL.Query().Get("session")
+
 	// Upgrade to WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("Terminal WebSocket upgrade error: %v", err)
+		slog.Error("terminal websocket upgrade error", "error", err)
 		return
 	}
 
 	// Create terminal session
 	ts := &TerminalSession{
-		conn: conn,
+		conn:      conn,
+		sessionID: sessionID,
+		server:    s,
 	}
 
 	// Start the terminal
 	if err := ts.start(target); err != nil {
-		log.Printf("Failed to start terminal: %v", err)
+		slog.Error("failed to start terminal", "target", target, "error", err)
 		conn.WriteMessage(websocket.TextMessage, []byte("Error: "+err.Error()))
 		conn.Close()
 		return
@@ -90,9 +97,14 @@ func (ts *TerminalSession) readFromPTY() {
 		n, err := ts.ptmx.Read(buf)
 		if err != nil {
 			if err != io.EOF {
-				log.Printf("PTY read error: %v", err)
+				slog.Debug("pty read error", "error", err)
 			}
 			return
+		}
+
+		// Track activity for this session
+		if ts.sessionID != "" && ts.server != nil {
+			ts.trackActivity()
 		}
 
 		ts.mu.Lock()
@@ -105,7 +117,7 @@ func (ts *TerminalSession) readFromPTY() {
 		ts.mu.Unlock()
 
 		if err != nil {
-			log.Printf("WebSocket write error: %v", err)
+			slog.Debug("websocket write error", "error", err)
 			return
 		}
 	}
@@ -119,7 +131,7 @@ func (ts *TerminalSession) readFromWS() {
 		msgType, message, err := ts.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-				log.Printf("WebSocket read error: %v", err)
+				slog.Debug("websocket read error", "error", err)
 			}
 			return
 		}
@@ -132,14 +144,49 @@ func (ts *TerminalSession) readFromWS() {
 				continue
 			}
 
+			// User input detected - reset session to running if waiting
+			if ts.sessionID != "" && ts.server != nil && len(message) > 0 {
+				ts.handleUserInput()
+			}
+
 			// Write input to PTY
 			_, err := ts.ptmx.Write(message)
 			if err != nil {
-				log.Printf("PTY write error: %v", err)
+				slog.Debug("pty write error", "error", err)
 				return
 			}
 		}
 	}
+}
+
+// handleUserInput resets session status to running when user types
+func (ts *TerminalSession) handleUserInput() {
+	if time.Since(ts.lastInput) < 2*time.Second {
+		return
+	}
+	ts.lastInput = time.Now()
+	go ts.server.sessions.setSessionRunning(ts.sessionID, ts.server.db, ts.server.wsHub)
+}
+
+// trackActivity updates the last activity timestamp (debounced to every 5 seconds)
+func (ts *TerminalSession) trackActivity() {
+	session := ts.server.sessions.getOrRestore(ts.sessionID, ts.server.db)
+	if session == nil {
+		return
+	}
+
+	lastActivity := session.GetLastActivity()
+	if time.Since(lastActivity) < 5*time.Second {
+		return
+	}
+
+	now := time.Now()
+	session.SetLastActivity(now)
+
+	// Update DB periodically (debounced by the 5s check above)
+	go ts.server.db.UpdateSession(ts.sessionID, db.UpdateSessionInput{
+		LastActivityAt: &now,
+	})
 }
 
 // handleControlMessage handles JSON control messages (e.g., resize)
@@ -167,21 +214,25 @@ func (ts *TerminalSession) handleControlMessage(message []byte) {
 // close cleans up the terminal session
 func (ts *TerminalSession) close() {
 	ts.mu.Lock()
-	defer ts.mu.Unlock()
-
 	if ts.closed {
+		ts.mu.Unlock()
 		return
 	}
 	ts.closed = true
+	ptmx := ts.ptmx
+	cmd := ts.cmd
+	conn := ts.conn
+	ts.mu.Unlock()
 
-	if ts.ptmx != nil {
-		ts.ptmx.Close()
+	// Perform blocking I/O outside the lock
+	if ptmx != nil {
+		ptmx.Close()
 	}
 
-	if ts.cmd != nil && ts.cmd.Process != nil {
-		ts.cmd.Process.Kill()
-		ts.cmd.Wait()
+	if cmd != nil && cmd.Process != nil {
+		cmd.Process.Kill()
+		cmd.Wait()
 	}
 
-	ts.conn.Close()
+	conn.Close()
 }

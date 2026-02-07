@@ -2,7 +2,8 @@ package api
 
 import (
 	"encoding/json"
-	"log"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -14,9 +15,7 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		// Allow all origins in development
-		// TODO: Restrict in production
-		return true
+		return isAllowedOrigin(r.Header.Get("Origin"))
 	},
 }
 
@@ -77,8 +76,7 @@ func (h *WSHub) Run() {
 				select {
 				case client.send <- message:
 				default:
-					close(client.send)
-					delete(h.clients, client)
+					// Skip slow client — its own goroutine will handle cleanup via unregister
 				}
 			}
 			h.mu.RUnlock()
@@ -99,7 +97,7 @@ func (h *WSHub) BroadcastToSession(sessionID string, msgType string, data interf
 
 	message, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("Error marshaling WebSocket message: %v", err)
+		slog.Error("failed to marshal websocket message", "error", err)
 		return
 	}
 
@@ -134,7 +132,7 @@ func (h *WSHub) BroadcastToTask(taskID string, msgType string, data interface{})
 
 	message, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("Error marshaling WebSocket message: %v", err)
+		slog.Error("failed to marshal websocket message", "error", err)
 		return
 	}
 
@@ -159,7 +157,7 @@ func (h *WSHub) BroadcastToTask(taskID string, msgType string, data interface{})
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("WebSocket upgrade error: %v", err)
+		slog.Error("websocket upgrade error", "error", err)
 		return
 	}
 
@@ -195,7 +193,7 @@ func (c *WSClient) readPump(s *Server) {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("WebSocket error: %v", err)
+				slog.Warn("websocket error", "error", err)
 			}
 			break
 		}
@@ -258,7 +256,7 @@ func (c *WSClient) handleMessage(s *Server, message []byte) {
 	}
 
 	if err := json.Unmarshal(message, &msg); err != nil {
-		log.Printf("Invalid WebSocket message: %v", err)
+		slog.Warn("invalid websocket message", "error", err)
 		return
 	}
 
@@ -312,9 +310,26 @@ func (c *WSClient) sendJSON(v interface{}) {
 	}
 }
 
-// handleWSMessage handles sending a message to an agent session
+// handleWSMessage handles sending a message to an agent session via WebSocket
 func (s *Server) handleWSMessage(sessionID string, content string) {
-	// This will be implemented when we integrate with the executor
-	// For now, log it
-	log.Printf("WebSocket message for session %s: %s", sessionID, content)
+	execSession := s.sessions.getOrRestore(sessionID, s.db)
+	if execSession == nil {
+		slog.Warn("websocket message for unknown session", "session_id", sessionID)
+		return
+	}
+
+	// All sessions use tmux for message delivery
+	target := fmt.Sprintf("%s:%s.%s", "codeburg", execSession.TmuxWindow, execSession.TmuxPane)
+	if err := s.sessions.tmux.SendKeys(target, content, true); err != nil {
+		slog.Error("failed to send websocket message to session", "session_id", sessionID, "error", err)
+		s.wsHub.BroadcastToSession(sessionID, "error", map[string]string{
+			"message": "Failed to deliver message: " + err.Error(),
+		})
+		return
+	}
+
+	// Notify subscribers the message was delivered
+	s.wsHub.BroadcastToSession(sessionID, "message_sent", map[string]string{
+		"content": content,
+	})
 }

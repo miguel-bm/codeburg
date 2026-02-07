@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -77,7 +78,11 @@ func (db *DB) GetProject(id string) (*Project, error) {
 		FROM projects WHERE id = ?
 	`, id)
 
-	return scanProject(row)
+	p, err := scanProject(row.Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return p, err
 }
 
 // ListProjects retrieves all projects
@@ -91,9 +96,9 @@ func (db *DB) ListProjects() ([]*Project, error) {
 	}
 	defer rows.Close()
 
-	var projects []*Project
+	projects := make([]*Project, 0)
 	for rows.Next() {
-		p, err := scanProjectRows(rows)
+		p, err := scanProject(rows.Scan)
 		if err != nil {
 			return nil, err
 		}
@@ -155,7 +160,7 @@ func (db *DB) UpdateProject(id string, input UpdateProjectInput) (*Project, erro
 		return nil, err
 	}
 	if rows == 0 {
-		return nil, sql.ErrNoRows
+		return nil, ErrNotFound
 	}
 
 	return db.GetProject(id)
@@ -173,40 +178,17 @@ func (db *DB) DeleteProject(id string) error {
 		return err
 	}
 	if rows == 0 {
-		return sql.ErrNoRows
+		return ErrNotFound
 	}
 
 	return nil
 }
 
-func scanProject(row *sql.Row) (*Project, error) {
+func scanProject(scan scanFunc) (*Project, error) {
 	var p Project
 	var gitOrigin, symlinkPathsJSON, setupScript, teardownScript sql.NullString
 
-	err := row.Scan(&p.ID, &p.Name, &p.Path, &gitOrigin, &p.DefaultBranch, &symlinkPathsJSON, &setupScript, &teardownScript, &p.CreatedAt, &p.UpdatedAt)
-	if err != nil {
-		return nil, err
-	}
-
-	p.GitOrigin = StringPtr(gitOrigin)
-	p.SetupScript = StringPtr(setupScript)
-	p.TeardownScript = StringPtr(teardownScript)
-
-	// Parse symlink paths from JSON
-	if symlinkPathsJSON.Valid && symlinkPathsJSON.String != "" {
-		if err := json.Unmarshal([]byte(symlinkPathsJSON.String), &p.SymlinkPaths); err != nil {
-			return nil, fmt.Errorf("unmarshal symlink paths: %w", err)
-		}
-	}
-
-	return &p, nil
-}
-
-func scanProjectRows(rows *sql.Rows) (*Project, error) {
-	var p Project
-	var gitOrigin, symlinkPathsJSON, setupScript, teardownScript sql.NullString
-
-	err := rows.Scan(&p.ID, &p.Name, &p.Path, &gitOrigin, &p.DefaultBranch, &symlinkPathsJSON, &setupScript, &teardownScript, &p.CreatedAt, &p.UpdatedAt)
+	err := scan(&p.ID, &p.Name, &p.Path, &gitOrigin, &p.DefaultBranch, &symlinkPathsJSON, &setupScript, &teardownScript, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,9 @@ import (
 	"github.com/oklog/ulid/v2"
 	_ "modernc.org/sqlite"
 )
+
+// ErrNotFound is returned when a requested entity does not exist.
+var ErrNotFound = errors.New("not found")
 
 type DB struct {
 	conn *sql.DB
@@ -56,6 +60,10 @@ func (db *DB) Close() error {
 func NewID() string {
 	return ulid.Make().String()
 }
+
+// scanFunc is the common signature shared by (*sql.Row).Scan and (*sql.Rows).Scan,
+// allowing a single scan function per entity to handle both cases.
+type scanFunc func(dest ...any) error
 
 // NullString converts a string pointer to sql.NullString
 func NullString(s *string) sql.NullString {

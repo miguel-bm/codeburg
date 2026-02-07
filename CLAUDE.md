@@ -33,7 +33,7 @@ Personal system for managing code projects with AI agents.
   claude --version
   ```
 
-- **just** - Task runner (optional, for justfile features)
+- **just** - Task runner (used for build/test/deploy commands)
   ```bash
   just --version
   ```
@@ -64,17 +64,17 @@ Before Codeburg can manage a project with worktrees:
 # 1. Clone and enter the repository
 cd codeburg
 
-# 2. Start Backend (Go 1.24+ required)
-cd backend
-GOTOOLCHAIN=auto go run ./cmd/codeburg migrate  # Run database migrations
-GOTOOLCHAIN=auto go run ./cmd/codeburg serve    # Start server on :8080
+# 2. Install frontend dependencies (first time only)
+cd frontend && pnpm install && cd ..
 
-# 3. Start Frontend (in another terminal)
-cd frontend
-pnpm install     # First time only
-pnpm dev         # Dev server on :3000 (proxies API to :8080)
+# 3. Start Backend (Go 1.24+ required)
+just migrate   # Run database migrations
+just dev-be    # Start server on :8080
 
-# 4. Open http://localhost:3000
+# 4. Start Frontend (in another terminal)
+just dev-fe    # Dev server on :3000 (proxies API to :8080)
+
+# 5. Open http://localhost:3000
 # First visit: Set your password
 # Subsequent visits: Login with your password
 ```
@@ -82,36 +82,27 @@ pnpm dev         # Dev server on :3000 (proxies API to :8080)
 ### Production Build
 
 ```bash
-# Build frontend
-cd frontend
-pnpm build  # Outputs to dist/
+just build     # Builds frontend + backend
+just migrate   # Run migrations
 
-# Build backend
-cd backend
-GOTOOLCHAIN=auto go build -o codeburg ./cmd/codeburg
-
-# Run production
-./codeburg migrate
-./codeburg serve  # Serves API + frontend from dist/
-
-# Or from project root:
-pnpm build:fe && pnpm build:be
+# Or run production directly:
+./backend/codeburg serve  # Serves API + frontend from dist/
 ```
 
 ## Testing
 
 ```bash
 # Run all tests (from project root)
-pnpm test
+just test
 
 # Backend only
-pnpm test:be
+just test-be
 
 # Frontend only
-pnpm test:fe
+just test-fe
 
 # Frontend watch mode
-pnpm --dir frontend test:watch
+just test-fe-watch
 ```
 
 ### Backend Test Structure
@@ -141,7 +132,7 @@ codeburg/
 │       ├── db/                # SQLite database + migrations
 │       ├── worktree/          # Git worktree management
 │       ├── tmux/              # Tmux session management
-│       ├── executor/          # Agent executors (Claude CLI)
+│       ├── executor/          # Session types (terminal-first)
 │       ├── justfile/          # Justfile parsing and execution
 │       └── tunnel/            # Cloudflared tunnel management
 ├── frontend/
@@ -157,10 +148,17 @@ codeburg/
 │   │   ├── pages/             # Page components
 │   │   └── stores/            # Zustand stores
 │   └── dist/                  # Production build output
+├── deploy/
+│   ├── codeburg.service       # Systemd unit file
+│   ├── cloudflared.yml        # Tunnel config template
+│   ├── setup.sh               # One-time server provisioning
+│   └── deploy.sh              # Upgrade/deploy script
 └── docs/
     ├── 01-brainstorm.md       # Initial research
     ├── 02-architecture.md     # System design
-    └── 03-mvp-spec.md         # MVP milestones
+    ├── 03-mvp-spec.md         # MVP milestones
+    ├── 07-deployment.md       # Deployment architecture
+    └── 08-deployment-guide.md # Step-by-step deploy guide
 ```
 
 ## Tech Stack
@@ -175,6 +173,8 @@ codeburg/
 | Item | Path |
 |------|------|
 | Database | `~/.codeburg/codeburg.db` |
+| Auth config | `~/.codeburg/config.yaml` (password hash) |
+| JWT secret | `~/.codeburg/.jwt_secret` |
 | Worktrees | `~/.codeburg/worktrees/{project}/{task-id}/` |
 | Session logs | `~/.codeburg/logs/sessions/{id}.jsonl` |
 
@@ -220,11 +220,16 @@ DELETE /api/tasks/:id/worktree   Delete worktree
 
 ```
 GET    /api/tasks/:taskId/sessions      List sessions for task
-POST   /api/tasks/:taskId/sessions      Start new session { prompt, provider?, model? }
+POST   /api/tasks/:taskId/sessions      Start new session { provider?, prompt?, model? }
 GET    /api/sessions/:id                Get session details
 POST   /api/sessions/:id/message        Send message { content }
+POST   /api/sessions/:id/hook           Hook callback (from Claude Code hooks / Codex notify)
 DELETE /api/sessions/:id                Stop session
 ```
+
+Provider can be `claude` (default), `codex`, or `terminal`. All sessions are terminal-based
+(rendered via xterm.js). Claude/Codex sessions inject the CLI command into the tmux window.
+Claude Code hooks and Codex notify scripts call back to the hook endpoint to update session status.
 
 ### Justfile
 
@@ -270,20 +275,18 @@ When a task moves to `in_progress`, Codeburg automatically:
 3. Symlinks configured files (e.g., `.env`)
 4. Runs setup script if configured
 
-### Agent Sessions
+### Agent Sessions (Terminal-First)
 
-- Start Claude Code sessions for any task
-- Real-time output streaming via WebSocket
-- Send messages to running agents
-- Multiple sessions per task
-- Session status tracking (running, waiting_input, completed, error)
+All sessions are terminal-based, rendered via xterm.js connected to tmux windows:
 
-### Terminal Escape Hatch
-
-- Full terminal access via xterm.js
-- Connects to tmux pane running the agent
-- Use Claude CLI slash commands directly
-- Ctrl+Esc to close
+- **Claude sessions**: Runs `claude` CLI interactively in tmux. Claude Code hooks
+  (`.claude/settings.local.json`) call back to `POST /api/sessions/:id/hook` for
+  status tracking (Notification→waiting_input, Stop→running, SessionEnd→completed).
+- **Codex sessions**: Runs `codex` CLI in tmux. A notify script calls back on
+  `agent-turn-complete` for status tracking.
+- **Terminal sessions**: Plain shell in the task's worktree directory.
+- Activity detection at the WebSocket/PTY level resets status to `running` when user types.
+- Multiple sessions per task with live status badges.
 
 ### Justfile Integration
 
@@ -346,3 +349,4 @@ Common errors and solutions:
 | "worktree already exists" | Worktree wasn't cleaned up | Delete manually or via API |
 | "tmux not available" | tmux not installed | Install tmux |
 | "claude CLI not available" | Claude not installed | Install Claude CLI |
+| Password not resetting | Password is in config, not DB | Delete `~/.codeburg/config.yaml` |

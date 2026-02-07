@@ -1,24 +1,28 @@
 import { api } from './client';
 
 export type SessionStatus = 'idle' | 'running' | 'waiting_input' | 'completed' | 'error';
+export type SessionProvider = 'claude' | 'codex' | 'terminal';
 
 export interface AgentSession {
   id: string;
   taskId: string;
-  provider: string;
+  provider: SessionProvider;
+  sessionType: string;
   providerSessionId?: string;
   status: SessionStatus;
   tmuxWindow?: string;
   tmuxPane?: string;
   logFile?: string;
+  lastActivityAt?: string;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface StartSessionInput {
-  provider?: string;
-  prompt: string;
+  provider?: SessionProvider;
+  prompt?: string;
   model?: string;
+  resumeSessionId?: string;
 }
 
 export const sessionsApi = {

@@ -441,3 +441,47 @@ func TestUpdateSession(t *testing.T) {
 		t.Errorf("expected tmux window '@1', got %v", updated.TmuxWindow)
 	}
 }
+
+func TestListActiveSessions(t *testing.T) {
+	db := openTestDB(t)
+
+	project, _ := db.CreateProject(CreateProjectInput{Name: "p", Path: "/tmp/p"})
+	task, _ := db.CreateTask(CreateTaskInput{ProjectID: project.ID, Title: "T"})
+
+	// Create sessions with various statuses
+	s1, _ := db.CreateSession(CreateSessionInput{TaskID: task.ID, Provider: "claude"})
+	s2, _ := db.CreateSession(CreateSessionInput{TaskID: task.ID, Provider: "terminal"})
+	s3, _ := db.CreateSession(CreateSessionInput{TaskID: task.ID, Provider: "claude"})
+
+	// s1: running, s2: completed, s3: waiting_input
+	runningStatus := SessionStatusRunning
+	completedStatus := SessionStatusCompleted
+	waitingStatus := SessionStatusWaitingInput
+	db.UpdateSession(s1.ID, UpdateSessionInput{Status: &runningStatus})
+	db.UpdateSession(s2.ID, UpdateSessionInput{Status: &completedStatus})
+	db.UpdateSession(s3.ID, UpdateSessionInput{Status: &waitingStatus})
+
+	active, err := db.ListActiveSessions()
+	if err != nil {
+		t.Fatalf("list active sessions: %v", err)
+	}
+
+	// Should return s1 (running) and s3 (waiting_input), not s2 (completed)
+	if len(active) != 2 {
+		t.Fatalf("expected 2 active sessions, got %d", len(active))
+	}
+
+	ids := map[string]bool{}
+	for _, s := range active {
+		ids[s.ID] = true
+	}
+	if !ids[s1.ID] {
+		t.Error("expected running session to be included")
+	}
+	if ids[s2.ID] {
+		t.Error("expected completed session to be excluded")
+	}
+	if !ids[s3.ID] {
+		t.Error("expected waiting_input session to be included")
+	}
+}

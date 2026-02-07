@@ -1,11 +1,12 @@
 package api
 
 import (
-	"database/sql"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/miguel/codeburg/internal/db"
+	"github.com/miguel/codeburg/internal/gitclone"
 )
 
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
@@ -15,50 +16,106 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if projects == nil {
-		projects = []*db.Project{}
-	}
-
 	writeJSON(w, http.StatusOK, projects)
 }
 
+// createProjectRequest extends db.CreateProjectInput with an optional GitHub URL.
+type createProjectRequest struct {
+	Name           string   `json:"name"`
+	Path           string   `json:"path"`
+	GitHubURL      string   `json:"githubUrl"`
+	GitOrigin      *string  `json:"gitOrigin,omitempty"`
+	DefaultBranch  *string  `json:"defaultBranch,omitempty"`
+	SymlinkPaths   []string `json:"symlinkPaths,omitempty"`
+	SetupScript    *string  `json:"setupScript,omitempty"`
+	TeardownScript *string  `json:"teardownScript,omitempty"`
+}
+
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
-	var input db.CreateProjectInput
-	if err := decodeJSON(r, &input); err != nil {
+	var req createProjectRequest
+	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	// Validate required fields
-	if input.Name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
-		return
-	}
-	if input.Path == "" {
-		writeError(w, http.StatusBadRequest, "path is required")
-		return
-	}
+	var input db.CreateProjectInput
 
-	// Validate path exists
-	info, err := os.Stat(input.Path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			writeError(w, http.StatusBadRequest, "path does not exist")
+	if req.GitHubURL != "" {
+		// Clone from GitHub URL
+		if !gitclone.IsGitHubURL(req.GitHubURL) {
+			writeError(w, http.StatusBadRequest, "invalid GitHub URL")
 			return
 		}
-		writeError(w, http.StatusBadRequest, "invalid path")
-		return
-	}
-	if !info.IsDir() {
-		writeError(w, http.StatusBadRequest, "path must be a directory")
-		return
-	}
 
-	// Check if it's a git repo
-	gitPath := input.Path + "/.git"
-	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
-		writeError(w, http.StatusBadRequest, "path is not a git repository")
-		return
+		name := req.Name
+		if name == "" {
+			name = gitclone.ParseRepoName(req.GitHubURL)
+		}
+		if name == "" {
+			writeError(w, http.StatusBadRequest, "could not determine project name from URL")
+			return
+		}
+
+		result, err := gitclone.Clone(s.gitclone, req.GitHubURL, name)
+		if err != nil {
+			if strings.Contains(err.Error(), "destination already exists") {
+				writeError(w, http.StatusConflict, err.Error())
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "clone failed: "+err.Error())
+			return
+		}
+
+		normalized := gitclone.NormalizeGitHubURL(req.GitHubURL)
+		input = db.CreateProjectInput{
+			Name:           name,
+			Path:           result.Path,
+			GitOrigin:      &normalized,
+			DefaultBranch:  &result.DefaultBranch,
+			SymlinkPaths:   req.SymlinkPaths,
+			SetupScript:    req.SetupScript,
+			TeardownScript: req.TeardownScript,
+		}
+	} else {
+		// Local path flow (existing behavior)
+		if req.Name == "" {
+			writeError(w, http.StatusBadRequest, "name is required")
+			return
+		}
+		if req.Path == "" {
+			writeError(w, http.StatusBadRequest, "path is required")
+			return
+		}
+
+		info, err := os.Stat(req.Path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				writeError(w, http.StatusBadRequest, "path does not exist")
+				return
+			}
+			writeError(w, http.StatusBadRequest, "invalid path")
+			return
+		}
+		if !info.IsDir() {
+			writeError(w, http.StatusBadRequest, "path must be a directory")
+			return
+		}
+
+		gitPath := req.Path + "/.git"
+		if _, err := os.Stat(gitPath); os.IsNotExist(err) {
+			writeError(w, http.StatusBadRequest, "path is not a git repository")
+			return
+		}
+
+		input = db.CreateProjectInput{
+			Name:           req.Name,
+			Path:           req.Path,
+			GitOrigin:      req.GitOrigin,
+			DefaultBranch:  req.DefaultBranch,
+			SymlinkPaths:   req.SymlinkPaths,
+			SetupScript:    req.SetupScript,
+			TeardownScript: req.TeardownScript,
+		}
 	}
 
 	project, err := s.db.CreateProject(input)
@@ -75,11 +132,7 @@ func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
 
 	project, err := s.db.GetProject(id)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "project not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to get project")
+		writeDBError(w, err, "project")
 		return
 	}
 
@@ -114,11 +167,7 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 
 	project, err := s.db.UpdateProject(id, input)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "project not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to update project")
+		writeDBError(w, err, "project")
 		return
 	}
 
@@ -129,11 +178,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	id := urlParam(r, "id")
 
 	if err := s.db.DeleteProject(id); err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "project not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to delete project")
+		writeDBError(w, err, "project")
 		return
 	}
 

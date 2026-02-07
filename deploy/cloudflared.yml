@@ -1,0 +1,12 @@
+# Cloudflare Tunnel configuration for Codeburg
+# Install to: /home/codeburg/.cloudflared/config.yml
+#
+# Replace <TUNNEL_ID> with the ID from: cloudflared tunnel create codeburg
+
+tunnel: <TUNNEL_ID>
+credentials-file: /home/codeburg/.cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  - hostname: codeburg.miscellanics.com
+    service: http://127.0.0.1:8080
+  - service: http_status:404

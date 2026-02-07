@@ -6,6 +6,6 @@ export { sessionsApi } from './sessions';
 export { justfileApi } from './justfile';
 export { tunnelsApi } from './tunnels';
 export * from './types';
-export type { AgentSession, SessionStatus, StartSessionInput } from './sessions';
+export type { AgentSession, SessionStatus, SessionProvider, StartSessionInput } from './sessions';
 export type { Recipe, JustfileInfo, RunResult } from './justfile';
 export type { TunnelInfo } from './tunnels';

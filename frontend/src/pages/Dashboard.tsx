@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/layout/Layout';
@@ -7,6 +7,8 @@ import type { Task, TaskStatus, CreateProjectInput, CreateTaskInput } from '../a
 import { useMobile } from '../hooks/useMobile';
 import { useSwipe } from '../hooks/useSwipe';
 import { useLongPress } from '../hooks/useLongPress';
+import { useKeyboardNav } from '../hooks/useKeyboardNav';
+import { HelpOverlay } from '../components/common/HelpOverlay';
 
 const COLUMNS: { id: TaskStatus; title: string; color: string }[] = [
   { id: 'backlog', title: 'BACKLOG', color: 'status-backlog' },
@@ -28,7 +30,11 @@ export function Dashboard() {
   const [dragOverColumn, setDragOverColumn] = useState<TaskStatus | null>(null);
   const [activeColumnIndex, setActiveColumnIndex] = useState(0);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
+  const [focus, setFocus] = useState<{ col: number; card: number } | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
+  const filterRef = useRef<HTMLSelectElement>(null);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const isMobile = useMobile();
 
   const swipeHandlers = useSwipe({
@@ -55,8 +61,20 @@ export function Dashboard() {
     },
   });
 
+  const tasksByStatus = useMemo(() => {
+    const map = new Map<TaskStatus, Task[]>();
+    for (const col of COLUMNS) {
+      map.set(col.id, []);
+    }
+    for (const t of tasks ?? []) {
+      const list = map.get(t.status);
+      if (list) list.push(t);
+    }
+    return map;
+  }, [tasks]);
+
   const getTasksByStatus = (status: TaskStatus): Task[] => {
-    return tasks?.filter((t) => t.status === status) ?? [];
+    return tasksByStatus.get(status) ?? [];
   };
 
   const getProjectName = (projectId: string): string => {
@@ -91,6 +109,98 @@ export function Dashboard() {
 
   const hasProjects = projects && projects.length > 0;
 
+  const getColumnTasks = useCallback(
+    (colIdx: number): Task[] => tasksByStatus.get(COLUMNS[colIdx]?.id) ?? [],
+    [tasksByStatus],
+  );
+
+  const getFocusedTask = useCallback((): Task | null => {
+    if (!focus) return null;
+    const col = getColumnTasks(focus.col);
+    return col[focus.card] ?? null;
+  }, [focus, getColumnTasks]);
+
+  // Clear focus when project filter changes
+  useEffect(() => { setFocus(null); }, [selectedProjectId]);
+
+  const STATUS_ORDER: TaskStatus[] = COLUMNS.map((c) => c.id);
+
+  useKeyboardNav({
+    keyMap: {
+      ArrowLeft: () => setFocus((f) => {
+        const col = Math.max((f?.col ?? 1) - 1, 0);
+        const maxCard = Math.max(getColumnTasks(col).length - 1, 0);
+        return { col, card: Math.min(f?.card ?? 0, maxCard) };
+      }),
+      h: () => setFocus((f) => {
+        const col = Math.max((f?.col ?? 1) - 1, 0);
+        const maxCard = Math.max(getColumnTasks(col).length - 1, 0);
+        return { col, card: Math.min(f?.card ?? 0, maxCard) };
+      }),
+      ArrowRight: () => setFocus((f) => {
+        const col = Math.min((f?.col ?? -1) + 1, COLUMNS.length - 1);
+        const maxCard = Math.max(getColumnTasks(col).length - 1, 0);
+        return { col, card: Math.min(f?.card ?? 0, maxCard) };
+      }),
+      l: () => setFocus((f) => {
+        const col = Math.min((f?.col ?? -1) + 1, COLUMNS.length - 1);
+        const maxCard = Math.max(getColumnTasks(col).length - 1, 0);
+        return { col, card: Math.min(f?.card ?? 0, maxCard) };
+      }),
+      ArrowUp: () => setFocus((f) => f ? { ...f, card: Math.max(f.card - 1, 0) } : { col: 0, card: 0 }),
+      k: () => setFocus((f) => f ? { ...f, card: Math.max(f.card - 1, 0) } : { col: 0, card: 0 }),
+      ArrowDown: () => setFocus((f) => {
+        const col = f?.col ?? 0;
+        const maxCard = Math.max(getColumnTasks(col).length - 1, 0);
+        return { col, card: Math.min((f?.card ?? -1) + 1, maxCard) };
+      }),
+      j: () => setFocus((f) => {
+        const col = f?.col ?? 0;
+        const maxCard = Math.max(getColumnTasks(col).length - 1, 0);
+        return { col, card: Math.min((f?.card ?? -1) + 1, maxCard) };
+      }),
+      Enter: () => {
+        const task = getFocusedTask();
+        if (task) navigate(`/tasks/${task.id}`);
+      },
+      Escape: () => setFocus(null),
+      'Shift+ArrowLeft': () => {
+        if (!focus) return;
+        const task = getFocusedTask();
+        if (!task || focus.col === 0) return;
+        const newCol = focus.col - 1;
+        updateTaskMutation.mutate({ id: task.id, status: STATUS_ORDER[newCol] });
+        const maxCard = Math.max(getColumnTasks(newCol).length, 0); // new card will be appended
+        setFocus({ col: newCol, card: Math.min(focus.card, maxCard) });
+      },
+      'Shift+ArrowRight': () => {
+        if (!focus) return;
+        const task = getFocusedTask();
+        if (!task || focus.col >= COLUMNS.length - 1) return;
+        const newCol = focus.col + 1;
+        updateTaskMutation.mutate({ id: task.id, status: STATUS_ORDER[newCol] });
+        const maxCard = Math.max(getColumnTasks(newCol).length, 0);
+        setFocus({ col: newCol, card: Math.min(focus.card, maxCard) });
+      },
+      n: () => { if (hasProjects) setShowCreateTask(true); },
+      p: () => setShowCreateProject(true),
+      f: () => filterRef.current?.focus(),
+      '1': () => setFocus({ col: 0, card: 0 }),
+      '2': () => setFocus({ col: 1, card: 0 }),
+      '3': () => setFocus({ col: 2, card: 0 }),
+      '4': () => setFocus({ col: 3, card: 0 }),
+      '?': () => setShowHelp(true),
+    },
+    enabled: !showCreateTask && !showCreateProject && !showHelp && !contextMenu,
+  });
+
+  // Sync mobile tab to focus column
+  useEffect(() => {
+    if (focus && isMobile) {
+      setActiveColumnIndex(focus.col);
+    }
+  }, [focus, isMobile]);
+
   return (
     <Layout>
       {/* Header */}
@@ -105,6 +215,7 @@ export function Dashboard() {
                 : 'all_tasks'}
             </h2>
             <select
+              ref={filterRef}
               value={selectedProjectId ?? ''}
               onChange={(e) => setSelectedProjectId(e.target.value || undefined)}
               className="px-2 md:px-3 py-1 md:py-1.5 text-xs md:text-sm border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none flex-1 md:flex-none max-w-[150px] md:max-w-none"
@@ -172,7 +283,7 @@ export function Dashboard() {
               <div className="text-center text-dim py-8 text-sm">empty</div>
             ) : (
               <div className="space-y-3">
-                {getTasksByStatus(COLUMNS[activeColumnIndex].id).map((task) => (
+                {getTasksByStatus(COLUMNS[activeColumnIndex].id).map((task, cardIdx) => (
                   <TaskCard
                     key={task.id}
                     task={task}
@@ -181,6 +292,7 @@ export function Dashboard() {
                     onDragEnd={handleDragEnd}
                     isMobile
                     onLongPress={(x, y) => setContextMenu({ taskId: task.id, x, y })}
+                    focused={focus?.col === activeColumnIndex && focus?.card === cardIdx}
                   />
                 ))}
               </div>
@@ -191,7 +303,7 @@ export function Dashboard() {
         // Desktop: Horizontal scrolling kanban
         <div className="p-6 h-[calc(100vh-73px)] overflow-x-auto">
           <div className="flex gap-4 h-full min-w-max">
-            {COLUMNS.map((column) => (
+            {COLUMNS.map((column, colIdx) => (
               <div
                 key={column.id}
                 className={`w-80 flex flex-col bg-secondary border transition-colors ${
@@ -226,13 +338,14 @@ export function Dashboard() {
                       empty
                     </div>
                   ) : (
-                    getTasksByStatus(column.id).map((task) => (
+                    getTasksByStatus(column.id).map((task, cardIdx) => (
                       <TaskCard
                         key={task.id}
                         task={task}
                         projectName={!selectedProjectId ? getProjectName(task.projectId) : undefined}
                         onDragStart={handleDragStart}
                         onDragEnd={handleDragEnd}
+                        focused={focus?.col === colIdx && focus?.card === cardIdx}
                       />
                     ))
                   )}
@@ -271,9 +384,21 @@ export function Dashboard() {
           onClose={() => setShowCreateTask(false)}
         />
       )}
+
+      {/* Help Overlay */}
+      {showHelp && (
+        <HelpOverlay page="dashboard" onClose={() => setShowHelp(false)} />
+      )}
     </Layout>
   );
 }
+
+const STATUS_COLORS: Record<TaskStatus, string> = {
+  backlog: 'var(--color-status-backlog)',
+  in_progress: 'var(--color-status-in-progress)',
+  blocked: 'var(--color-status-blocked)',
+  done: 'var(--color-status-done)',
+};
 
 interface TaskCardProps {
   task: Task;
@@ -282,19 +407,20 @@ interface TaskCardProps {
   onDragEnd: () => void;
   isMobile?: boolean;
   onLongPress?: (x: number, y: number) => void;
+  focused?: boolean;
 }
 
-function TaskCard({ task, projectName, onDragStart, onDragEnd, isMobile, onLongPress }: TaskCardProps) {
+function TaskCard({ task, projectName, onDragStart, onDragEnd, isMobile, onLongPress, focused }: TaskCardProps) {
   const navigate = useNavigate();
+  const cardRef = useRef<HTMLDivElement>(null);
+
   const handleClick = () => {
-    // Navigate to task detail on click (but not on drag)
     navigate(`/tasks/${task.id}`);
   };
 
   const longPressHandlers = useLongPress({
     onLongPress: () => {
       if (onLongPress) {
-        // Get element position for context menu
         const rect = document.getElementById(`task-${task.id}`)?.getBoundingClientRect();
         if (rect) {
           onLongPress(rect.left, rect.bottom);
@@ -305,16 +431,25 @@ function TaskCard({ task, projectName, onDragStart, onDragEnd, isMobile, onLongP
     delay: 500,
   });
 
+  // Scroll focused card into view
+  useEffect(() => {
+    if (focused && cardRef.current) {
+      cardRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [focused]);
+
   return (
     <div
+      ref={cardRef}
       id={`task-${task.id}`}
       draggable={!isMobile}
       onDragStart={!isMobile ? (e) => onDragStart(e, task.id) : undefined}
       onDragEnd={!isMobile ? onDragEnd : undefined}
       {...(isMobile ? longPressHandlers : { onClick: handleClick })}
-      className={`bg-primary p-3 border border-subtle hover:border-accent transition-colors cursor-pointer ${
+      className={`bg-primary p-3 border-l-2 border border-subtle hover:border-accent transition-colors cursor-pointer ${
         isMobile ? 'select-none' : ''
-      }`}
+      } ${focused ? 'border-accent bg-[var(--color-accent-glow)]' : ''}`}
+      style={{ borderLeftColor: STATUS_COLORS[task.status] }}
     >
       <h4 className="font-medium text-sm">
         {task.title}
@@ -355,6 +490,12 @@ interface TaskContextMenuProps {
 }
 
 function TaskContextMenu({ x, y, currentStatus, onClose, onStatusChange }: TaskContextMenuProps) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [onClose]);
+
   // Adjust position to keep menu on screen
   const menuStyle = {
     left: Math.min(x, window.innerWidth - 160),
@@ -402,11 +543,53 @@ interface CreateProjectModalProps {
   onClose: () => void;
 }
 
+function isGitHubURL(s: string): boolean {
+  const trimmed = s.trim();
+  return trimmed.startsWith('https://github.com/') ||
+    trimmed.startsWith('http://github.com/') ||
+    trimmed.startsWith('git@github.com:');
+}
+
+function parseRepoName(url: string): string {
+  let cleaned = url.trim().replace(/\/+$/, '').replace(/\.git$/, '');
+  if (cleaned.startsWith('git@github.com:')) {
+    cleaned = cleaned.replace('git@github.com:', '');
+  }
+  const parts = cleaned.split('/');
+  return parts[parts.length - 1] || '';
+}
+
+function parseDirName(path: string): string {
+  const trimmed = path.trim().replace(/\/+$/, '');
+  const parts = trimmed.split('/');
+  return parts[parts.length - 1] || '';
+}
+
 function CreateProjectModal({ onClose }: CreateProjectModalProps) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [onClose]);
+
+  const [source, setSource] = useState('');
   const [name, setName] = useState('');
-  const [path, setPath] = useState('');
+  const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
   const [error, setError] = useState('');
   const queryClient = useQueryClient();
+
+  const isClone = isGitHubURL(source);
+
+  const handleSourceChange = (value: string) => {
+    setSource(value);
+    if (!nameManuallyEdited) {
+      if (isGitHubURL(value)) {
+        setName(parseRepoName(value));
+      } else if (value.includes('/')) {
+        setName(parseDirName(value));
+      }
+    }
+  };
 
   const createMutation = useMutation({
     mutationFn: (input: CreateProjectInput) => projectsApi.create(input),
@@ -422,7 +605,11 @@ function CreateProjectModal({ onClose }: CreateProjectModalProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    createMutation.mutate({ name, path });
+    if (isClone) {
+      createMutation.mutate({ name, githubUrl: source });
+    } else {
+      createMutation.mutate({ name, path: source });
+    }
   };
 
   return (
@@ -438,24 +625,32 @@ function CreateProjectModal({ onClose }: CreateProjectModalProps) {
             </div>
           )}
           <div>
+            <label className="block text-sm text-dim mb-1">path or github url</label>
+            <input
+              type="text"
+              value={source}
+              onChange={(e) => handleSourceChange(e.target.value)}
+              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none"
+              placeholder="https://github.com/user/repo or /path/to/project"
+              required
+            />
+            {isClone && name && (
+              <p className="text-xs text-dim mt-1">
+                // will clone to ~/.codeburg/repos/{name}/
+              </p>
+            )}
+          </div>
+          <div>
             <label className="block text-sm text-dim mb-1">name</label>
             <input
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                setNameManuallyEdited(true);
+              }}
               className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none"
               placeholder="my-project"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-dim mb-1">path</label>
-            <input
-              type="text"
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none"
-              placeholder="/home/user/projects/my-project"
               required
             />
           </div>
@@ -472,7 +667,9 @@ function CreateProjectModal({ onClose }: CreateProjectModalProps) {
               disabled={createMutation.isPending}
               className="flex-1 py-2 px-4 border border-accent text-accent text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50"
             >
-              {createMutation.isPending ? 'creating...' : 'create'}
+              {createMutation.isPending
+                ? (isClone ? 'cloning...' : 'creating...')
+                : 'create'}
             </button>
           </div>
         </form>
@@ -488,6 +685,12 @@ interface CreateTaskModalProps {
 }
 
 function CreateTaskModal({ projects, defaultProjectId, onClose }: CreateTaskModalProps) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [onClose]);
+
   const [projectId, setProjectId] = useState(defaultProjectId ?? projects[0]?.id ?? '');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');

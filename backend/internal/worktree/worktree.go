@@ -1,11 +1,13 @@
 package worktree
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Config holds the configuration for worktree operations
@@ -256,8 +258,10 @@ func (m *Manager) createSymlink(src, dst string) error {
 }
 
 func (m *Manager) runScript(workDir, script string) error {
-	// Run script using sh -c for shell interpretation
-	cmd := exec.Command("sh", "-c", script)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", script)
 	cmd.Dir = workDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

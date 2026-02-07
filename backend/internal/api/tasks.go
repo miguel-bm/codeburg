@@ -1,7 +1,6 @@
 package api
 
 import (
-	"database/sql"
 	"fmt"
 	"net/http"
 
@@ -27,10 +26,6 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if tasks == nil {
-		tasks = []*db.Task{}
-	}
-
 	writeJSON(w, http.StatusOK, tasks)
 }
 
@@ -40,11 +35,7 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	// Verify project exists
 	_, err := s.db.GetProject(projectID)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "project not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to verify project")
+		writeDBError(w, err, "project")
 		return
 	}
 
@@ -76,11 +67,7 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 
 	task, err := s.db.GetTask(id)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "task not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to get task")
+		writeDBError(w, err, "task")
 		return
 	}
 
@@ -113,11 +100,7 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 	// Get current task to check status transition
 	currentTask, err := s.db.GetTask(id)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "task not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to get task")
+		writeDBError(w, err, "task")
 		return
 	}
 
@@ -134,11 +117,7 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 
 	task, err := s.db.UpdateTask(id, input)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "task not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to update task")
+		writeDBError(w, err, "task")
 		return
 	}
 
@@ -175,11 +154,7 @@ func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 	id := urlParam(r, "id")
 
 	if err := s.db.DeleteTask(id); err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "task not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to delete task")
+		writeDBError(w, err, "task")
 		return
 	}
 
