@@ -367,6 +367,109 @@ func TestDeleteTask(t *testing.T) {
 	}
 }
 
+func TestCreateProject_WithWorkflow(t *testing.T) {
+	db := openTestDB(t)
+
+	boolTrue := true
+	project, err := db.CreateProject(CreateProjectInput{
+		Name: "workflow-project",
+		Path: "/tmp/workflow",
+		Workflow: &ProjectWorkflow{
+			BacklogToProgress: &BacklogToProgressConfig{
+				Action:         "auto_claude",
+				DefaultModel:   "claude-sonnet-4-5-20250929",
+				PromptTemplate: "Work on: {title}\n\n{description}",
+			},
+			ReviewToDone: &ReviewToDoneConfig{
+				Action:          "merge_branch",
+				MergeStrategy:   "squash",
+				DeleteBranch:    &boolTrue,
+				CleanupWorktree: &boolTrue,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create project with workflow: %v", err)
+	}
+
+	if project.Workflow == nil {
+		t.Fatal("expected workflow to be set")
+	}
+	if project.Workflow.BacklogToProgress == nil {
+		t.Fatal("expected backlogToProgress to be set")
+	}
+	if project.Workflow.BacklogToProgress.Action != "auto_claude" {
+		t.Errorf("expected action 'auto_claude', got %q", project.Workflow.BacklogToProgress.Action)
+	}
+	if project.Workflow.BacklogToProgress.DefaultModel != "claude-sonnet-4-5-20250929" {
+		t.Errorf("expected model 'claude-sonnet-4-5-20250929', got %q", project.Workflow.BacklogToProgress.DefaultModel)
+	}
+	if project.Workflow.ReviewToDone == nil {
+		t.Fatal("expected reviewToDone to be set")
+	}
+	if project.Workflow.ReviewToDone.MergeStrategy != "squash" {
+		t.Errorf("expected merge strategy 'squash', got %q", project.Workflow.ReviewToDone.MergeStrategy)
+	}
+}
+
+func TestUpdateProject_Workflow(t *testing.T) {
+	db := openTestDB(t)
+
+	project, _ := db.CreateProject(CreateProjectInput{
+		Name: "no-workflow",
+		Path: "/tmp/no-workflow",
+	})
+
+	if project.Workflow != nil {
+		t.Error("expected nil workflow initially")
+	}
+
+	// Add workflow
+	updated, err := db.UpdateProject(project.ID, UpdateProjectInput{
+		Workflow: &ProjectWorkflow{
+			BacklogToProgress: &BacklogToProgressConfig{
+				Action: "ask",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("update project workflow: %v", err)
+	}
+
+	if updated.Workflow == nil {
+		t.Fatal("expected workflow to be set after update")
+	}
+	if updated.Workflow.BacklogToProgress == nil {
+		t.Fatal("expected backlogToProgress to be set")
+	}
+	if updated.Workflow.BacklogToProgress.Action != "ask" {
+		t.Errorf("expected action 'ask', got %q", updated.Workflow.BacklogToProgress.Action)
+	}
+}
+
+func TestTaskStatus_InReview(t *testing.T) {
+	db := openTestDB(t)
+
+	project, _ := db.CreateProject(CreateProjectInput{
+		Name: "p", Path: "/tmp/p",
+	})
+	task, _ := db.CreateTask(CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "Review Task",
+	})
+
+	inReview := TaskStatusInReview
+	updated, err := db.UpdateTask(task.ID, UpdateTaskInput{
+		Status: &inReview,
+	})
+	if err != nil {
+		t.Fatalf("update to in_review: %v", err)
+	}
+	if updated.Status != TaskStatusInReview {
+		t.Errorf("expected in_review, got %q", updated.Status)
+	}
+}
+
 // --- Session Tests ---
 
 func TestCreateSession(t *testing.T) {

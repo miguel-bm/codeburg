@@ -531,18 +531,18 @@ func TestUpdateTask_Status(t *testing.T) {
 	var task db.Task
 	decodeResponse(t, taskResp, &task)
 
-	// Update status to blocked
+	// Update status to in_review
 	resp := env.patch("/api/tasks/"+task.ID, map[string]string{
-		"status": "blocked",
+		"status": "in_review",
 	})
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
 
-	var updated db.Task
+	var updated map[string]interface{}
 	decodeResponse(t, resp, &updated)
-	if updated.Status != "blocked" {
-		t.Errorf("expected status 'blocked', got %q", updated.Status)
+	if updated["status"] != "in_review" {
+		t.Errorf("expected status 'in_review', got %v", updated["status"])
 	}
 }
 
@@ -1203,6 +1203,106 @@ func TestSessionHook_NoToken(t *testing.T) {
 		map[string]string{"hook_event_name": "Notification"}, "")
 	if resp.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401 with no token, got %d", resp.Code)
+	}
+}
+
+// --- Workflow Tests ---
+
+func TestUpdateTask_BlockedStatus_Rejected(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "p", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Blocked Status Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	resp := env.patch("/api/tasks/"+task.ID, map[string]string{
+		"status": "blocked",
+	})
+	if resp.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for blocked status, got %d", resp.Code)
+	}
+}
+
+func TestUpdateTask_WorkflowAsk(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "workflow-ask-project", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	// Set workflow to "ask" on backlog→in_progress
+	env.server.db.UpdateProject(project.ID, db.UpdateProjectInput{
+		Workflow: &db.ProjectWorkflow{
+			BacklogToProgress: &db.BacklogToProgressConfig{
+				Action: "ask",
+			},
+		},
+	})
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Ask Workflow Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	// Move to in_progress — should get workflowAction="ask"
+	resp := env.patch("/api/tasks/"+task.ID, map[string]string{
+		"status": "in_progress",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]interface{}
+	decodeResponse(t, resp, &body)
+
+	if body["workflowAction"] != "ask" {
+		t.Errorf("expected workflowAction 'ask', got %v", body["workflowAction"])
+	}
+}
+
+func TestUpdateTask_StatusInReview(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "p", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Review Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	resp := env.patch("/api/tasks/"+task.ID, map[string]string{
+		"status": "in_review",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body map[string]interface{}
+	decodeResponse(t, resp, &body)
+	if body["status"] != "in_review" {
+		t.Errorf("expected status 'in_review', got %v", body["status"])
 	}
 }
 

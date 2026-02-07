@@ -169,4 +169,13 @@ var migrations = []migration{
 			ALTER TABLE agent_sessions ADD COLUMN last_activity_at TIMESTAMP;
 		`,
 	},
+	{
+		version: 5,
+		sql: `
+			-- Add workflow configuration to projects
+			ALTER TABLE projects ADD COLUMN workflow TEXT;
+			-- Replace 'blocked' status with 'in_review'; migrate existing blocked tasks to backlog
+			UPDATE tasks SET status = 'backlog' WHERE status = 'blocked';
+		`,
+	},
 }

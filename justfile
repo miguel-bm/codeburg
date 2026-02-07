@@ -60,13 +60,13 @@ lint-fe:
 
 # --- Deploy ---
 
-# Deploy to production server
-deploy:
-    ssh codeburg-server '/opt/codeburg/deploy/deploy.sh'
+# Deploy to production server (optionally specify branch, default: main)
+deploy branch="main":
+    ssh codeburg-server '/opt/codeburg/deploy/deploy.sh {{branch}}'
 
-# Commit, push, and deploy in one shot
+# Commit, push, and deploy in one shot (uses current branch)
 yeet msg:
     git add -A
     git commit -m "{{msg}}"
     git push
-    just deploy
+    just deploy "$(git branch --show-current)"

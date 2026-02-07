@@ -2,7 +2,9 @@ package api
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/miguel-bm/codeburg/internal/db"
 	"github.com/miguel-bm/codeburg/internal/worktree"
@@ -88,7 +90,7 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 		validStatuses := map[db.TaskStatus]bool{
 			db.TaskStatusBacklog:    true,
 			db.TaskStatusInProgress: true,
-			db.TaskStatusBlocked:    true,
+			db.TaskStatusInReview:   true,
 			db.TaskStatusDone:       true,
 		}
 		if !validStatuses[*input.Status] {
@@ -121,7 +123,81 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, task)
+	// Check for workflow automation on status transitions
+	resp := updateTaskResponse{Task: task}
+	if input.Status != nil && *input.Status != currentTask.Status {
+		s.dispatchWorkflow(currentTask, task, &resp)
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// updateTaskResponse wraps a Task with optional workflow automation hints.
+type updateTaskResponse struct {
+	*db.Task
+	WorkflowAction *string `json:"workflowAction,omitempty"` // "ask" when user should pick provider
+	SessionStarted *string `json:"sessionStarted,omitempty"` // session ID if auto-started
+}
+
+// dispatchWorkflow checks the project's workflow config and acts on status transitions.
+func (s *Server) dispatchWorkflow(oldTask, newTask *db.Task, resp *updateTaskResponse) {
+	project, err := s.db.GetProject(newTask.ProjectID)
+	if err != nil || project.Workflow == nil {
+		return
+	}
+	wf := project.Workflow
+
+	// backlog → in_progress
+	if oldTask.Status == db.TaskStatusBacklog && newTask.Status == db.TaskStatusInProgress {
+		if wf.BacklogToProgress == nil {
+			return
+		}
+		cfg := wf.BacklogToProgress
+		switch cfg.Action {
+		case "auto_claude", "auto_codex":
+			provider := "claude"
+			if cfg.Action == "auto_codex" {
+				provider = "codex"
+			}
+			prompt := buildPromptFromTemplate(cfg.PromptTemplate, newTask.Title, ptrToString(newTask.Description))
+			session, err := s.startSessionInternal(newTask, StartSessionRequest{
+				Provider: provider,
+				Prompt:   prompt,
+				Model:    cfg.DefaultModel,
+			})
+			if err != nil {
+				slog.Error("workflow auto-start failed", "task_id", newTask.ID, "error", err)
+				return
+			}
+			resp.SessionStarted = &session.ID
+		case "ask":
+			action := "ask"
+			resp.WorkflowAction = &action
+		}
+	}
+
+	// in_progress → in_review (stub for future)
+	if oldTask.Status == db.TaskStatusInProgress && newTask.Status == db.TaskStatusInReview {
+		if wf.ProgressToReview != nil {
+			slog.Info("workflow: progress→review stub", "task_id", newTask.ID, "action", wf.ProgressToReview.Action)
+		}
+	}
+
+	// in_review → done (stub for future)
+	if oldTask.Status == db.TaskStatusInReview && newTask.Status == db.TaskStatusDone {
+		if wf.ReviewToDone != nil {
+			slog.Info("workflow: review→done stub", "task_id", newTask.ID, "action", wf.ReviewToDone.Action)
+		}
+	}
+}
+
+// buildPromptFromTemplate replaces {title} and {description} placeholders in a template.
+func buildPromptFromTemplate(tmpl, title, description string) string {
+	if tmpl == "" {
+		return ""
+	}
+	r := strings.NewReplacer("{title}", title, "{description}", description)
+	return r.Replace(tmpl)
 }
 
 // autoCreateWorktree creates a worktree for a task and updates the input with worktree info

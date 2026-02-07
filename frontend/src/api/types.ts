@@ -1,3 +1,27 @@
+export interface BacklogToProgressConfig {
+  action: 'auto_claude' | 'auto_codex' | 'ask' | 'nothing';
+  defaultModel?: string;
+  promptTemplate?: string;
+}
+
+export interface ProgressToReviewConfig {
+  action: 'pr_manual' | 'pr_auto' | 'nothing';
+  prBaseBranch?: string;
+}
+
+export interface ReviewToDoneConfig {
+  action: 'merge_pr' | 'merge_branch' | 'nothing';
+  mergeStrategy?: 'merge' | 'squash' | 'rebase';
+  deleteBranch?: boolean;
+  cleanupWorktree?: boolean;
+}
+
+export interface ProjectWorkflow {
+  backlogToProgress?: BacklogToProgressConfig;
+  progressToReview?: ProgressToReviewConfig;
+  reviewToDone?: ReviewToDoneConfig;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -7,6 +31,7 @@ export interface Project {
   symlinkPaths?: string[];
   setupScript?: string;
   teardownScript?: string;
+  workflow?: ProjectWorkflow;
   createdAt: string;
   updatedAt: string;
 }
@@ -30,6 +55,7 @@ export interface UpdateProjectInput {
   symlinkPaths?: string[];
   setupScript?: string;
   teardownScript?: string;
+  workflow?: ProjectWorkflow;
 }
 
 export interface WorktreeResponse {
@@ -37,7 +63,7 @@ export interface WorktreeResponse {
   branchName: string;
 }
 
-export type TaskStatus = 'backlog' | 'in_progress' | 'blocked' | 'done';
+export type TaskStatus = 'backlog' | 'in_progress' | 'in_review' | 'done';
 
 export interface Task {
   id: string;
@@ -65,6 +91,11 @@ export interface UpdateTaskInput {
   branch?: string;
   worktreePath?: string;
   pinned?: boolean;
+}
+
+export interface UpdateTaskResponse extends Task {
+  workflowAction?: string;
+  sessionStarted?: string;
 }
 
 export interface AuthStatus {

@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { Task, CreateTaskInput, UpdateTaskInput, TaskStatus, WorktreeResponse } from './types';
+import type { Task, CreateTaskInput, UpdateTaskInput, UpdateTaskResponse, TaskStatus, WorktreeResponse } from './types';
 
 export const tasksApi = {
   list: (params?: { project?: string; status?: TaskStatus }) => {
@@ -16,7 +16,7 @@ export const tasksApi = {
     api.post<Task>(`/projects/${projectId}/tasks`, input),
 
   update: (id: string, input: UpdateTaskInput) =>
-    api.patch<Task>(`/tasks/${id}`, input),
+    api.patch<UpdateTaskResponse>(`/tasks/${id}`, input),
 
   delete: (id: string) => api.delete(`/tasks/${id}`),
 

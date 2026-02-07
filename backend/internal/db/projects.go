@@ -8,37 +8,68 @@ import (
 	"time"
 )
 
+// ProjectWorkflow stores per-transition automation configuration.
+type ProjectWorkflow struct {
+	BacklogToProgress *BacklogToProgressConfig `json:"backlogToProgress,omitempty"`
+	ProgressToReview  *ProgressToReviewConfig  `json:"progressToReview,omitempty"`
+	ReviewToDone      *ReviewToDoneConfig      `json:"reviewToDone,omitempty"`
+}
+
+// BacklogToProgressConfig defines what happens when a task moves from backlog to in_progress.
+type BacklogToProgressConfig struct {
+	Action         string `json:"action"`                   // "auto_claude"|"auto_codex"|"ask"|"nothing"
+	DefaultModel   string `json:"defaultModel,omitempty"`
+	PromptTemplate string `json:"promptTemplate,omitempty"` // supports {title}, {description}
+}
+
+// ProgressToReviewConfig defines what happens when a task moves from in_progress to in_review.
+type ProgressToReviewConfig struct {
+	Action       string `json:"action"`                 // "pr_manual"|"pr_auto"|"nothing"
+	PRBaseBranch string `json:"prBaseBranch,omitempty"`
+}
+
+// ReviewToDoneConfig defines what happens when a task moves from in_review to done.
+type ReviewToDoneConfig struct {
+	Action          string `json:"action"`                    // "merge_pr"|"merge_branch"|"nothing"
+	MergeStrategy   string `json:"mergeStrategy,omitempty"`   // "merge"|"squash"|"rebase"
+	DeleteBranch    *bool  `json:"deleteBranch,omitempty"`
+	CleanupWorktree *bool  `json:"cleanupWorktree,omitempty"`
+}
+
 type Project struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	Path           string    `json:"path"`
-	GitOrigin      *string   `json:"gitOrigin,omitempty"`
-	DefaultBranch  string    `json:"defaultBranch"`
-	SymlinkPaths   []string  `json:"symlinkPaths,omitempty"`
-	SetupScript    *string   `json:"setupScript,omitempty"`
-	TeardownScript *string   `json:"teardownScript,omitempty"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	ID             string           `json:"id"`
+	Name           string           `json:"name"`
+	Path           string           `json:"path"`
+	GitOrigin      *string          `json:"gitOrigin,omitempty"`
+	DefaultBranch  string           `json:"defaultBranch"`
+	SymlinkPaths   []string         `json:"symlinkPaths,omitempty"`
+	SetupScript    *string          `json:"setupScript,omitempty"`
+	TeardownScript *string          `json:"teardownScript,omitempty"`
+	Workflow       *ProjectWorkflow `json:"workflow,omitempty"`
+	CreatedAt      time.Time        `json:"createdAt"`
+	UpdatedAt      time.Time        `json:"updatedAt"`
 }
 
 type CreateProjectInput struct {
-	Name           string   `json:"name"`
-	Path           string   `json:"path"`
-	GitOrigin      *string  `json:"gitOrigin,omitempty"`
-	DefaultBranch  *string  `json:"defaultBranch,omitempty"`
-	SymlinkPaths   []string `json:"symlinkPaths,omitempty"`
-	SetupScript    *string  `json:"setupScript,omitempty"`
-	TeardownScript *string  `json:"teardownScript,omitempty"`
+	Name           string           `json:"name"`
+	Path           string           `json:"path"`
+	GitOrigin      *string          `json:"gitOrigin,omitempty"`
+	DefaultBranch  *string          `json:"defaultBranch,omitempty"`
+	SymlinkPaths   []string         `json:"symlinkPaths,omitempty"`
+	SetupScript    *string          `json:"setupScript,omitempty"`
+	TeardownScript *string          `json:"teardownScript,omitempty"`
+	Workflow       *ProjectWorkflow `json:"workflow,omitempty"`
 }
 
 type UpdateProjectInput struct {
-	Name           *string  `json:"name,omitempty"`
-	Path           *string  `json:"path,omitempty"`
-	GitOrigin      *string  `json:"gitOrigin,omitempty"`
-	DefaultBranch  *string  `json:"defaultBranch,omitempty"`
-	SymlinkPaths   []string `json:"symlinkPaths,omitempty"`
-	SetupScript    *string  `json:"setupScript,omitempty"`
-	TeardownScript *string  `json:"teardownScript,omitempty"`
+	Name           *string          `json:"name,omitempty"`
+	Path           *string          `json:"path,omitempty"`
+	GitOrigin      *string          `json:"gitOrigin,omitempty"`
+	DefaultBranch  *string          `json:"defaultBranch,omitempty"`
+	SymlinkPaths   []string         `json:"symlinkPaths,omitempty"`
+	SetupScript    *string          `json:"setupScript,omitempty"`
+	TeardownScript *string          `json:"teardownScript,omitempty"`
+	Workflow       *ProjectWorkflow `json:"workflow,omitempty"`
 }
 
 // CreateProject creates a new project
@@ -60,10 +91,20 @@ func (db *DB) CreateProject(input CreateProjectInput) (*Project, error) {
 		symlinkPathsJSON = sql.NullString{String: string(data), Valid: true}
 	}
 
+	// Serialize workflow as JSON
+	var workflowJSON sql.NullString
+	if input.Workflow != nil {
+		data, err := json.Marshal(input.Workflow)
+		if err != nil {
+			return nil, fmt.Errorf("marshal workflow: %w", err)
+		}
+		workflowJSON = sql.NullString{String: string(data), Valid: true}
+	}
+
 	_, err := db.conn.Exec(`
-		INSERT INTO projects (id, name, path, git_origin, default_branch, symlink_paths, setup_script, teardown_script, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, input.Name, input.Path, NullString(input.GitOrigin), defaultBranch, symlinkPathsJSON, NullString(input.SetupScript), NullString(input.TeardownScript), now, now)
+		INSERT INTO projects (id, name, path, git_origin, default_branch, symlink_paths, setup_script, teardown_script, workflow, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, id, input.Name, input.Path, NullString(input.GitOrigin), defaultBranch, symlinkPathsJSON, NullString(input.SetupScript), NullString(input.TeardownScript), workflowJSON, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("insert project: %w", err)
 	}
@@ -74,7 +115,7 @@ func (db *DB) CreateProject(input CreateProjectInput) (*Project, error) {
 // GetProject retrieves a project by ID
 func (db *DB) GetProject(id string) (*Project, error) {
 	row := db.conn.QueryRow(`
-		SELECT id, name, path, git_origin, default_branch, symlink_paths, setup_script, teardown_script, created_at, updated_at
+		SELECT id, name, path, git_origin, default_branch, symlink_paths, setup_script, teardown_script, workflow, created_at, updated_at
 		FROM projects WHERE id = ?
 	`, id)
 
@@ -88,7 +129,7 @@ func (db *DB) GetProject(id string) (*Project, error) {
 // ListProjects retrieves all projects
 func (db *DB) ListProjects() ([]*Project, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, name, path, git_origin, default_branch, symlink_paths, setup_script, teardown_script, created_at, updated_at
+		SELECT id, name, path, git_origin, default_branch, symlink_paths, setup_script, teardown_script, workflow, created_at, updated_at
 		FROM projects ORDER BY name
 	`)
 	if err != nil {
@@ -146,6 +187,14 @@ func (db *DB) UpdateProject(id string, input UpdateProjectInput) (*Project, erro
 		query += ", teardown_script = ?"
 		args = append(args, *input.TeardownScript)
 	}
+	if input.Workflow != nil {
+		data, err := json.Marshal(input.Workflow)
+		if err != nil {
+			return nil, fmt.Errorf("marshal workflow: %w", err)
+		}
+		query += ", workflow = ?"
+		args = append(args, string(data))
+	}
 
 	query += " WHERE id = ?"
 	args = append(args, id)
@@ -186,9 +235,9 @@ func (db *DB) DeleteProject(id string) error {
 
 func scanProject(scan scanFunc) (*Project, error) {
 	var p Project
-	var gitOrigin, symlinkPathsJSON, setupScript, teardownScript sql.NullString
+	var gitOrigin, symlinkPathsJSON, setupScript, teardownScript, workflowJSON sql.NullString
 
-	err := scan(&p.ID, &p.Name, &p.Path, &gitOrigin, &p.DefaultBranch, &symlinkPathsJSON, &setupScript, &teardownScript, &p.CreatedAt, &p.UpdatedAt)
+	err := scan(&p.ID, &p.Name, &p.Path, &gitOrigin, &p.DefaultBranch, &symlinkPathsJSON, &setupScript, &teardownScript, &workflowJSON, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -202,6 +251,15 @@ func scanProject(scan scanFunc) (*Project, error) {
 		if err := json.Unmarshal([]byte(symlinkPathsJSON.String), &p.SymlinkPaths); err != nil {
 			return nil, fmt.Errorf("unmarshal symlink paths: %w", err)
 		}
+	}
+
+	// Parse workflow from JSON
+	if workflowJSON.Valid && workflowJSON.String != "" {
+		var wf ProjectWorkflow
+		if err := json.Unmarshal([]byte(workflowJSON.String), &wf); err != nil {
+			return nil, fmt.Errorf("unmarshal workflow: %w", err)
+		}
+		p.Workflow = &wf
 	}
 
 	return &p, nil

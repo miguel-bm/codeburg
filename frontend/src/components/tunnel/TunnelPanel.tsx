@@ -98,7 +98,7 @@ export function TunnelPanel({ taskId }: TunnelPanelProps) {
             </button>
           </div>
           {createMutation.error && (
-            <div className="mt-2 text-xs text-[var(--color-status-blocked)]">
+            <div className="mt-2 text-xs text-[var(--color-error)]">
               {createMutation.error.message}
             </div>
           )}
@@ -125,7 +125,7 @@ export function TunnelPanel({ taskId }: TunnelPanelProps) {
                   <button
                     onClick={() => stopMutation.mutate(tunnel.id)}
                     disabled={stopMutation.isPending}
-                    className="text-xs text-[var(--color-status-blocked)] hover:underline disabled:opacity-50"
+                    className="text-xs text-[var(--color-error)] hover:underline disabled:opacity-50"
                   >
                     stop
                   </button>

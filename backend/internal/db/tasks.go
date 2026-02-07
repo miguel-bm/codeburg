@@ -12,7 +12,7 @@ type TaskStatus string
 const (
 	TaskStatusBacklog    TaskStatus = "backlog"
 	TaskStatusInProgress TaskStatus = "in_progress"
-	TaskStatusBlocked    TaskStatus = "blocked"
+	TaskStatusInReview   TaskStatus = "in_review"
 	TaskStatusDone       TaskStatus = "done"
 )
 

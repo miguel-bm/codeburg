@@ -5,6 +5,7 @@ import { useAuthStore } from './stores/auth';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { TaskDetail } from './pages/TaskDetail';
+import { ProjectSettings } from './pages/ProjectSettings';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -45,6 +46,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/tasks/:id" element={<TaskDetail />} />
+            <Route path="/projects/:id/settings" element={<ProjectSettings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </AuthGate>

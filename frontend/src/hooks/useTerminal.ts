@@ -48,6 +48,7 @@ export function useTerminal(
       fontSize: 14,
       fontFamily: 'JetBrains Mono, Menlo, Monaco, Consolas, monospace',
       theme: TERMINAL_THEME,
+      scrollback: 5000,
     });
 
     terminalInstance.current = term;

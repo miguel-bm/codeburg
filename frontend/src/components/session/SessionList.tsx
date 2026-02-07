@@ -66,11 +66,11 @@ function SessionStatusBadge({ status }: SessionStatusBadgeProps) {
       case 'running':
         return 'status-in-progress';
       case 'waiting_input':
-        return 'status-blocked';
+        return 'status-in-review';
       case 'completed':
         return 'status-done';
       case 'error':
-        return 'text-[var(--color-status-blocked)]';
+        return 'text-[var(--color-error)]';
       default:
         return 'text-dim';
     }

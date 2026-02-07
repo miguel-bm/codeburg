@@ -138,7 +138,7 @@ export function TaskDetail() {
                 <button
                   onClick={() => stopSessionMutation.mutate(activeSession.id)}
                   disabled={stopSessionMutation.isPending}
-                  className="px-4 py-2 border border-[var(--color-status-blocked)] text-[var(--color-status-blocked)] text-sm hover:bg-[var(--color-status-blocked)] hover:text-[var(--color-bg-primary)] transition-colors"
+                  className="px-4 py-2 border border-[var(--color-error)] text-[var(--color-error)] text-sm hover:bg-[var(--color-error)] hover:text-[var(--color-bg-primary)] transition-colors"
                 >
                   stop
                 </button>
@@ -232,6 +232,7 @@ export function TaskDetail() {
       {/* Start Session Modal */}
       {showStartSession && (
         <StartSessionModal
+          taskTitle={task.title}
           taskDescription={task.description}
           onClose={() => setShowStartSession(false)}
           onStart={(provider, prompt) => startSessionMutation.mutate({ provider, prompt })}
@@ -256,7 +257,7 @@ function StatusBadge({ status }: StatusBadgeProps) {
   const statusColors: Record<string, string> = {
     backlog: 'status-backlog',
     in_progress: 'status-in-progress',
-    blocked: 'status-blocked',
+    in_review: 'status-in-review',
     done: 'status-done',
   };
 
@@ -348,6 +349,7 @@ function TaskInfo({ task, project }: TaskInfoProps) {
 }
 
 interface StartSessionModalProps {
+  taskTitle: string;
   taskDescription?: string;
   onClose: () => void;
   onStart: (provider: SessionProvider, prompt: string) => void;
@@ -355,22 +357,27 @@ interface StartSessionModalProps {
   error?: string;
 }
 
-function StartSessionModal({ taskDescription, onClose, onStart, isPending, error }: StartSessionModalProps) {
+function StartSessionModal({ taskTitle, taskDescription, onClose, onStart, isPending, error }: StartSessionModalProps) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
 
-  const [prompt, setPrompt] = useState(taskDescription ?? '');
+  const defaultPrompt = taskDescription
+    ? `${taskTitle}\n\n${taskDescription}`
+    : taskTitle;
+
+  const [includePrompt, setIncludePrompt] = useState(true);
+  const [prompt, setPrompt] = useState(defaultPrompt);
   const [provider, setProvider] = useState<SessionProvider>('claude');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (provider === 'terminal') {
       onStart('terminal', '');
-    } else if (prompt.trim()) {
-      onStart(provider, prompt.trim());
+    } else {
+      onStart(provider, includePrompt ? prompt.trim() : '');
     }
   };
 
@@ -388,7 +395,7 @@ function StartSessionModal({ taskDescription, onClose, onStart, isPending, error
         </div>
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           {error && (
-            <div className="border border-[var(--color-status-blocked)] p-3 text-sm text-[var(--color-status-blocked)]">
+            <div className="border border-[var(--color-error)] p-3 text-sm text-[var(--color-error)]">
               {error}
             </div>
           )}
@@ -419,26 +426,39 @@ function StartSessionModal({ taskDescription, onClose, onStart, isPending, error
           {/* Prompt (for claude/codex sessions) */}
           {provider !== 'terminal' && (
             <div>
-              <label className="block text-sm text-dim mb-1">
-                initial prompt
-              </label>
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                rows={4}
-                className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none resize-none"
-                placeholder="What would you like the agent to do?"
-                autoFocus
-              />
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-sm text-dim">initial prompt</label>
+                <button
+                  type="button"
+                  onClick={() => setIncludePrompt(!includePrompt)}
+                  className={`text-xs px-2 py-0.5 border transition-colors ${
+                    includePrompt
+                      ? 'border-accent text-accent'
+                      : 'border-subtle text-dim'
+                  }`}
+                >
+                  {includePrompt ? 'on' : 'off'}
+                </button>
+              </div>
+              {includePrompt && (
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  rows={4}
+                  className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none resize-none"
+                  placeholder="What would you like the agent to do?"
+                  autoFocus
+                />
+              )}
             </div>
           )}
 
           <div className="text-xs text-dim">
             {provider === 'terminal'
               ? 'Opens a terminal in the task\'s worktree directory.'
-              : provider === 'codex'
-              ? 'Starts Codex CLI with this prompt in the task\'s worktree.'
-              : 'Starts Claude Code interactively with hooks for status tracking.'}
+              : includePrompt
+              ? `Starts ${provider} with this prompt in the task's worktree.`
+              : `Starts ${provider} interactively in the task's worktree.`}
           </div>
 
           <div className="flex gap-2 pt-2">
@@ -451,7 +471,7 @@ function StartSessionModal({ taskDescription, onClose, onStart, isPending, error
             </button>
             <button
               type="submit"
-              disabled={isPending || (provider !== 'terminal' && !prompt.trim())}
+              disabled={isPending}
               className="flex-1 py-2 px-4 border border-accent text-accent text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50"
             >
               {isPending ? 'starting...' : 'start'}

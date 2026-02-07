@@ -170,14 +170,13 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Default provider to "claude"
-	provider := req.Provider
-	if provider == "" {
-		provider = "claude"
+	if req.Provider == "" {
+		req.Provider = "claude"
 	}
 
 	// Validate provider
-	if provider != "claude" && provider != "codex" && provider != "terminal" {
-		writeError(w, http.StatusBadRequest, "invalid provider: "+provider)
+	if req.Provider != "claude" && req.Provider != "codex" && req.Provider != "terminal" {
+		writeError(w, http.StatusBadRequest, "invalid provider: "+req.Provider)
 		return
 	}
 
@@ -187,11 +186,24 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	session, err := s.startSessionInternal(task, req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, session)
+}
+
+// startSessionInternal creates and starts a session for the given task.
+// It handles tmux window creation, hook setup, and command injection.
+func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*db.AgentSession, error) {
+	provider := req.Provider
+
 	// Get project for worktree path
 	project, err := s.db.GetProject(task.ProjectID)
 	if err != nil {
-		writeDBError(w, err, "project")
-		return
+		return nil, fmt.Errorf("get project: %w", err)
 	}
 
 	// Determine working directory (worktree if available, else project path)
@@ -202,27 +214,24 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 
 	// Check tmux availability
 	if !s.sessions.tmux.Available() {
-		writeError(w, http.StatusServiceUnavailable, "tmux not available")
-		return
+		return nil, fmt.Errorf("tmux not available")
 	}
 
 	// Ensure tmux session exists
 	if err := s.sessions.tmux.EnsureSession(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to ensure tmux session: "+err.Error())
-		return
+		return nil, fmt.Errorf("failed to ensure tmux session: %w", err)
 	}
 
 	// Create tmux window
 	windowName := fmt.Sprintf("%s-%d", provider, time.Now().Unix())
 	windowInfo, err := s.sessions.tmux.CreateWindow(windowName, workDir)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create terminal window: "+err.Error())
-		return
+		return nil, fmt.Errorf("failed to create terminal window: %w", err)
 	}
 
 	// Create database session (all sessions are terminal type now)
 	dbSession, err := s.db.CreateSession(db.CreateSessionInput{
-		TaskID:      taskID,
+		TaskID:      task.ID,
 		Provider:    provider,
 		SessionType: "terminal",
 		TmuxWindow:  &windowInfo.Window,
@@ -230,8 +239,7 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		s.sessions.tmux.DestroyWindow(windowInfo.Window)
-		writeError(w, http.StatusInternalServerError, "failed to create session record")
-		return
+		return nil, fmt.Errorf("failed to create session record")
 	}
 
 	// Generate a scoped JWT token for hook callbacks
@@ -239,8 +247,7 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.sessions.tmux.DestroyWindow(windowInfo.Window)
 		s.db.DeleteSession(dbSession.ID)
-		writeError(w, http.StatusInternalServerError, "failed to generate hook token")
-		return
+		return nil, fmt.Errorf("failed to generate hook token")
 	}
 
 	// Write token to ~/.codeburg/tokens/{sessionID}
@@ -271,16 +278,21 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 			// Resuming a previous session
 			oldSession, err := s.db.GetSession(req.ResumeSessionID)
 			if err == nil && oldSession.ProviderSessionID != nil && *oldSession.ProviderSessionID != "" {
-				cmd = fmt.Sprintf("claude --resume %s", *oldSession.ProviderSessionID)
+				cmd = fmt.Sprintf("claude --dangerously-skip-permissions --resume %s", *oldSession.ProviderSessionID)
 				slog.Info("resuming claude session", "session_id", dbSession.ID, "provider_session_id", *oldSession.ProviderSessionID)
 			} else {
-				cmd = "claude --continue"
+				cmd = "claude --dangerously-skip-permissions --continue"
 				slog.Info("resuming claude session with --continue", "session_id", dbSession.ID)
 			}
-		} else {
-			cmd = fmt.Sprintf("claude %q", req.Prompt)
+		} else if req.Prompt != "" {
+			cmd = fmt.Sprintf("claude --dangerously-skip-permissions %q", req.Prompt)
 			if req.Model != "" {
-				cmd = fmt.Sprintf("claude --model %s %q", req.Model, req.Prompt)
+				cmd = fmt.Sprintf("claude --dangerously-skip-permissions --model %s %q", req.Model, req.Prompt)
+			}
+		} else {
+			cmd = "claude --dangerously-skip-permissions"
+			if req.Model != "" {
+				cmd = fmt.Sprintf("claude --dangerously-skip-permissions --model %s", req.Model)
 			}
 		}
 		if err := s.sessions.tmux.SendKeys(target, cmd, true); err != nil {
@@ -296,9 +308,17 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		// Inject codex command using -c to set notify via config override
 		notifyScript := filepath.Join(workDir, ".codeburg-notify.sh")
 		notifyFlag := fmt.Sprintf(`-c 'notify=["%s"]'`, notifyScript)
-		cmd := fmt.Sprintf("codex %s %q", notifyFlag, req.Prompt)
-		if req.Model != "" {
-			cmd = fmt.Sprintf("codex --model %s %s %q", req.Model, notifyFlag, req.Prompt)
+		var cmd string
+		if req.Prompt != "" {
+			cmd = fmt.Sprintf("codex --full-auto %s %q", notifyFlag, req.Prompt)
+			if req.Model != "" {
+				cmd = fmt.Sprintf("codex --full-auto --model %s %s %q", req.Model, notifyFlag, req.Prompt)
+			}
+		} else {
+			cmd = fmt.Sprintf("codex --full-auto %s", notifyFlag)
+			if req.Model != "" {
+				cmd = fmt.Sprintf("codex --full-auto --model %s %s", req.Model, notifyFlag)
+			}
 		}
 		if err := s.sessions.tmux.SendKeys(target, cmd, true); err != nil {
 			slog.Error("failed to inject codex command", "session_id", dbSession.ID, "error", err)
@@ -327,7 +347,7 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 	s.sessions.mu.Unlock()
 
 	updatedSession, _ := s.db.GetSession(dbSession.ID)
-	writeJSON(w, http.StatusCreated, updatedSession)
+	return updatedSession, nil
 }
 
 func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {

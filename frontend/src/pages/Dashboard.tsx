@@ -2,8 +2,8 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/layout/Layout';
-import { tasksApi, projectsApi } from '../api';
-import type { Task, TaskStatus, CreateProjectInput, CreateTaskInput } from '../api';
+import { tasksApi, projectsApi, sessionsApi } from '../api';
+import type { Task, TaskStatus, CreateProjectInput, CreateTaskInput, UpdateTaskResponse } from '../api';
 import { useMobile } from '../hooks/useMobile';
 import { useSwipe } from '../hooks/useSwipe';
 import { useLongPress } from '../hooks/useLongPress';
@@ -13,7 +13,7 @@ import { HelpOverlay } from '../components/common/HelpOverlay';
 const COLUMNS: { id: TaskStatus; title: string; color: string }[] = [
   { id: 'backlog', title: 'BACKLOG', color: 'status-backlog' },
   { id: 'in_progress', title: 'IN_PROGRESS', color: 'status-in-progress' },
-  { id: 'blocked', title: 'BLOCKED', color: 'status-blocked' },
+  { id: 'in_review', title: 'IN_REVIEW', color: 'status-in-review' },
   { id: 'done', title: 'DONE', color: 'status-done' },
 ];
 
@@ -33,6 +33,7 @@ export function Dashboard() {
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [focus, setFocus] = useState<{ col: number; card: number } | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  const [workflowPrompt, setWorkflowPrompt] = useState<{ taskId: string } | null>(null);
   const filterRef = useRef<HTMLSelectElement>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -57,8 +58,13 @@ export function Dashboard() {
   const updateTaskMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: TaskStatus }) =>
       tasksApi.update(id, { status }),
-    onSuccess: () => {
+    onSuccess: (data: UpdateTaskResponse) => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      if (data.workflowAction === 'ask') {
+        setWorkflowPrompt({ taskId: data.id });
+      } else if (data.sessionStarted) {
+        navigate(`/tasks/${data.id}`);
+      }
     },
   });
 
@@ -416,6 +422,14 @@ export function Dashboard() {
         />
       )}
 
+      {/* Workflow Prompt Modal */}
+      {workflowPrompt && (
+        <WorkflowPromptModal
+          taskId={workflowPrompt.taskId}
+          onClose={() => setWorkflowPrompt(null)}
+        />
+      )}
+
       {/* Help Overlay */}
       {showHelp && (
         <HelpOverlay page="dashboard" onClose={() => setShowHelp(false)} />
@@ -456,7 +470,7 @@ function NewTaskPlaceholder({ focused, onClick }: NewTaskPlaceholderProps) {
 const STATUS_COLORS: Record<TaskStatus, string> = {
   backlog: 'var(--color-status-backlog)',
   in_progress: 'var(--color-status-in-progress)',
-  blocked: 'var(--color-status-blocked)',
+  in_review: 'var(--color-status-in-review)',
   done: 'var(--color-status-done)',
 };
 
@@ -531,7 +545,7 @@ function TaskCard({ task, projectName, onDragStart, onDragEnd, isMobile, onLongP
           </span>
         )}
         {task.pinned && (
-          <span className="text-xs text-[var(--color-status-blocked)]">
+          <span className="text-xs text-[var(--color-error)]">
             pinned
           </span>
         )}
@@ -680,7 +694,7 @@ function CreateProjectModal({ onClose }: CreateProjectModalProps) {
         </div>
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           {error && (
-            <div className="border border-[var(--color-status-blocked)] p-3 text-sm text-[var(--color-status-blocked)]">
+            <div className="border border-[var(--color-error)] p-3 text-sm text-[var(--color-error)]">
               {error}
             </div>
           )}
@@ -808,7 +822,7 @@ function CreateTaskModal({ projects, defaultProjectId, defaultStatus = 'backlog'
         </div>
         <form onSubmit={handleSubmit} onKeyDown={handleKeyDown} className="p-4 space-y-4">
           {error && (
-            <div className="border border-[var(--color-status-blocked)] p-3 text-sm text-[var(--color-status-blocked)]">
+            <div className="border border-[var(--color-error)] p-3 text-sm text-[var(--color-error)]">
               {error}
             </div>
           )}
@@ -865,6 +879,95 @@ function CreateTaskModal({ projects, defaultProjectId, defaultStatus = 'backlog'
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+interface WorkflowPromptModalProps {
+  taskId: string;
+  onClose: () => void;
+}
+
+function WorkflowPromptModal({ taskId, onClose }: WorkflowPromptModalProps) {
+  const navigate = useNavigate();
+  const [provider, setProvider] = useState<'claude' | 'codex'>('claude');
+  const [prompt, setPrompt] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [onClose]);
+
+  const startMutation = useMutation({
+    mutationFn: () => sessionsApi.start(taskId, { provider, prompt: prompt || undefined }),
+    onSuccess: () => {
+      onClose();
+      navigate(`/tasks/${taskId}`);
+    },
+    onError: (err) => {
+      setError(err instanceof Error ? err.message : 'Failed to start session');
+    },
+  });
+
+  return (
+    <div className="fixed inset-0 bg-[var(--color-bg-primary)]/80 flex items-center justify-center p-4 z-50">
+      <div className="bg-secondary border border-subtle w-full max-w-md">
+        <div className="px-4 py-3 border-b border-subtle">
+          <h2 className="text-sm text-accent">// start_agent_session</h2>
+        </div>
+        <div className="p-4 space-y-4">
+          {error && (
+            <div className="border border-[var(--color-error)] p-3 text-sm text-[var(--color-error)]">
+              {error}
+            </div>
+          )}
+          <div>
+            <label className="block text-sm text-dim mb-2">provider</label>
+            <div className="flex gap-2">
+              {(['claude', 'codex'] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setProvider(p)}
+                  className={`flex-1 py-2 px-4 border text-sm transition-colors ${
+                    provider === p
+                      ? 'border-accent text-accent'
+                      : 'border-subtle text-dim hover:border-accent hover:text-accent'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm text-dim mb-1">prompt (optional)</label>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              rows={3}
+              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none resize-none"
+              placeholder="describe what the agent should do..."
+            />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button
+              onClick={onClose}
+              className="flex-1 py-2 px-4 border border-subtle text-dim text-sm hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-primary)] transition-colors"
+            >
+              skip
+            </button>
+            <button
+              onClick={() => startMutation.mutate()}
+              disabled={startMutation.isPending}
+              className="flex-1 py-2 px-4 border border-accent text-accent text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50"
+            >
+              {startMutation.isPending ? 'starting...' : 'start'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

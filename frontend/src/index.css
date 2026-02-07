@@ -24,8 +24,11 @@
   /* Status colors */
   --color-status-backlog: oklch(0.5 0 0);
   --color-status-in-progress: oklch(0.75 0.2 145);
-  --color-status-blocked: oklch(0.7 0.2 30);
+  --color-status-in-review: oklch(0.75 0.15 250);
   --color-status-done: oklch(0.6 0.1 145);
+
+  /* Semantic colors */
+  --color-error: oklch(0.7 0.2 30);
 
   /* Borders - brightened for visibility */
   --color-border: oklch(0.35 0 0);
@@ -167,8 +170,8 @@ button:disabled,
   color: var(--color-status-in-progress);
 }
 
-@utility status-blocked {
-  color: var(--color-status-blocked);
+@utility status-in-review {
+  color: var(--color-status-in-review);
 }
 
 @utility status-done {

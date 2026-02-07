@@ -18,7 +18,7 @@ function getStatusDotClass(status: SessionStatus): string {
     case 'completed':
       return 'bg-[var(--color-status-done)]';
     case 'error':
-      return 'bg-[var(--color-status-blocked)]';
+      return 'bg-[var(--color-error)]';
     default:
       return 'bg-[var(--color-text-dim)]';
   }
