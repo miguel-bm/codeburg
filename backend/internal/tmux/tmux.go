@@ -35,19 +35,7 @@ func (m *Manager) EnsureSession() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if session exists
-	cmd := exec.Command("tmux", "has-session", "-t", SessionName)
-	if cmd.Run() == nil {
-		return nil // Session exists
-	}
-
-	// Create new session (detached)
-	cmd = exec.Command("tmux", "new-session", "-d", "-s", SessionName)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("create tmux session: %s: %w", string(output), err)
-	}
-
-	return nil
+	return m.ensureSessionLocked()
 }
 
 // WindowInfo contains information about a tmux window
@@ -296,9 +284,17 @@ func (m *Manager) ensureSessionLocked() error {
 		return nil
 	}
 
+	// Create new session (detached)
 	cmd = exec.Command("tmux", "new-session", "-d", "-s", SessionName)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("create tmux session: %s: %w", string(output), err)
+	}
+
+	// Enable mouse mode so scroll wheel enters copy-mode for scrollback
+	// instead of being converted to arrow key sequences
+	cmd = exec.Command("tmux", "set-option", "-t", SessionName, "mouse", "on")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("set mouse option: %s: %w", string(output), err)
 	}
 
 	return nil
