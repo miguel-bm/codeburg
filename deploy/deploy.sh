@@ -25,6 +25,10 @@ cd backend && go build -o codeburg ./cmd/codeburg && cd ..
 echo "==> Running migrations..."
 ./backend/codeburg migrate
 
+echo "==> Updating service file..."
+sudo cp /opt/codeburg/deploy/codeburg.service /etc/systemd/system/codeburg.service
+sudo systemctl daemon-reload
+
 echo "==> Restarting service..."
 sudo systemctl restart codeburg
 

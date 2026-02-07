@@ -16,8 +16,9 @@ Environment=HOME=/home/codeburg
 # Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/home/codeburg/.codeburg
+ReadWritePaths=/home/codeburg
 ReadWritePaths=/opt/codeburg
+ReadWritePaths=/tmp
 
 [Install]
 WantedBy=multi-user.target

@@ -107,6 +107,8 @@ codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl start codeburg
 codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop codeburg
 codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl status codeburg
 codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl daemon-reload
+codeburg ALL=(ALL) NOPASSWD: /usr/bin/cp /opt/codeburg/deploy/codeburg.service /etc/systemd/system/codeburg.service
+codeburg ALL=(ALL) NOPASSWD: /usr/bin/chown -R codeburg\:codeburg /opt/codeburg
 SUDOEOF
 chmod 0440 /etc/sudoers.d/codeburg
 echo "    Sudoers configured for systemctl"
@@ -138,11 +140,15 @@ else
     chown -R "${CODEBURG_USER}:${CODEBURG_USER}" "${INSTALL_DIR}"
 fi
 
+# Ensure codeburg owns everything (root may have touched files during setup)
+chown -R "${CODEBURG_USER}:${CODEBURG_USER}" "${INSTALL_DIR}"
+
 # Configure git for the deploy workflow (no local commits, always rebase on pull)
 cd "${INSTALL_DIR}"
 sudo -u "${CODEBURG_USER}" git config user.email "codeburg@localhost"
 sudo -u "${CODEBURG_USER}" git config user.name "Codeburg Deploy"
 sudo -u "${CODEBURG_USER}" git config pull.rebase true
+sudo -u "${CODEBURG_USER}" git config --global --add safe.directory "${INSTALL_DIR}"
 
 # --- Create data directory ---
 sudo -u "${CODEBURG_USER}" mkdir -p "/home/${CODEBURG_USER}/.codeburg"
