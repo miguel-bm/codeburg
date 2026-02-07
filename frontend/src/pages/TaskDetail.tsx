@@ -69,6 +69,22 @@ export function TaskDetail() {
     },
   });
 
+  const hasActiveSession = sessions?.some(
+    (s) => s.status === 'running' || s.status === 'waiting_input'
+  );
+
+  useKeyboardNav({
+    keyMap: {
+      Escape: () => navigate('/'),
+      s: () => { if (!hasActiveSession) setShowStartSession(true); },
+      '1': () => setRightPanel('session'),
+      '2': () => setRightPanel('justfile'),
+      '3': () => setRightPanel('tunnel'),
+      '?': () => setShowHelp(true),
+    },
+    enabled: !showStartSession && !showHelp,
+  });
+
   if (taskLoading) {
     return (
       <Layout>
@@ -88,22 +104,6 @@ export function TaskDetail() {
       </Layout>
     );
   }
-
-  const hasActiveSession = sessions?.some(
-    (s) => s.status === 'running' || s.status === 'waiting_input'
-  );
-
-  useKeyboardNav({
-    keyMap: {
-      Escape: () => navigate('/'),
-      s: () => { if (!hasActiveSession) setShowStartSession(true); },
-      '1': () => setRightPanel('session'),
-      '2': () => setRightPanel('justfile'),
-      '3': () => setRightPanel('tunnel'),
-      '?': () => setShowHelp(true),
-    },
-    enabled: !showStartSession && !showHelp,
-  });
 
   return (
     <Layout>

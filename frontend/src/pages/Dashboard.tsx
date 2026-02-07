@@ -120,48 +120,65 @@ export function Dashboard() {
     return col[focus.card] ?? null;
   }, [focus, getColumnTasks]);
 
-  // Clear focus when project filter changes
-  useEffect(() => { setFocus(null); }, [selectedProjectId]);
+  // Auto-select first task on load or when filter changes
+  useEffect(() => {
+    if (!tasks) return;
+    for (let col = 0; col < COLUMNS.length; col++) {
+      const colTasks = tasksByStatus.get(COLUMNS[col].id) ?? [];
+      if (colTasks.length > 0) {
+        setFocus({ col, card: 0 });
+        return;
+      }
+    }
+    // No tasks at all — focus first column placeholder
+    setFocus({ col: 0, card: 0 });
+  }, [selectedProjectId, tasks, tasksByStatus]);
 
   const STATUS_ORDER: TaskStatus[] = COLUMNS.map((c) => c.id);
+
+  // maxCard includes the "new task" placeholder at the end
+  const getMaxCard = useCallback(
+    (colIdx: number): number => getColumnTasks(colIdx).length, // length = last index is the placeholder
+    [getColumnTasks],
+  );
 
   useKeyboardNav({
     keyMap: {
       ArrowLeft: () => setFocus((f) => {
         const col = Math.max((f?.col ?? 1) - 1, 0);
-        const maxCard = Math.max(getColumnTasks(col).length - 1, 0);
-        return { col, card: Math.min(f?.card ?? 0, maxCard) };
+        return { col, card: Math.min(f?.card ?? 0, getMaxCard(col)) };
       }),
       h: () => setFocus((f) => {
         const col = Math.max((f?.col ?? 1) - 1, 0);
-        const maxCard = Math.max(getColumnTasks(col).length - 1, 0);
-        return { col, card: Math.min(f?.card ?? 0, maxCard) };
+        return { col, card: Math.min(f?.card ?? 0, getMaxCard(col)) };
       }),
       ArrowRight: () => setFocus((f) => {
         const col = Math.min((f?.col ?? -1) + 1, COLUMNS.length - 1);
-        const maxCard = Math.max(getColumnTasks(col).length - 1, 0);
-        return { col, card: Math.min(f?.card ?? 0, maxCard) };
+        return { col, card: Math.min(f?.card ?? 0, getMaxCard(col)) };
       }),
       l: () => setFocus((f) => {
         const col = Math.min((f?.col ?? -1) + 1, COLUMNS.length - 1);
-        const maxCard = Math.max(getColumnTasks(col).length - 1, 0);
-        return { col, card: Math.min(f?.card ?? 0, maxCard) };
+        return { col, card: Math.min(f?.card ?? 0, getMaxCard(col)) };
       }),
       ArrowUp: () => setFocus((f) => f ? { ...f, card: Math.max(f.card - 1, 0) } : { col: 0, card: 0 }),
       k: () => setFocus((f) => f ? { ...f, card: Math.max(f.card - 1, 0) } : { col: 0, card: 0 }),
       ArrowDown: () => setFocus((f) => {
         const col = f?.col ?? 0;
-        const maxCard = Math.max(getColumnTasks(col).length - 1, 0);
-        return { col, card: Math.min((f?.card ?? -1) + 1, maxCard) };
+        return { col, card: Math.min((f?.card ?? -1) + 1, getMaxCard(col)) };
       }),
       j: () => setFocus((f) => {
         const col = f?.col ?? 0;
-        const maxCard = Math.max(getColumnTasks(col).length - 1, 0);
-        return { col, card: Math.min((f?.card ?? -1) + 1, maxCard) };
+        return { col, card: Math.min((f?.card ?? -1) + 1, getMaxCard(col)) };
       }),
       Enter: () => {
+        if (!focus) return;
         const task = getFocusedTask();
-        if (task) navigate(`/tasks/${task.id}`);
+        if (task) {
+          navigate(`/tasks/${task.id}`);
+        } else if (hasProjects) {
+          // On the "new task" placeholder
+          setShowCreateTask(true);
+        }
       },
       Escape: () => setFocus(null),
       'Shift+ArrowLeft': () => {
@@ -279,8 +296,6 @@ export function Dashboard() {
           >
             {tasksLoading ? (
               <div className="text-center text-dim py-8 text-sm">loading...</div>
-            ) : getTasksByStatus(COLUMNS[activeColumnIndex].id).length === 0 ? (
-              <div className="text-center text-dim py-8 text-sm">empty</div>
             ) : (
               <div className="space-y-3">
                 {getTasksByStatus(COLUMNS[activeColumnIndex].id).map((task, cardIdx) => (
@@ -295,6 +310,10 @@ export function Dashboard() {
                     focused={focus?.col === activeColumnIndex && focus?.card === cardIdx}
                   />
                 ))}
+                <NewTaskPlaceholder
+                  focused={focus?.col === activeColumnIndex && focus?.card === getTasksByStatus(COLUMNS[activeColumnIndex].id).length}
+                  onClick={() => { if (hasProjects) setShowCreateTask(true); }}
+                />
               </div>
             )}
           </div>
@@ -333,21 +352,23 @@ export function Dashboard() {
                     <div className="text-center text-dim py-4 text-sm">
                       loading...
                     </div>
-                  ) : getTasksByStatus(column.id).length === 0 ? (
-                    <div className="text-center text-dim py-4 text-sm">
-                      empty
-                    </div>
                   ) : (
-                    getTasksByStatus(column.id).map((task, cardIdx) => (
-                      <TaskCard
-                        key={task.id}
-                        task={task}
-                        projectName={!selectedProjectId ? getProjectName(task.projectId) : undefined}
-                        onDragStart={handleDragStart}
-                        onDragEnd={handleDragEnd}
-                        focused={focus?.col === colIdx && focus?.card === cardIdx}
+                    <>
+                      {getTasksByStatus(column.id).map((task, cardIdx) => (
+                        <TaskCard
+                          key={task.id}
+                          task={task}
+                          projectName={!selectedProjectId ? getProjectName(task.projectId) : undefined}
+                          onDragStart={handleDragStart}
+                          onDragEnd={handleDragEnd}
+                          focused={focus?.col === colIdx && focus?.card === cardIdx}
+                        />
+                      ))}
+                      <NewTaskPlaceholder
+                        focused={focus?.col === colIdx && focus?.card === getTasksByStatus(column.id).length}
+                        onClick={() => { if (hasProjects) setShowCreateTask(true); }}
                       />
-                    ))
+                    </>
                   )}
                 </div>
               </div>
@@ -390,6 +411,35 @@ export function Dashboard() {
         <HelpOverlay page="dashboard" onClose={() => setShowHelp(false)} />
       )}
     </Layout>
+  );
+}
+
+interface NewTaskPlaceholderProps {
+  focused?: boolean;
+  onClick: () => void;
+}
+
+function NewTaskPlaceholder({ focused, onClick }: NewTaskPlaceholderProps) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (focused && ref.current) {
+      ref.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [focused]);
+
+  return (
+    <div
+      ref={ref}
+      onClick={onClick}
+      className={`p-3 border border-dashed text-center text-sm cursor-pointer transition-colors ${
+        focused
+          ? 'border-accent text-accent bg-[var(--color-accent-glow)]'
+          : 'border-subtle text-dim hover:border-accent hover:text-accent'
+      }`}
+    >
+      + new task
+    </div>
   );
 }
 
