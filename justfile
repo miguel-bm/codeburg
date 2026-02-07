@@ -68,5 +68,5 @@ deploy branch="main":
 yeet msg:
     git add -A
     git commit -m "{{msg}}"
-    git push
+    git push -u origin "$(git branch --show-current)"
     just deploy "$(git branch --show-current)"
