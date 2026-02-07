@@ -63,3 +63,10 @@ lint-fe:
 # Deploy to production server
 deploy:
     ssh codeburg-server '/opt/codeburg/deploy/deploy.sh'
+
+# Commit, push, and deploy in one shot
+yeet msg:
+    git add -A
+    git commit -m "{{msg}}"
+    git push
+    just deploy
