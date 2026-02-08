@@ -220,8 +220,8 @@ function WorkflowSection({ project }: { project: Project }) {
                 className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none text-sm"
               >
                 <option value="nothing">nothing</option>
-                <option value="pr_manual" disabled>create PR (coming soon)</option>
-                <option value="pr_auto" disabled>auto-create PR (coming soon)</option>
+                <option value="pr_manual">push branch (manual PR)</option>
+                <option value="pr_auto">auto-create PR</option>
               </select>
             </div>
             {p2r?.action && p2r.action !== 'nothing' && (
@@ -250,8 +250,8 @@ function WorkflowSection({ project }: { project: Project }) {
                 className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none text-sm"
               >
                 <option value="nothing">nothing</option>
-                <option value="merge_branch" disabled>merge branch (coming soon)</option>
-                <option value="merge_pr" disabled>merge PR (coming soon)</option>
+                <option value="merge_branch">merge branch directly</option>
+                <option value="merge_pr">merge PR</option>
               </select>
             </div>
             {r2d?.action && r2d.action !== 'nothing' && (

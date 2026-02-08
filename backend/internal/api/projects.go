@@ -1,12 +1,15 @@
 package api
 
 import (
+	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
 
 	"github.com/miguel-bm/codeburg/internal/db"
 	"github.com/miguel-bm/codeburg/internal/gitclone"
+	"github.com/miguel-bm/codeburg/internal/github"
 )
 
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +78,11 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 			SymlinkPaths:   req.SymlinkPaths,
 			SetupScript:    req.SetupScript,
 			TeardownScript: req.TeardownScript,
+		}
+
+		// Auto-detect branch protection and configure workflow
+		if wf := detectBranchProtection(req.GitHubURL, result.DefaultBranch); wf != nil {
+			input.Workflow = wf
 		}
 	} else {
 		// Local path flow (existing behavior)
@@ -183,4 +191,40 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// detectBranchProtection checks if the default branch is protected on GitHub
+// and returns a workflow config if so. Returns nil if gh is unavailable or branch is not protected.
+func detectBranchProtection(gitHubURL, defaultBranch string) *db.ProjectWorkflow {
+	if !github.Available() {
+		return nil
+	}
+
+	owner, repo, ok := gitclone.ParseOwnerRepo(gitHubURL)
+	if !ok {
+		return nil
+	}
+
+	ownerRepo := fmt.Sprintf("%s/%s", owner, repo)
+	if !github.IsMainProtected(ownerRepo, defaultBranch) {
+		return nil
+	}
+
+	slog.Info("detected branch protection, auto-configuring PR workflow",
+		"repo", ownerRepo, "branch", defaultBranch)
+
+	deleteBranch := true
+	cleanupWorktree := true
+	return &db.ProjectWorkflow{
+		ProgressToReview: &db.ProgressToReviewConfig{
+			Action:       "pr_auto",
+			PRBaseBranch: defaultBranch,
+		},
+		ReviewToDone: &db.ReviewToDoneConfig{
+			Action:          "merge_pr",
+			MergeStrategy:   "squash",
+			DeleteBranch:    &deleteBranch,
+			CleanupWorktree: &cleanupWorktree,
+		},
+	}
 }

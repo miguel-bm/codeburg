@@ -1,8 +1,10 @@
 package api
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -16,9 +18,10 @@ type SidebarResponse struct {
 }
 
 type SidebarProject struct {
-	ID    string        `json:"id"`
-	Name  string        `json:"name"`
-	Tasks []SidebarTask `json:"tasks"`
+	ID     string        `json:"id"`
+	Name   string        `json:"name"`
+	Pinned bool          `json:"pinned"`
+	Tasks  []SidebarTask `json:"tasks"`
 }
 
 type SidebarTask struct {
@@ -58,9 +61,10 @@ func (s *Server) getCachedDiffStats(task *db.Task) *DiffStats {
 
 	// Check cache
 	if cached, ok := s.diffStatsCache.Load(task.ID); ok {
-		entry := cached.(diffStatsCacheEntry)
-		if time.Now().Before(entry.expiresAt) {
-			return entry.stats
+		if entry, ok := cached.(diffStatsCacheEntry); ok {
+			if time.Now().Before(entry.expiresAt) {
+				return entry.stats
+			}
 		}
 	}
 
@@ -91,6 +95,17 @@ func (s *Server) handleSidebar(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list projects")
 		return
+	}
+
+	// Load pinned projects preference
+	pinnedSet := make(map[string]bool)
+	if pref, err := s.db.GetPreference(db.DefaultUserID, "pinned_projects"); err == nil {
+		var ids []string
+		if json.Unmarshal([]byte(pref.Value), &ids) == nil {
+			for _, id := range ids {
+				pinnedSet[id] = true
+			}
+		}
 	}
 
 	// 2. Load tasks with status in (in_progress, in_review)
@@ -147,10 +162,11 @@ func (s *Server) handleSidebar(w http.ResponseWriter, r *http.Request) {
 
 		// Check cache first
 		if cached, ok := s.diffStatsCache.Load(t.ID); ok {
-			entry := cached.(diffStatsCacheEntry)
-			if time.Now().Before(entry.expiresAt) {
-				diffCh <- diffResult{taskID: t.ID, stats: entry.stats}
-				continue
+			if entry, ok := cached.(diffStatsCacheEntry); ok {
+				if time.Now().Before(entry.expiresAt) {
+					diffCh <- diffResult{taskID: t.ID, stats: entry.stats}
+					continue
+				}
 			}
 		}
 
@@ -196,9 +212,10 @@ func (s *Server) handleSidebar(w http.ResponseWriter, r *http.Request) {
 	var resp SidebarResponse
 	for _, p := range projects {
 		sp := SidebarProject{
-			ID:    p.ID,
-			Name:  p.Name,
-			Tasks: make([]SidebarTask, 0),
+			ID:     p.ID,
+			Name:   p.Name,
+			Pinned: pinnedSet[p.ID],
+			Tasks:  make([]SidebarTask, 0),
 		}
 
 		for _, t := range tasksByProject[p.ID] {
@@ -228,6 +245,14 @@ func (s *Server) handleSidebar(w http.ResponseWriter, r *http.Request) {
 
 		resp.Projects = append(resp.Projects, sp)
 	}
+
+	// Sort: pinned projects first, preserve existing order within groups
+	sort.SliceStable(resp.Projects, func(i, j int) bool {
+		if resp.Projects[i].Pinned != resp.Projects[j].Pinned {
+			return resp.Projects[i].Pinned
+		}
+		return false
+	})
 
 	writeJSON(w, http.StatusOK, resp)
 }

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { authApi } from '../api';
+import { setOnUnauthorized } from '../api/client';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -58,3 +59,6 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ isAuthenticated: false, token: null });
   },
 }));
+
+// Wire up 401 interception → logout (avoids circular import with api/client)
+setOnUnauthorized(() => useAuthStore.getState().logout());

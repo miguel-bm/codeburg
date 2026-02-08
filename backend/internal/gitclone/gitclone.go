@@ -68,6 +68,38 @@ func NormalizeGitHubURL(url string) string {
 	return url
 }
 
+// ParseOwnerRepo extracts "owner" and "repo" from a GitHub URL.
+// Supports https://github.com/owner/repo.git and git@github.com:owner/repo.git
+func ParseOwnerRepo(url string) (owner, repo string, ok bool) {
+	url = strings.TrimSpace(url)
+	url = strings.TrimSuffix(url, "/")
+	url = strings.TrimSuffix(url, ".git")
+
+	// SSH format: git@github.com:owner/repo
+	if strings.HasPrefix(url, "git@github.com:") {
+		path := strings.TrimPrefix(url, "git@github.com:")
+		parts := strings.SplitN(path, "/", 2)
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+			return parts[0], parts[1], true
+		}
+		return "", "", false
+	}
+
+	// HTTPS format: https://github.com/owner/repo
+	for _, prefix := range []string{"https://github.com/", "http://github.com/"} {
+		if strings.HasPrefix(url, prefix) {
+			path := strings.TrimPrefix(url, prefix)
+			parts := strings.SplitN(path, "/", 3) // 3 to catch extra path segments
+			if len(parts) >= 2 && parts[0] != "" && parts[1] != "" {
+				return parts[0], parts[1], true
+			}
+			return "", "", false
+		}
+	}
+
+	return "", "", false
+}
+
 // Clone clones a GitHub repository into cfg.BaseDir/name.
 func Clone(cfg Config, url, name string) (*CloneResult, error) {
 	dest := filepath.Join(cfg.BaseDir, name)

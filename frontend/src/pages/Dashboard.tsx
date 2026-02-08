@@ -11,6 +11,7 @@ import { useLongPress } from '../hooks/useLongPress';
 import { useKeyboardNav } from '../hooks/useKeyboardNav';
 import { HelpOverlay } from '../components/common/HelpOverlay';
 import { CreateProjectModal } from '../components/common/CreateProjectModal';
+import { useSidebarFocusStore } from '../stores/sidebarFocus';
 
 const COLUMNS: { id: TaskStatus; title: string; color: string }[] = [
   { id: 'backlog', title: 'BACKLOG', color: 'status-backlog' },
@@ -42,9 +43,32 @@ interface DragState {
   cardOffsetY: number;
 }
 
+const SESSION_KEY = 'codeburg:active-project';
+
 export function Dashboard() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const selectedProjectId = searchParams.get('project') || undefined;
+
+  // Restore project filter from sessionStorage on mount
+  useEffect(() => {
+    if (!searchParams.get('project')) {
+      const stored = sessionStorage.getItem(SESSION_KEY);
+      if (stored) {
+        setSearchParams({ project: stored }, { replace: true });
+      }
+    }
+    // Only run on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sync selected project to sessionStorage
+  useEffect(() => {
+    if (selectedProjectId) {
+      sessionStorage.setItem(SESSION_KEY, selectedProjectId);
+    } else {
+      sessionStorage.removeItem(SESSION_KEY);
+    }
+  }, [selectedProjectId]);
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [createTaskStatus, setCreateTaskStatus] = useState<TaskStatus>('backlog');
   const [showCreateProject, setShowCreateProject] = useState(false);
@@ -53,12 +77,24 @@ export function Dashboard() {
   const [focus, setFocus] = useState<{ col: number; card: number } | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [workflowPrompt, setWorkflowPrompt] = useState<{ taskId: string } | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const columnRefs = useRef<(HTMLDivElement | null)[]>([]);
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const isMobile = useMobile();
+  const sidebarFocused = useSidebarFocusStore((s) => s.focused);
+  const enterSidebar = useSidebarFocusStore((s) => s.enter);
+
+  // Restore kanban focus when sidebar exits
+  const prevSidebarFocused = useRef(false);
+  useEffect(() => {
+    if (prevSidebarFocused.current && !sidebarFocused) {
+      setFocus({ col: 0, card: 0 });
+    }
+    prevSidebarFocused.current = sidebarFocused;
+  }, [sidebarFocused]);
 
   const swipeHandlers = useSwipe({
     onSwipeLeft: () => setActiveColumnIndex((i) => Math.min(i + 1, COLUMNS.length - 1)),
@@ -82,6 +118,12 @@ export function Dashboard() {
     onSuccess: (data: UpdateTaskResponse) => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+      if (data.worktreeWarning?.length) {
+        setWarning(data.worktreeWarning.join('; '));
+      }
+      if (data.workflowError) {
+        setWarning((prev) => prev ? `${prev}; ${data.workflowError}` : data.workflowError!);
+      }
       if (data.workflowAction === 'ask') {
         setWorkflowPrompt({ taskId: data.id });
       } else if (data.sessionStarted) {
@@ -203,16 +245,22 @@ export function Dashboard() {
     });
   }, [focus, getFocusedTask, queryClient]);
 
+  const handleNavLeft = useCallback(() => {
+    if (!focus || focus.col === 0) {
+      enterSidebar();
+      setFocus(null);
+      return;
+    }
+    setFocus((f) => {
+      const col = Math.max((f?.col ?? 1) - 1, 0);
+      return { col, card: Math.min(f?.card ?? 0, getMaxCard(col)) };
+    });
+  }, [focus, enterSidebar, getMaxCard]);
+
   useKeyboardNav({
     keyMap: {
-      ArrowLeft: () => setFocus((f) => {
-        const col = Math.max((f?.col ?? 1) - 1, 0);
-        return { col, card: Math.min(f?.card ?? 0, getMaxCard(col)) };
-      }),
-      h: () => setFocus((f) => {
-        const col = Math.max((f?.col ?? 1) - 1, 0);
-        return { col, card: Math.min(f?.card ?? 0, getMaxCard(col)) };
-      }),
+      ArrowLeft: handleNavLeft,
+      h: handleNavLeft,
       ArrowRight: () => setFocus((f) => {
         const col = Math.min((f?.col ?? -1) + 1, COLUMNS.length - 1);
         return { col, card: Math.min(f?.card ?? 0, getMaxCard(col)) };
@@ -264,7 +312,7 @@ export function Dashboard() {
       '4': () => setFocus({ col: 3, card: 0 }),
       '?': () => setShowHelp(true),
     },
-    enabled: !showCreateTask && !showCreateProject && !showHelp && !contextMenu && !drag,
+    enabled: !showCreateTask && !showCreateProject && !showHelp && !contextMenu && !drag && !sidebarFocused,
   });
 
   // Sync mobile tab to focus column
@@ -399,6 +447,19 @@ export function Dashboard() {
 
   return (
     <Layout>
+      {/* Warning Banner */}
+      {warning && (
+        <div className="flex items-center justify-between px-4 py-2 bg-[var(--color-warning,#b8860b)]/10 border-b border-[var(--color-warning,#b8860b)]/30 text-[var(--color-warning,#b8860b)] text-xs">
+          <span>{warning}</span>
+          <button
+            onClick={() => setWarning(null)}
+            className="ml-4 hover:text-[var(--color-text-primary)] transition-colors"
+          >
+            dismiss
+          </button>
+        </div>
+      )}
+
       {/* Kanban Board */}
       {isMobile ? (
         // Mobile: Tabbed columns with swipe navigation
@@ -704,11 +765,6 @@ const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
       <h4 className="font-medium text-sm">
         {task.title}
       </h4>
-      {task.description && (
-        <p className="text-xs text-dim mt-1 line-clamp-2">
-          {task.description}
-        </p>
-      )}
       <div className="flex items-center flex-wrap gap-2 mt-2">
         {projectName && (
           <span className="text-xs text-accent">
@@ -716,8 +772,9 @@ const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
           </span>
         )}
         {task.branch && (
-          <span className="text-xs text-dim font-mono">
-            [{task.branch}]
+          <span className="text-xs text-dim font-mono flex items-center gap-1">
+            <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor"><path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Z"/></svg>
+            {task.branch}
           </span>
         )}
         {task.pinned && (
@@ -735,6 +792,18 @@ const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
               <span className="text-[var(--color-error)]">-{task.diffStats.deletions}</span>
             )}
           </span>
+        )}
+        {task.prUrl && (
+          <a
+            href={task.prUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="text-[10px] font-mono text-accent hover:underline"
+          >
+            PR
+          </a>
         )}
       </div>
     </div>

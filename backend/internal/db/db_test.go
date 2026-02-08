@@ -588,3 +588,72 @@ func TestListActiveSessions(t *testing.T) {
 		t.Error("expected waiting_input session to be included")
 	}
 }
+
+// --- Preference Tests ---
+
+func TestPreference_SetAndGet(t *testing.T) {
+	db := openTestDB(t)
+
+	pref, err := db.SetPreference("default", "theme", `"dark"`)
+	if err != nil {
+		t.Fatalf("set preference: %v", err)
+	}
+	if pref.Key != "theme" || pref.Value != `"dark"` {
+		t.Errorf("unexpected preference: %+v", pref)
+	}
+
+	got, err := db.GetPreference("default", "theme")
+	if err != nil {
+		t.Fatalf("get preference: %v", err)
+	}
+	if got.Value != `"dark"` {
+		t.Errorf("expected value %q, got %q", `"dark"`, got.Value)
+	}
+}
+
+func TestPreference_Upsert(t *testing.T) {
+	db := openTestDB(t)
+
+	if _, err := db.SetPreference("default", "lang", `"en"`); err != nil {
+		t.Fatalf("set preference: %v", err)
+	}
+
+	pref, err := db.SetPreference("default", "lang", `"es"`)
+	if err != nil {
+		t.Fatalf("upsert preference: %v", err)
+	}
+	if pref.Value != `"es"` {
+		t.Errorf("expected upserted value %q, got %q", `"es"`, pref.Value)
+	}
+}
+
+func TestPreference_NotFound(t *testing.T) {
+	db := openTestDB(t)
+
+	_, err := db.GetPreference("default", "nonexistent")
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestPreference_Delete(t *testing.T) {
+	db := openTestDB(t)
+
+	if _, err := db.SetPreference("default", "tmp", `true`); err != nil {
+		t.Fatalf("set preference: %v", err)
+	}
+
+	if err := db.DeletePreference("default", "tmp"); err != nil {
+		t.Fatalf("delete preference: %v", err)
+	}
+
+	_, err := db.GetPreference("default", "tmp")
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound after delete, got %v", err)
+	}
+
+	// Deleting again should return ErrNotFound
+	if err := db.DeletePreference("default", "tmp"); err != ErrNotFound {
+		t.Errorf("expected ErrNotFound on second delete, got %v", err)
+	}
+}

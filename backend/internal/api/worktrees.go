@@ -9,8 +9,9 @@ import (
 
 // WorktreeResponse is the response for worktree operations
 type WorktreeResponse struct {
-	WorktreePath string `json:"worktreePath"`
-	BranchName   string `json:"branchName"`
+	WorktreePath string   `json:"worktreePath"`
+	BranchName   string   `json:"branchName"`
+	Warnings     []string `json:"warnings,omitempty"`
 }
 
 func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
@@ -68,6 +69,7 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, WorktreeResponse{
 		WorktreePath: result.WorktreePath,
 		BranchName:   result.BranchName,
+		Warnings:     result.Warnings,
 	})
 }
 

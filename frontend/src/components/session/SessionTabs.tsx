@@ -5,7 +5,7 @@ interface Props {
   activeSessionId?: string;
   onSelect: (session: AgentSession) => void;
   onResume?: (session: AgentSession) => void;
-  onDelete?: (session: AgentSession) => void;
+  onClose?: (session: AgentSession) => void;
   onNewSession: () => void;
 }
 
@@ -24,7 +24,7 @@ function getStatusDotClass(status: SessionStatus): string {
   }
 }
 
-export function SessionTabs({ sessions, activeSessionId, onSelect, onResume, onDelete, onNewSession }: Props) {
+export function SessionTabs({ sessions, activeSessionId, onSelect, onResume, onClose, onNewSession }: Props) {
   // Sort by createdAt to get stable 1-indexed numbers
   const sorted = [...sessions].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
@@ -35,51 +35,50 @@ export function SessionTabs({ sessions, activeSessionId, onSelect, onResume, onD
       {sorted.map((session, i) => {
         const isActive = session.id === activeSessionId;
         const canResume = onResume && session.provider === 'claude' && session.status === 'completed';
-        const canDelete = onDelete && (session.status === 'completed' || session.status === 'error');
+        const canClose = onClose && session.status !== 'idle';
 
         return (
-          <div key={session.id} className="flex items-center">
-            <button
-              onClick={() => onSelect(session)}
-              className={`flex items-center gap-2 px-3 py-2 text-xs transition-colors whitespace-nowrap ${
-                isActive
-                  ? 'border-b-2 border-accent text-accent bg-accent/10'
-                  : 'text-dim hover:text-[var(--color-text-primary)]'
-              }`}
-            >
-              <div className={`w-1.5 h-1.5 ${getStatusDotClass(session.status)}`} />
-              <span>#{i + 1}</span>
-              <span className="text-dim">{session.provider}</span>
-              {canResume && (
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onResume!(session);
-                  }}
-                  className="text-accent hover:underline ml-1"
-                >
-                  resume
-                </span>
-              )}
-            </button>
-            {canDelete && (
-              <button
+          <button
+            key={session.id}
+            onClick={() => onSelect(session)}
+            className={`flex items-center gap-2 px-3 py-2 text-xs transition-colors whitespace-nowrap border-b-2 ${
+              isActive
+                ? 'border-accent text-accent bg-accent/10'
+                : 'border-transparent text-dim hover:text-[var(--color-text-primary)]'
+            }`}
+          >
+            <div className={`w-1.5 h-1.5 shrink-0 ${getStatusDotClass(session.status)}`} />
+            <span>#{i + 1}</span>
+            <span className="text-dim">{session.provider}</span>
+            {canResume && (
+              <span
                 onClick={(e) => {
                   e.stopPropagation();
-                  onDelete!(session);
+                  onResume!(session);
                 }}
-                className="px-1 py-2 text-xs text-dim hover:text-[var(--color-error)] transition-colors"
-                title="Delete session"
+                className="text-accent hover:underline"
+              >
+                resume
+              </span>
+            )}
+            {canClose && (
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClose!(session);
+                }}
+                className="text-dim hover:text-[var(--color-error)] transition-colors ml-0.5"
+                title={session.status === 'running' || session.status === 'waiting_input' ? 'Stop session' : 'Delete session'}
               >
                 x
-              </button>
+              </span>
             )}
-          </div>
+          </button>
         );
       })}
       <button
         onClick={onNewSession}
-        className="px-3 py-2 text-xs text-dim hover:text-accent transition-colors"
+        className="px-3 py-2 text-xs text-dim hover:text-accent transition-colors border-b-2 border-transparent"
       >
         +
       </button>

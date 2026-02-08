@@ -198,4 +198,17 @@ var migrations = []migration{
 			ALTER TABLE tasks ADD COLUMN pr_url TEXT;
 		`,
 	},
+	{
+		version: 8,
+		sql: `
+			-- Generic key-value preferences table (user_id='default' until multi-user)
+			CREATE TABLE user_preferences (
+				user_id TEXT NOT NULL DEFAULT 'default',
+				key TEXT NOT NULL,
+				value TEXT NOT NULL,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY (user_id, key)
+			);
+		`,
+	},
 }

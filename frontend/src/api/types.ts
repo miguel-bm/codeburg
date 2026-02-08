@@ -106,6 +106,9 @@ export interface UpdateTaskInput {
 export interface UpdateTaskResponse extends Task {
   workflowAction?: string;
   sessionStarted?: string;
+  prCreated?: string;
+  workflowError?: string;
+  worktreeWarning?: string[];
 }
 
 // Sidebar types
@@ -117,6 +120,7 @@ export interface SidebarData {
 export interface SidebarProject {
   id: string;
   name: string;
+  pinned: boolean;
   tasks: SidebarTask[];
 }
 

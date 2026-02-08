@@ -1,5 +1,12 @@
 const API_BASE = '/api';
 
+let onUnauthorized: (() => void) | null = null;
+
+/** Register a callback for 401 responses (called by auth store to avoid circular imports) */
+export function setOnUnauthorized(cb: () => void) {
+  onUnauthorized = cb;
+}
+
 class ApiError extends Error {
   status: number;
 
@@ -9,6 +16,9 @@ class ApiError extends Error {
     this.status = status;
   }
 }
+
+/** Paths that should not trigger the 401 interceptor */
+const AUTH_PATHS = ['/auth/login', '/auth/setup', '/auth/status', '/auth/me'];
 
 async function request<T>(
   path: string,
@@ -31,6 +41,9 @@ async function request<T>(
   });
 
   if (!response.ok) {
+    if (response.status === 401 && onUnauthorized && !AUTH_PATHS.some(p => path.startsWith(p))) {
+      onUnauthorized();
+    }
     const error = await response.json().catch(() => ({ error: 'Unknown error' }));
     throw new ApiError(response.status, error.error || 'Request failed');
   }
@@ -49,6 +62,12 @@ export const api = {
     request<T>(path, {
       method: 'POST',
       body: data ? JSON.stringify(data) : undefined,
+    }),
+
+  put: <T>(path: string, data?: unknown) =>
+    request<T>(path, {
+      method: 'PUT',
+      body: data !== undefined ? JSON.stringify(data) : undefined,
     }),
 
   patch: <T>(path: string, data: unknown) =>

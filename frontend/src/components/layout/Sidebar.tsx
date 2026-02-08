@@ -1,10 +1,19 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { sidebarApi, tasksApi } from '../../api';
+import { sidebarApi, tasksApi, preferencesApi } from '../../api';
 import type { SidebarProject, SidebarTask, SidebarSession, SidebarData, UpdateTaskResponse } from '../../api';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { useKeyboardNav } from '../../hooks/useKeyboardNav';
+import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
+import { useSidebarFocusStore } from '../../stores/sidebarFocus';
 import { CreateProjectModal } from '../common/CreateProjectModal';
+
+interface FocusableItem {
+  type: 'project' | 'task';
+  id: string;
+  projectId?: string;
+}
 
 interface SidebarProps {
   onClose?: () => void;
@@ -50,9 +59,15 @@ export function Sidebar({ onClose, width }: SidebarProps) {
 
   const waitingCount = countWaiting(sidebar);
 
+  const sidebarFocused = useSidebarFocusStore((s) => s.focused);
+  const sidebarIndex = useSidebarFocusStore((s) => s.index);
+  const sidebarExit = useSidebarFocusStore((s) => s.exit);
+  const sidebarSetIndex = useSidebarFocusStore((s) => s.setIndex);
+
   // Collapse all / expand all
   const [allCollapsed, setAllCollapsed] = useState(false);
   const [collapseSignal, setCollapseSignal] = useState(0); // incremented to signal children
+  const [collapseVersion, setCollapseVersion] = useState(0); // incremented on individual project toggle
 
   const toggleCollapseAll = () => {
     const next = !allCollapsed;
@@ -66,12 +81,82 @@ export function Sidebar({ onClose, width }: SidebarProps) {
     setCollapseSignal((s) => s + 1);
   };
 
+  const handleCollapseToggle = useCallback(() => {
+    setCollapseVersion((v) => v + 1);
+  }, []);
+
+  // Build flat list of focusable sidebar items
+  const focusableItems = useMemo((): FocusableItem[] => {
+    if (!sidebar?.projects) return [];
+    const items: FocusableItem[] = [];
+    for (const p of sidebar.projects) {
+      items.push({ type: 'project', id: p.id });
+      const isCollapsed = localStorage.getItem(`sidebar-collapse-${p.id}`) === 'true';
+      if (!isCollapsed) {
+        const sortedTasks = [
+          ...p.tasks.filter((t) => t.status === 'in_review'),
+          ...p.tasks.filter((t) => t.status === 'in_progress'),
+        ];
+        for (const t of sortedTasks) {
+          items.push({ type: 'task', id: t.id, projectId: p.id });
+        }
+      }
+    }
+    return items;
+    // collapseVersion/collapseSignal included to recalculate when projects are toggled
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sidebar, collapseVersion, collapseSignal]);
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Scroll focused sidebar item into view
+  useEffect(() => {
+    if (!sidebarFocused || !scrollContainerRef.current) return;
+    const item = focusableItems[sidebarIndex];
+    if (!item) return;
+    const attr = item.type === 'project' ? `data-sidebar-project="${item.id}"` : `data-sidebar-task="${item.id}"`;
+    const el = scrollContainerRef.current.querySelector(`[${attr}]`);
+    if (el) {
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [sidebarFocused, sidebarIndex, focusableItems]);
+
+  // Keyboard navigation for sidebar (desktop only)
+  useKeyboardNav({
+    keyMap: {
+      ArrowUp: () => sidebarSetIndex(Math.max(sidebarIndex - 1, 0)),
+      k: () => sidebarSetIndex(Math.max(sidebarIndex - 1, 0)),
+      ArrowDown: () => sidebarSetIndex(Math.min(sidebarIndex + 1, focusableItems.length - 1)),
+      j: () => sidebarSetIndex(Math.min(sidebarIndex + 1, focusableItems.length - 1)),
+      ArrowRight: () => sidebarExit(),
+      l: () => sidebarExit(),
+      Escape: () => sidebarExit(),
+      Enter: () => {
+        const item = focusableItems[sidebarIndex];
+        if (!item) return;
+        if (item.type === 'project') {
+          // Toggle project filter
+          if (activeProjectId === item.id) {
+            sessionStorage.removeItem('codeburg:active-project');
+            navigate('/');
+          } else {
+            navigate(`/?project=${item.id}`);
+          }
+        } else {
+          navigate(`/tasks/${item.id}`);
+        }
+      },
+    },
+    enabled: sidebarFocused && !onClose, // desktop only
+  });
+
   const handleProjectClick = (projectId: string) => {
     navigate(`/?project=${projectId}`);
     onClose?.();
   };
 
   const handleHomeClick = () => {
+    sessionStorage.removeItem('codeburg:active-project');
     navigate('/');
     onClose?.();
   };
@@ -135,7 +220,7 @@ export function Sidebar({ onClose, width }: SidebarProps) {
       </div>
 
       {/* Scrollable tree */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
         {isLoading ? (
           <div className="p-3 space-y-3">
             {[1, 2, 3].map((i) => (
@@ -150,17 +235,23 @@ export function Sidebar({ onClose, width }: SidebarProps) {
             no projects yet
           </div>
         ) : (
-          sidebar.projects.map((project) => (
-            <SidebarProjectNode
-              key={project.id}
-              project={project}
-              isActive={activeProjectId === project.id}
-              onProjectClick={handleProjectClick}
-              onClose={onClose}
-              collapseSignal={collapseSignal}
-              forceCollapsed={allCollapsed}
-            />
-          ))
+          sidebar.projects.map((project) => {
+            const focusedItem = sidebarFocused ? focusableItems[sidebarIndex] : null;
+            return (
+              <SidebarProjectNode
+                key={project.id}
+                project={project}
+                isActive={activeProjectId === project.id}
+                onProjectClick={handleProjectClick}
+                onClose={onClose}
+                collapseSignal={collapseSignal}
+                forceCollapsed={allCollapsed}
+                onCollapseToggle={handleCollapseToggle}
+                keyboardFocused={focusedItem?.type === 'project' && focusedItem.id === project.id}
+                focusedTaskId={focusedItem?.type === 'task' && focusedItem.projectId === project.id ? focusedItem.id : undefined}
+              />
+            );
+          })
         )}
       </div>
 
@@ -199,12 +290,30 @@ interface SidebarProjectNodeProps {
   onClose?: () => void;
   collapseSignal: number;
   forceCollapsed: boolean;
+  onCollapseToggle?: () => void;
+  keyboardFocused?: boolean;
+  focusedTaskId?: string;
 }
 
-function SidebarProjectNode({ project, isActive, onProjectClick, onClose, collapseSignal, forceCollapsed }: SidebarProjectNodeProps) {
+function SidebarProjectNode({ project, isActive, onProjectClick, onClose, collapseSignal, forceCollapsed, onCollapseToggle, keyboardFocused, focusedTaskId }: SidebarProjectNodeProps) {
+  const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(() => {
     const stored = localStorage.getItem(`sidebar-collapse-${project.id}`);
     return stored === 'true';
+  });
+
+  const pinMutation = useMutation({
+    mutationFn: async () => {
+      const sidebar = queryClient.getQueryData<SidebarData>(['sidebar']);
+      const currentPinned = sidebar?.projects.filter((p) => p.pinned).map((p) => p.id) ?? [];
+      const nextPinned = project.pinned
+        ? currentPinned.filter((id) => id !== project.id)
+        : [...currentPinned, project.id];
+      return preferencesApi.setPinnedProjects(nextPinned);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+    },
   });
 
   // Respond to collapse-all / expand-all signals
@@ -219,6 +328,7 @@ function SidebarProjectNode({ project, isActive, onProjectClick, onClose, collap
     const next = !collapsed;
     setCollapsed(next);
     localStorage.setItem(`sidebar-collapse-${project.id}`, String(next));
+    onCollapseToggle?.();
   };
 
   // Flat list: in_review first, then in_progress (each group keeps kanban order)
@@ -229,11 +339,12 @@ function SidebarProjectNode({ project, isActive, onProjectClick, onClose, collap
   const hasTasks = sortedTasks.length > 0;
 
   return (
-    <div className={`border-b border-subtle ${isActive ? 'border-l-2 border-l-accent' : ''}`}>
+    <div className={`border-b border-subtle border-l-2 ${isActive ? 'border-l-accent' : 'border-l-transparent'}`}>
       {/* Project header */}
       <div
+        data-sidebar-project={project.id}
         onClick={() => onProjectClick(project.id)}
-        className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-tertiary transition-colors group"
+        className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-tertiary transition-colors group ${keyboardFocused ? 'bg-accent/10' : ''}`}
       >
         {hasTasks ? (
           <button
@@ -256,6 +367,19 @@ function SidebarProjectNode({ project, isActive, onProjectClick, onClose, collap
         <span className={`truncate ${isActive ? 'text-accent' : 'text-[var(--color-text-primary)]'}`}>
           {project.name}
         </span>
+        <button
+          onClick={(e) => { e.stopPropagation(); pinMutation.mutate(); }}
+          className={`flex-shrink-0 transition-colors ${
+            project.pinned
+              ? 'text-accent hover:text-[var(--color-text-primary)]'
+              : 'text-transparent group-hover:text-dim hover:!text-accent'
+          }`}
+          title={project.pinned ? 'unpin project' : 'pin project'}
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M4.456.734a1.75 1.75 0 0 1 2.826.504l.613 1.327a3.1 3.1 0 0 0 2.084 1.707l2.451.484a1.75 1.75 0 0 1 .757 3.028l-1.527 1.227a3.1 3.1 0 0 0-1.085 2.456v.542a1.75 1.75 0 0 1-2.871 1.344L6.022 11.86l-4.236 4.07a.75.75 0 1 1-1.04-1.08L4.87 10.8l-1.57-1.57a1.75 1.75 0 0 1 .504-2.826L5.41 5.5A3.1 3.1 0 0 0 7.323 3.66z" />
+          </svg>
+        </button>
         {hasTasks && (
           <span className="text-xs text-dim ml-auto flex-shrink-0">[{sortedTasks.length}]</span>
         )}
@@ -265,7 +389,7 @@ function SidebarProjectNode({ project, isActive, onProjectClick, onClose, collap
       {!collapsed && (
         <div className="pb-1">
           {sortedTasks.map((task) => (
-            <SidebarTaskNode key={task.id} task={task} onClose={onClose} />
+            <SidebarTaskNode key={task.id} task={task} onClose={onClose} keyboardFocused={focusedTaskId === task.id} />
           ))}
           <QuickAddTask projectId={project.id} onClose={onClose} />
         </div>
@@ -368,9 +492,10 @@ function QuickAddTask({ projectId, onClose }: QuickAddTaskProps) {
 interface SidebarTaskNodeProps {
   task: SidebarTask;
   onClose?: () => void;
+  keyboardFocused?: boolean;
 }
 
-function SidebarTaskNode({ task, onClose }: SidebarTaskNodeProps) {
+function SidebarTaskNode({ task, onClose, keyboardFocused }: SidebarTaskNodeProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -395,9 +520,11 @@ function SidebarTaskNode({ task, onClose }: SidebarTaskNodeProps) {
     },
   });
 
+  const { copied: branchCopied, copy: copyBranch } = useCopyToClipboard();
+
   const handleCopyBranch = () => {
     if (task.branch) {
-      navigator.clipboard.writeText(task.branch);
+      copyBranch(task.branch);
     }
     setContextMenu(null);
   };
@@ -415,14 +542,18 @@ function SidebarTaskNode({ task, onClose }: SidebarTaskNodeProps) {
   return (
     <div>
       <div
+        data-sidebar-task={task.id}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        className="flex items-center gap-1.5 px-6 py-1 text-xs cursor-pointer hover:bg-tertiary transition-colors group"
+        className={`flex items-center gap-1.5 px-6 py-1 text-xs cursor-pointer hover:bg-tertiary transition-colors group ${keyboardFocused ? 'bg-accent/10' : ''}`}
       >
         <TaskStatusIcon status={task.status} />
         <span className="truncate flex-1 text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-primary)]">
           {task.title}
         </span>
+        {branchCopied && (
+          <span className="text-[10px] text-accent flex-shrink-0">copied!</span>
+        )}
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {/* PR link for in_review tasks */}
           {task.prUrl && task.status === 'in_review' && (

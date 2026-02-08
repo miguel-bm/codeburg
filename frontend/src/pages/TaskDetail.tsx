@@ -1,16 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/layout/Layout';
-import { SessionView, SessionTabs } from '../components/session';
-import { JustfilePanel } from '../components/justfile';
-import { TunnelPanel } from '../components/tunnel';
 import { tasksApi, projectsApi, sessionsApi } from '../api';
 import type { AgentSession, SessionProvider } from '../api';
 import { useKeyboardNav } from '../hooks/useKeyboardNav';
 import { HelpOverlay } from '../components/common/HelpOverlay';
-
-type RightPanel = 'session' | 'justfile' | 'tunnel';
+import { TaskDetailBacklog } from './task/TaskDetailBacklog';
+import { TaskDetailInProgress } from './task/TaskDetailInProgress';
+import { TaskDetailInReview } from './task/TaskDetailInReview';
+import { TaskDetailDone } from './task/TaskDetailDone';
 
 export function TaskDetail() {
   const { id } = useParams<{ id: string }>();
@@ -20,7 +19,6 @@ export function TaskDetail() {
   const [activeSession, setActiveSession] = useState<AgentSession | null>(null);
   const [showStartSession, setShowStartSession] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const [rightPanel, setRightPanel] = useState<RightPanel>('session');
   const sessionFromUrl = searchParams.get('session');
 
   const { data: task, isLoading: taskLoading } = useQuery({
@@ -55,11 +53,9 @@ export function TaskDetail() {
       const match = sessions.find((s) => s.id === sessionFromUrl);
       if (match) {
         setActiveSession(match);
-        setRightPanel('session');
         return;
       }
     }
-    // If no session selected yet, auto-select the first running/waiting one
     if (!activeSession) {
       const active = sessions.find((s) => s.status === 'running' || s.status === 'waiting_input');
       if (active) setActiveSession(active);
@@ -104,13 +100,22 @@ export function TaskDetail() {
     },
   });
 
+  const handleStartSession = (provider: SessionProvider, prompt: string, resumeSessionId?: string) => {
+    startSessionMutation.mutate({ provider, prompt, resumeSessionId });
+  };
+
+  const handleCloseSession = (session: AgentSession) => {
+    if (session.status === 'running' || session.status === 'waiting_input') {
+      stopSessionMutation.mutate(session.id);
+    } else {
+      deleteSessionMutation.mutate(session.id);
+    }
+  };
+
   useKeyboardNav({
     keyMap: {
       Escape: () => navigate('/'),
       s: () => setShowStartSession(true),
-      '1': () => setRightPanel('session'),
-      '2': () => setRightPanel('justfile'),
-      '3': () => setRightPanel('tunnel'),
       '?': () => setShowHelp(true),
     },
     enabled: !showStartSession && !showHelp,
@@ -136,129 +141,50 @@ export function TaskDetail() {
     );
   }
 
+  const renderView = () => {
+    switch (task.status) {
+      case 'backlog':
+        return <TaskDetailBacklog task={task} project={project} />;
+
+      case 'in_progress':
+        return (
+          <TaskDetailInProgress
+            task={task}
+            project={project}
+            sessions={sessions || []}
+            activeSession={activeSession}
+            onSelectSession={setActiveSession}
+            onStartSession={handleStartSession}
+            onCloseSession={handleCloseSession}
+            onShowStartModal={() => setShowStartSession(true)}
+          />
+        );
+
+      case 'in_review':
+        return (
+          <TaskDetailInReview
+            task={task}
+            project={project}
+            sessions={sessions || []}
+            activeSession={activeSession}
+            onSelectSession={setActiveSession}
+            onStartSession={handleStartSession}
+            onCloseSession={handleCloseSession}
+            onShowStartModal={() => setShowStartSession(true)}
+          />
+        );
+
+      case 'done':
+        return <TaskDetailDone task={task} project={project} />;
+
+      default:
+        return <TaskDetailBacklog task={task} project={project} />;
+    }
+  };
+
   return (
     <Layout>
-      <div className="flex flex-col h-full">
-        {/* Header */}
-        <header className="bg-secondary border-b border-subtle px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => navigate('/')}
-                className="text-dim hover:text-[var(--color-text-primary)] transition-colors"
-              >
-                &lt; back
-              </button>
-              <div>
-                <h1 className="text-lg font-medium">{task.title}</h1>
-                <div className="flex items-center gap-3 mt-1">
-                  <span className="text-xs text-dim">
-                    {project?.name || 'unknown'}
-                  </span>
-                  <StatusBadge status={task.status} />
-                  {task.branch && (
-                    <span className="text-xs text-dim font-mono">
-                      [{task.branch}]
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              {activeSession && (activeSession.status === 'running' || activeSession.status === 'waiting_input') && (
-                <button
-                  onClick={() => stopSessionMutation.mutate(activeSession.id)}
-                  disabled={stopSessionMutation.isPending}
-                  className="px-4 py-2 border border-[var(--color-error)] text-[var(--color-error)] text-sm hover:bg-[var(--color-error)] hover:text-[var(--color-bg-primary)] transition-colors"
-                >
-                  stop
-                </button>
-              )}
-              <button
-                onClick={() => setShowStartSession(true)}
-                className="px-4 py-2 border border-accent text-accent text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors"
-              >
-                + session
-              </button>
-            </div>
-          </div>
-        </header>
-
-        {/* Main Content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Panel Tabs */}
-          <div className="flex border-b border-subtle bg-secondary">
-            <button
-              onClick={() => setRightPanel('session')}
-              className={`px-4 py-2 text-sm transition-colors ${
-                rightPanel === 'session'
-                  ? 'text-accent border-b-2 border-accent'
-                  : 'text-dim hover:text-[var(--color-text-primary)]'
-              }`}
-            >
-              agent
-            </button>
-            <button
-              onClick={() => setRightPanel('justfile')}
-              className={`px-4 py-2 text-sm transition-colors ${
-                rightPanel === 'justfile'
-                  ? 'text-accent border-b-2 border-accent'
-                  : 'text-dim hover:text-[var(--color-text-primary)]'
-              }`}
-            >
-              justfile
-            </button>
-            <button
-              onClick={() => setRightPanel('tunnel')}
-              className={`px-4 py-2 text-sm transition-colors ${
-                rightPanel === 'tunnel'
-                  ? 'text-accent border-b-2 border-accent'
-                  : 'text-dim hover:text-[var(--color-text-primary)]'
-              }`}
-            >
-              tunnels
-            </button>
-          </div>
-
-          {/* Session Tabs */}
-          {rightPanel === 'session' && sessions && sessions.length > 0 && (
-            <SessionTabs
-              sessions={sessions}
-              activeSessionId={activeSession?.id}
-              onSelect={(session) => {
-                setActiveSession(session);
-                setRightPanel('session');
-              }}
-              onResume={(session) => {
-                startSessionMutation.mutate({
-                  provider: 'claude',
-                  prompt: '',
-                  resumeSessionId: session.id,
-                });
-              }}
-              onDelete={(session) => {
-                deleteSessionMutation.mutate(session.id);
-              }}
-              onNewSession={() => setShowStartSession(true)}
-            />
-          )}
-
-          {/* Panel Content */}
-          <div className="flex-1 overflow-hidden">
-            {rightPanel === 'session' ? (
-              activeSession ? (
-                <SessionView session={activeSession} />
-              ) : (
-                <TaskInfo task={task} project={project} />
-              )
-            ) : rightPanel === 'justfile' ? (
-              <JustfilePanel taskId={id!} />
-            ) : (
-              <TunnelPanel taskId={id!} />
-            )}
-          </div>
-        </div>
-      </div>
+      {renderView()}
 
       {/* Start Session Modal */}
       {showStartSession && (
@@ -277,175 +203,6 @@ export function TaskDetail() {
         <HelpOverlay page="taskDetail" onClose={() => setShowHelp(false)} />
       )}
     </Layout>
-  );
-}
-
-interface StatusBadgeProps {
-  status: string;
-}
-
-function StatusBadge({ status }: StatusBadgeProps) {
-  const statusColors: Record<string, string> = {
-    backlog: 'status-backlog',
-    in_progress: 'status-in-progress',
-    in_review: 'status-in-review',
-    done: 'status-done',
-  };
-
-  return (
-    <span className={`text-xs ${statusColors[status] || 'text-dim'}`}>
-      [{status}]
-    </span>
-  );
-}
-
-function slugify(title: string): string {
-  return title.toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 50) || 'task';
-}
-
-interface TaskInfoProps {
-  task: {
-    id: string;
-    title: string;
-    description?: string;
-    status: string;
-    branch?: string;
-    worktreePath?: string;
-    createdAt: string;
-    startedAt?: string;
-  };
-  project?: {
-    name: string;
-    path: string;
-  };
-}
-
-function TaskInfo({ task, project }: TaskInfoProps) {
-  const queryClient = useQueryClient();
-  const canEditBranch = task.status === 'backlog' && !task.worktreePath;
-  const [branchValue, setBranchValue] = useState(task.branch || '');
-  const [isEditing, setIsEditing] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const updateBranch = useMutation({
-    mutationFn: (branch: string) =>
-      tasksApi.update(task.id, { branch: branch || undefined }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['task', task.id] });
-      setIsEditing(false);
-    },
-  });
-
-  const handleSave = () => {
-    const trimmed = branchValue.trim();
-    if (trimmed !== (task.branch || '')) {
-      updateBranch.mutate(trimmed);
-    } else {
-      setIsEditing(false);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleSave();
-    } else if (e.key === 'Escape') {
-      setBranchValue(task.branch || '');
-      setIsEditing(false);
-    }
-  };
-
-  return (
-    <div className="flex-1 overflow-y-auto p-6">
-      <div className="max-w-2xl space-y-6">
-        {/* Description */}
-        {task.description && (
-          <div>
-            <h3 className="text-sm text-dim mb-2">// description</h3>
-            <p className="text-sm whitespace-pre-wrap">{task.description}</p>
-          </div>
-        )}
-
-        {/* Details */}
-        <div>
-          <h3 className="text-sm text-dim mb-2">// details</h3>
-          <div className="space-y-2 text-sm">
-            <div className="flex gap-4">
-              <span className="text-dim w-24">status</span>
-              <span>{task.status}</span>
-            </div>
-            {canEditBranch ? (
-              <div className="flex gap-4">
-                <span className="text-dim w-24">branch</span>
-                {isEditing ? (
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    value={branchValue}
-                    onChange={(e) => setBranchValue(e.target.value)}
-                    onBlur={handleSave}
-                    onKeyDown={handleKeyDown}
-                    placeholder={slugify(task.title)}
-                    className="flex-1 bg-primary border border-accent px-2 py-0.5 font-mono text-sm text-[var(--color-text-primary)] focus:outline-none"
-                    autoFocus
-                  />
-                ) : (
-                  <button
-                    onClick={() => {
-                      setIsEditing(true);
-                      setTimeout(() => inputRef.current?.focus(), 0);
-                    }}
-                    className="font-mono text-dim hover:text-[var(--color-text-primary)] transition-colors text-left"
-                  >
-                    {task.branch || slugify(task.title)}
-                    {!task.branch && <span className="text-dim/50 ml-1">(auto)</span>}
-                  </button>
-                )}
-              </div>
-            ) : task.branch ? (
-              <div className="flex gap-4">
-                <span className="text-dim w-24">branch</span>
-                <span className="font-mono">{task.branch}</span>
-              </div>
-            ) : null}
-            {task.worktreePath && (
-              <div className="flex gap-4">
-                <span className="text-dim w-24">worktree</span>
-                <span className="font-mono text-xs">{task.worktreePath}</span>
-              </div>
-            )}
-            {project && (
-              <div className="flex gap-4">
-                <span className="text-dim w-24">project</span>
-                <span>{project.name}</span>
-              </div>
-            )}
-            <div className="flex gap-4">
-              <span className="text-dim w-24">created</span>
-              <span>{new Date(task.createdAt).toLocaleString()}</span>
-            </div>
-            {task.startedAt && (
-              <div className="flex gap-4">
-                <span className="text-dim w-24">started</span>
-                <span>{new Date(task.startedAt).toLocaleString()}</span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Instructions */}
-        <div>
-          <h3 className="text-sm text-dim mb-2">// getting_started</h3>
-          <p className="text-sm text-dim">
-            Click "+ session" to start an AI agent session for this task.
-            The agent will work in the task's worktree directory.
-          </p>
-        </div>
-      </div>
-    </div>
   );
 }
 

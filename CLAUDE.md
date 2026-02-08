@@ -249,6 +249,17 @@ POST   /api/tasks/:id/tunnels           Create tunnel { port }
 DELETE /api/tunnels/:id                 Stop tunnel
 ```
 
+### Preferences
+
+```
+GET    /api/preferences/:key             Get preference (raw JSON value)
+PUT    /api/preferences/:key             Set preference (body is raw JSON)
+DELETE /api/preferences/:key             Delete preference
+```
+
+Generic key-value store (`user_preferences` table) scoped by `user_id` (defaults to `'default'`).
+Used for: `pinned_projects` (JSON array of project IDs).
+
 ### WebSocket
 
 ```

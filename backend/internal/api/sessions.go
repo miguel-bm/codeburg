@@ -325,7 +325,12 @@ func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*
 		}
 
 	case "terminal":
-		// No command injection - plain shell
+		// Inject command if provided (e.g. justfile recipe execution)
+		if req.Prompt != "" {
+			if err := s.sessions.tmux.SendKeys(target, req.Prompt, true); err != nil {
+				slog.Error("failed to inject terminal command", "session_id", dbSession.ID, "error", err)
+			}
+		}
 	}
 
 	// Update status to running
@@ -346,7 +351,11 @@ func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*
 	s.sessions.sessions[dbSession.ID] = execSession
 	s.sessions.mu.Unlock()
 
-	updatedSession, _ := s.db.GetSession(dbSession.ID)
+	updatedSession, err := s.db.GetSession(dbSession.ID)
+	if err != nil {
+		slog.Warn("failed to reload session after start", "session_id", dbSession.ID, "error", err)
+		return dbSession, nil
+	}
 	return updatedSession, nil
 }
 

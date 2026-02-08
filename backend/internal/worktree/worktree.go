@@ -63,6 +63,9 @@ type CreateResult struct {
 	WorktreePath string
 	// BranchName is the name of the created branch
 	BranchName string
+	// Warnings contains non-fatal issues encountered during creation
+	// (e.g. failed to fetch or fast-forward base branch)
+	Warnings []string
 }
 
 // Create creates a new git worktree for a task
@@ -106,10 +109,20 @@ func (m *Manager) Create(opts CreateOptions) (*CreateResult, error) {
 		return nil, fmt.Errorf("base branch '%s' does not exist - check project's default branch setting", opts.BaseBranch)
 	}
 
+	var warnings []string
+
 	// Fetch latest from remote to ensure we have up-to-date refs
+	fetchFailed := false
 	if err := m.gitFetch(opts.ProjectPath); err != nil {
-		// Non-fatal: continue even if fetch fails (might be offline)
-		fmt.Fprintf(os.Stderr, "warning: git fetch failed: %v\n", err)
+		fetchFailed = true
+		warnings = append(warnings, fmt.Sprintf("could not fetch from remote: %v — worktree may be based on stale %s", err, opts.BaseBranch))
+	}
+
+	// Fast-forward the base branch to match origin (so new worktrees start fresh)
+	if !fetchFailed {
+		if err := m.fastForwardBase(opts.ProjectPath, opts.BaseBranch); err != nil {
+			warnings = append(warnings, fmt.Sprintf("could not fast-forward %s to match origin: %v — worktree may be based on stale %s", opts.BaseBranch, err, opts.BaseBranch))
+		}
 	}
 
 	// Create the branch and worktree
@@ -124,7 +137,6 @@ func (m *Manager) Create(opts CreateOptions) (*CreateResult, error) {
 		dstPath := filepath.Join(worktreePath, symlinkPath)
 
 		if err := m.createSymlink(srcPath, dstPath); err != nil {
-			// Log but don't fail - symlink target might not exist
 			fmt.Fprintf(os.Stderr, "warning: failed to create symlink %s -> %s: %v\n", dstPath, srcPath, err)
 		}
 	}
@@ -132,7 +144,6 @@ func (m *Manager) Create(opts CreateOptions) (*CreateResult, error) {
 	// Run setup script if provided
 	if opts.SetupScript != "" {
 		if err := m.runScript(worktreePath, opts.SetupScript); err != nil {
-			// Log but don't fail - setup script failure shouldn't prevent worktree creation
 			fmt.Fprintf(os.Stderr, "warning: setup script failed: %v\n", err)
 		}
 	}
@@ -140,6 +151,7 @@ func (m *Manager) Create(opts CreateOptions) (*CreateResult, error) {
 	return &CreateResult{
 		WorktreePath: worktreePath,
 		BranchName:   branchName,
+		Warnings:     warnings,
 	}, nil
 }
 
@@ -212,6 +224,28 @@ func (m *Manager) gitFetch(repoPath string) error {
 	cmd := exec.Command("git", "fetch", "--prune")
 	cmd.Dir = repoPath
 	return cmd.Run()
+}
+
+// fastForwardBase updates the local base branch to match origin without checkout.
+// Uses git merge --ff-only so it's safe — it will fail (harmlessly) if the local
+// branch has diverged rather than silently losing commits.
+func (m *Manager) fastForwardBase(repoPath, baseBranch string) error {
+	remote := "origin/" + baseBranch
+	// Check that the remote tracking branch exists
+	check := exec.Command("git", "rev-parse", "--verify", remote)
+	check.Dir = repoPath
+	if check.Run() != nil {
+		return nil // no remote tracking branch, nothing to do
+	}
+	// Use git fetch . to update the local ref without needing checkout.
+	// "git fetch . origin/main:main" updates local main to match origin/main, ff-only.
+	cmd := exec.Command("git", "fetch", ".", fmt.Sprintf("%s:%s", remote, baseBranch))
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return nil
 }
 
 func (m *Manager) hasCommits(repoPath string) bool {

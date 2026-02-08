@@ -166,10 +166,23 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/tasks/{id}/just/{recipe}", s.handleRunJustRecipeInTask)
 		r.Get("/api/tasks/{id}/just/{recipe}/stream", s.handleStreamJustRecipe)
 
+		// Git operations
+		r.Get("/api/tasks/{id}/git/status", s.handleGitStatus)
+		r.Get("/api/tasks/{id}/git/diff", s.handleGitDiff)
+		r.Post("/api/tasks/{id}/git/stage", s.handleGitStage)
+		r.Post("/api/tasks/{id}/git/unstage", s.handleGitUnstage)
+		r.Post("/api/tasks/{id}/git/commit", s.handleGitCommit)
+		r.Post("/api/tasks/{id}/git/stash", s.handleGitStash)
+
 		// Tunnels
 		r.Get("/api/tasks/{id}/tunnels", s.handleListTunnels)
 		r.Post("/api/tasks/{id}/tunnels", s.handleCreateTunnel)
 		r.Delete("/api/tunnels/{id}", s.handleStopTunnel)
+
+		// Preferences
+		r.Get("/api/preferences/{key}", s.handleGetPreference)
+		r.Put("/api/preferences/{key}", s.handleSetPreference)
+		r.Delete("/api/preferences/{key}", s.handleDeletePreference)
 	})
 
 	// Serve frontend static files (SPA with index.html fallback)

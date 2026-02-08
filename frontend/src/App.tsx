@@ -8,6 +8,7 @@ import { TaskDetail } from './pages/TaskDetail';
 import { ProjectSettings } from './pages/ProjectSettings';
 import { Settings } from './pages/Settings';
 import { CommandPalette, useCommandPalette } from './components/common/CommandPalette';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useNotifications } from './hooks/useNotifications';
 
 const queryClient = new QueryClient({
@@ -61,13 +62,15 @@ function AppShell() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <AuthGate>
-          <AppShell />
-        </AuthGate>
-      </BrowserRouter>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <AuthGate>
+            <AppShell />
+          </AuthGate>
+        </BrowserRouter>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

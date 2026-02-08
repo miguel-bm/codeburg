@@ -26,6 +26,15 @@ const dashboardShortcuts: ShortcutSection[] = [
     ],
   },
   {
+    title: 'sidebar',
+    shortcuts: [
+      { key: '\u2190 at col 1', action: 'focus sidebar' },
+      { key: '\u2191/\u2193 (k/j)', action: 'navigate items' },
+      { key: 'Enter', action: 'select project / open task' },
+      { key: '\u2192 / Escape', action: 'return to kanban' },
+    ],
+  },
+  {
     title: 'actions',
     shortcuts: [
       { key: 'Shift+arrow (H/L)', action: 'move card to adjacent column' },
@@ -43,9 +52,6 @@ const taskDetailShortcuts: ShortcutSection[] = [
     title: 'navigation',
     shortcuts: [
       { key: 'Escape', action: 'back to dashboard' },
-      { key: '1', action: 'agent panel' },
-      { key: '2', action: 'justfile panel' },
-      { key: '3', action: 'tunnel panel' },
     ],
   },
   {

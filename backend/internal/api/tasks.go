@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os/exec"
 	"strings"
 
 	"github.com/miguel-bm/codeburg/internal/db"
+	"github.com/miguel-bm/codeburg/internal/github"
 	"github.com/miguel-bm/codeburg/internal/worktree"
 )
 
@@ -125,13 +127,15 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Auto-create worktree when moving to in_progress
+	var worktreeWarnings []string
 	if input.Status != nil && *input.Status == db.TaskStatusInProgress {
 		// Only create if no worktree exists yet
 		if currentTask.WorktreePath == nil || *currentTask.WorktreePath == "" {
-			if err := s.autoCreateWorktree(currentTask, &input); err != nil {
-				// Log error but don't fail the status update
-				fmt.Printf("warning: failed to auto-create worktree: %v\n", err)
+			warnings, err := s.autoCreateWorktree(currentTask, &input)
+			if err != nil {
+				slog.Warn("failed to auto-create worktree", "task_id", id, "error", err)
 			}
+			worktreeWarnings = warnings
 		}
 	}
 
@@ -142,7 +146,7 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check for workflow automation on status transitions
-	resp := updateTaskResponse{Task: task}
+	resp := updateTaskResponse{Task: task, WorktreeWarning: worktreeWarnings}
 	if input.Status != nil && *input.Status != currentTask.Status {
 		s.dispatchWorkflow(currentTask, task, &resp)
 	}
@@ -153,8 +157,11 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 // updateTaskResponse wraps a Task with optional workflow automation hints.
 type updateTaskResponse struct {
 	*db.Task
-	WorkflowAction *string `json:"workflowAction,omitempty"` // "ask" when user should pick provider
-	SessionStarted *string `json:"sessionStarted,omitempty"` // session ID if auto-started
+	WorkflowAction  *string  `json:"workflowAction,omitempty"`  // "ask" when user should pick provider
+	SessionStarted  *string  `json:"sessionStarted,omitempty"`  // session ID if auto-started
+	PRCreated       *string  `json:"prCreated,omitempty"`       // PR URL if auto-created
+	WorkflowError   *string  `json:"workflowError,omitempty"`   // non-fatal workflow error message
+	WorktreeWarning []string `json:"worktreeWarning,omitempty"` // non-fatal worktree creation warnings
 }
 
 // dispatchWorkflow checks the project's workflow config and acts on status transitions.
@@ -194,18 +201,14 @@ func (s *Server) dispatchWorkflow(oldTask, newTask *db.Task, resp *updateTaskRes
 		}
 	}
 
-	// in_progress → in_review (stub for future)
+	// in_progress → in_review
 	if oldTask.Status == db.TaskStatusInProgress && newTask.Status == db.TaskStatusInReview {
-		if wf.ProgressToReview != nil {
-			slog.Info("workflow: progress→review stub", "task_id", newTask.ID, "action", wf.ProgressToReview.Action)
-		}
+		s.handleProgressToReview(newTask, project, wf.ProgressToReview, resp)
 	}
 
-	// in_review → done (stub for future)
+	// in_review → done
 	if oldTask.Status == db.TaskStatusInReview && newTask.Status == db.TaskStatusDone {
-		if wf.ReviewToDone != nil {
-			slog.Info("workflow: review→done stub", "task_id", newTask.ID, "action", wf.ReviewToDone.Action)
-		}
+		s.handleReviewToDone(newTask, project, wf.ReviewToDone, resp)
 	}
 }
 
@@ -218,11 +221,12 @@ func buildPromptFromTemplate(tmpl, title, description string) string {
 	return r.Replace(tmpl)
 }
 
-// autoCreateWorktree creates a worktree for a task and updates the input with worktree info
-func (s *Server) autoCreateWorktree(task *db.Task, input *db.UpdateTaskInput) error {
+// autoCreateWorktree creates a worktree for a task and updates the input with worktree info.
+// Returns non-fatal warnings (e.g. stale base branch) and an error if creation failed entirely.
+func (s *Server) autoCreateWorktree(task *db.Task, input *db.UpdateTaskInput) (warnings []string, err error) {
 	project, err := s.db.GetProject(task.ProjectID)
 	if err != nil {
-		return fmt.Errorf("get project: %w", err)
+		return nil, fmt.Errorf("get project: %w", err)
 	}
 
 	result, err := s.worktree.Create(worktree.CreateOptions{
@@ -236,12 +240,178 @@ func (s *Server) autoCreateWorktree(task *db.Task, input *db.UpdateTaskInput) er
 		SetupScript:  ptrToString(project.SetupScript),
 	})
 	if err != nil {
-		return fmt.Errorf("create worktree: %w", err)
+		return nil, fmt.Errorf("create worktree: %w", err)
 	}
 
 	// Add worktree info to the update input
 	input.WorktreePath = &result.WorktreePath
 	input.Branch = &result.BranchName
+
+	return result.Warnings, nil
+}
+
+// handleProgressToReview implements the in_progress → in_review workflow.
+func (s *Server) handleProgressToReview(task *db.Task, project *db.Project, cfg *db.ProgressToReviewConfig, resp *updateTaskResponse) {
+	if cfg == nil {
+		return
+	}
+
+	branch := ptrToString(task.Branch)
+	if branch == "" {
+		return
+	}
+
+	workDir := ptrToString(task.WorktreePath)
+	if workDir == "" {
+		workDir = project.Path
+	}
+
+	switch cfg.Action {
+	case "pr_auto":
+		if !github.Available() {
+			wfErr := "gh CLI not available, skipping PR creation"
+			resp.WorkflowError = &wfErr
+			slog.Warn("workflow: pr_auto skipped", "task_id", task.ID, "reason", wfErr)
+			return
+		}
+		// Push the branch first
+		if err := github.PushBranch(workDir, branch); err != nil {
+			wfErr := fmt.Sprintf("failed to push branch: %v", err)
+			resp.WorkflowError = &wfErr
+			slog.Error("workflow: push branch failed", "task_id", task.ID, "error", err)
+			return
+		}
+		// Create the PR
+		baseBranch := cfg.PRBaseBranch
+		if baseBranch == "" {
+			baseBranch = project.DefaultBranch
+		}
+		body := ptrToString(task.Description)
+		prURL, err := github.CreatePR(workDir, task.Title, body, baseBranch, branch)
+		if err != nil {
+			wfErr := fmt.Sprintf("failed to create PR: %v", err)
+			resp.WorkflowError = &wfErr
+			slog.Error("workflow: create PR failed", "task_id", task.ID, "error", err)
+			return
+		}
+		// Store PR URL on task
+		s.db.UpdateTask(task.ID, db.UpdateTaskInput{PRURL: &prURL})
+		resp.PRCreated = &prURL
+		resp.PRURL = &prURL
+		slog.Info("workflow: PR created", "task_id", task.ID, "pr_url", prURL)
+
+	case "pr_manual":
+		if !github.Available() {
+			wfErr := "gh CLI not available, skipping branch push"
+			resp.WorkflowError = &wfErr
+			return
+		}
+		if err := github.PushBranch(workDir, branch); err != nil {
+			wfErr := fmt.Sprintf("failed to push branch: %v", err)
+			resp.WorkflowError = &wfErr
+			slog.Error("workflow: push branch failed", "task_id", task.ID, "error", err)
+			return
+		}
+		action := "branch_pushed"
+		resp.WorkflowAction = &action
+		slog.Info("workflow: branch pushed (manual PR)", "task_id", task.ID, "branch", branch)
+	}
+}
+
+// handleReviewToDone implements the in_review → done workflow.
+func (s *Server) handleReviewToDone(task *db.Task, project *db.Project, cfg *db.ReviewToDoneConfig, resp *updateTaskResponse) {
+	if cfg == nil {
+		return
+	}
+
+	switch cfg.Action {
+	case "merge_pr":
+		prURL := ptrToString(task.PRURL)
+		if prURL == "" {
+			wfErr := "no PR URL on task, skipping merge"
+			resp.WorkflowError = &wfErr
+			return
+		}
+		if !github.Available() {
+			wfErr := "gh CLI not available, skipping PR merge"
+			resp.WorkflowError = &wfErr
+			return
+		}
+		strategy := cfg.MergeStrategy
+		if strategy == "" {
+			strategy = "squash"
+		}
+		deleteBranch := cfg.DeleteBranch == nil || *cfg.DeleteBranch
+		if err := github.MergePR(project.Path, prURL, strategy, deleteBranch); err != nil {
+			wfErr := fmt.Sprintf("failed to merge PR: %v", err)
+			resp.WorkflowError = &wfErr
+			slog.Error("workflow: merge PR failed", "task_id", task.ID, "error", err)
+			return
+		}
+		slog.Info("workflow: PR merged", "task_id", task.ID, "pr_url", prURL)
+
+	case "merge_branch":
+		branch := ptrToString(task.Branch)
+		if branch == "" {
+			wfErr := "no branch on task, skipping merge"
+			resp.WorkflowError = &wfErr
+			return
+		}
+		baseBranch := project.DefaultBranch
+		if err := directMergeBranch(project.Path, baseBranch, branch); err != nil {
+			wfErr := fmt.Sprintf("failed to merge branch: %v", err)
+			resp.WorkflowError = &wfErr
+			slog.Error("workflow: merge branch failed", "task_id", task.ID, "error", err)
+			return
+		}
+		// Delete branch if configured
+		deleteBranch := cfg.DeleteBranch == nil || *cfg.DeleteBranch
+		if deleteBranch {
+			delCmd := exec.Command("git", "branch", "-d", branch)
+			delCmd.Dir = project.Path
+			delCmd.Run() // best-effort
+		}
+		slog.Info("workflow: branch merged directly", "task_id", task.ID, "branch", branch)
+
+	default:
+		return
+	}
+
+	// Cleanup worktree if configured
+	cleanupWorktree := cfg.CleanupWorktree == nil || *cfg.CleanupWorktree
+	if cleanupWorktree && task.WorktreePath != nil && *task.WorktreePath != "" {
+		err := s.worktree.Delete(worktree.DeleteOptions{
+			ProjectPath:    project.Path,
+			WorktreePath:   *task.WorktreePath,
+			DeleteBranch:   false, // branch already handled above
+			TeardownScript: ptrToString(project.TeardownScript),
+		})
+		if err != nil {
+			slog.Error("workflow: cleanup worktree failed", "task_id", task.ID, "error", err)
+		} else {
+			emptyStr := ""
+			s.db.UpdateTask(task.ID, db.UpdateTaskInput{WorktreePath: &emptyStr})
+			resp.WorktreePath = &emptyStr
+			slog.Info("workflow: worktree cleaned up", "task_id", task.ID)
+		}
+	}
+}
+
+// directMergeBranch merges a feature branch into the base branch using --no-ff in the main repo.
+func directMergeBranch(repoPath, baseBranch, featureBranch string) error {
+	// Checkout base branch
+	checkout := exec.Command("git", "checkout", baseBranch)
+	checkout.Dir = repoPath
+	if output, err := checkout.CombinedOutput(); err != nil {
+		return fmt.Errorf("checkout %s: %s: %w", baseBranch, strings.TrimSpace(string(output)), err)
+	}
+
+	// Merge with --no-ff
+	merge := exec.Command("git", "merge", "--no-ff", featureBranch, "-m", fmt.Sprintf("Merge branch '%s'", featureBranch))
+	merge.Dir = repoPath
+	if output, err := merge.CombinedOutput(); err != nil {
+		return fmt.Errorf("merge %s: %s: %w", featureBranch, strings.TrimSpace(string(output)), err)
+	}
 
 	return nil
 }

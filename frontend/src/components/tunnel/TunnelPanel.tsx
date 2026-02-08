@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tunnelsApi } from '../../api';
+import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 
 interface TunnelPanelProps {
   taskId: string;
@@ -41,9 +42,7 @@ export function TunnelPanel({ taskId }: TunnelPanelProps) {
     }
   };
 
-  const copyToClipboard = (url: string) => {
-    navigator.clipboard.writeText(url);
-  };
+  const { copied, copy: copyToClipboard } = useCopyToClipboard();
 
   if (isLoading) {
     return (
@@ -141,10 +140,10 @@ export function TunnelPanel({ taskId }: TunnelPanelProps) {
                   </a>
                   <button
                     onClick={() => copyToClipboard(tunnel.url)}
-                    className="text-xs text-dim hover:text-[var(--color-text-primary)] shrink-0"
+                    className={`text-xs shrink-0 ${copied ? 'text-accent' : 'text-dim hover:text-[var(--color-text-primary)]'}`}
                     title="Copy URL"
                   >
-                    copy
+                    {copied ? 'copied!' : 'copy'}
                   </button>
                 </div>
               </div>
