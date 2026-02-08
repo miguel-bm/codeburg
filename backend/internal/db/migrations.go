@@ -178,4 +178,24 @@ var migrations = []migration{
 			UPDATE tasks SET status = 'backlog' WHERE status = 'blocked';
 		`,
 	},
+	{
+		version: 6,
+		sql: `
+			-- Initialize positions for existing tasks (position column exists from migration 1 but was never used)
+			WITH ranked AS (
+				SELECT id, ROW_NUMBER() OVER (
+					PARTITION BY status ORDER BY pinned DESC, created_at DESC
+				) - 1 AS pos
+				FROM tasks
+			)
+			UPDATE tasks SET position = (SELECT pos FROM ranked WHERE ranked.id = tasks.id);
+		`,
+	},
+	{
+		version: 7,
+		sql: `
+			-- Add PR URL to tasks for linking pull requests
+			ALTER TABLE tasks ADD COLUMN pr_url TEXT;
+		`,
+	},
 }

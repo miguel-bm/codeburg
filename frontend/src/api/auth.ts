@@ -11,4 +11,7 @@ export const authApi = {
     api.post<AuthToken>('/auth/login', { password }),
 
   me: () => api.get<{ user: string }>('/auth/me'),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.post<{ status: string }>('/auth/password', { currentPassword, newPassword }),
 };

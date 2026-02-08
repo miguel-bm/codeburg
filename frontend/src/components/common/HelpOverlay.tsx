@@ -28,10 +28,11 @@ const dashboardShortcuts: ShortcutSection[] = [
   {
     title: 'actions',
     shortcuts: [
-      { key: 'Shift+arrow', action: 'move card to adjacent column' },
+      { key: 'Shift+arrow (H/L)', action: 'move card to adjacent column' },
+      { key: 'Shift+Up/Down (K/J)', action: 'reorder card within column' },
+      { key: 'x', action: 'toggle pin on focused task' },
       { key: 'n', action: 'new task' },
       { key: 'p', action: 'new project' },
-      { key: 'f', action: 'focus project filter' },
       { key: '?', action: 'toggle help' },
     ],
   },

@@ -6,6 +6,9 @@ import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { TaskDetail } from './pages/TaskDetail';
 import { ProjectSettings } from './pages/ProjectSettings';
+import { Settings } from './pages/Settings';
+import { CommandPalette, useCommandPalette } from './components/common/CommandPalette';
+import { useNotifications } from './hooks/useNotifications';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,17 +41,30 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AppShell() {
+  useNotifications();
+  const { open: paletteOpen, setOpen: setPaletteOpen } = useCommandPalette();
+
+  return (
+    <>
+      <Routes>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/tasks/:id" element={<TaskDetail />} />
+        <Route path="/projects/:id/settings" element={<ProjectSettings />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
+    </>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthGate>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/tasks/:id" element={<TaskDetail />} />
-            <Route path="/projects/:id/settings" element={<ProjectSettings />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          <AppShell />
         </AuthGate>
       </BrowserRouter>
     </QueryClientProvider>

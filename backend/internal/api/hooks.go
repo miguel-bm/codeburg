@@ -120,5 +120,17 @@ func (s *Server) handleSessionHook(w http.ResponseWriter, r *http.Request) {
 		"status":    string(newStatus),
 	})
 
+	// Broadcast sidebar update to all clients
+	s.wsHub.BroadcastGlobal("sidebar_update", map[string]string{
+		"taskId":    session.TaskID,
+		"sessionId": sessionID,
+		"status":    string(newStatus),
+	})
+
+	// Invalidate diff stats cache when agent finishes work
+	if newStatus == db.SessionStatusWaitingInput || newStatus == db.SessionStatusCompleted {
+		s.diffStatsCache.Delete(session.TaskID)
+	}
+
 	w.WriteHeader(http.StatusOK)
 }

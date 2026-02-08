@@ -279,6 +279,43 @@ func (m *Manager) getWorktreeBranch(worktreePath string) string {
 	return strings.TrimSpace(string(output))
 }
 
+// DiffStats returns the number of additions and deletions in a worktree
+// compared to the base branch. Returns 0,0 on error (non-fatal).
+func (m *Manager) DiffStats(worktreePath, baseBranch string) (additions, deletions int, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "diff", "--shortstat", baseBranch+"...HEAD")
+	cmd.Dir = worktreePath
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	a, d := parseShortStat(string(output))
+	return a, d, nil
+}
+
+// parseShortStat parses git diff --shortstat output like:
+// " 3 files changed, 42 insertions(+), 15 deletions(-)"
+func parseShortStat(s string) (additions, deletions int) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, 0
+	}
+
+	parts := strings.Split(s, ", ")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if strings.Contains(part, "insertion") {
+			fmt.Sscanf(part, "%d", &additions)
+		} else if strings.Contains(part, "deletion") {
+			fmt.Sscanf(part, "%d", &deletions)
+		}
+	}
+	return additions, deletions
+}
+
 func (m *Manager) deleteBranch(repoPath, branchName string) error {
 	// Force delete the branch (it may have unmerged changes)
 	cmd := exec.Command("git", "branch", "-D", branchName)

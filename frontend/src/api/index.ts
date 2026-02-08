@@ -5,6 +5,7 @@ export { tasksApi } from './tasks';
 export { sessionsApi } from './sessions';
 export { justfileApi } from './justfile';
 export { tunnelsApi } from './tunnels';
+export { sidebarApi } from './sidebar';
 export * from './types';
 export type { AgentSession, SessionStatus, SessionProvider, StartSessionInput } from './sessions';
 export type { Recipe, JustfileInfo, RunResult } from './justfile';

@@ -29,6 +29,7 @@
 
   /* Semantic colors */
   --color-error: oklch(0.7 0.2 30);
+  --color-warning: oklch(0.75 0.15 85);
 
   /* Borders - brightened for visibility */
   --color-border: oklch(0.35 0 0);
@@ -192,9 +193,22 @@ button:disabled,
   animation: pulse-glow 2s ease-in-out infinite;
 }
 
+/* Drop target pulsing placeholder */
+@keyframes drop-target-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.6; }
+}
+
+.animate-drop-pulse {
+  animation: drop-target-pulse 1.5s ease-in-out infinite;
+}
+
 /* Respect reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .animate-pulse-glow {
+    animation: none;
+  }
+  .animate-drop-pulse {
     animation: none;
   }
 }

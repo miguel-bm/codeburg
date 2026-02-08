@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/layout/Layout';
 import { SessionView, SessionTabs } from '../components/session';
@@ -15,11 +15,13 @@ type RightPanel = 'session' | 'justfile' | 'tunnel';
 export function TaskDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [activeSession, setActiveSession] = useState<AgentSession | null>(null);
   const [showStartSession, setShowStartSession] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [rightPanel, setRightPanel] = useState<RightPanel>('session');
+  const sessionFromUrl = searchParams.get('session');
 
   const { data: task, isLoading: taskLoading } = useQuery({
     queryKey: ['task', id],
@@ -40,6 +42,17 @@ export function TaskDetail() {
     refetchInterval: 5000,
     refetchIntervalInBackground: false,
   });
+
+  // Auto-select session from URL param
+  useEffect(() => {
+    if (sessionFromUrl && sessions && !activeSession) {
+      const match = sessions.find((s) => s.id === sessionFromUrl);
+      if (match) {
+        setActiveSession(match);
+        setRightPanel('session');
+      }
+    }
+  }, [sessionFromUrl, sessions, activeSession]);
 
   // Keep activeSession in sync with polling data
   useEffect(() => {

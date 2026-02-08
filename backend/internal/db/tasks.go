@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -24,7 +25,9 @@ type Task struct {
 	Status       TaskStatus `json:"status"`
 	Branch       *string    `json:"branch,omitempty"`
 	WorktreePath *string    `json:"worktreePath,omitempty"`
+	PRURL        *string    `json:"prUrl,omitempty"`
 	Pinned       bool       `json:"pinned"`
+	Position     int        `json:"position"`
 	CreatedAt    time.Time  `json:"createdAt"`
 	StartedAt    *time.Time `json:"startedAt,omitempty"`
 	CompletedAt  *time.Time `json:"completedAt,omitempty"`
@@ -42,12 +45,15 @@ type UpdateTaskInput struct {
 	Status       *TaskStatus `json:"status,omitempty"`
 	Branch       *string     `json:"branch,omitempty"`
 	WorktreePath *string     `json:"worktreePath,omitempty"`
+	PRURL        *string     `json:"prUrl,omitempty"`
 	Pinned       *bool       `json:"pinned,omitempty"`
+	Position     *int        `json:"position,omitempty"`
 }
 
 type TaskFilter struct {
 	ProjectID *string
 	Status    *TaskStatus
+	Statuses  []TaskStatus
 }
 
 // CreateTask creates a new task
@@ -56,9 +62,9 @@ func (db *DB) CreateTask(input CreateTaskInput) (*Task, error) {
 	now := time.Now()
 
 	_, err := db.conn.Exec(`
-		INSERT INTO tasks (id, project_id, title, description, status, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, id, input.ProjectID, input.Title, NullString(input.Description), TaskStatusBacklog, now)
+		INSERT INTO tasks (id, project_id, title, description, status, position, created_at)
+		VALUES (?, ?, ?, ?, ?, COALESCE((SELECT MAX(position) FROM tasks WHERE status = ?), -1) + 1, ?)
+	`, id, input.ProjectID, input.Title, NullString(input.Description), TaskStatusBacklog, TaskStatusBacklog, now)
 	if err != nil {
 		return nil, fmt.Errorf("insert task: %w", err)
 	}
@@ -69,8 +75,8 @@ func (db *DB) CreateTask(input CreateTaskInput) (*Task, error) {
 // GetTask retrieves a task by ID
 func (db *DB) GetTask(id string) (*Task, error) {
 	row := db.conn.QueryRow(`
-		SELECT id, project_id, title, description, status, branch, worktree_path,
-		       pinned, created_at, started_at, completed_at
+		SELECT id, project_id, title, description, status, branch, worktree_path, pr_url,
+		       pinned, position, created_at, started_at, completed_at
 		FROM tasks WHERE id = ?
 	`, id)
 
@@ -84,8 +90,8 @@ func (db *DB) GetTask(id string) (*Task, error) {
 // ListTasks retrieves tasks with optional filtering
 func (db *DB) ListTasks(filter TaskFilter) ([]*Task, error) {
 	query := `
-		SELECT id, project_id, title, description, status, branch, worktree_path,
-		       pinned, created_at, started_at, completed_at
+		SELECT id, project_id, title, description, status, branch, worktree_path, pr_url,
+		       pinned, position, created_at, started_at, completed_at
 		FROM tasks WHERE 1=1
 	`
 	var args []any
@@ -98,8 +104,16 @@ func (db *DB) ListTasks(filter TaskFilter) ([]*Task, error) {
 		query += " AND status = ?"
 		args = append(args, *filter.Status)
 	}
+	if len(filter.Statuses) > 0 {
+		placeholders := make([]string, len(filter.Statuses))
+		for i, s := range filter.Statuses {
+			placeholders[i] = "?"
+			args = append(args, s)
+		}
+		query += " AND status IN (" + strings.Join(placeholders, ", ") + ")"
+	}
 
-	query += " ORDER BY pinned DESC, created_at DESC"
+	query += " ORDER BY position ASC"
 
 	rows, err := db.conn.Query(query, args...)
 	if err != nil {
@@ -125,6 +139,56 @@ func (db *DB) UpdateTask(id string, input UpdateTaskInput) (*Task, error) {
 	current, err := db.GetTask(id)
 	if err != nil {
 		return nil, err
+	}
+
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	statusChanging := input.Status != nil && *input.Status != current.Status
+	positionChanging := input.Position != nil && *input.Position != current.Position
+
+	// Handle position shifting
+	if statusChanging {
+		// Close gap in old column
+		_, err = tx.Exec(
+			"UPDATE tasks SET position = position - 1 WHERE status = ? AND position > ?",
+			current.Status, current.Position,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("close gap in old column: %w", err)
+		}
+
+		if input.Position != nil {
+			// Make room at target position in new column
+			_, err = tx.Exec(
+				"UPDATE tasks SET position = position + 1 WHERE status = ? AND position >= ?",
+				*input.Status, *input.Position,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("make room in new column: %w", err)
+			}
+		}
+	} else if positionChanging {
+		// Same-column reorder
+		oldPos := current.Position
+		newPos := *input.Position
+		if newPos < oldPos {
+			_, err = tx.Exec(
+				"UPDATE tasks SET position = position + 1 WHERE status = ? AND position >= ? AND position < ? AND id != ?",
+				current.Status, newPos, oldPos, id,
+			)
+		} else {
+			_, err = tx.Exec(
+				"UPDATE tasks SET position = position - 1 WHERE status = ? AND position > ? AND position <= ? AND id != ?",
+				current.Status, oldPos, newPos, id,
+			)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("shift positions: %w", err)
+		}
 	}
 
 	query := "UPDATE tasks SET id = id" // No-op to start the SET clause
@@ -161,15 +225,29 @@ func (db *DB) UpdateTask(id string, input UpdateTaskInput) (*Task, error) {
 		query += ", worktree_path = ?"
 		args = append(args, *input.WorktreePath)
 	}
+	if input.PRURL != nil {
+		query += ", pr_url = ?"
+		args = append(args, *input.PRURL)
+	}
 	if input.Pinned != nil {
 		query += ", pinned = ?"
 		args = append(args, *input.Pinned)
 	}
 
+	// Set position
+	if input.Position != nil {
+		query += ", position = ?"
+		args = append(args, *input.Position)
+	} else if statusChanging {
+		// Append to end of target column
+		query += ", position = COALESCE((SELECT MAX(position) FROM tasks WHERE status = ? AND id != ?), -1) + 1"
+		args = append(args, *input.Status, id)
+	}
+
 	query += " WHERE id = ?"
 	args = append(args, id)
 
-	result, err := db.conn.Exec(query, args...)
+	result, err := tx.Exec(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("update task: %w", err)
 	}
@@ -180,6 +258,10 @@ func (db *DB) UpdateTask(id string, input UpdateTaskInput) (*Task, error) {
 	}
 	if rows == 0 {
 		return nil, ErrNotFound
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit transaction: %w", err)
 	}
 
 	return db.GetTask(id)
@@ -205,12 +287,13 @@ func (db *DB) DeleteTask(id string) error {
 
 func scanTask(scan scanFunc) (*Task, error) {
 	var t Task
-	var description, branch, worktreePath sql.NullString
+	var description, branch, worktreePath, prURL sql.NullString
+	var position sql.NullInt64
 	var startedAt, completedAt sql.NullTime
 
 	err := scan(
 		&t.ID, &t.ProjectID, &t.Title, &description, &t.Status,
-		&branch, &worktreePath, &t.Pinned, &t.CreatedAt, &startedAt, &completedAt,
+		&branch, &worktreePath, &prURL, &t.Pinned, &position, &t.CreatedAt, &startedAt, &completedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -219,6 +302,10 @@ func scanTask(scan scanFunc) (*Task, error) {
 	t.Description = StringPtr(description)
 	t.Branch = StringPtr(branch)
 	t.WorktreePath = StringPtr(worktreePath)
+	t.PRURL = StringPtr(prURL)
+	if position.Valid {
+		t.Position = int(position.Int64)
+	}
 	t.StartedAt = TimePtr(startedAt)
 	t.CompletedAt = TimePtr(completedAt)
 

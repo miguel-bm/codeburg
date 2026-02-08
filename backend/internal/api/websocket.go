@@ -153,6 +153,27 @@ func (h *WSHub) BroadcastToTask(taskID string, msgType string, data interface{})
 	}
 }
 
+// BroadcastGlobal sends a message to all connected clients (no subscription required)
+func (h *WSHub) BroadcastGlobal(msgType string, data interface{}) {
+	payload := map[string]interface{}{
+		"type":      msgType,
+		"data":      data,
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	}
+
+	message, err := json.Marshal(payload)
+	if err != nil {
+		slog.Error("failed to marshal global websocket message", "error", err)
+		return
+	}
+
+	select {
+	case h.broadcast <- message:
+	default:
+		slog.Warn("broadcast channel full, dropping global message", "type", msgType)
+	}
+}
+
 // handleWebSocket handles WebSocket connection upgrade and message handling
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)

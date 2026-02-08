@@ -1,14 +1,16 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useMemo, useEffect, useRef, useCallback, forwardRef } from 'react';
+import { createPortal } from 'react-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/layout/Layout';
 import { tasksApi, projectsApi, sessionsApi } from '../api';
-import type { Task, TaskStatus, CreateProjectInput, CreateTaskInput, UpdateTaskResponse } from '../api';
+import type { Task, TaskStatus, CreateTaskInput, UpdateTaskResponse } from '../api';
 import { useMobile } from '../hooks/useMobile';
 import { useSwipe } from '../hooks/useSwipe';
 import { useLongPress } from '../hooks/useLongPress';
 import { useKeyboardNav } from '../hooks/useKeyboardNav';
 import { HelpOverlay } from '../components/common/HelpOverlay';
+import { CreateProjectModal } from '../components/common/CreateProjectModal';
 
 const COLUMNS: { id: TaskStatus; title: string; color: string }[] = [
   { id: 'backlog', title: 'BACKLOG', color: 'status-backlog' },
@@ -23,18 +25,37 @@ interface ContextMenu {
   y: number;
 }
 
+interface DragState {
+  taskId: string;
+  sourceCol: number;
+  sourceCard: number;
+  sourcePosition: number;
+  mouseX: number;
+  mouseY: number;
+  initialMouseX: number;
+  initialMouseY: number;
+  targetCol: number;
+  targetPosition: number;
+  cardWidth: number;
+  cardHeight: number;
+  cardOffsetX: number;
+  cardOffsetY: number;
+}
+
 export function Dashboard() {
-  const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>();
+  const [searchParams] = useSearchParams();
+  const selectedProjectId = searchParams.get('project') || undefined;
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [createTaskStatus, setCreateTaskStatus] = useState<TaskStatus>('backlog');
   const [showCreateProject, setShowCreateProject] = useState(false);
-  const [dragOverColumn, setDragOverColumn] = useState<TaskStatus | null>(null);
   const [activeColumnIndex, setActiveColumnIndex] = useState(0);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [focus, setFocus] = useState<{ col: number; card: number } | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [workflowPrompt, setWorkflowPrompt] = useState<{ taskId: string } | null>(null);
-  const filterRef = useRef<HTMLSelectElement>(null);
+  const [drag, setDrag] = useState<DragState | null>(null);
+  const columnRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const isMobile = useMobile();
@@ -56,8 +77,8 @@ export function Dashboard() {
   });
 
   const updateTaskMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: TaskStatus }) =>
-      tasksApi.update(id, { status }),
+    mutationFn: ({ id, status, position }: { id: string; status?: TaskStatus; position?: number }) =>
+      tasksApi.update(id, { status, position }),
     onSuccess: (data: UpdateTaskResponse) => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       if (data.workflowAction === 'ask') {
@@ -88,32 +109,6 @@ export function Dashboard() {
     return projects?.find((p) => p.id === projectId)?.name ?? 'unknown';
   };
 
-  const handleDragStart = (e: React.DragEvent, taskId: string) => {
-    e.dataTransfer.setData('taskId', taskId);
-  };
-
-  const handleDragEnd = () => {
-    setDragOverColumn(null);
-  };
-
-  const handleDragOver = (e: React.DragEvent, status: TaskStatus) => {
-    e.preventDefault();
-    setDragOverColumn(status);
-  };
-
-  const handleDragLeave = () => {
-    setDragOverColumn(null);
-  };
-
-  const handleDrop = (e: React.DragEvent, status: TaskStatus) => {
-    e.preventDefault();
-    setDragOverColumn(null);
-    const taskId = e.dataTransfer.getData('taskId');
-    if (taskId) {
-      updateTaskMutation.mutate({ id: taskId, status });
-    }
-  };
-
   const hasProjects = projects && projects.length > 0;
 
   const getColumnTasks = useCallback(
@@ -137,17 +132,69 @@ export function Dashboard() {
         return;
       }
     }
-    // No tasks at all — focus first column placeholder
     setFocus({ col: 0, card: 0 });
   }, [selectedProjectId, tasks, tasksByStatus]);
 
   const STATUS_ORDER: TaskStatus[] = COLUMNS.map((c) => c.id);
 
-  // maxCard includes the "new task" placeholder at the end
   const getMaxCard = useCallback(
-    (colIdx: number): number => getColumnTasks(colIdx).length, // length = last index is the placeholder
+    (colIdx: number): number => getColumnTasks(colIdx).length,
     [getColumnTasks],
   );
+
+  // Shared callbacks for keyboard shortcuts
+  const moveColumnLeft = useCallback(() => {
+    if (!focus) return;
+    const task = getFocusedTask();
+    if (!task || focus.col === 0) return;
+    const newCol = focus.col - 1;
+    updateTaskMutation.mutate({ id: task.id, status: STATUS_ORDER[newCol] });
+    const maxCard = Math.max(getColumnTasks(newCol).length, 0);
+    setFocus({ col: newCol, card: Math.min(focus.card, maxCard) });
+  }, [focus, getFocusedTask, getColumnTasks, updateTaskMutation, STATUS_ORDER]);
+
+  const moveColumnRight = useCallback(() => {
+    if (!focus) return;
+    const task = getFocusedTask();
+    if (!task || focus.col >= COLUMNS.length - 1) return;
+    const newCol = focus.col + 1;
+    updateTaskMutation.mutate({ id: task.id, status: STATUS_ORDER[newCol] });
+    const maxCard = Math.max(getColumnTasks(newCol).length, 0);
+    setFocus({ col: newCol, card: Math.min(focus.card, maxCard) });
+  }, [focus, getFocusedTask, getColumnTasks, updateTaskMutation, STATUS_ORDER]);
+
+  const reorderUp = useCallback(() => {
+    if (!focus) return;
+    const task = getFocusedTask();
+    if (!task || focus.card === 0) return;
+    const newPos = focus.card - 1;
+    const colTasks = getColumnTasks(focus.col);
+    const targetTask = colTasks[newPos];
+    if (!targetTask) return;
+    updateTaskMutation.mutate({ id: task.id, position: targetTask.position });
+    setFocus({ col: focus.col, card: newPos });
+  }, [focus, getFocusedTask, getColumnTasks, updateTaskMutation]);
+
+  const reorderDown = useCallback(() => {
+    if (!focus) return;
+    const task = getFocusedTask();
+    const colTasks = getColumnTasks(focus.col);
+    if (!task || focus.card >= colTasks.length - 1) return;
+    const newPos = focus.card + 1;
+    const targetTask = colTasks[newPos];
+    if (!targetTask) return;
+    updateTaskMutation.mutate({ id: task.id, position: targetTask.position });
+    setFocus({ col: focus.col, card: newPos });
+  }, [focus, getFocusedTask, getColumnTasks, updateTaskMutation]);
+
+  const togglePin = useCallback(() => {
+    if (!focus) return;
+    const task = getFocusedTask();
+    if (!task) return;
+    tasksApi.update(task.id, { pinned: !task.pinned }).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    });
+  }, [focus, getFocusedTask, queryClient]);
 
   useKeyboardNav({
     keyMap: {
@@ -183,30 +230,20 @@ export function Dashboard() {
         if (task) {
           navigate(`/tasks/${task.id}`);
         } else if (hasProjects) {
-          // On the "new task" placeholder — create in focused column
           setCreateTaskStatus(COLUMNS[focus.col].id);
           setShowCreateTask(true);
         }
       },
       Escape: () => setFocus(null),
-      'Shift+ArrowLeft': () => {
-        if (!focus) return;
-        const task = getFocusedTask();
-        if (!task || focus.col === 0) return;
-        const newCol = focus.col - 1;
-        updateTaskMutation.mutate({ id: task.id, status: STATUS_ORDER[newCol] });
-        const maxCard = Math.max(getColumnTasks(newCol).length, 0); // new card will be appended
-        setFocus({ col: newCol, card: Math.min(focus.card, maxCard) });
-      },
-      'Shift+ArrowRight': () => {
-        if (!focus) return;
-        const task = getFocusedTask();
-        if (!task || focus.col >= COLUMNS.length - 1) return;
-        const newCol = focus.col + 1;
-        updateTaskMutation.mutate({ id: task.id, status: STATUS_ORDER[newCol] });
-        const maxCard = Math.max(getColumnTasks(newCol).length, 0);
-        setFocus({ col: newCol, card: Math.min(focus.card, maxCard) });
-      },
+      'Shift+ArrowLeft': moveColumnLeft,
+      'Shift+ArrowRight': moveColumnRight,
+      'Shift+H': moveColumnLeft,
+      'Shift+L': moveColumnRight,
+      'Shift+ArrowUp': reorderUp,
+      'Shift+ArrowDown': reorderDown,
+      'Shift+K': reorderUp,
+      'Shift+J': reorderDown,
+      x: togglePin,
       n: () => {
         if (hasProjects) {
           setCreateTaskStatus(COLUMNS[focus?.col ?? 0].id);
@@ -214,14 +251,13 @@ export function Dashboard() {
         }
       },
       p: () => setShowCreateProject(true),
-      f: () => filterRef.current?.focus(),
       '1': () => setFocus({ col: 0, card: 0 }),
       '2': () => setFocus({ col: 1, card: 0 }),
       '3': () => setFocus({ col: 2, card: 0 }),
       '4': () => setFocus({ col: 3, card: 0 }),
       '?': () => setShowHelp(true),
     },
-    enabled: !showCreateTask && !showCreateProject && !showHelp && !contextMenu,
+    enabled: !showCreateTask && !showCreateProject && !showHelp && !contextMenu && !drag,
   });
 
   // Sync mobile tab to focus column
@@ -231,57 +267,135 @@ export function Dashboard() {
     }
   }, [focus, isMobile]);
 
+  // --- Custom drag-and-drop (desktop only) ---
+
+  const handleMouseDown = useCallback((e: React.MouseEvent, task: Task, colIdx: number, cardIdx: number) => {
+    if (isMobile || e.button !== 0) return;
+    const cardEl = cardRefs.current.get(task.id);
+    if (!cardEl) return;
+    const rect = cardEl.getBoundingClientRect();
+    setDrag({
+      taskId: task.id,
+      sourceCol: colIdx,
+      sourceCard: cardIdx,
+      sourcePosition: task.position,
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      initialMouseX: e.clientX,
+      initialMouseY: e.clientY,
+      targetCol: colIdx,
+      targetPosition: task.position,
+      cardWidth: rect.width,
+      cardHeight: rect.height,
+      cardOffsetX: e.clientX - rect.left,
+      cardOffsetY: e.clientY - rect.top,
+    });
+  }, [isMobile]);
+
+  // Calculate target column and position from mouse position
+  const calcDropTarget = useCallback((mouseX: number, mouseY: number): { col: number; position: number } => {
+    // Find target column
+    let targetCol = 0;
+    for (let i = 0; i < COLUMNS.length; i++) {
+      const colEl = columnRefs.current[i];
+      if (!colEl) continue;
+      const rect = colEl.getBoundingClientRect();
+      if (mouseX >= rect.left && mouseX <= rect.right) {
+        targetCol = i;
+        break;
+      }
+      // If past the last column, use the last
+      if (i === COLUMNS.length - 1) targetCol = i;
+      // If between columns, pick closest
+      if (mouseX < rect.left) {
+        targetCol = i;
+        break;
+      }
+    }
+
+    // Find target position within column
+    const colTasks = getColumnTasks(targetCol);
+    let targetPosition = colTasks.length; // default: end
+
+    for (let i = 0; i < colTasks.length; i++) {
+      const task = colTasks[i];
+      // Skip the dragged card in source column
+      if (drag && task.id === drag.taskId) continue;
+      const cardEl = cardRefs.current.get(task.id);
+      if (!cardEl) continue;
+      const rect = cardEl.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      if (mouseY < midY) {
+        targetPosition = i;
+        break;
+      }
+    }
+
+    return { col: targetCol, position: targetPosition };
+  }, [getColumnTasks, drag]);
+
+  useEffect(() => {
+    if (!drag) return;
+
+    const onMouseMove = (e: MouseEvent) => {
+      const { col, position } = calcDropTarget(e.clientX, e.clientY);
+      setDrag((d) => d ? { ...d, mouseX: e.clientX, mouseY: e.clientY, targetCol: col, targetPosition: position } : null);
+    };
+
+    const onMouseUp = (e: MouseEvent) => {
+      setDrag((d) => {
+        if (!d) return null;
+        const dist = Math.hypot(e.clientX - d.initialMouseX, e.clientY - d.initialMouseY);
+        if (dist < 5) {
+          // Click — navigate
+          const task = (tasks ?? []).find((t) => t.id === d.taskId);
+          if (task) navigate(`/tasks/${task.id}`);
+        } else {
+          // Drop — update task
+          const sourceStatus = COLUMNS[d.sourceCol].id;
+          const targetStatus = COLUMNS[d.targetCol].id;
+          const colTasks = getColumnTasks(d.targetCol);
+
+          if (sourceStatus !== targetStatus) {
+            // Cross-column move
+            const targetTask = colTasks[d.targetPosition];
+            updateTaskMutation.mutate({
+              id: d.taskId,
+              status: targetStatus,
+              position: targetTask ? targetTask.position : colTasks.length,
+            });
+          } else if (d.targetPosition !== d.sourceCard) {
+            // Same-column reorder
+            // Map visual index to actual position
+            const targetTask = colTasks[d.targetPosition];
+            const newPosition = targetTask ? targetTask.position : (colTasks.length > 0 ? colTasks[colTasks.length - 1].position + 1 : 0);
+            updateTaskMutation.mutate({
+              id: d.taskId,
+              position: newPosition,
+            });
+          }
+        }
+        return null;
+      });
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+  }, [drag, calcDropTarget, tasks, navigate, getColumnTasks, updateTaskMutation]);
+
+  // Is dragging (mouse has moved enough)?
+  const isDragging = drag && Math.hypot(drag.mouseX - drag.initialMouseX, drag.mouseY - drag.initialMouseY) >= 5;
+
   return (
     <Layout>
-      {/* Header */}
-      <header className="bg-secondary border-b border-subtle px-4 md:px-6 py-3 md:py-4">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
-            {/* On mobile, leave space for hamburger menu */}
-            {isMobile && <div className="w-8" />}
-            <h2 className="text-xs md:text-sm text-dim truncate hidden md:block">
-              // {selectedProjectId
-                ? projects?.find((p) => p.id === selectedProjectId)?.name
-                : 'all_tasks'}
-            </h2>
-            <select
-              ref={filterRef}
-              value={selectedProjectId ?? ''}
-              onChange={(e) => setSelectedProjectId(e.target.value || undefined)}
-              className="px-2 md:px-3 py-1 md:py-1.5 text-xs md:text-sm border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none flex-1 md:flex-none max-w-[150px] md:max-w-none"
-            >
-              <option value="">all_projects</option>
-              {projects?.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex gap-1 md:gap-2">
-            <button
-              onClick={() => setShowCreateProject(true)}
-              className="px-2 md:px-4 py-1.5 md:py-2 border border-subtle text-xs md:text-sm hover:border-accent hover:text-accent transition-colors"
-            >
-              <span className="hidden md:inline">+ project</span>
-              <span className="md:hidden">+P</span>
-            </button>
-            <button
-              onClick={() => { setCreateTaskStatus(COLUMNS[focus?.col ?? 0].id); setShowCreateTask(true); }}
-              disabled={!hasProjects}
-              className="px-2 md:px-4 py-1.5 md:py-2 border border-accent text-accent text-xs md:text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <span className="hidden md:inline">+ task</span>
-              <span className="md:hidden">+T</span>
-            </button>
-          </div>
-        </div>
-      </header>
-
       {/* Kanban Board */}
       {isMobile ? (
         // Mobile: Tabbed columns with swipe navigation
-        <div className="flex flex-col h-[calc(100vh-73px)]">
+        <div className="flex flex-col h-full">
           {/* Tab Navigation */}
           <div className="flex border-b border-subtle bg-secondary overflow-x-auto">
             {COLUMNS.map((column, index) => (
@@ -316,8 +430,6 @@ export function Dashboard() {
                     key={task.id}
                     task={task}
                     projectName={!selectedProjectId ? getProjectName(task.projectId) : undefined}
-                    onDragStart={handleDragStart}
-                    onDragEnd={handleDragEnd}
                     isMobile
                     onLongPress={(x, y) => setContextMenu({ taskId: task.id, x, y })}
                     focused={focus?.col === activeColumnIndex && focus?.card === cardIdx}
@@ -332,65 +444,114 @@ export function Dashboard() {
           </div>
         </div>
       ) : (
-        // Desktop: Horizontal scrolling kanban
-        <div className="p-6 h-[calc(100vh-73px)] overflow-x-auto">
+        // Desktop: Horizontal scrolling kanban with custom DnD
+        <div className="p-6 h-full overflow-x-auto">
           <div className="flex gap-4 h-full min-w-max">
-            {COLUMNS.map((column, colIdx) => (
-              <div
-                key={column.id}
-                className={`w-80 flex flex-col bg-secondary border transition-colors ${
-                  dragOverColumn === column.id
-                    ? 'border-accent bg-[oklch(0.75_0.2_145_/_0.08)]'
-                    : focus?.col === colIdx
+            {COLUMNS.map((column, colIdx) => {
+              const colTasks = getTasksByStatus(column.id);
+              return (
+                <div
+                  key={column.id}
+                  ref={(el) => { columnRefs.current[colIdx] = el; }}
+                  className={`w-80 flex flex-col bg-secondary border transition-colors ${
+                    focus?.col === colIdx
                       ? 'border-accent'
                       : 'border-subtle'
-                }`}
-                onDragOver={(e) => handleDragOver(e, column.id)}
-                onDragLeave={handleDragLeave}
-                onDrop={(e) => handleDrop(e, column.id)}
-              >
-                {/* Column Header */}
-                <div className="px-4 py-3 border-b border-subtle">
-                  <div className="flex items-center justify-between">
-                    <h3 className={`text-sm font-medium ${column.color}`}>
-                      {column.title}
-                    </h3>
-                    <span className="text-sm text-dim">
-                      [{getTasksByStatus(column.id).length}]
-                    </span>
+                  }`}
+                >
+                  {/* Column Header */}
+                  <div className="px-4 py-3 border-b border-subtle">
+                    <div className="flex items-center justify-between">
+                      <h3 className={`text-sm font-medium ${column.color}`}>
+                        {column.title}
+                      </h3>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-dim">
+                          [{colTasks.length}]
+                        </span>
+                        {focus?.col === colIdx && (
+                          <span className="text-[10px] text-dim opacity-40">[n]</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tasks */}
+                  <div className="flex-1 p-2 space-y-2 overflow-y-auto">
+                    {tasksLoading ? (
+                      <div className="text-center text-dim py-4 text-sm">
+                        loading...
+                      </div>
+                    ) : (
+                      <>
+                        {colTasks.map((task, cardIdx) => {
+                          const isGhost = isDragging && drag?.taskId === task.id;
+                          const showDropPlaceholder = isDragging && drag?.targetCol === colIdx && drag?.targetPosition === cardIdx && drag?.taskId !== task.id;
+                          return (
+                            <div key={task.id}>
+                              {showDropPlaceholder && (
+                                <DropPlaceholder height={drag!.cardHeight} />
+                              )}
+                              <TaskCard
+                                ref={(el) => {
+                                  if (el) cardRefs.current.set(task.id, el);
+                                  else cardRefs.current.delete(task.id);
+                                }}
+                                task={task}
+                                projectName={!selectedProjectId ? getProjectName(task.projectId) : undefined}
+                                focused={focus?.col === colIdx && focus?.card === cardIdx}
+                                ghost={isGhost}
+                                onMouseDown={(e) => handleMouseDown(e, task, colIdx, cardIdx)}
+                                colIdx={colIdx}
+                                cardIdx={cardIdx}
+                                totalCards={colTasks.length}
+                                totalCols={COLUMNS.length}
+                              />
+                            </div>
+                          );
+                        })}
+                        {/* Drop placeholder at end of column */}
+                        {isDragging && drag?.targetCol === colIdx && drag?.targetPosition >= colTasks.length && (
+                          <DropPlaceholder height={drag!.cardHeight} />
+                        )}
+                        <NewTaskPlaceholder
+                          focused={focus?.col === colIdx && focus?.card === colTasks.length}
+                          onClick={() => { if (hasProjects) { setCreateTaskStatus(column.id); setShowCreateTask(true); } }}
+                        />
+                      </>
+                    )}
                   </div>
                 </div>
-
-                {/* Tasks */}
-                <div className="flex-1 p-2 space-y-2 overflow-y-auto">
-                  {tasksLoading ? (
-                    <div className="text-center text-dim py-4 text-sm">
-                      loading...
-                    </div>
-                  ) : (
-                    <>
-                      {getTasksByStatus(column.id).map((task, cardIdx) => (
-                        <TaskCard
-                          key={task.id}
-                          task={task}
-                          projectName={!selectedProjectId ? getProjectName(task.projectId) : undefined}
-                          onDragStart={handleDragStart}
-                          onDragEnd={handleDragEnd}
-                          focused={focus?.col === colIdx && focus?.card === cardIdx}
-                        />
-                      ))}
-                      <NewTaskPlaceholder
-                        focused={focus?.col === colIdx && focus?.card === getTasksByStatus(column.id).length}
-                        onClick={() => { if (hasProjects) { setCreateTaskStatus(column.id); setShowCreateTask(true); } }}
-                      />
-                    </>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
+
+      {/* Drag overlay (portal) */}
+      {isDragging && drag && (() => {
+        const draggedTask = (tasks ?? []).find((t) => t.id === drag.taskId);
+        if (!draggedTask) return null;
+        return createPortal(
+          <div
+            className="fixed z-[100] pointer-events-none"
+            style={{
+              left: drag.mouseX - drag.cardOffsetX,
+              top: drag.mouseY - drag.cardOffsetY,
+              width: drag.cardWidth,
+              transform: 'rotate(2deg)',
+              opacity: 0.9,
+            }}
+          >
+            <TaskCard
+              task={draggedTask}
+              projectName={!selectedProjectId ? getProjectName(draggedTask.projectId) : undefined}
+              focused={false}
+            />
+          </div>,
+          document.body,
+        );
+      })()}
 
       {/* Context Menu for mobile long-press */}
       {contextMenu && (
@@ -438,6 +599,15 @@ export function Dashboard() {
   );
 }
 
+function DropPlaceholder({ height }: { height: number }) {
+  return (
+    <div
+      className="border-2 border-dashed border-accent bg-[var(--color-accent-glow)] animate-drop-pulse mb-2"
+      style={{ height }}
+    />
+  );
+}
+
 interface NewTaskPlaceholderProps {
   focused?: boolean;
   onClick: () => void;
@@ -477,16 +647,30 @@ const STATUS_COLORS: Record<TaskStatus, string> = {
 interface TaskCardProps {
   task: Task;
   projectName?: string;
-  onDragStart: (e: React.DragEvent, taskId: string) => void;
-  onDragEnd: () => void;
   isMobile?: boolean;
   onLongPress?: (x: number, y: number) => void;
   focused?: boolean;
+  ghost?: boolean;
+  onMouseDown?: (e: React.MouseEvent) => void;
+  colIdx?: number;
+  cardIdx?: number;
+  totalCards?: number;
+  totalCols?: number;
 }
 
-function TaskCard({ task, projectName, onDragStart, onDragEnd, isMobile, onLongPress, focused }: TaskCardProps) {
+const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
+  { task, projectName, isMobile, onLongPress, focused, ghost, onMouseDown, colIdx, cardIdx, totalCards, totalCols },
+  ref,
+) {
   const navigate = useNavigate();
-  const cardRef = useRef<HTMLDivElement>(null);
+  const internalRef = useRef<HTMLDivElement>(null);
+
+  // Merge refs
+  const setRef = useCallback((el: HTMLDivElement | null) => {
+    (internalRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    if (typeof ref === 'function') ref(el);
+    else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = el;
+  }, [ref]);
 
   const handleClick = () => {
     navigate(`/tasks/${task.id}`);
@@ -507,22 +691,22 @@ function TaskCard({ task, projectName, onDragStart, onDragEnd, isMobile, onLongP
 
   // Scroll focused card into view
   useEffect(() => {
-    if (focused && cardRef.current) {
-      cardRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (focused && internalRef.current) {
+      internalRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
   }, [focused]);
 
+  const showHints = focused && !isMobile && colIdx !== undefined && cardIdx !== undefined;
+
   return (
     <div
-      ref={cardRef}
+      ref={setRef}
       id={`task-${task.id}`}
-      draggable={!isMobile}
-      onDragStart={!isMobile ? (e) => onDragStart(e, task.id) : undefined}
-      onDragEnd={!isMobile ? onDragEnd : undefined}
-      {...(isMobile ? longPressHandlers : { onClick: handleClick })}
-      className={`bg-primary p-3 border-l-2 border transition-colors cursor-pointer ${
+      onMouseDown={!isMobile ? onMouseDown : undefined}
+      {...(isMobile ? longPressHandlers : {})}
+      className={`bg-primary p-3 border-l-2 border transition-all cursor-pointer select-none ${
         isMobile ? 'select-none' : ''
-      } ${focused ? 'border-accent bg-[var(--color-accent-glow)]' : 'border-subtle hover:border-accent'}`}
+      } ${ghost ? 'opacity-20' : ''} ${focused ? 'border-accent bg-[var(--color-accent-glow)]' : 'border-subtle hover:border-accent'}`}
       style={{ borderLeftColor: STATUS_COLORS[task.status] }}
     >
       <h4 className="font-medium text-sm">
@@ -550,9 +734,18 @@ function TaskCard({ task, projectName, onDragStart, onDragEnd, isMobile, onLongP
           </span>
         )}
       </div>
+      {showHints && (
+        <div className="flex items-center gap-1.5 mt-2">
+          <span className="text-[10px] text-dim opacity-40">[&#9166;]</span>
+          {colIdx! > 0 && <span className="text-[10px] text-dim opacity-40">[&#8679;&#8592;]</span>}
+          {colIdx! < (totalCols ?? COLUMNS.length) - 1 && <span className="text-[10px] text-dim opacity-40">[&#8679;&#8594;]</span>}
+          {cardIdx! > 0 && <span className="text-[10px] text-dim opacity-40">[&#8679;&#8593;]</span>}
+          {cardIdx! < (totalCards ?? 0) - 1 && <span className="text-[10px] text-dim opacity-40">[&#8679;&#8595;]</span>}
+        </div>
+      )}
     </div>
   );
-}
+});
 
 interface TaskContextMenuProps {
   x: number;
@@ -570,7 +763,6 @@ function TaskContextMenu({ x, y, currentStatus, onClose, onStatusChange }: TaskC
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
 
-  // Adjust position to keep menu on screen
   const menuStyle = {
     left: Math.min(x, window.innerWidth - 160),
     top: Math.min(y, window.innerHeight - 200),
@@ -578,12 +770,10 @@ function TaskContextMenu({ x, y, currentStatus, onClose, onStatusChange }: TaskC
 
   return (
     <>
-      {/* Backdrop */}
       <div
         className="fixed inset-0 z-50"
         onClick={onClose}
       />
-      {/* Menu */}
       <div
         className="fixed z-50 bg-secondary border border-subtle min-w-[150px]"
         style={menuStyle}
@@ -610,145 +800,6 @@ function TaskContextMenu({ x, y, currentStatus, onClose, onStatusChange }: TaskC
         ))}
       </div>
     </>
-  );
-}
-
-interface CreateProjectModalProps {
-  onClose: () => void;
-}
-
-function isGitHubURL(s: string): boolean {
-  const trimmed = s.trim();
-  return trimmed.startsWith('https://github.com/') ||
-    trimmed.startsWith('http://github.com/') ||
-    trimmed.startsWith('git@github.com:');
-}
-
-function parseRepoName(url: string): string {
-  let cleaned = url.trim().replace(/\/+$/, '').replace(/\.git$/, '');
-  if (cleaned.startsWith('git@github.com:')) {
-    cleaned = cleaned.replace('git@github.com:', '');
-  }
-  const parts = cleaned.split('/');
-  return parts[parts.length - 1] || '';
-}
-
-function parseDirName(path: string): string {
-  const trimmed = path.trim().replace(/\/+$/, '');
-  const parts = trimmed.split('/');
-  return parts[parts.length - 1] || '';
-}
-
-function CreateProjectModal({ onClose }: CreateProjectModalProps) {
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [onClose]);
-
-  const [source, setSource] = useState('');
-  const [name, setName] = useState('');
-  const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
-  const [error, setError] = useState('');
-  const queryClient = useQueryClient();
-
-  const isClone = isGitHubURL(source);
-
-  const handleSourceChange = (value: string) => {
-    setSource(value);
-    if (!nameManuallyEdited) {
-      if (isGitHubURL(value)) {
-        setName(parseRepoName(value));
-      } else if (value.includes('/')) {
-        setName(parseDirName(value));
-      }
-    }
-  };
-
-  const createMutation = useMutation({
-    mutationFn: (input: CreateProjectInput) => projectsApi.create(input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      onClose();
-    },
-    onError: (err) => {
-      setError(err instanceof Error ? err.message : 'Failed to create project');
-    },
-  });
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    if (isClone) {
-      createMutation.mutate({ name, githubUrl: source });
-    } else {
-      createMutation.mutate({ name, path: source });
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-[var(--color-bg-primary)]/80 flex items-center justify-center p-4 z-50">
-      <div className="bg-secondary border border-subtle w-full max-w-md">
-        <div className="px-4 py-3 border-b border-subtle">
-          <h2 className="text-sm text-accent">// new_project</h2>
-        </div>
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
-          {error && (
-            <div className="border border-[var(--color-error)] p-3 text-sm text-[var(--color-error)]">
-              {error}
-            </div>
-          )}
-          <div>
-            <label className="block text-sm text-dim mb-1">path or github url</label>
-            <input
-              type="text"
-              value={source}
-              onChange={(e) => handleSourceChange(e.target.value)}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none"
-              placeholder="https://github.com/user/repo or /path/to/project"
-              required
-            />
-            {isClone && name && (
-              <p className="text-xs text-dim mt-1">
-                // will clone to ~/.codeburg/repos/{name}/
-              </p>
-            )}
-          </div>
-          <div>
-            <label className="block text-sm text-dim mb-1">name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                setNameManuallyEdited(true);
-              }}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none"
-              placeholder="my-project"
-              required
-            />
-          </div>
-          <div className="flex gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-2 px-4 border border-subtle text-dim text-sm hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-primary)] transition-colors"
-            >
-              cancel
-            </button>
-            <button
-              type="submit"
-              disabled={createMutation.isPending}
-              className="flex-1 py-2 px-4 border border-accent text-accent text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50"
-            >
-              {createMutation.isPending
-                ? (isClone ? 'cloning...' : 'creating...')
-                : 'create'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
   );
 }
 

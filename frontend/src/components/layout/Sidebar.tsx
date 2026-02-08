@@ -1,87 +1,649 @@
-import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
-import { projectsApi } from '../../api';
-import { useAuthStore } from '../../stores/auth';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { sidebarApi, tasksApi } from '../../api';
+import type { SidebarProject, SidebarTask, SidebarSession, SidebarData, UpdateTaskResponse } from '../../api';
+import { useWebSocket } from '../../hooks/useWebSocket';
+import { CreateProjectModal } from '../common/CreateProjectModal';
 
 interface SidebarProps {
   onClose?: () => void;
+  width?: number;
 }
 
-export function Sidebar({ onClose }: SidebarProps) {
-  const navigate = useNavigate();
-  const logout = useAuthStore((s) => s.logout);
+function countWaiting(data: SidebarData | undefined): number {
+  if (!data?.projects) return 0;
+  let n = 0;
+  for (const p of data.projects) {
+    for (const t of p.tasks) {
+      for (const s of t.sessions) {
+        if (s.status === 'waiting_input') n++;
+      }
+    }
+  }
+  return n;
+}
 
-  const { data: projects, isLoading } = useQuery({
-    queryKey: ['projects'],
-    queryFn: projectsApi.list,
+export function Sidebar({ onClose, width }: SidebarProps) {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const queryClient = useQueryClient();
+  const [showCreateProject, setShowCreateProject] = useState(false);
+
+  const activeProjectId = searchParams.get('project') || undefined;
+
+  const { data: sidebar, isLoading } = useQuery({
+    queryKey: ['sidebar'],
+    queryFn: sidebarApi.get,
+    refetchInterval: 10000,
   });
 
+  // Listen for sidebar_update WebSocket messages
+  useWebSocket({
+    onMessage: useCallback((data: unknown) => {
+      const msg = data as { type?: string };
+      if (msg.type === 'sidebar_update') {
+        queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+      }
+    }, [queryClient]),
+  });
+
+  const waitingCount = countWaiting(sidebar);
+
+  // Collapse all / expand all
+  const [allCollapsed, setAllCollapsed] = useState(false);
+  const [collapseSignal, setCollapseSignal] = useState(0); // incremented to signal children
+
+  const toggleCollapseAll = () => {
+    const next = !allCollapsed;
+    setAllCollapsed(next);
+    // Persist all project collapse states
+    if (sidebar?.projects) {
+      for (const p of sidebar.projects) {
+        localStorage.setItem(`sidebar-collapse-${p.id}`, String(next));
+      }
+    }
+    setCollapseSignal((s) => s + 1);
+  };
+
+  const handleProjectClick = (projectId: string) => {
+    navigate(`/?project=${projectId}`);
+    onClose?.();
+  };
+
+  const handleHomeClick = () => {
+    navigate('/');
+    onClose?.();
+  };
+
+  const handleSettingsClick = () => {
+    navigate('/settings');
+    onClose?.();
+  };
+
+  const sidebarStyle = width ? { width } : undefined;
+
   return (
-    <aside className="w-64 bg-secondary border-r border-subtle flex flex-col h-full">
+    <aside
+      className={`bg-secondary border-r border-subtle flex flex-col h-full ${width ? '' : 'w-72'}`}
+      style={sidebarStyle}
+    >
       {/* Header */}
       <div className="p-4 border-b border-subtle flex items-center justify-between">
-        <h1
-          onClick={() => { navigate('/'); onClose?.(); }}
-          className="text-lg font-bold text-accent hover:text-[var(--color-text-primary)] transition-colors cursor-pointer"
-        >CODEBURG</h1>
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="p-1 hover:text-accent transition-colors"
-            aria-label="Close menu"
-          >
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" />
-            </svg>
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          <h1
+            onClick={handleHomeClick}
+            className="text-lg font-bold text-accent hover:text-[var(--color-text-primary)] transition-colors cursor-pointer"
+          >CODEBURG</h1>
+          {waitingCount > 0 && (
+            <span className="text-xs text-[var(--color-warning)] animate-pulse font-bold">
+              [{waitingCount}]
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {/* Collapse all / expand all */}
+          {sidebar?.projects && sidebar.projects.length > 0 && (
+            <button
+              onClick={toggleCollapseAll}
+              className="p-1 text-dim hover:text-accent transition-colors"
+              title={allCollapsed ? 'expand all' : 'collapse all'}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                {allCollapsed ? (
+                  // Expand icon (arrows outward)
+                  <path d="M2 5l5 4 5-4" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                ) : (
+                  // Collapse icon (arrows inward)
+                  <path d="M2 9l5-4 5 4" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                )}
+              </svg>
+            </button>
+          )}
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1 hover:text-accent transition-colors"
+              aria-label="Close menu"
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Projects list */}
-      <div className="flex-1 overflow-y-auto p-2">
-        <div className="text-xs text-dim uppercase tracking-wider px-3 py-2">
-          // projects ({projects?.length ?? 0})
-        </div>
-
+      {/* Scrollable tree */}
+      <div className="flex-1 overflow-y-auto">
         {isLoading ? (
-          <div className="px-3 py-2 text-sm text-dim">
-            loading...
+          <div className="p-3 space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="animate-pulse">
+                <div className="h-4 bg-tertiary w-24 mb-2" />
+                <div className="h-3 bg-tertiary w-36 ml-3" />
+              </div>
+            ))}
           </div>
-        ) : projects?.length === 0 ? (
-          <div className="px-3 py-2 text-sm text-dim">
-            no projects
+        ) : !sidebar?.projects?.length ? (
+          <div className="px-4 py-6 text-sm text-dim text-center">
+            no projects yet
           </div>
         ) : (
-          <ul className="space-y-1">
-            {projects?.map((project) => (
-              <li key={project.id}>
-                <div className="flex items-center justify-between px-3 py-2 text-sm hover:text-accent hover:bg-tertiary transition-colors group">
-                  <span>{project.name}</span>
-                  <button
-                    onClick={() => { navigate(`/projects/${project.id}/settings`); onClose?.(); }}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-dim hover:text-accent transition-all"
-                    title="settings"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-                    </svg>
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
+          sidebar.projects.map((project) => (
+            <SidebarProjectNode
+              key={project.id}
+              project={project}
+              isActive={activeProjectId === project.id}
+              onProjectClick={handleProjectClick}
+              onClose={onClose}
+              collapseSignal={collapseSignal}
+              forceCollapsed={allCollapsed}
+            />
+          ))
         )}
       </div>
 
       {/* Footer */}
-      <div className="p-4 border-t border-subtle">
+      <div className="p-3 border-t border-subtle flex gap-2">
         <button
-          onClick={logout}
-          className="w-full px-3 py-2 text-sm text-dim hover:text-accent hover:bg-tertiary transition-colors"
+          onClick={() => setShowCreateProject(true)}
+          className="flex-1 px-3 py-2 text-sm text-dim hover:text-accent hover:bg-tertiary transition-colors border border-subtle hover:border-accent"
         >
-          logout
+          + project
+        </button>
+        <button
+          onClick={handleSettingsClick}
+          className="px-3 py-2 text-dim hover:text-accent hover:bg-tertiary transition-colors border border-subtle hover:border-accent"
+          title="settings"
+        >
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+          </svg>
         </button>
       </div>
+
+      {showCreateProject && (
+        <CreateProjectModal onClose={() => setShowCreateProject(false)} />
+      )}
     </aside>
+  );
+}
+
+// --- Project Node ---
+
+interface SidebarProjectNodeProps {
+  project: SidebarProject;
+  isActive: boolean;
+  onProjectClick: (id: string) => void;
+  onClose?: () => void;
+  collapseSignal: number;
+  forceCollapsed: boolean;
+}
+
+function SidebarProjectNode({ project, isActive, onProjectClick, onClose, collapseSignal, forceCollapsed }: SidebarProjectNodeProps) {
+  const [collapsed, setCollapsed] = useState(() => {
+    const stored = localStorage.getItem(`sidebar-collapse-${project.id}`);
+    return stored === 'true';
+  });
+
+  // Respond to collapse-all / expand-all signals
+  useEffect(() => {
+    if (collapseSignal > 0) {
+      setCollapsed(forceCollapsed);
+    }
+  }, [collapseSignal, forceCollapsed]);
+
+  const toggleCollapse = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = !collapsed;
+    setCollapsed(next);
+    localStorage.setItem(`sidebar-collapse-${project.id}`, String(next));
+  };
+
+  const inReviewTasks = project.tasks.filter((t) => t.status === 'in_review');
+  const inProgressTasks = project.tasks.filter((t) => t.status === 'in_progress');
+  const hasTasks = project.tasks.length > 0;
+
+  return (
+    <div className={`border-b border-subtle ${isActive ? 'border-l-2 border-l-accent' : ''}`}>
+      {/* Project header */}
+      <div
+        onClick={() => onProjectClick(project.id)}
+        className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-tertiary transition-colors group"
+      >
+        {hasTasks ? (
+          <button
+            onClick={toggleCollapse}
+            className="text-dim hover:text-accent flex-shrink-0"
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="currentColor"
+              className={`transition-transform ${collapsed ? '' : 'rotate-90'}`}
+            >
+              <path d="M4 2l4 4-4 4V2z" />
+            </svg>
+          </button>
+        ) : (
+          <div className="w-3 flex-shrink-0" />
+        )}
+        <span className={`truncate ${isActive ? 'text-accent' : 'text-[var(--color-text-primary)]'}`}>
+          {project.name}
+        </span>
+        {hasTasks && (
+          <span className="text-xs text-dim ml-auto flex-shrink-0">[{project.tasks.length}]</span>
+        )}
+      </div>
+
+      {/* Tasks tree (when expanded) */}
+      {!collapsed && (
+        <div className="pb-1">
+          {inReviewTasks.length > 0 && (
+            <TaskGroup
+              label="IN REVIEW"
+              icon="pr"
+              tasks={inReviewTasks}
+              onClose={onClose}
+            />
+          )}
+          {inProgressTasks.length > 0 && (
+            <TaskGroup
+              label="IN PROGRESS"
+              icon="branch"
+              tasks={inProgressTasks}
+              onClose={onClose}
+            />
+          )}
+          <QuickAddTask projectId={project.id} onClose={onClose} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Quick Add Task ---
+
+interface QuickAddTaskProps {
+  projectId: string;
+  onClose?: () => void;
+}
+
+function QuickAddTask({ projectId, onClose }: QuickAddTaskProps) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+
+  // Step 1: create in backlog
+  const createMutation = useMutation({
+    mutationFn: (taskTitle: string) =>
+      tasksApi.create(projectId, { title: taskTitle }),
+  });
+
+  // Step 2: move to in_progress (triggers workflow)
+  const moveMutation = useMutation({
+    mutationFn: (taskId: string) =>
+      tasksApi.update(taskId, { status: 'in_progress' }),
+    onSuccess: (data: UpdateTaskResponse) => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+      navigate(`/tasks/${data.id}`);
+      onClose?.();
+    },
+  });
+
+  const handleSubmit = async () => {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      setEditing(false);
+      return;
+    }
+
+    const task = await createMutation.mutateAsync(trimmed);
+    setTitle('');
+    setEditing(false);
+    moveMutation.mutate(task.id);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSubmit();
+    } else if (e.key === 'Escape') {
+      setTitle('');
+      setEditing(false);
+    }
+  };
+
+  const isPending = createMutation.isPending || moveMutation.isPending;
+
+  if (editing) {
+    return (
+      <div className="px-6 py-1">
+        <input
+          ref={inputRef}
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={handleSubmit}
+          disabled={isPending}
+          placeholder="task title..."
+          className="w-full text-xs px-2 py-1 border border-accent bg-primary text-[var(--color-text-primary)] focus:outline-none placeholder:text-dim"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className="w-full px-6 py-1 text-[11px] text-dim hover:text-accent transition-colors text-left"
+    >
+      + task
+    </button>
+  );
+}
+
+// --- Task Group ---
+
+interface TaskGroupProps {
+  label: string;
+  icon: 'branch' | 'pr';
+  tasks: SidebarTask[];
+  onClose?: () => void;
+}
+
+function TaskGroup({ label, icon, tasks, onClose }: TaskGroupProps) {
+  return (
+    <div>
+      <div className="px-6 py-1 text-[10px] text-dim uppercase tracking-wider flex items-center gap-1.5">
+        {icon === 'pr' ? <GitPRIcon /> : <GitBranchIcon />}
+        {label}
+      </div>
+      {tasks.map((task) => (
+        <SidebarTaskNode key={task.id} task={task} onClose={onClose} />
+      ))}
+    </div>
+  );
+}
+
+// --- Task Node ---
+
+interface SidebarTaskNodeProps {
+  task: SidebarTask;
+  onClose?: () => void;
+}
+
+function SidebarTaskNode({ task, onClose }: SidebarTaskNodeProps) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+
+  const handleClick = () => {
+    navigate(`/tasks/${task.id}`);
+    onClose?.();
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  const updateMutation = useMutation({
+    mutationFn: (data: { status?: string }) =>
+      tasksApi.update(task.id, data as Parameters<typeof tasksApi.update>[1]),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+    },
+  });
+
+  const handleCopyBranch = () => {
+    if (task.branch) {
+      navigator.clipboard.writeText(task.branch);
+    }
+    setContextMenu(null);
+  };
+
+  const handleMoveToReview = () => {
+    updateMutation.mutate({ status: 'in_review' });
+    setContextMenu(null);
+  };
+
+  const handleMoveToDone = () => {
+    updateMutation.mutate({ status: 'done' });
+    setContextMenu(null);
+  };
+
+  return (
+    <div>
+      <div
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
+        className="flex items-center gap-2 px-6 py-1 text-xs cursor-pointer hover:bg-tertiary transition-colors group"
+      >
+        <span className="truncate flex-1 text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-primary)]">
+          {task.title}
+        </span>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {/* PR link for in_review tasks */}
+          {task.prUrl && task.status === 'in_review' && (
+            <a
+              href={task.prUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-[10px] text-[var(--color-status-in-review)] hover:text-accent"
+              title="open PR"
+            >
+              PR
+            </a>
+          )}
+          {task.diffStats && (task.diffStats.additions > 0 || task.diffStats.deletions > 0) && (
+            <span className="text-[10px] font-mono">
+              {task.diffStats.additions > 0 && (
+                <span className="text-accent">+{task.diffStats.additions}</span>
+              )}
+              {task.diffStats.additions > 0 && task.diffStats.deletions > 0 && ' '}
+              {task.diffStats.deletions > 0 && (
+                <span className="text-[var(--color-error)]">-{task.diffStats.deletions}</span>
+              )}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Sessions under task */}
+      {task.sessions.map((session) => (
+        <SidebarSessionNode
+          key={session.id}
+          session={session}
+          taskId={task.id}
+          onClose={onClose}
+        />
+      ))}
+
+      {/* Context menu */}
+      {contextMenu && (
+        <TaskNodeContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          task={task}
+          onClose={() => setContextMenu(null)}
+          onCopyBranch={handleCopyBranch}
+          onMoveToReview={handleMoveToReview}
+          onMoveToDone={handleMoveToDone}
+          onOpenTask={handleClick}
+        />
+      )}
+    </div>
+  );
+}
+
+// --- Task Context Menu ---
+
+interface TaskNodeContextMenuProps {
+  x: number;
+  y: number;
+  task: SidebarTask;
+  onClose: () => void;
+  onCopyBranch: () => void;
+  onMoveToReview: () => void;
+  onMoveToDone: () => void;
+  onOpenTask: () => void;
+}
+
+function TaskNodeContextMenu({ x, y, task, onClose, onCopyBranch, onMoveToReview, onMoveToDone, onOpenTask }: TaskNodeContextMenuProps) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  const menuStyle = {
+    left: Math.min(x, window.innerWidth - 180),
+    top: Math.min(y, window.innerHeight - 200),
+  };
+
+  return (
+    <>
+      <div className="fixed inset-0 z-[100]" onClick={onClose} />
+      <div
+        className="fixed z-[100] bg-secondary border border-subtle min-w-[160px]"
+        style={menuStyle}
+      >
+        <button
+          onClick={onOpenTask}
+          className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary hover:text-accent transition-colors"
+        >
+          open task
+        </button>
+        {task.branch && (
+          <button
+            onClick={onCopyBranch}
+            className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary hover:text-accent transition-colors"
+          >
+            copy branch name
+          </button>
+        )}
+        {task.prUrl && (
+          <button
+            onClick={() => { window.open(task.prUrl!, '_blank'); onClose(); }}
+            className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary hover:text-accent transition-colors"
+          >
+            open PR
+          </button>
+        )}
+        <div className="border-t border-subtle" />
+        {task.status === 'in_progress' && (
+          <button
+            onClick={onMoveToReview}
+            className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary text-[var(--color-status-in-review)] transition-colors"
+          >
+            move to review
+          </button>
+        )}
+        {task.status === 'in_review' && (
+          <button
+            onClick={onMoveToDone}
+            className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary text-[var(--color-status-done)] transition-colors"
+          >
+            move to done
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+// --- Session Node ---
+
+interface SidebarSessionNodeProps {
+  session: SidebarSession;
+  taskId: string;
+  onClose?: () => void;
+}
+
+function SidebarSessionNode({ session, taskId, onClose }: SidebarSessionNodeProps) {
+  const navigate = useNavigate();
+
+  const handleClick = () => {
+    navigate(`/tasks/${taskId}?session=${session.id}`);
+    onClose?.();
+  };
+
+  return (
+    <div
+      onClick={handleClick}
+      className="flex items-center gap-2 px-8 py-1 text-[11px] cursor-pointer hover:bg-tertiary transition-colors"
+    >
+      <StatusDot status={session.status} />
+      <span className="text-dim">
+        {session.provider} #{session.number}
+      </span>
+    </div>
+  );
+}
+
+// --- Status Dot ---
+
+function StatusDot({ status }: { status: string }) {
+  if (status === 'running') {
+    return <span className="w-1.5 h-1.5 bg-accent flex-shrink-0" />;
+  }
+  if (status === 'waiting_input') {
+    return <span className="w-1.5 h-1.5 bg-[var(--color-warning)] flex-shrink-0 animate-pulse" />;
+  }
+  // idle
+  return <span className="w-1.5 h-1.5 bg-[var(--color-text-dim)] flex-shrink-0" />;
+}
+
+// --- SVG Icons ---
+
+function GitBranchIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" className="flex-shrink-0">
+      <path d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6c0 .73-.593 1.322-1.325 1.322H8.822A2.678 2.678 0 006.144 10H6v1.128a2.251 2.251 0 11-1.5 0V4.872a2.25 2.25 0 111.5 0V6h.678A1.178 1.178 0 008.356 7.178h2.319A2.822 2.822 0 0013.5 4.356v-.734A2.25 2.25 0 009.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z" />
+    </svg>
+  );
+}
+
+function GitPRIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" className="flex-shrink-0">
+      <path d="M1.5 3.25a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zm5.677-.177L9.573.677A.25.25 0 0110 .854V2.5h1A2.5 2.5 0 0113.5 5v5.628a2.251 2.251 0 11-1.5 0V5a1 1 0 00-1-1h-1v1.646a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm0 9.5a.75.75 0 100 1.5.75.75 0 000-1.5zm8.25.75a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+    </svg>
   );
 }

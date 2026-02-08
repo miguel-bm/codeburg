@@ -73,7 +73,9 @@ export interface Task {
   status: TaskStatus;
   branch?: string;
   worktreePath?: string;
+  prUrl?: string;
   pinned: boolean;
+  position: number;
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
@@ -90,12 +92,48 @@ export interface UpdateTaskInput {
   status?: TaskStatus;
   branch?: string;
   worktreePath?: string;
+  prUrl?: string;
   pinned?: boolean;
+  position?: number;
 }
 
 export interface UpdateTaskResponse extends Task {
   workflowAction?: string;
   sessionStarted?: string;
+}
+
+// Sidebar types
+
+export interface SidebarData {
+  projects: SidebarProject[];
+}
+
+export interface SidebarProject {
+  id: string;
+  name: string;
+  tasks: SidebarTask[];
+}
+
+export interface SidebarTask {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  branch?: string;
+  prUrl?: string;
+  diffStats?: SidebarDiffStats;
+  sessions: SidebarSession[];
+}
+
+export interface SidebarDiffStats {
+  additions: number;
+  deletions: number;
+}
+
+export interface SidebarSession {
+  id: string;
+  provider: string;
+  status: string;
+  number: number;
 }
 
 export interface AuthStatus {

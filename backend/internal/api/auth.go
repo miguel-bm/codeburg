@@ -114,6 +114,22 @@ func (a *AuthService) Setup(password string) error {
 	return a.saveConfig(config)
 }
 
+// ChangePassword hashes the new password and saves it to the config file.
+func (a *AuthService) ChangePassword(newPassword string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	config, err := a.loadConfig()
+	if err != nil {
+		return err
+	}
+
+	config.Auth.PasswordHash = string(hash)
+	return a.saveConfig(config)
+}
+
 func (a *AuthService) ValidatePassword(password string) bool {
 	config, err := a.loadConfig()
 	if err != nil || config.Auth.PasswordHash == "" {
@@ -384,6 +400,39 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"user": "authenticated",
 	})
+}
+
+func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		CurrentPassword string `json:"currentPassword"`
+		NewPassword     string `json:"newPassword"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if input.CurrentPassword == "" || input.NewPassword == "" {
+		writeError(w, http.StatusBadRequest, "current and new passwords are required")
+		return
+	}
+
+	if len(input.NewPassword) < 8 {
+		writeError(w, http.StatusBadRequest, "new password must be at least 8 characters")
+		return
+	}
+
+	if !s.auth.ValidatePassword(input.CurrentPassword) {
+		writeError(w, http.StatusUnauthorized, "invalid current password")
+		return
+	}
+
+	if err := s.auth.ChangePassword(input.NewPassword); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to change password")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // URL parameter helper

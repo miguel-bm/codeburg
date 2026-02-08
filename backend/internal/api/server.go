@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -56,15 +57,16 @@ func isAllowedOrigin(origin string) bool {
 }
 
 type Server struct {
-	db          *db.DB
-	router      chi.Router
-	auth        *AuthService
-	worktree    *worktree.Manager
-	wsHub       *WSHub
-	sessions    *SessionManager
-	tunnels     *tunnel.Manager
-	gitclone    gitclone.Config
-	authLimiter *loginRateLimiter
+	db              *db.DB
+	router          chi.Router
+	auth            *AuthService
+	worktree        *worktree.Manager
+	wsHub           *WSHub
+	sessions        *SessionManager
+	tunnels         *tunnel.Manager
+	gitclone        gitclone.Config
+	authLimiter     *loginRateLimiter
+	diffStatsCache  sync.Map // taskID -> diffStatsCacheEntry
 }
 
 func NewServer(database *db.DB) *Server {
@@ -126,6 +128,10 @@ func (s *Server) setupRoutes() {
 
 		// Auth
 		r.Get("/api/auth/me", s.handleMe)
+		r.Post("/api/auth/password", s.handleChangePassword)
+
+		// Sidebar (aggregated)
+		r.Get("/api/sidebar", s.handleSidebar)
 
 		// Projects
 		r.Get("/api/projects", s.handleListProjects)
