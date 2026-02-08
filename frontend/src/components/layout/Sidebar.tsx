@@ -20,7 +20,10 @@ export function Sidebar({ onClose }: SidebarProps) {
     <aside className="w-64 bg-secondary border-r border-subtle flex flex-col h-full">
       {/* Header */}
       <div className="p-4 border-b border-subtle flex items-center justify-between">
-        <h1 className="text-lg font-bold text-accent">CODEBURG</h1>
+        <h1
+          onClick={() => { navigate('/'); onClose?.(); }}
+          className="text-lg font-bold text-accent hover:text-[var(--color-text-primary)] transition-colors cursor-pointer"
+        >CODEBURG</h1>
         {onClose && (
           <button
             onClick={onClose}
