@@ -81,6 +81,7 @@ export function Dashboard() {
       tasksApi.update(id, { status, position }),
     onSuccess: (data: UpdateTaskResponse) => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
       if (data.workflowAction === 'ask') {
         setWorkflowPrompt({ taskId: data.id });
       } else if (data.sessionStarted) {
@@ -122,9 +123,15 @@ export function Dashboard() {
     return col[focus.card] ?? null;
   }, [focus, getColumnTasks]);
 
-  // Auto-select first task on load or when filter changes
+  // Auto-select first task on initial load or when project filter changes
+  const prevProjectId = useRef(selectedProjectId);
+  const hasInitialized = useRef(false);
   useEffect(() => {
     if (!tasks) return;
+    const projectChanged = prevProjectId.current !== selectedProjectId;
+    prevProjectId.current = selectedProjectId;
+    if (hasInitialized.current && !projectChanged) return;
+    hasInitialized.current = true;
     for (let col = 0; col < COLUMNS.length; col++) {
       const colTasks = tasksByStatus.get(COLUMNS[col].id) ?? [];
       if (colTasks.length > 0) {
@@ -418,7 +425,7 @@ export function Dashboard() {
 
           {/* Swipeable Content */}
           <div
-            className="flex-1 overflow-y-auto p-4"
+            className="flex-1 overflow-y-auto p-2"
             {...swipeHandlers}
           >
             {tasksLoading ? (
@@ -445,15 +452,15 @@ export function Dashboard() {
         </div>
       ) : (
         // Desktop: Horizontal scrolling kanban with custom DnD
-        <div className="p-6 h-full overflow-x-auto">
-          <div className="flex gap-4 h-full min-w-max">
+        <div className="px-3 py-3 h-full overflow-x-auto">
+          <div className="flex gap-2 h-full min-w-[1200px]">
             {COLUMNS.map((column, colIdx) => {
               const colTasks = getTasksByStatus(column.id);
               return (
                 <div
                   key={column.id}
                   ref={(el) => { columnRefs.current[colIdx] = el; }}
-                  className={`w-80 flex flex-col bg-secondary border transition-colors ${
+                  className={`flex-1 min-w-0 flex flex-col bg-secondary border transition-colors ${
                     focus?.col === colIdx
                       ? 'border-accent'
                       : 'border-subtle'
@@ -465,14 +472,9 @@ export function Dashboard() {
                       <h3 className={`text-sm font-medium ${column.color}`}>
                         {column.title}
                       </h3>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-dim">
-                          [{colTasks.length}]
-                        </span>
-                        {focus?.col === colIdx && (
-                          <span className="text-[10px] text-dim opacity-40">[n]</span>
-                        )}
-                      </div>
+                      <span className="text-sm text-dim">
+                        [{colTasks.length}]
+                      </span>
                     </div>
                   </div>
 
@@ -502,10 +504,6 @@ export function Dashboard() {
                                 focused={!!(focus?.col === colIdx && focus?.card === cardIdx)}
                                 ghost={isGhost}
                                 onMouseDown={(e) => handleMouseDown(e, task, colIdx, cardIdx)}
-                                colIdx={colIdx}
-                                cardIdx={cardIdx}
-                                totalCards={colTasks.length}
-                                totalCols={COLUMNS.length}
                               />
                             </div>
                           );
@@ -652,14 +650,10 @@ interface TaskCardProps {
   focused?: boolean;
   ghost?: boolean;
   onMouseDown?: (e: React.MouseEvent) => void;
-  colIdx?: number;
-  cardIdx?: number;
-  totalCards?: number;
-  totalCols?: number;
 }
 
 const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
-  { task, projectName, isMobile, onLongPress, focused, ghost, onMouseDown, colIdx, cardIdx, totalCards, totalCols },
+  { task, projectName, isMobile, onLongPress, focused, ghost, onMouseDown },
   ref,
 ) {
   const navigate = useNavigate();
@@ -696,8 +690,6 @@ const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
     }
   }, [focused]);
 
-  const showHints = focused && !isMobile && colIdx !== undefined && cardIdx !== undefined;
-
   return (
     <div
       ref={setRef}
@@ -733,16 +725,18 @@ const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
             pinned
           </span>
         )}
+        {task.diffStats && (task.diffStats.additions > 0 || task.diffStats.deletions > 0) && (
+          <span className="text-[10px] font-mono">
+            {task.diffStats.additions > 0 && (
+              <span className="text-accent">+{task.diffStats.additions}</span>
+            )}
+            {task.diffStats.additions > 0 && task.diffStats.deletions > 0 && ' '}
+            {task.diffStats.deletions > 0 && (
+              <span className="text-[var(--color-error)]">-{task.diffStats.deletions}</span>
+            )}
+          </span>
+        )}
       </div>
-      {showHints && (
-        <div className="flex items-center gap-1.5 mt-2">
-          <span className="text-[10px] text-dim opacity-40">[&#9166;]</span>
-          {colIdx! > 0 && <span className="text-[10px] text-dim opacity-40">[&#8679;&#8592;]</span>}
-          {colIdx! < (totalCols ?? COLUMNS.length) - 1 && <span className="text-[10px] text-dim opacity-40">[&#8679;&#8594;]</span>}
-          {cardIdx! > 0 && <span className="text-[10px] text-dim opacity-40">[&#8679;&#8593;]</span>}
-          {cardIdx! < (totalCards ?? 0) - 1 && <span className="text-[10px] text-dim opacity-40">[&#8679;&#8595;]</span>}
-        </div>
-      )}
     </div>
   );
 });

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/layout/Layout';
@@ -43,16 +43,28 @@ export function TaskDetail() {
     refetchIntervalInBackground: false,
   });
 
-  // Auto-select session from URL param
+  // Reset active session when navigating to a different task
   useEffect(() => {
-    if (sessionFromUrl && sessions && !activeSession) {
+    setActiveSession(null);
+  }, [id]);
+
+  // Auto-select session from URL param or first active session
+  useEffect(() => {
+    if (!sessions) return;
+    if (sessionFromUrl) {
       const match = sessions.find((s) => s.id === sessionFromUrl);
       if (match) {
         setActiveSession(match);
         setRightPanel('session');
+        return;
       }
     }
-  }, [sessionFromUrl, sessions, activeSession]);
+    // If no session selected yet, auto-select the first running/waiting one
+    if (!activeSession) {
+      const active = sessions.find((s) => s.status === 'running' || s.status === 'waiting_input');
+      if (active) setActiveSession(active);
+    }
+  }, [sessionFromUrl, sessions, id, activeSession]);
 
   // Keep activeSession in sync with polling data
   useEffect(() => {
@@ -92,14 +104,10 @@ export function TaskDetail() {
     },
   });
 
-  const hasActiveSession = sessions?.some(
-    (s) => s.status === 'running' || s.status === 'waiting_input'
-  );
-
   useKeyboardNav({
     keyMap: {
       Escape: () => navigate('/'),
-      s: () => { if (!hasActiveSession) setShowStartSession(true); },
+      s: () => setShowStartSession(true),
       '1': () => setRightPanel('session'),
       '2': () => setRightPanel('justfile'),
       '3': () => setRightPanel('tunnel'),
@@ -157,7 +165,7 @@ export function TaskDetail() {
               </div>
             </div>
             <div className="flex gap-2">
-              {activeSession && (
+              {activeSession && (activeSession.status === 'running' || activeSession.status === 'waiting_input') && (
                 <button
                   onClick={() => stopSessionMutation.mutate(activeSession.id)}
                   disabled={stopSessionMutation.isPending}
@@ -166,14 +174,12 @@ export function TaskDetail() {
                   stop
                 </button>
               )}
-              {!hasActiveSession && (
-                <button
-                  onClick={() => setShowStartSession(true)}
-                  className="px-4 py-2 border border-accent text-accent text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors"
-                >
-                  + session
-                </button>
-              )}
+              <button
+                onClick={() => setShowStartSession(true)}
+                className="px-4 py-2 border border-accent text-accent text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors"
+              >
+                + session
+              </button>
             </div>
           </div>
         </header>
@@ -234,7 +240,6 @@ export function TaskDetail() {
                 deleteSessionMutation.mutate(session.id);
               }}
               onNewSession={() => setShowStartSession(true)}
-              hasActiveSession={!!hasActiveSession}
             />
           )}
 
@@ -294,8 +299,16 @@ function StatusBadge({ status }: StatusBadgeProps) {
   );
 }
 
+function slugify(title: string): string {
+  return title.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50) || 'task';
+}
+
 interface TaskInfoProps {
   task: {
+    id: string;
     title: string;
     description?: string;
     status: string;
@@ -311,6 +324,40 @@ interface TaskInfoProps {
 }
 
 function TaskInfo({ task, project }: TaskInfoProps) {
+  const queryClient = useQueryClient();
+  const canEditBranch = task.status === 'backlog' && !task.worktreePath;
+  const [branchValue, setBranchValue] = useState(task.branch || '');
+  const [isEditing, setIsEditing] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const updateBranch = useMutation({
+    mutationFn: (branch: string) =>
+      tasksApi.update(task.id, { branch: branch || undefined }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['task', task.id] });
+      setIsEditing(false);
+    },
+  });
+
+  const handleSave = () => {
+    const trimmed = branchValue.trim();
+    if (trimmed !== (task.branch || '')) {
+      updateBranch.mutate(trimmed);
+    } else {
+      setIsEditing(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === 'Escape') {
+      setBranchValue(task.branch || '');
+      setIsEditing(false);
+    }
+  };
+
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-2xl space-y-6">
@@ -330,12 +377,40 @@ function TaskInfo({ task, project }: TaskInfoProps) {
               <span className="text-dim w-24">status</span>
               <span>{task.status}</span>
             </div>
-            {task.branch && (
+            {canEditBranch ? (
+              <div className="flex gap-4">
+                <span className="text-dim w-24">branch</span>
+                {isEditing ? (
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={branchValue}
+                    onChange={(e) => setBranchValue(e.target.value)}
+                    onBlur={handleSave}
+                    onKeyDown={handleKeyDown}
+                    placeholder={slugify(task.title)}
+                    className="flex-1 bg-primary border border-accent px-2 py-0.5 font-mono text-sm text-[var(--color-text-primary)] focus:outline-none"
+                    autoFocus
+                  />
+                ) : (
+                  <button
+                    onClick={() => {
+                      setIsEditing(true);
+                      setTimeout(() => inputRef.current?.focus(), 0);
+                    }}
+                    className="font-mono text-dim hover:text-[var(--color-text-primary)] transition-colors text-left"
+                  >
+                    {task.branch || slugify(task.title)}
+                    {!task.branch && <span className="text-dim/50 ml-1">(auto)</span>}
+                  </button>
+                )}
+              </div>
+            ) : task.branch ? (
               <div className="flex gap-4">
                 <span className="text-dim w-24">branch</span>
                 <span className="font-mono">{task.branch}</span>
               </div>
-            )}
+            ) : null}
             {task.worktreePath && (
               <div className="flex gap-4">
                 <span className="text-dim w-24">worktree</span>

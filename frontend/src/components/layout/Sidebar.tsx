@@ -221,9 +221,12 @@ function SidebarProjectNode({ project, isActive, onProjectClick, onClose, collap
     localStorage.setItem(`sidebar-collapse-${project.id}`, String(next));
   };
 
-  const inReviewTasks = project.tasks.filter((t) => t.status === 'in_review');
-  const inProgressTasks = project.tasks.filter((t) => t.status === 'in_progress');
-  const hasTasks = project.tasks.length > 0;
+  // Flat list: in_review first, then in_progress (each group keeps kanban order)
+  const sortedTasks = [
+    ...project.tasks.filter((t) => t.status === 'in_review'),
+    ...project.tasks.filter((t) => t.status === 'in_progress'),
+  ];
+  const hasTasks = sortedTasks.length > 0;
 
   return (
     <div className={`border-b border-subtle ${isActive ? 'border-l-2 border-l-accent' : ''}`}>
@@ -254,29 +257,16 @@ function SidebarProjectNode({ project, isActive, onProjectClick, onClose, collap
           {project.name}
         </span>
         {hasTasks && (
-          <span className="text-xs text-dim ml-auto flex-shrink-0">[{project.tasks.length}]</span>
+          <span className="text-xs text-dim ml-auto flex-shrink-0">[{sortedTasks.length}]</span>
         )}
       </div>
 
-      {/* Tasks tree (when expanded) */}
+      {/* Tasks (when expanded) */}
       {!collapsed && (
         <div className="pb-1">
-          {inReviewTasks.length > 0 && (
-            <TaskGroup
-              label="IN REVIEW"
-              icon="pr"
-              tasks={inReviewTasks}
-              onClose={onClose}
-            />
-          )}
-          {inProgressTasks.length > 0 && (
-            <TaskGroup
-              label="IN PROGRESS"
-              icon="branch"
-              tasks={inProgressTasks}
-              onClose={onClose}
-            />
-          )}
+          {sortedTasks.map((task) => (
+            <SidebarTaskNode key={task.id} task={task} onClose={onClose} />
+          ))}
           <QuickAddTask projectId={project.id} onClose={onClose} />
         </div>
       )}
@@ -373,29 +363,6 @@ function QuickAddTask({ projectId, onClose }: QuickAddTaskProps) {
   );
 }
 
-// --- Task Group ---
-
-interface TaskGroupProps {
-  label: string;
-  icon: 'branch' | 'pr';
-  tasks: SidebarTask[];
-  onClose?: () => void;
-}
-
-function TaskGroup({ label, icon, tasks, onClose }: TaskGroupProps) {
-  return (
-    <div>
-      <div className="px-6 py-1 text-[10px] text-dim uppercase tracking-wider flex items-center gap-1.5">
-        {icon === 'pr' ? <GitPRIcon /> : <GitBranchIcon />}
-        {label}
-      </div>
-      {tasks.map((task) => (
-        <SidebarTaskNode key={task.id} task={task} onClose={onClose} />
-      ))}
-    </div>
-  );
-}
-
 // --- Task Node ---
 
 interface SidebarTaskNodeProps {
@@ -450,8 +417,9 @@ function SidebarTaskNode({ task, onClose }: SidebarTaskNodeProps) {
       <div
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        className="flex items-center gap-2 px-6 py-1 text-xs cursor-pointer hover:bg-tertiary transition-colors group"
+        className="flex items-center gap-1.5 px-6 py-1 text-xs cursor-pointer hover:bg-tertiary transition-colors group"
       >
+        <TaskStatusIcon status={task.status} />
         <span className="truncate flex-1 text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-primary)]">
           {task.title}
         </span>
@@ -630,20 +598,30 @@ function StatusDot({ status }: { status: string }) {
   return <span className="w-1.5 h-1.5 bg-[var(--color-text-dim)] flex-shrink-0" />;
 }
 
-// --- SVG Icons ---
+// --- Status Icon (shown before each task name) ---
 
-function GitBranchIcon() {
+function TaskStatusIcon({ status }: { status: string }) {
+  if (status === 'in_review') {
+    // PR icon — blue
+    return (
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="flex-shrink-0">
+        <circle cx="3" cy="3" r="1.5" stroke="var(--color-status-in-review)" strokeWidth="1.2" />
+        <circle cx="3" cy="9" r="1.5" stroke="var(--color-status-in-review)" strokeWidth="1.2" />
+        <line x1="3" y1="4.5" x2="3" y2="7.5" stroke="var(--color-status-in-review)" strokeWidth="1.2" />
+        <circle cx="9" cy="9" r="1.5" stroke="var(--color-status-in-review)" strokeWidth="1.2" />
+        <path d="M9 7.5V5.5C9 4.5 8 4 7 4H5" stroke="var(--color-status-in-review)" strokeWidth="1.2" />
+        <path d="M6.5 2.5L5 4L6.5 5.5" stroke="var(--color-status-in-review)" strokeWidth="1.2" fill="none" />
+      </svg>
+    );
+  }
+  // Branch icon — green (in_progress)
   return (
-    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" className="flex-shrink-0">
-      <path d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6c0 .73-.593 1.322-1.325 1.322H8.822A2.678 2.678 0 006.144 10H6v1.128a2.251 2.251 0 11-1.5 0V4.872a2.25 2.25 0 111.5 0V6h.678A1.178 1.178 0 008.356 7.178h2.319A2.822 2.822 0 0013.5 4.356v-.734A2.25 2.25 0 009.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z" />
-    </svg>
-  );
-}
-
-function GitPRIcon() {
-  return (
-    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" className="flex-shrink-0">
-      <path d="M1.5 3.25a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zm5.677-.177L9.573.677A.25.25 0 0110 .854V2.5h1A2.5 2.5 0 0113.5 5v5.628a2.251 2.251 0 11-1.5 0V5a1 1 0 00-1-1h-1v1.646a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm0 9.5a.75.75 0 100 1.5.75.75 0 000-1.5zm8.25.75a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="flex-shrink-0">
+      <circle cx="3" cy="3" r="1.5" stroke="var(--color-status-in-progress)" strokeWidth="1.2" />
+      <circle cx="3" cy="9" r="1.5" stroke="var(--color-status-in-progress)" strokeWidth="1.2" />
+      <line x1="3" y1="4.5" x2="3" y2="7.5" stroke="var(--color-status-in-progress)" strokeWidth="1.2" />
+      <circle cx="9" cy="3" r="1.5" stroke="var(--color-status-in-progress)" strokeWidth="1.2" />
+      <path d="M9 4.5V5.5C9 6.5 8 7 7 7H3" stroke="var(--color-status-in-progress)" strokeWidth="1.2" />
     </svg>
   );
 }

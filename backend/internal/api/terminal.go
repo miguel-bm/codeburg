@@ -146,7 +146,7 @@ func (ts *TerminalSession) readFromWS() {
 
 			// User input detected - reset session to running if waiting
 			if ts.sessionID != "" && ts.server != nil && len(message) > 0 {
-				ts.handleUserInput()
+				ts.handleUserInput(message)
 			}
 
 			// Write input to PTY
@@ -159,8 +159,22 @@ func (ts *TerminalSession) readFromWS() {
 	}
 }
 
-// handleUserInput resets session status to running when user types
-func (ts *TerminalSession) handleUserInput() {
+// handleUserInput resets session status to running when user types actual input.
+// Ignores mouse events, focus events, and other terminal control sequences
+// that fire when clicking into the terminal without actually typing.
+func (ts *TerminalSession) handleUserInput(message []byte) {
+	if len(message) == 0 {
+		return
+	}
+	// Skip mouse event sequences: ESC[M..., ESC[<...
+	if len(message) >= 3 && message[0] == 0x1b && message[1] == '[' {
+		switch message[2] {
+		case 'M', '<': // mouse events (normal/SGR mode)
+			return
+		case 'I', 'O': // focus in/out events
+			return
+		}
+	}
 	if time.Since(ts.lastInput) < 2*time.Second {
 		return
 	}

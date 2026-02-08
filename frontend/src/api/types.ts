@@ -65,6 +65,11 @@ export interface WorktreeResponse {
 
 export type TaskStatus = 'backlog' | 'in_progress' | 'in_review' | 'done';
 
+export interface DiffStats {
+  additions: number;
+  deletions: number;
+}
+
 export interface Task {
   id: string;
   projectId: string;
@@ -76,6 +81,7 @@ export interface Task {
   prUrl?: string;
   pinned: boolean;
   position: number;
+  diffStats?: DiffStats;
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
@@ -120,13 +126,8 @@ export interface SidebarTask {
   status: TaskStatus;
   branch?: string;
   prUrl?: string;
-  diffStats?: SidebarDiffStats;
+  diffStats?: DiffStats;
   sessions: SidebarSession[];
-}
-
-export interface SidebarDiffStats {
-  additions: number;
-  deletions: number;
 }
 
 export interface SidebarSession {

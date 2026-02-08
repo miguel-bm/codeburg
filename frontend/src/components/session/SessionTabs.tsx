@@ -7,7 +7,6 @@ interface Props {
   onResume?: (session: AgentSession) => void;
   onDelete?: (session: AgentSession) => void;
   onNewSession: () => void;
-  hasActiveSession: boolean;
 }
 
 function getStatusDotClass(status: SessionStatus): string {
@@ -25,7 +24,7 @@ function getStatusDotClass(status: SessionStatus): string {
   }
 }
 
-export function SessionTabs({ sessions, activeSessionId, onSelect, onResume, onDelete, onNewSession, hasActiveSession }: Props) {
+export function SessionTabs({ sessions, activeSessionId, onSelect, onResume, onDelete, onNewSession }: Props) {
   // Sort by createdAt to get stable 1-indexed numbers
   const sorted = [...sessions].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
@@ -80,8 +79,7 @@ export function SessionTabs({ sessions, activeSessionId, onSelect, onResume, onD
       })}
       <button
         onClick={onNewSession}
-        disabled={hasActiveSession}
-        className="px-3 py-2 text-xs text-dim hover:text-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="px-3 py-2 text-xs text-dim hover:text-accent transition-colors"
       >
         +
       </button>

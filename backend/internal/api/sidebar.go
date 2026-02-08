@@ -49,6 +49,41 @@ type diffStatsCacheEntry struct {
 	expiresAt time.Time
 }
 
+// getCachedDiffStats returns cached diff stats for a task, computing if expired/missing.
+// Returns nil on error (non-fatal).
+func (s *Server) getCachedDiffStats(task *db.Task) *DiffStats {
+	if task.WorktreePath == nil || *task.WorktreePath == "" {
+		return nil
+	}
+
+	// Check cache
+	if cached, ok := s.diffStatsCache.Load(task.ID); ok {
+		entry := cached.(diffStatsCacheEntry)
+		if time.Now().Before(entry.expiresAt) {
+			return entry.stats
+		}
+	}
+
+	// Compute
+	proj, err := s.db.GetProject(task.ProjectID)
+	if err != nil {
+		return nil
+	}
+
+	additions, deletions, err := s.worktree.DiffStats(*task.WorktreePath, proj.DefaultBranch)
+	if err != nil {
+		slog.Debug("diff stats failed", "task_id", task.ID, "error", err)
+		return nil
+	}
+
+	stats := &DiffStats{Additions: additions, Deletions: deletions}
+	s.diffStatsCache.Store(task.ID, diffStatsCacheEntry{
+		stats:     stats,
+		expiresAt: time.Now().Add(30 * time.Second),
+	})
+	return stats
+}
+
 // handleSidebar returns aggregated sidebar data
 func (s *Server) handleSidebar(w http.ResponseWriter, r *http.Request) {
 	// 1. Load all projects

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { ClipboardAddon } from '@xterm/addon-clipboard';
 import '@xterm/xterm/css/xterm.css';
 
 const TERMINAL_THEME = {
@@ -31,11 +32,15 @@ interface UseTerminalOptions {
   sessionId?: string;
 }
 
+export interface UseTerminalReturn {
+  sendInput: (data: string) => void;
+}
+
 export function useTerminal(
   containerRef: React.RefObject<HTMLDivElement | null>,
   target: string,
   options?: UseTerminalOptions,
-) {
+): UseTerminalReturn {
   const terminalInstance = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -56,6 +61,7 @@ export function useTerminal(
     const fit = new FitAddon();
     fitAddon.current = fit;
     term.loadAddon(fit);
+    term.loadAddon(new ClipboardAddon());
 
     term.open(containerRef.current);
     fit.fit();
@@ -136,4 +142,12 @@ export function useTerminal(
 
     return () => observer.disconnect();
   }, [containerRef]);
+
+  const sendInput = useCallback((data: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(data);
+    }
+  }, []);
+
+  return { sendInput };
 }

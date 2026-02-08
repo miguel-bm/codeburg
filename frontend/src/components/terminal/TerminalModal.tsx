@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useTerminal } from '../../hooks/useTerminal';
+import { useMobile } from '../../hooks/useMobile';
+import { TerminalToolbar } from './TerminalToolbar';
 
 interface TerminalModalProps {
   target: string; // tmux target (e.g., "codeburg:@1.%1")
@@ -8,7 +10,8 @@ interface TerminalModalProps {
 
 export function TerminalModal({ target, onClose }: TerminalModalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
-  useTerminal(terminalRef, target);
+  const { sendInput } = useTerminal(terminalRef, target);
+  const isMobile = useMobile();
 
   // Handle escape key to close
   useEffect(() => {
@@ -22,7 +25,7 @@ export function TerminalModal({ target, onClose }: TerminalModalProps) {
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-[var(--color-bg-primary)]">
+    <div className="fixed inset-0 z-50 bg-[var(--color-bg-primary)] flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-subtle bg-secondary">
         <div className="flex items-center gap-4">
@@ -43,8 +46,11 @@ export function TerminalModal({ target, onClose }: TerminalModalProps) {
       {/* Terminal Container */}
       <div
         ref={terminalRef}
-        className="h-[calc(100vh-48px)] w-full bg-[#0a0a0a] p-2"
+        className="flex-1 min-h-0 w-full bg-[#0a0a0a] p-2"
       />
+
+      {/* Mobile Toolbar */}
+      {isMobile && <TerminalToolbar onInput={sendInput} />}
     </div>
   );
 }

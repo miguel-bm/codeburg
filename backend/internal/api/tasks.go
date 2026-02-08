@@ -10,6 +10,12 @@ import (
 	"github.com/miguel-bm/codeburg/internal/worktree"
 )
 
+// taskWithDiffStats extends a Task with optional diff stats for the response.
+type taskWithDiffStats struct {
+	*db.Task
+	DiffStats *DiffStats `json:"diffStats,omitempty"`
+}
+
 func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	filter := db.TaskFilter{}
 
@@ -28,7 +34,19 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, tasks)
+	// Enrich tasks that have worktrees with diff stats
+	result := make([]taskWithDiffStats, len(tasks))
+	for i, t := range tasks {
+		result[i] = taskWithDiffStats{Task: t}
+		if t.WorktreePath == nil || *t.WorktreePath == "" {
+			continue
+		}
+		if stats := s.getCachedDiffStats(t); stats != nil {
+			result[i].DiffStats = stats
+		}
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
@@ -211,6 +229,8 @@ func (s *Server) autoCreateWorktree(task *db.Task, input *db.UpdateTaskInput) er
 		ProjectPath:  project.Path,
 		ProjectName:  project.Name,
 		TaskID:       task.ID,
+		TaskTitle:    task.Title,
+		BranchName:   ptrToString(task.Branch),
 		BaseBranch:   project.DefaultBranch,
 		SymlinkPaths: project.SymlinkPaths,
 		SetupScript:  ptrToString(project.SetupScript),

@@ -45,6 +45,10 @@ type CreateOptions struct {
 	ProjectName string
 	// TaskID is the task identifier
 	TaskID string
+	// BranchName is an explicit branch name (set by user). If empty, auto-generated from TaskTitle.
+	BranchName string
+	// TaskTitle is used to generate a slugified branch name when BranchName is empty.
+	TaskTitle string
 	// BaseBranch is the branch to create the worktree from (default: main)
 	BaseBranch string
 	// SymlinkPaths are files/dirs to symlink from the main repo
@@ -67,8 +71,20 @@ func (m *Manager) Create(opts CreateOptions) (*CreateResult, error) {
 		opts.BaseBranch = "main"
 	}
 
-	branchName := fmt.Sprintf("task-%s", opts.TaskID)
-	worktreePath := filepath.Join(m.config.BaseDir, opts.ProjectName, branchName)
+	branchName := opts.BranchName
+	if branchName == "" {
+		branchName = Slugify(opts.TaskTitle)
+	}
+
+	// Check for collision — if branch or worktree dir already exists, append short ID
+	dirName := branchName
+	worktreePath := filepath.Join(m.config.BaseDir, opts.ProjectName, dirName)
+	if m.branchExists(opts.ProjectPath, branchName) || dirExists(worktreePath) {
+		suffix := shortID(opts.TaskID)
+		branchName = branchName + "-" + suffix
+		dirName = branchName
+		worktreePath = filepath.Join(m.config.BaseDir, opts.ProjectName, dirName)
+	}
 
 	// Ensure worktree base directory exists
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
@@ -280,12 +296,23 @@ func (m *Manager) getWorktreeBranch(worktreePath string) string {
 }
 
 // DiffStats returns the number of additions and deletions in a worktree
-// compared to the base branch. Returns 0,0 on error (non-fatal).
+// compared to the base branch, including uncommitted and staged changes.
+// Returns 0,0 on error (non-fatal).
 func (m *Manager) DiffStats(worktreePath, baseBranch string) (additions, deletions int, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", "diff", "--shortstat", baseBranch+"...HEAD")
+	// Find merge base between base branch and HEAD
+	mergeBaseCmd := exec.CommandContext(ctx, "git", "merge-base", baseBranch, "HEAD")
+	mergeBaseCmd.Dir = worktreePath
+	mergeBaseOutput, err := mergeBaseCmd.Output()
+	if err != nil {
+		return 0, 0, err
+	}
+	mergeBase := strings.TrimSpace(string(mergeBaseOutput))
+
+	// Diff working tree (including uncommitted changes) against merge base
+	cmd := exec.CommandContext(ctx, "git", "diff", "--shortstat", mergeBase)
 	cmd.Dir = worktreePath
 	output, err := cmd.Output()
 	if err != nil {
@@ -314,6 +341,11 @@ func parseShortStat(s string) (additions, deletions int) {
 		}
 	}
 	return additions, deletions
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 func (m *Manager) deleteBranch(repoPath, branchName string) error {
