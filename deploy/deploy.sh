@@ -22,10 +22,10 @@ echo "==> Installing frontend dependencies..."
 pnpm --dir frontend install --frozen-lockfile
 
 echo "==> Building frontend..."
-cd frontend && pnpm build && cd ..
+pnpm --dir frontend build
 
 echo "==> Building backend..."
-cd backend && go build -o codeburg ./cmd/codeburg && cd ..
+(cd backend && go build -o codeburg ./cmd/codeburg)
 
 echo "==> Running migrations..."
 ./backend/codeburg migrate

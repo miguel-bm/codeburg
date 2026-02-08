@@ -485,7 +485,7 @@ export function Dashboard() {
                     ) : (
                       <>
                         {colTasks.map((task, cardIdx) => {
-                          const isGhost = isDragging && drag?.taskId === task.id;
+                          const isGhost = !!(isDragging && drag?.taskId === task.id);
                           const showDropPlaceholder = isDragging && drag?.targetCol === colIdx && drag?.targetPosition === cardIdx && drag?.taskId !== task.id;
                           return (
                             <div key={task.id}>
@@ -499,7 +499,7 @@ export function Dashboard() {
                                 }}
                                 task={task}
                                 projectName={!selectedProjectId ? getProjectName(task.projectId) : undefined}
-                                focused={focus?.col === colIdx && focus?.card === cardIdx}
+                                focused={!!(focus?.col === colIdx && focus?.card === cardIdx)}
                                 ghost={isGhost}
                                 onMouseDown={(e) => handleMouseDown(e, task, colIdx, cardIdx)}
                                 colIdx={colIdx}
@@ -702,8 +702,8 @@ const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
     <div
       ref={setRef}
       id={`task-${task.id}`}
-      onMouseDown={!isMobile ? onMouseDown : undefined}
       {...(isMobile ? longPressHandlers : {})}
+      onMouseDown={!isMobile ? onMouseDown : undefined}
       className={`bg-primary p-3 border-l-2 border transition-all cursor-pointer select-none ${
         isMobile ? 'select-none' : ''
       } ${ghost ? 'opacity-20' : ''} ${focused ? 'border-accent bg-[var(--color-accent-glow)]' : 'border-subtle hover:border-accent'}`}

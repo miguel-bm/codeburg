@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { sidebarApi, projectsApi } from '../../api';
-import type { SidebarProject, SidebarTask, SidebarSession } from '../../api';
 
 interface CommandItem {
   id: string;
