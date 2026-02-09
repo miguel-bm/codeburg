@@ -116,6 +116,23 @@ func (m *Manager) SendKeys(target string, keys string, pressEnter bool) error {
 	return nil
 }
 
+// SendKeysRaw sends literal keystrokes to a tmux pane (no extra Enter).
+func (m *Manager) SendKeysRaw(target string, keys string) error {
+	if keys == "" {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	args := []string{"send-keys", "-t", target, "-l", keys}
+	cmd := exec.Command("tmux", args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("send keys raw: %s: %w", string(output), err)
+	}
+
+	return nil
+}
+
 // SendSignal sends a signal to the process in a pane
 func (m *Manager) SendSignal(target string, signal string) error {
 	m.mu.Lock()

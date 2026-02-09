@@ -1,17 +1,14 @@
 package api
 
 import (
+	"bufio"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
-	"os/exec"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 	"github.com/miguel-bm/codeburg/internal/db"
 )
@@ -19,13 +16,14 @@ import (
 // TerminalSession manages a single terminal WebSocket connection
 type TerminalSession struct {
 	conn      *websocket.Conn
-	ptmx      *os.File
-	cmd       *exec.Cmd
+	reader    *bufio.Reader
+	cleanup   func()
 	mu        sync.Mutex
 	closed    bool
 	sessionID string  // Codeburg session ID (optional)
 	server    *Server // For DB/WS access (optional)
 	lastInput time.Time
+	target    string
 }
 
 // handleTerminalWS handles WebSocket connections for terminal access
@@ -61,10 +59,11 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 		conn:      conn,
 		sessionID: sessionID,
 		server:    s,
+		target:    target,
 	}
 
 	// Start the terminal
-	if err := ts.start(target); err != nil {
+	if err := ts.start(); err != nil {
 		slog.Error("failed to start terminal", "target", target, "error", err)
 		conn.WriteMessage(websocket.TextMessage, []byte("Error: "+err.Error()))
 		conn.Close()
@@ -72,51 +71,31 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Handle I/O
-	go ts.readFromPTY()
+	go ts.readFromPipe()
 	ts.readFromWS()
 }
 
-// start begins the tmux attach session
-func (ts *TerminalSession) start(target string) error {
-	// Create command to attach to tmux
-	windowTarget := tmuxWindowFromTarget(target)
-	ts.cmd = exec.Command("tmux", "attach-session", "-t", windowTarget)
-
-	// Create PTY
-	ptmx, err := pty.Start(ts.cmd)
+// start begins the tmux pipe-pane stream
+func (ts *TerminalSession) start() error {
+	reader, cleanup, err := ts.server.sessions.tmux.PipeOutput(ts.target)
 	if err != nil {
 		return err
 	}
-	ts.ptmx = ptmx
-
-	// Set initial size (can be updated via resize message)
-	pty.Setsize(ptmx, &pty.Winsize{
-		Rows: 24,
-		Cols: 80,
-	})
-
+	ts.reader = reader
+	ts.cleanup = cleanup
 	return nil
 }
 
-// tmux target is session:window.pane — attach to session:window to avoid drifting.
-func tmuxWindowFromTarget(target string) string {
-	// Strip pane if present.
-	if dot := strings.LastIndex(target, "."); dot > -1 {
-		return target[:dot]
-	}
-	return target
-}
-
-// readFromPTY reads from the PTY and sends to WebSocket
-func (ts *TerminalSession) readFromPTY() {
+// readFromPipe reads from the tmux pipe and sends to WebSocket
+func (ts *TerminalSession) readFromPipe() {
 	defer ts.close()
 
 	buf := make([]byte, 4096)
 	for {
-		n, err := ts.ptmx.Read(buf)
+		n, err := ts.reader.Read(buf)
 		if err != nil {
 			if err != io.EOF {
-				slog.Debug("pty read error", "error", err)
+				slog.Debug("pipe read error", "error", err)
 			}
 			return
 		}
@@ -142,7 +121,7 @@ func (ts *TerminalSession) readFromPTY() {
 	}
 }
 
-// readFromWS reads from WebSocket and writes to PTY
+// readFromWS reads from WebSocket and writes to tmux pane
 func (ts *TerminalSession) readFromWS() {
 	defer ts.close()
 
@@ -168,10 +147,9 @@ func (ts *TerminalSession) readFromWS() {
 				ts.handleUserInput(message)
 			}
 
-			// Write input to PTY
-			_, err := ts.ptmx.Write(message)
-			if err != nil {
-				slog.Debug("pty write error", "error", err)
+			// Write input to tmux pane
+			if err := ts.server.sessions.tmux.SendKeysRaw(ts.target, string(message)); err != nil {
+				slog.Debug("tmux send-keys error", "error", err)
 				return
 			}
 		}
@@ -237,10 +215,7 @@ func (ts *TerminalSession) handleControlMessage(message []byte) {
 	}
 
 	if msg.Type == "resize" && msg.Cols > 0 && msg.Rows > 0 {
-		pty.Setsize(ts.ptmx, &pty.Winsize{
-			Rows: msg.Rows,
-			Cols: msg.Cols,
-		})
+		// No-op: tmux panes handle their own size.
 	}
 }
 
@@ -252,19 +227,13 @@ func (ts *TerminalSession) close() {
 		return
 	}
 	ts.closed = true
-	ptmx := ts.ptmx
-	cmd := ts.cmd
 	conn := ts.conn
+	cleanup := ts.cleanup
 	ts.mu.Unlock()
 
 	// Perform blocking I/O outside the lock
-	if ptmx != nil {
-		ptmx.Close()
-	}
-
-	if cmd != nil && cmd.Process != nil {
-		cmd.Process.Kill()
-		cmd.Wait()
+	if cleanup != nil {
+		cleanup()
 	}
 
 	conn.Close()
