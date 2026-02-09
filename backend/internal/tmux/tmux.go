@@ -277,6 +277,15 @@ func (m *Manager) WindowExists(window string) bool {
 	return cmd.Run() == nil
 }
 
+// TargetExists checks if a fully-qualified tmux target (e.g. "codeburg:@4.%5") exists
+func (m *Manager) TargetExists(target string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cmd := exec.Command("tmux", "has-session", "-t", target)
+	return cmd.Run() == nil
+}
+
 // ensureSessionLocked ensures the session exists (must be called with lock held)
 func (m *Manager) ensureSessionLocked() error {
 	cmd := exec.Command("tmux", "has-session", "-t", SessionName)

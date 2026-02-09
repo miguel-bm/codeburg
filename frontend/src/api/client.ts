@@ -18,7 +18,7 @@ class ApiError extends Error {
 }
 
 /** Paths that should not trigger the 401 interceptor */
-const AUTH_PATHS = ['/auth/login', '/auth/setup', '/auth/status', '/auth/me'];
+const AUTH_PATHS = ['/auth/login', '/auth/setup', '/auth/status', '/auth/me', '/auth/passkey/login/begin', '/auth/passkey/login/finish', '/auth/telegram'];
 
 async function request<T>(
   path: string,

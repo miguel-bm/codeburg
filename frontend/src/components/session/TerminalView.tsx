@@ -6,11 +6,12 @@ import { TerminalToolbar } from '../terminal/TerminalToolbar';
 interface TerminalViewProps {
   target: string; // tmux target (e.g., "codeburg:@1.%1")
   sessionId?: string; // Codeburg session ID for activity tracking
+  sessionStatus?: string; // Current session status (for retry suppression)
 }
 
-export function TerminalView({ target, sessionId }: TerminalViewProps) {
+export function TerminalView({ target, sessionId, sessionStatus }: TerminalViewProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
-  const { sendInput } = useTerminal(terminalRef, target, { sessionId });
+  const { sendInput } = useTerminal(terminalRef, target, { sessionId, sessionStatus });
   const isMobile = useMobile();
 
   return (

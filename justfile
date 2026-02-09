@@ -64,6 +64,10 @@ lint-fe:
 deploy branch="main":
     ssh codeburg-server '/opt/codeburg/deploy/deploy.sh {{branch}}'
 
+# Deploy after killing all tmux sessions (clean slate)
+deploy-clean branch="main":
+    ssh codeburg-server 'tmux kill-session -t codeburg 2>/dev/null; /opt/codeburg/deploy/deploy.sh {{branch}}'
+
 # Commit, push, and deploy in one shot (uses current branch)
 yeet msg:
     git add -A

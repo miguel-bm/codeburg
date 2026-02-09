@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -16,17 +17,20 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/miguel-bm/codeburg/internal/db"
 	"github.com/miguel-bm/codeburg/internal/gitclone"
+	"github.com/miguel-bm/codeburg/internal/telegram"
 	"github.com/miguel-bm/codeburg/internal/tunnel"
 	"github.com/miguel-bm/codeburg/internal/worktree"
 )
 
 // allowedOrigins defines which origins may make cross-origin requests.
 // Used by both CORS middleware and WebSocket CheckOrigin.
+// Starts with localhost; the configured origin is appended at startup.
 var allowedOrigins = []string{
 	"http://localhost:*",
-	"https://codeburg.miscellanics.com",
 }
 
 // isAllowedOrigin checks whether an origin matches the allowedOrigins list.
@@ -57,32 +61,68 @@ func isAllowedOrigin(origin string) bool {
 }
 
 type Server struct {
-	db              *db.DB
-	router          chi.Router
-	auth            *AuthService
-	worktree        *worktree.Manager
-	wsHub           *WSHub
-	sessions        *SessionManager
-	tunnels         *tunnel.Manager
-	gitclone        gitclone.Config
-	authLimiter     *loginRateLimiter
-	diffStatsCache  sync.Map // taskID -> diffStatsCacheEntry
+	db                *db.DB
+	router            chi.Router
+	auth              *AuthService
+	worktree          *worktree.Manager
+	wsHub             *WSHub
+	sessions          *SessionManager
+	tunnels           *tunnel.Manager
+	gitclone          gitclone.Config
+	authLimiter       *loginRateLimiter
+	diffStatsCache    sync.Map // taskID -> diffStatsCacheEntry
+	webauthn          *webauthn.WebAuthn
+	challenges        *challengeStore
+	telegramBotCancel context.CancelFunc
+	telegramBotMu     sync.Mutex
 }
 
 func NewServer(database *db.DB) *Server {
 	wsHub := NewWSHub()
 	go wsHub.Run() // Start the WebSocket hub
 
+	authSvc := NewAuthService()
+
 	s := &Server{
 		db:          database,
-		auth:        NewAuthService(),
+		auth:        authSvc,
 		worktree:    worktree.NewManager(worktree.DefaultConfig()),
 		wsHub:       wsHub,
 		sessions:    NewSessionManager(),
 		tunnels:     tunnel.NewManager(),
 		gitclone:    gitclone.DefaultConfig(),
 		authLimiter: newLoginRateLimiter(5, 1*time.Minute),
+		challenges:  newChallengeStore(),
 	}
+
+	// Initialize WebAuthn + CORS if origin is configured
+	if config, err := authSvc.loadConfig(); err == nil && config.Auth.Origin != "" {
+		// Add configured origin to allowed CORS origins
+		allowedOrigins = append(allowedOrigins, config.Auth.Origin)
+
+		parsed, err := url.Parse(config.Auth.Origin)
+		if err == nil {
+			rpID := parsed.Hostname()
+			wa, err := webauthn.New(&webauthn.Config{
+				RPDisplayName: "Codeburg",
+				RPID:          rpID,
+				RPOrigins:     []string{config.Auth.Origin},
+				AuthenticatorSelection: protocol.AuthenticatorSelection{
+					ResidentKey:        protocol.ResidentKeyRequirementRequired,
+					UserVerification:   protocol.VerificationPreferred,
+				},
+			})
+			if err != nil {
+				slog.Error("failed to initialize WebAuthn", "error", err)
+			} else {
+				s.webauthn = wa
+				slog.Info("webauthn initialized", "rpID", rpID, "origin", config.Auth.Origin)
+			}
+		}
+	}
+
+	// Start Telegram bot if token preference is configured
+	s.startTelegramBot()
 
 	// Restore sessions that survived a server restart
 	s.sessions.Reconcile(database)
@@ -115,6 +155,13 @@ func (s *Server) setupRoutes() {
 	r.Post("/api/auth/setup", s.handleSetup)
 	r.Get("/api/auth/status", s.handleAuthStatus)
 
+	// Passkey public routes (rate-limited internally)
+	r.Post("/api/auth/passkey/login/begin", s.handlePasskeyLoginBegin)
+	r.Post("/api/auth/passkey/login/finish", s.handlePasskeyLoginFinish)
+
+	// Telegram public route (rate-limited internally)
+	r.Post("/api/auth/telegram", s.handleTelegramAuth)
+
 	// WebSocket (public, auth handled in handshake)
 	r.Get("/ws", s.handleWebSocket)
 	r.Get("/ws/terminal", s.handleTerminalWS)
@@ -129,6 +176,13 @@ func (s *Server) setupRoutes() {
 		// Auth
 		r.Get("/api/auth/me", s.handleMe)
 		r.Post("/api/auth/password", s.handleChangePassword)
+
+		// Passkey management (protected)
+		r.Post("/api/auth/passkey/register/begin", s.handlePasskeyRegisterBegin)
+		r.Post("/api/auth/passkey/register/finish", s.handlePasskeyRegisterFinish)
+		r.Get("/api/auth/passkeys", s.handleListPasskeys)
+		r.Patch("/api/auth/passkeys/{id}", s.handleRenamePasskey)
+		r.Delete("/api/auth/passkeys/{id}", s.handleDeletePasskey)
 
 		// Sidebar (aggregated)
 		r.Get("/api/sidebar", s.handleSidebar)
@@ -179,6 +233,9 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/tasks/{id}/tunnels", s.handleListTunnels)
 		r.Post("/api/tasks/{id}/tunnels", s.handleCreateTunnel)
 		r.Delete("/api/tunnels/{id}", s.handleStopTunnel)
+
+		// Telegram bot management
+		r.Post("/api/telegram/bot/restart", s.handleRestartTelegramBot)
 
 		// Preferences
 		r.Get("/api/preferences/{key}", s.handleGetPreference)
@@ -242,6 +299,48 @@ func (s *Server) serveFrontend(r chi.Router) {
 
 func (s *Server) ListenAndServe(addr string) error {
 	return http.ListenAndServe(addr, s.router)
+}
+
+// startTelegramBot reads the bot token from preferences and the origin from config,
+// cancels any existing bot goroutine, and starts a new one if the token is set.
+func (s *Server) startTelegramBot() {
+	s.telegramBotMu.Lock()
+	defer s.telegramBotMu.Unlock()
+
+	// Cancel existing bot if running
+	if s.telegramBotCancel != nil {
+		s.telegramBotCancel()
+		s.telegramBotCancel = nil
+	}
+
+	// Read bot token from preferences
+	pref, err := s.db.GetPreference("default", "telegram_bot_token")
+	if err != nil || pref.Value == "" {
+		slog.Info("telegram bot not started: no bot token configured")
+		return
+	}
+	token := unquotePreference(pref.Value)
+	if token == "" {
+		return
+	}
+
+	// Read origin from config
+	config, err := s.auth.loadConfig()
+	if err != nil || config.Auth.Origin == "" {
+		slog.Warn("telegram bot not started: no origin configured")
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.telegramBotCancel = cancel
+
+	bot := telegram.NewBot(token, config.Auth.Origin)
+	go bot.Run(ctx)
+}
+
+func (s *Server) handleRestartTelegramBot(w http.ResponseWriter, r *http.Request) {
+	s.startTelegramBot()
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // Response helpers

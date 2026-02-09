@@ -103,12 +103,13 @@ func (s *Server) handleSessionHook(w http.ResponseWriter, r *http.Request) {
 		execSession.SetStatus(newStatus)
 	}
 
-	// If session ended, clean up in-memory session and token file
+	// If session ended, clean up in-memory session and token/script files
 	if newStatus == db.SessionStatusCompleted {
 		s.sessions.mu.Lock()
 		delete(s.sessions.sessions, sessionID)
 		s.sessions.mu.Unlock()
 		removeHookToken(sessionID)
+		removeNotifyScript(sessionID)
 	}
 
 	// Broadcast status change

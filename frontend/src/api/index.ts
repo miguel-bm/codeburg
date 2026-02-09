@@ -7,6 +7,7 @@ export { justfileApi } from './justfile';
 export { tunnelsApi } from './tunnels';
 export { sidebarApi } from './sidebar';
 export { preferencesApi } from './preferences';
+export type { EditorConfig, EditorType } from './preferences';
 export { gitApi } from './git';
 export { TASK_STATUS, ALL_TASK_STATUSES } from './types';
 export * from './types';

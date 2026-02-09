@@ -285,6 +285,7 @@ interface SidebarProjectNodeProps {
 }
 
 function SidebarProjectNode({ project, isActive, onProjectClick, onClose, collapseSignal, forceCollapsed, onCollapseToggle, keyboardFocused, focusedTaskId }: SidebarProjectNodeProps) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(() => {
     const stored = localStorage.getItem(`sidebar-collapse-${project.id}`);
@@ -358,6 +359,13 @@ function SidebarProjectNode({ project, isActive, onProjectClick, onClose, collap
           title={project.pinned ? 'unpin project' : 'pin project'}
         >
           <Pin size={12} />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.id}/settings`); onClose?.(); }}
+          className="flex-shrink-0 text-transparent group-hover:text-dim hover:!text-accent transition-colors"
+          title="project settings"
+        >
+          <Settings size={12} />
         </button>
         {hasTasks && (
           <span className="text-xs text-dim ml-auto flex-shrink-0">{sortedTasks.length}</span>

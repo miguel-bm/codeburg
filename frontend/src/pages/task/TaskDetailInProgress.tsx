@@ -8,6 +8,7 @@ import { ToolsPanel } from '../../components/tools';
 import { tasksApi, invalidateTaskQueries, gitApi } from '../../api';
 import { TASK_STATUS } from '../../api';
 import type { Task, Project, AgentSession, SessionProvider, UpdateTaskResponse } from '../../api';
+import { OpenInEditorButton } from '../../components/common/OpenInEditorButton';
 import { useMobile } from '../../hooks/useMobile';
 
 type MainContent =
@@ -182,13 +183,16 @@ export function TaskDetailInProgress({
           task={task}
           project={project}
           actions={
-            <button
-              onClick={handleMoveToReview}
-              disabled={updateTask.isPending}
-              className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors disabled:opacity-50"
-            >
-              review
-            </button>
+            <>
+              {task.worktreePath && <OpenInEditorButton worktreePath={task.worktreePath} />}
+              <button
+                onClick={handleMoveToReview}
+                disabled={updateTask.isPending}
+                className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors disabled:opacity-50"
+              >
+                review
+              </button>
+            </>
           }
         />
         {warningBanner}
@@ -274,13 +278,16 @@ export function TaskDetailInProgress({
         task={task}
         project={project}
         actions={
-          <button
-            onClick={handleMoveToReview}
-            disabled={updateTask.isPending}
-            className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors disabled:opacity-50"
-          >
-            Review
-          </button>
+          <>
+            {task.worktreePath && <OpenInEditorButton worktreePath={task.worktreePath} />}
+            <button
+              onClick={handleMoveToReview}
+              disabled={updateTask.isPending}
+              className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors disabled:opacity-50"
+            >
+              Review
+            </button>
+          </>
         }
       />
       {warningBanner}

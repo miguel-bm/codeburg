@@ -47,6 +47,14 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if the tmux target exists before starting PTY
+	if !s.sessions.tmux.TargetExists(target) {
+		conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(4000, "tmux window gone"))
+		conn.Close()
+		return
+	}
+
 	// Create terminal session
 	ts := &TerminalSession{
 		conn:      conn,

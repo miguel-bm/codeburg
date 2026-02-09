@@ -76,7 +76,7 @@ describe('Auth Store', () => {
   });
 
   it('checkStatus detects first-time setup needed', async () => {
-    mockedAuthApi.getStatus.mockResolvedValue({ setup: false });
+    mockedAuthApi.getStatus.mockResolvedValue({ setup: false, hasPasskeys: false, hasTelegram: false });
 
     await useAuthStore.getState().checkStatus();
 
@@ -87,7 +87,7 @@ describe('Auth Store', () => {
 
   it('checkStatus validates existing token', async () => {
     localStorage.setItem('token', 'existing-token');
-    mockedAuthApi.getStatus.mockResolvedValue({ setup: true });
+    mockedAuthApi.getStatus.mockResolvedValue({ setup: true, hasPasskeys: false, hasTelegram: false });
     mockedAuthApi.me.mockResolvedValue({ user: 'admin' });
 
     await useAuthStore.getState().checkStatus();
@@ -100,7 +100,7 @@ describe('Auth Store', () => {
 
   it('checkStatus clears invalid token', async () => {
     localStorage.setItem('token', 'expired-token');
-    mockedAuthApi.getStatus.mockResolvedValue({ setup: true });
+    mockedAuthApi.getStatus.mockResolvedValue({ setup: true, hasPasskeys: false, hasTelegram: false });
     mockedAuthApi.me.mockRejectedValue(new Error('Unauthorized'));
 
     await useAuthStore.getState().checkStatus();

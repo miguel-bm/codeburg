@@ -173,7 +173,7 @@ codeburg/
 | Item | Path |
 |------|------|
 | Database | `~/.codeburg/codeburg.db` |
-| Auth config | `~/.codeburg/config.yaml` (password hash) |
+| Auth config | `~/.codeburg/config.yaml` (password hash, origin URL) |
 | JWT secret | `~/.codeburg/.jwt_secret` |
 | Worktrees | `~/.codeburg/worktrees/{project}/{task-id}/` |
 | Session logs | `~/.codeburg/logs/sessions/{id}.jsonl` |

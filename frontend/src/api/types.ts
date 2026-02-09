@@ -157,6 +157,15 @@ export interface SidebarSession {
 
 export interface AuthStatus {
   setup: boolean;
+  hasPasskeys: boolean;
+  hasTelegram: boolean;
+}
+
+export interface PasskeyInfo {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt?: string;
 }
 
 export interface AuthToken {

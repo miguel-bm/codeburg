@@ -1,12 +1,14 @@
 import { useState } from 'react';
+import { Fingerprint } from 'lucide-react';
 import { useAuthStore } from '../stores/auth';
 
 export function Login() {
-  const { needsSetup, login, setup } = useAuthStore();
+  const { needsSetup, hasPasskeys, login, loginWithPasskey } = useAuthStore();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,7 +27,7 @@ export function Login() {
           setIsLoading(false);
           return;
         }
-        await setup(password);
+        await useAuthStore.getState().setup(password);
       } else {
         await login(password);
       }
@@ -35,6 +37,20 @@ export function Login() {
       setIsLoading(false);
     }
   };
+
+  const handlePasskeyLogin = async () => {
+    setError('');
+    setPasskeyLoading(true);
+    try {
+      await loginWithPasskey();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Passkey login failed');
+    } finally {
+      setPasskeyLoading(false);
+    }
+  };
+
+  const showPasskeyButton = hasPasskeys && !needsSetup;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-primary px-4">
@@ -97,6 +113,25 @@ export function Login() {
             {isLoading ? 'Loading...' : needsSetup ? 'Initialize' : 'Sign in'}
           </button>
         </form>
+
+        {showPasskeyButton && (
+          <>
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-px bg-[var(--color-border)]" />
+              <span className="text-xs text-dim">or</span>
+              <div className="flex-1 h-px bg-[var(--color-border)]" />
+            </div>
+
+            <button
+              onClick={handlePasskeyLogin}
+              disabled={passkeyLoading}
+              className="w-full py-2 px-4 border border-subtle bg-secondary text-[var(--color-text-primary)] rounded-md font-medium hover:bg-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              <Fingerprint size={18} />
+              {passkeyLoading ? 'Waiting for passkey...' : 'Sign in with passkey'}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

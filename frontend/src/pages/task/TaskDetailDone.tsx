@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { TaskHeader } from './TaskHeader';
+import { DiffView } from '../../components/git';
 import { tasksApi, invalidateTaskQueries } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { Task, Project } from '../../api/types';
@@ -40,54 +41,48 @@ export function TaskDetailDone({ task, project }: Props) {
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-2xl space-y-6">
-          <div>
-            <h3 className="text-xs font-medium uppercase tracking-wider text-dim mb-2">Summary</h3>
-            {task.description && (
-              <p className="text-sm whitespace-pre-wrap mb-4">{task.description}</p>
-            )}
-            <div className="space-y-2 text-sm">
-              {task.branch && (
-                <div className="flex gap-4">
-                  <span className="text-dim w-24">branch</span>
-                  <span className="font-mono">{task.branch}</span>
-                </div>
-              )}
-              {task.prUrl && (
-                <div className="flex gap-4">
-                  <span className="text-dim w-24">pull request</span>
-                  <a
-                    href={task.prUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-accent hover:underline font-mono text-xs"
-                  >
-                    {task.prUrl}
-                  </a>
-                </div>
-              )}
-              {task.diffStats && (
-                <div className="flex gap-4">
-                  <span className="text-dim w-24">changes</span>
-                  <span>
-                    <span className="text-[var(--color-success)]">+{task.diffStats.additions}</span>
-                    {' / '}
-                    <span className="text-[var(--color-error)]">-{task.diffStats.deletions}</span>
-                  </span>
-                </div>
-              )}
+          {/* Summary stats */}
+          <div className="space-y-2 text-sm">
+            {task.branch && (
               <div className="flex gap-4">
-                <span className="text-dim w-24">created</span>
-                <span>{new Date(task.createdAt).toLocaleString()}</span>
+                <span className="text-dim w-24">branch</span>
+                <span className="font-mono">{task.branch}</span>
               </div>
-              {task.completedAt && (
-                <div className="flex gap-4">
-                  <span className="text-dim w-24">completed</span>
-                  <span>{new Date(task.completedAt).toLocaleString()}</span>
-                </div>
-              )}
-            </div>
+            )}
+            {task.prUrl && (
+              <div className="flex gap-4">
+                <span className="text-dim w-24">pull request</span>
+                <a
+                  href={task.prUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-accent hover:underline font-mono text-xs"
+                >
+                  {task.prUrl}
+                </a>
+              </div>
+            )}
+            {task.diffStats && (
+              <div className="flex gap-4">
+                <span className="text-dim w-24">changes</span>
+                <span>
+                  <span className="text-[var(--color-success)]">+{task.diffStats.additions}</span>
+                  {' / '}
+                  <span className="text-[var(--color-error)]">-{task.diffStats.deletions}</span>
+                </span>
+              </div>
+            )}
           </div>
-          {/* TODO: git log of branch commits */}
+
+          {/* Diff view if worktree still exists */}
+          {task.worktreePath && (
+            <div>
+              <h3 className="text-xs font-medium uppercase tracking-wider text-dim mb-2">Changes</h3>
+              <div className="border border-subtle rounded-lg overflow-hidden">
+                <DiffView taskId={task.id} base />
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

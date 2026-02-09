@@ -56,7 +56,7 @@ All runtime data lives under `/home/codeburg/.codeburg/`:
 | Path | Content |
 |------|---------|
 | `codeburg.db` | SQLite database (WAL mode) |
-| `config.yaml` | Password hash |
+| `config.yaml` | Password hash, origin URL |
 | `.jwt_secret` | JWT signing key |
 | `worktrees/` | Git worktrees (one per active task) |
 | `logs/sessions/` | Session logs (JSONL files) |
@@ -100,7 +100,7 @@ Zero-downtime is not a goal (personal tool, restarts take <2 seconds).
 - **No ports exposed**: The VM has no open ports. All traffic flows through the Cloudflare tunnel (outbound connection from VM).
 - **HTTPS**: Terminated at Cloudflare's edge. The tunnel encrypts traffic between Cloudflare and the VM.
 - **Auth**: bcrypt password hash + JWT tokens (7-day expiry).
-- **CORS**: Only allows `https://codeburg.miscellanics.com` and `http://localhost:*`.
+- **CORS**: Allows `http://localhost:*` by default; the `origin` from `config.yaml` is added dynamically at startup.
 - **Systemd hardening**: `NoNewPrivileges`, `ProtectSystem=strict`, limited `ReadWritePaths`.
 
 ## Quick Tunnels (Dev Servers)

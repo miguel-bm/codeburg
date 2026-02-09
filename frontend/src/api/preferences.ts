@@ -1,5 +1,12 @@
 import { api } from './client';
 
+export type EditorType = 'vscode' | 'cursor';
+
+export interface EditorConfig {
+  editor: EditorType;
+  sshHost: string | null;
+}
+
 export const preferencesApi = {
   get: <T>(key: string) => api.get<T>(`/preferences/${key}`),
   set: <T>(key: string, value: T) => api.put<T>(`/preferences/${key}`, value),
@@ -10,4 +17,23 @@ export const preferencesApi = {
     api.get<string[]>('/preferences/pinned_projects').catch(() => []),
   setPinnedProjects: (ids: string[]) =>
     api.put<string[]>('/preferences/pinned_projects', ids),
+
+  getEditorConfig: async (): Promise<EditorConfig> => {
+    const [editor, sshHost] = await Promise.all([
+      api.get<EditorType>('/preferences/editor').catch(() => null),
+      api.get<string>('/preferences/editor_ssh_host').catch(() => null),
+    ]);
+    return {
+      editor: editor ?? 'vscode',
+      sshHost: sshHost ?? null,
+    };
+  },
+  setEditorConfig: async (config: EditorConfig): Promise<void> => {
+    await api.put('/preferences/editor', config.editor);
+    if (config.sshHost) {
+      await api.put('/preferences/editor_ssh_host', config.sshHost);
+    } else {
+      await api.delete('/preferences/editor_ssh_host').catch(() => {});
+    }
+  },
 };

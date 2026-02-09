@@ -183,7 +183,39 @@ curl https://codeburg.miscellanics.com/api/auth/status
 1. Open `https://codeburg.miscellanics.com` in your browser
 2. Set your password on the setup screen
 3. Log in
-4. Create your first project
+
+### 5a. Configure Origin
+
+The `origin` field in `config.yaml` is required for CORS, passkeys (WebAuthn), and Telegram login. Set it once on the server:
+
+```bash
+ssh codeburg-server
+cat >> ~/.codeburg/config.yaml << 'EOF'
+  origin: "https://codeburg.miscellanics.com"
+EOF
+sudo systemctl restart codeburg
+```
+
+Verify the file looks correct (`password_hash` was auto-created during setup):
+
+```yaml
+auth:
+  password_hash: "$2a$10$..."
+  origin: "https://codeburg.miscellanics.com"
+```
+
+### 5b. Configure Telegram (Optional)
+
+Telegram login lets you open Codeburg as a Telegram Web App with automatic authentication.
+
+1. Log in to Codeburg and go to **Settings > Telegram**
+2. Click **Setup guide** for step-by-step instructions
+3. Enter your bot token (from @BotFather) and Telegram user ID (from @userinfobot)
+4. Click **Save** — the bot starts automatically
+
+### 5c. Start Building
+
+Create your first project and start working!
 
 ## Step 6: Configure Deployments from Dev Machine
 
@@ -252,7 +284,7 @@ If you forget your password, delete the config on the server:
 ssh codeburg-server 'rm ~/.codeburg/config.yaml && sudo systemctl restart codeburg'
 ```
 
-Then visit the site again to set a new password.
+Then visit the site again to set a new password. **Note:** This also removes the `origin` field — re-add it per Step 5a above.
 
 ## Troubleshooting
 

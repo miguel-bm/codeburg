@@ -300,13 +300,13 @@ func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*
 		}
 
 	case "codex":
-		// Write codex notify script
-		if err := writeCodexNotifyScript(workDir, dbSession.ID, tokenPath, apiURL); err != nil {
+		// Write codex notify script (outside worktree to avoid git noise)
+		notifyScript, err := writeCodexNotifyScript(dbSession.ID, tokenPath, apiURL)
+		if err != nil {
 			slog.Warn("failed to write codex notify script", "session_id", dbSession.ID, "error", err)
 		}
 
 		// Inject codex command using -c to set notify via config override
-		notifyScript := filepath.Join(workDir, ".codeburg-notify.sh")
 		notifyFlag := fmt.Sprintf(`-c 'notify=["%s"]'`, notifyScript)
 		var cmd string
 		if req.Prompt != "" {
@@ -462,8 +462,9 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 		Status: &completedStatus,
 	})
 
-	// Clean up token file
+	// Clean up token and script files
 	removeHookToken(id)
+	removeNotifyScript(id)
 
 	// Broadcast to WebSocket
 	s.wsHub.BroadcastToSession(id, "session_stopped", nil)
@@ -498,8 +499,9 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Clean up token file
+	// Clean up token and script files
 	removeHookToken(id)
+	removeNotifyScript(id)
 
 	// Remove session log file
 	removeSessionLog(id)
@@ -570,6 +572,7 @@ func (sm *SessionManager) StartCleanupLoop(database *db.DB, wsHub *WSHub) {
 				completedStatus := db.SessionStatusCompleted
 				database.UpdateSession(id, db.UpdateSessionInput{Status: &completedStatus})
 				removeHookToken(id)
+				removeNotifyScript(id)
 
 				// Get task ID for broadcast
 				if dbSession, err := database.GetSession(id); err == nil {
@@ -715,26 +718,45 @@ func isCodeburgHookEntry(entry interface{}) bool {
 	return false
 }
 
-// writeCodexNotifyScript writes a .codeburg-notify.sh script that calls back to Codeburg.
+// writeCodexNotifyScript writes a notify script to ~/.codeburg/scripts/{sessionID}-notify.sh.
 // Codex invokes the notify script with the event JSON as the last positional argument ($1).
-func writeCodexNotifyScript(workDir, sessionID, tokenPath, apiURL string) error {
+// Returns the absolute path to the script.
+func writeCodexNotifyScript(sessionID, tokenPath, apiURL string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("get home dir: %w", err)
+	}
+	dir := filepath.Join(home, ".codeburg", "scripts")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", fmt.Errorf("create scripts dir: %w", err)
+	}
+
 	hookURL := fmt.Sprintf("%s/api/sessions/%s/hook", apiURL, sessionID)
-	scriptPath := filepath.Join(workDir, ".codeburg-notify.sh")
+	scriptPath := filepath.Join(dir, sessionID+"-notify.sh")
 
 	script := fmt.Sprintf(`#!/bin/bash
 TOKEN=$(cat '%s')
 curl -s -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d "$1" \
+  --data-raw "$1" \
   '%s'
 `, tokenPath, hookURL)
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
-		return fmt.Errorf("write notify script: %w", err)
+		return "", fmt.Errorf("write notify script: %w", err)
 	}
 
-	return nil
+	return scriptPath, nil
+}
+
+// removeNotifyScript deletes the notify script for a session.
+func removeNotifyScript(sessionID string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	os.Remove(filepath.Join(home, ".codeburg", "scripts", sessionID+"-notify.sh"))
 }
 
 // validModelName matches model names safe to interpolate into shell commands.

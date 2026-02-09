@@ -211,4 +211,22 @@ var migrations = []migration{
 			);
 		`,
 	},
+	{
+		version: 9,
+		sql: `
+			-- WebAuthn passkeys for passwordless authentication
+			CREATE TABLE passkeys (
+				id TEXT PRIMARY KEY,
+				credential_id BLOB NOT NULL UNIQUE,
+				public_key BLOB NOT NULL,
+				attestation_type TEXT NOT NULL DEFAULT '',
+				aaguid BLOB,
+				sign_count INTEGER NOT NULL DEFAULT 0,
+				name TEXT NOT NULL DEFAULT 'Passkey',
+				transports TEXT,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				last_used_at DATETIME
+			);
+		`,
+	},
 }

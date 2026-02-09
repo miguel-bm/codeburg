@@ -30,6 +30,7 @@ type Config struct {
 
 type AuthConfig struct {
 	PasswordHash string `yaml:"password_hash"`
+	Origin       string `yaml:"origin,omitempty"`
 }
 
 type contextKey string
@@ -308,8 +309,20 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 }
 
 func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]bool{
-		"setup": s.auth.IsSetup(),
+	passkeys, _ := s.db.ListPasskeys()
+	hasPasskeys := len(passkeys) > 0
+
+	// Check if telegram_bot_token preference is set (non-empty)
+	hasTelegram := false
+	if pref, err := s.db.GetPreference("default", "telegram_bot_token"); err == nil && pref.Value != "" {
+		token := unquotePreference(pref.Value)
+		hasTelegram = token != ""
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"setup":       s.auth.IsSetup(),
+		"hasPasskeys": hasPasskeys,
+		"hasTelegram": hasTelegram,
 	})
 }
 

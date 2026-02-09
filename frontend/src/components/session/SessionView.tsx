@@ -36,7 +36,7 @@ export function SessionView({ session }: SessionViewProps) {
 
       {/* Terminal */}
       <div className="flex-1 overflow-hidden">
-        <TerminalView target={tmuxTarget} sessionId={session.id} />
+        <TerminalView target={tmuxTarget} sessionId={session.id} sessionStatus={session.status} />
       </div>
     </div>
   );

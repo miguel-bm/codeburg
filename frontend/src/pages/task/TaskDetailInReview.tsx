@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { TaskHeader } from './TaskHeader';
 import { SessionView, SessionTabs } from '../../components/session';
@@ -6,10 +6,8 @@ import { DiffView } from '../../components/git';
 import { tasksApi, invalidateTaskQueries, gitApi } from '../../api';
 import { TASK_STATUS } from '../../api';
 import type { Task, Project, AgentSession, SessionProvider, UpdateTaskResponse } from '../../api';
-
-type MainContent =
-  | { type: 'diff'; file?: string }
-  | { type: 'session' };
+import { OpenInEditorButton } from '../../components/common/OpenInEditorButton';
+import { useMobile } from '../../hooks/useMobile';
 
 interface DiffFile {
   path: string;
@@ -23,7 +21,6 @@ function parseDiffFiles(diff: string): DiffFile[] {
   const chunks = diff.split(/^diff --git /m);
   for (const chunk of chunks) {
     if (!chunk.trim()) continue;
-    // Extract path from "a/path b/path"
     const headerMatch = chunk.match(/^a\/(.+?) b\/(.+)/);
     if (!headerMatch) continue;
     const path = headerMatch[2];
@@ -54,8 +51,38 @@ export function TaskDetailInReview({
   onSelectSession, onStartSession, onCloseSession, onShowStartModal,
 }: Props) {
   const queryClient = useQueryClient();
-  const [mainContent, setMainContent] = useState<MainContent>({ type: 'diff' });
+  const isMobile = useMobile();
+  const [selectedFile, setSelectedFile] = useState<string | undefined>();
   const [warning, setWarning] = useState<string | null>(null);
+  const [sessionPanelOpen, setSessionPanelOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Draggable split between diff (top) and session panel (bottom)
+  const [splitPct, setSplitPct] = useState(55); // % of height for diff
+  const draggingRef = useRef(false);
+
+  const onDividerDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    draggingRef.current = true;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!draggingRef.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const pct = ((ev.clientY - rect.top) / rect.height) * 100;
+      setSplitPct(Math.max(20, Math.min(80, pct)));
+    };
+    const onMouseUp = () => {
+      draggingRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, []);
 
   const updateTask = useMutation({
     mutationFn: (input: Parameters<typeof tasksApi.update>[1]) =>
@@ -77,14 +104,12 @@ export function TaskDetailInReview({
     onError: (err: Error) => setWarning(err.message),
   });
 
-  // Fetch git status for branch info (ahead/behind)
   const { data: gitStatus } = useQuery({
     queryKey: ['git-status', task.id],
     queryFn: () => gitApi.status(task.id),
     enabled: !!task.worktreePath,
   });
 
-  // Fetch the base diff for file navigation
   const { data: baseDiff } = useQuery({
     queryKey: ['git-diff', task.id, undefined, undefined, true],
     queryFn: () => gitApi.diff(task.id, { base: true }),
@@ -107,8 +132,115 @@ export function TaskDetailInReview({
     createPR.mutate();
   };
 
-  const selectedFile = mainContent.type === 'diff' ? mainContent.file : undefined;
+  // Count active sessions (running or waiting_input)
+  const activeSessions = sessions.filter(s => s.status === 'running' || s.status === 'waiting_input');
 
+  // Auto-open panel when there are active sessions
+  const shouldShowPanel = sessionPanelOpen || activeSessions.length > 0;
+
+  if (isMobile) {
+    return (
+      <div className="flex flex-col h-full">
+        <TaskHeader
+          task={task}
+          project={project}
+          actions={
+            <>
+              {task.worktreePath && <OpenInEditorButton worktreePath={task.worktreePath} />}
+              <button
+                onClick={handleBackToProgress}
+                disabled={updateTask.isPending}
+                className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors disabled:opacity-50"
+              >
+                Back to WIP
+              </button>
+              <button
+                onClick={handleMarkDone}
+                disabled={updateTask.isPending}
+                className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors disabled:opacity-50"
+              >
+                Done
+              </button>
+            </>
+          }
+        />
+
+        {warning && (
+          <div className="flex items-center justify-between px-4 py-2 bg-[var(--color-warning,#b8860b)]/10 border-b border-[var(--color-warning,#b8860b)]/30 text-[var(--color-warning,#b8860b)] text-xs">
+            <span>{warning}</span>
+            <button onClick={() => setWarning(null)} className="ml-4 hover:text-[var(--color-text-primary)] transition-colors">Dismiss</button>
+          </div>
+        )}
+
+        {/* Branch + PR bar */}
+        <div className="flex items-center gap-3 px-4 py-1.5 border-b border-subtle bg-secondary text-xs">
+          {task.branch && <span className="font-mono text-dim">{task.branch}</span>}
+          {task.diffStats && (
+            <span>
+              <span className="text-[var(--color-success)]">+{task.diffStats.additions}</span>{' '}
+              <span className="text-[var(--color-error)]">-{task.diffStats.deletions}</span>
+            </span>
+          )}
+          <span className="ml-auto" />
+          {task.prUrl ? (
+            <a href={task.prUrl} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline font-mono truncate text-[11px]">
+              {task.prUrl.replace(/^https?:\/\/github\.com\//, '')}
+            </a>
+          ) : (
+            <button onClick={handleCreatePR} disabled={createPR.isPending} className="px-2 py-1 bg-accent text-white rounded text-xs hover:bg-accent-dim transition-colors disabled:opacity-50">
+              {createPR.isPending ? 'Creating...' : 'Push & Create PR'}
+            </button>
+          )}
+        </div>
+
+        {/* Mobile: tab between diff and sessions */}
+        <div className="flex items-center border-b border-subtle bg-secondary">
+          <button
+            onClick={() => setSessionPanelOpen(false)}
+            className={`px-4 py-2 text-xs transition-colors ${!sessionPanelOpen ? 'text-accent border-b-2 border-accent' : 'text-dim'}`}
+          >
+            Diff {diffFiles.length > 0 && `(${diffFiles.length})`}
+          </button>
+          <button
+            onClick={() => setSessionPanelOpen(true)}
+            className={`px-4 py-2 text-xs transition-colors ${sessionPanelOpen ? 'text-accent border-b-2 border-accent' : 'text-dim'}`}
+          >
+            Sessions {activeSessions.length > 0 && `(${activeSessions.length})`}
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-hidden">
+          {!sessionPanelOpen ? (
+            <div className="h-full overflow-auto">
+              <DiffView taskId={task.id} base file={selectedFile} />
+            </div>
+          ) : (
+            <div className="flex flex-col h-full">
+              <SessionTabs
+                sessions={sessions}
+                activeSessionId={activeSession?.id}
+                onSelect={onSelectSession}
+                onResume={(session) => onStartSession('claude', '', session.id)}
+                onClose={onCloseSession}
+                onNewSession={onShowStartModal}
+              />
+              <div className="flex-1 overflow-hidden">
+                {activeSession ? (
+                  <SessionView session={activeSession} />
+                ) : (
+                  <div className="flex items-center justify-center h-full text-dim text-sm">
+                    Select or start a session
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop layout
   return (
     <div className="flex flex-col h-full">
       <TaskHeader
@@ -116,6 +248,7 @@ export function TaskDetailInReview({
         project={project}
         actions={
           <>
+            {task.worktreePath && <OpenInEditorButton worktreePath={task.worktreePath} />}
             <button
               onClick={handleBackToProgress}
               disabled={updateTask.isPending}
@@ -134,138 +267,109 @@ export function TaskDetailInReview({
         }
       />
 
-      {/* Warning Banner */}
       {warning && (
         <div className="flex items-center justify-between px-4 py-2 bg-[var(--color-warning,#b8860b)]/10 border-b border-[var(--color-warning,#b8860b)]/30 text-[var(--color-warning,#b8860b)] text-xs">
           <span>{warning}</span>
-          <button onClick={() => setWarning(null)} className="ml-4 hover:text-[var(--color-text-primary)] transition-colors">
-            Dismiss
-          </button>
+          <button onClick={() => setWarning(null)} className="ml-4 hover:text-[var(--color-text-primary)] transition-colors">Dismiss</button>
         </div>
       )}
 
-      {/* Branch info bar */}
-      {(task.branch || task.diffStats || gitStatus) && (
-        <div className="flex items-center gap-3 px-4 py-1.5 border-b border-subtle bg-secondary text-xs">
-          {task.branch && (
-            <span className="font-mono text-dim">{task.branch}</span>
-          )}
-          {task.diffStats && (
-            <span>
-              <span className="text-[var(--color-success)]">+{task.diffStats.additions}</span>
-              {' '}
-              <span className="text-[var(--color-error)]">-{task.diffStats.deletions}</span>
-            </span>
-          )}
-          {gitStatus && (gitStatus.ahead > 0 || gitStatus.behind > 0) && (
-            <span className="text-dim">
-              {gitStatus.ahead > 0 && <span>{gitStatus.ahead} ahead</span>}
-              {gitStatus.ahead > 0 && gitStatus.behind > 0 && ', '}
-              {gitStatus.behind > 0 && <span>{gitStatus.behind} behind</span>}
-            </span>
-          )}
-        </div>
-      )}
-
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Tabs: diff vs sessions */}
-        <div className="flex items-center border-b border-subtle bg-secondary">
-          <button
-            onClick={() => setMainContent({ type: 'diff' })}
-            className={`px-4 py-2 text-xs transition-colors ${
-              mainContent.type === 'diff'
-                ? 'text-accent border-b-2 border-accent'
-                : 'text-dim hover:text-[var(--color-text-primary)]'
-            }`}
-          >
-            Diff {diffFiles.length > 0 && `(${diffFiles.length})`}
+      {/* Branch info + PR bar */}
+      <div className="flex items-center gap-3 px-4 py-1.5 border-b border-subtle bg-secondary text-xs">
+        {task.branch && <span className="font-mono text-dim">{task.branch}</span>}
+        {task.diffStats && (
+          <span>
+            <span className="text-[var(--color-success)]">+{task.diffStats.additions}</span>{' '}
+            <span className="text-[var(--color-error)]">-{task.diffStats.deletions}</span>
+          </span>
+        )}
+        {gitStatus && (gitStatus.ahead > 0 || gitStatus.behind > 0) && (
+          <span className="text-dim">
+            {gitStatus.ahead > 0 && <span>{gitStatus.ahead} ahead</span>}
+            {gitStatus.ahead > 0 && gitStatus.behind > 0 && ', '}
+            {gitStatus.behind > 0 && <span>{gitStatus.behind} behind</span>}
+          </span>
+        )}
+        <span className="ml-auto" />
+        {task.prUrl ? (
+          <a href={task.prUrl} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline font-mono truncate">
+            {task.prUrl.replace(/^https?:\/\/github\.com\//, '')}
+          </a>
+        ) : (
+          <button onClick={handleCreatePR} disabled={createPR.isPending} className="px-2 py-1 bg-accent text-white rounded text-xs hover:bg-accent-dim transition-colors disabled:opacity-50">
+            {createPR.isPending ? 'Creating PR...' : 'Push & Create PR'}
           </button>
-          {sessions.length > 0 && (
-            <SessionTabs
-              sessions={sessions}
-              activeSessionId={mainContent.type === 'session' ? activeSession?.id : undefined}
-              onSelect={(session) => {
-                onSelectSession(session);
-                setMainContent({ type: 'session' });
-              }}
-              onResume={(session) => {
-                onStartSession('claude', '', session.id);
-              }}
-              onClose={onCloseSession}
-              onNewSession={onShowStartModal}
-            />
-          )}
-        </div>
+        )}
+      </div>
 
-        {/* PR section */}
-        <div className="px-4 py-2 border-b border-subtle bg-secondary text-xs flex items-center gap-2">
-          {task.prUrl ? (
-            <>
-              <span className="text-dim">PR:</span>
-              <a
-                href={task.prUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-accent hover:underline font-mono truncate"
+      {/* Main content: diff + optional session panel below */}
+      <div ref={containerRef} className="flex-1 flex flex-col overflow-hidden">
+        {/* Diff area */}
+        <div style={shouldShowPanel ? { height: `${splitPct}%` } : undefined} className={`${shouldShowPanel ? '' : 'flex-1'} flex overflow-hidden`}>
+          {/* File list sidebar */}
+          {diffFiles.length > 0 && (
+            <div className="w-56 shrink-0 border-r border-subtle overflow-y-auto bg-secondary">
+              <button
+                onClick={() => setSelectedFile(undefined)}
+                className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${!selectedFile ? 'bg-accent/10 text-accent' : 'text-dim hover:bg-tertiary'}`}
               >
-                {task.prUrl}
-              </a>
-            </>
-          ) : (
-            <button
-              onClick={handleCreatePR}
-              disabled={createPR.isPending}
-              className="px-2 py-1 bg-accent text-white rounded text-xs hover:bg-accent-dim transition-colors disabled:opacity-50"
-            >
-              {createPR.isPending ? 'Creating PR...' : 'Push & Create PR'}
-            </button>
+                All files ({diffFiles.length})
+              </button>
+              {diffFiles.map((f) => (
+                <button
+                  key={f.path}
+                  onClick={() => setSelectedFile(f.path)}
+                  className={`w-full text-left px-3 py-1.5 text-xs transition-colors truncate ${selectedFile === f.path ? 'bg-accent/10 text-accent' : 'text-dim hover:bg-tertiary'}`}
+                  title={f.path}
+                >
+                  <span className="font-mono">{f.path.split('/').pop()}</span>
+                  <span className="ml-1 text-[var(--color-success)]">+{f.additions}</span>
+                  <span className="ml-0.5 text-[var(--color-error)]">-{f.deletions}</span>
+                </button>
+              ))}
+            </div>
           )}
+          <div className="flex-1 overflow-auto">
+            <DiffView taskId={task.id} base file={selectedFile} />
+          </div>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-hidden">
-          {mainContent.type === 'diff' ? (
-            <div className="flex h-full">
-              {/* File list sidebar */}
-              {diffFiles.length > 0 && (
-                <div className="w-56 shrink-0 border-r border-subtle overflow-y-auto bg-secondary">
-                  <button
-                    onClick={() => setMainContent({ type: 'diff' })}
-                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
-                      !selectedFile ? 'bg-accent/10 text-accent' : 'text-dim hover:bg-tertiary'
-                    }`}
-                  >
-                    All files ({diffFiles.length})
-                  </button>
-                  {diffFiles.map((f) => (
-                    <button
-                      key={f.path}
-                      onClick={() => setMainContent({ type: 'diff', file: f.path })}
-                      className={`w-full text-left px-3 py-1.5 text-xs transition-colors truncate ${
-                        selectedFile === f.path ? 'bg-accent/10 text-accent' : 'text-dim hover:bg-tertiary'
-                      }`}
-                      title={f.path}
-                    >
-                      <span className="font-mono">{f.path.split('/').pop()}</span>
-                      <span className="ml-1 text-[var(--color-success)]">+{f.additions}</span>
-                      <span className="ml-0.5 text-[var(--color-error)]">-{f.deletions}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {/* Diff content */}
-              <div className="flex-1 overflow-auto">
-                <DiffView taskId={task.id} base file={selectedFile} />
+        {/* Session panel toggle / divider */}
+        {shouldShowPanel ? (
+          <>
+            <div
+              onMouseDown={onDividerDown}
+              className="h-1 shrink-0 cursor-row-resize border-y border-subtle hover:bg-accent/40 transition-colors"
+            />
+            <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+              <SessionTabs
+                sessions={sessions}
+                activeSessionId={activeSession?.id}
+                onSelect={onSelectSession}
+                onResume={(session) => onStartSession('claude', '', session.id)}
+                onClose={onCloseSession}
+                onNewSession={onShowStartModal}
+              />
+              <div className="flex-1 overflow-hidden">
+                {activeSession ? (
+                  <SessionView session={activeSession} />
+                ) : (
+                  <div className="flex items-center justify-center h-full text-dim text-sm">
+                    Select or start a session
+                  </div>
+                )}
               </div>
             </div>
-          ) : activeSession ? (
-            <SessionView session={activeSession} />
-          ) : (
-            <div className="flex items-center justify-center h-full text-dim text-sm">
-              Select a session
-            </div>
-          )}
-        </div>
+          </>
+        ) : (
+          /* Collapsed: thin bar to open sessions */
+          <button
+            onClick={() => { setSessionPanelOpen(true); onShowStartModal(); }}
+            className="flex items-center justify-center gap-2 px-4 py-1.5 border-t border-subtle bg-secondary text-xs text-dim hover:text-accent hover:bg-tertiary transition-colors"
+          >
+            + Session
+          </button>
+        )}
       </div>
     </div>
   );

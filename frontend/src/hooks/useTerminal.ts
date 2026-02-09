@@ -38,6 +38,7 @@ const RETRY_DELAYS = [1000, 2000, 4000, 8000, 16000];
 
 interface UseTerminalOptions {
   sessionId?: string;
+  sessionStatus?: string;
 }
 
 export interface UseTerminalReturn {
@@ -57,8 +58,12 @@ export function useTerminal(
   const stableTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const disposedRef = useRef(false);
   const awaitingManualReconnectRef = useRef(false);
+  const sessionStatusRef = useRef(options?.sessionStatus);
 
   const settings = useTerminalSettings();
+
+  // Keep ref in sync so closures always see latest status
+  sessionStatusRef.current = options?.sessionStatus;
 
   // Build the WebSocket URL (stable across reconnects)
   const wsUrl = useCallback(() => {
@@ -116,9 +121,24 @@ export function useTerminal(
       // onclose will fire after this, handle retry there
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (stableTimerRef.current) clearTimeout(stableTimerRef.current);
       if (disposedRef.current) return;
+
+      // Backend sent 4000 = tmux window no longer exists
+      if (event.code === 4000) {
+        term.writeln('');
+        term.writeln('\x1b[33m// session ended — terminal no longer available\x1b[0m');
+        return;
+      }
+
+      // Session is finished — don't retry
+      const status = sessionStatusRef.current;
+      if (status === 'completed' || status === 'error') {
+        term.writeln('');
+        term.writeln('\x1b[33m// session ended\x1b[0m');
+        return;
+      }
 
       if (retryCountRef.current < MAX_RETRIES) {
         const delay = RETRY_DELAYS[retryCountRef.current];
