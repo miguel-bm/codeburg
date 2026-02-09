@@ -119,6 +119,7 @@ export interface CreateTaskInput {
   description?: string;
   taskType?: string;
   priority?: string;
+  branch?: string;
 }
 
 export interface UpdateTaskInput {

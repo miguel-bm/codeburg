@@ -194,6 +194,9 @@ func (s *Server) setupRoutes() {
 		r.Patch("/api/projects/{id}", s.handleUpdateProject)
 		r.Delete("/api/projects/{id}", s.handleDeleteProject)
 
+		// Branches
+		r.Get("/api/projects/{id}/branches", s.handleListBranches)
+
 		// Tasks
 		r.Get("/api/tasks", s.handleListTasks)
 		r.Post("/api/projects/{projectId}/tasks", s.handleCreateTask)

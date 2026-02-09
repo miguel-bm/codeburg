@@ -13,4 +13,6 @@ export const projectsApi = {
     api.patch<Project>(`/projects/${id}`, input),
 
   delete: (id: string) => api.delete(`/projects/${id}`),
+
+  listBranches: (id: string) => api.get<string[]>(`/projects/${id}/branches`),
 };

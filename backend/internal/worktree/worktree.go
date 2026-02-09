@@ -52,6 +52,9 @@ type CreateOptions struct {
 	TaskTitle string
 	// BaseBranch is the branch to create the worktree from (default: main)
 	BaseBranch string
+	// AdoptBranch indicates BranchName refers to a pre-existing branch to adopt
+	// rather than a new branch to create from BaseBranch.
+	AdoptBranch bool
 	// SymlinkPaths are files/dirs to symlink from the main repo
 	SymlinkPaths []string
 	// SetupScript is a command to run after worktree creation
@@ -80,14 +83,17 @@ func (m *Manager) Create(opts CreateOptions) (*CreateResult, error) {
 		branchName = Slugify(opts.TaskTitle)
 	}
 
-	// Check for collision — if branch or worktree dir already exists, append short ID
+	// Check for collision — if branch or worktree dir already exists, append short ID.
+	// Skip this when adopting an existing branch (we *want* it to exist).
 	dirName := branchName
 	worktreePath := filepath.Join(m.config.BaseDir, opts.ProjectName, dirName)
-	if m.branchExists(opts.ProjectPath, branchName) || dirExists(worktreePath) {
-		suffix := shortID(opts.TaskID)
-		branchName = branchName + "-" + suffix
-		dirName = branchName
-		worktreePath = filepath.Join(m.config.BaseDir, opts.ProjectName, dirName)
+	if !opts.AdoptBranch {
+		if m.branchExists(opts.ProjectPath, branchName) || dirExists(worktreePath) {
+			suffix := shortID(opts.TaskID)
+			branchName = branchName + "-" + suffix
+			dirName = branchName
+			worktreePath = filepath.Join(m.config.BaseDir, opts.ProjectName, dirName)
+		}
 	}
 
 	// Ensure worktree base directory exists
@@ -123,6 +129,23 @@ func (m *Manager) Create(opts CreateOptions) (*CreateResult, error) {
 	if !fetchFailed {
 		if err := m.fastForwardBase(opts.ProjectPath, opts.BaseBranch); err != nil {
 			warnings = append(warnings, fmt.Sprintf("could not fast-forward %s to match origin: %v — worktree may be based on stale %s", opts.BaseBranch, err, opts.BaseBranch))
+		}
+	}
+
+	// When adopting a pre-existing branch, ensure it exists locally.
+	// If it only exists on the remote, create a local tracking branch.
+	if opts.AdoptBranch {
+		if !m.branchExists(opts.ProjectPath, branchName) {
+			remote := "origin/" + branchName
+			if m.branchExists(opts.ProjectPath, remote) {
+				cmd := exec.Command("git", "branch", branchName, remote)
+				cmd.Dir = opts.ProjectPath
+				if output, err := cmd.CombinedOutput(); err != nil {
+					return nil, fmt.Errorf("create local tracking branch: %s: %w", strings.TrimSpace(string(output)), err)
+				}
+			} else {
+				return nil, fmt.Errorf("branch '%s' does not exist locally or on remote", branchName)
+			}
 		}
 	}
 

@@ -1,11 +1,18 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, X } from 'lucide-react';
+import { Plus, X, ChevronDown, GitBranch } from 'lucide-react';
 import { tasksApi, invalidateTaskQueries, projectsApi, labelsApi } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { TaskStatus, Label } from '../../api/types';
 import { Layout } from '../../components/layout/Layout';
+
+function slugify(title: string): string {
+  return title.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50) || 'task';
+}
 
 const TASK_TYPES = [
   { value: 'feature', label: 'Feature' },
@@ -41,6 +48,7 @@ export function TaskCreate() {
   const [taskType, setTaskType] = useState('feature');
   const [priority, setPriority] = useState('');
   const [projectId, setProjectId] = useState(defaultProjectId || '');
+  const [branch, setBranch] = useState('');
   const [pendingLabels, setPendingLabels] = useState<Label[]>([]);
   const [showLabelPicker, setShowLabelPicker] = useState(false);
   const [editingTitle, setEditingTitle] = useState(true);
@@ -69,6 +77,7 @@ export function TaskCreate() {
         description: description || undefined,
         taskType: taskType || undefined,
         priority: priority || undefined,
+        branch: branch || undefined,
       });
 
       // Assign pending labels
@@ -194,10 +203,13 @@ export function TaskCreate() {
                   projectId={projectId}
                   taskType={taskType}
                   priority={priority}
+                  branch={branch}
+                  title={title}
                   pendingLabels={pendingLabels}
                   onProjectChange={setProjectId}
                   onTaskTypeChange={setTaskType}
                   onPriorityChange={setPriority}
+                  onBranchChange={setBranch}
                   onShowLabelPicker={() => setShowLabelPicker(true)}
                   onRemoveLabel={(id) => setPendingLabels(ls => ls.filter(l => l.id !== id))}
                   onCreate={() => canCreate && createMutation.mutate()}
@@ -215,10 +227,13 @@ export function TaskCreate() {
                 projectId={projectId}
                 taskType={taskType}
                 priority={priority}
+                branch={branch}
+                title={title}
                 pendingLabels={pendingLabels}
                 onProjectChange={setProjectId}
                 onTaskTypeChange={setTaskType}
                 onPriorityChange={setPriority}
+                onBranchChange={setBranch}
                 onShowLabelPicker={() => setShowLabelPicker(true)}
                 onRemoveLabel={(id) => setPendingLabels(ls => ls.filter(l => l.id !== id))}
                 onCreate={() => canCreate && createMutation.mutate()}
@@ -264,10 +279,13 @@ interface CreateSidebarProps {
   projectId: string;
   taskType: string;
   priority: string;
+  branch: string;
+  title: string;
   pendingLabels: Label[];
   onProjectChange: (id: string) => void;
   onTaskTypeChange: (type: string) => void;
   onPriorityChange: (priority: string) => void;
+  onBranchChange: (branch: string) => void;
   onShowLabelPicker: () => void;
   onRemoveLabel: (id: string) => void;
   onCreate: () => void;
@@ -277,8 +295,8 @@ interface CreateSidebarProps {
 }
 
 function CreatePropertiesSidebar({
-  projects, projectId, taskType, priority, pendingLabels,
-  onProjectChange, onTaskTypeChange, onPriorityChange,
+  projects, projectId, taskType, priority, branch, title, pendingLabels,
+  onProjectChange, onTaskTypeChange, onPriorityChange, onBranchChange,
   onShowLabelPicker, onRemoveLabel, onCreate, onDiscard, canCreate, isPending,
 }: CreateSidebarProps) {
   return (
@@ -323,6 +341,16 @@ function CreatePropertiesSidebar({
             <option key={p.value} value={p.value}>{p.label}</option>
           ))}
         </select>
+      </PropertyRow>
+
+      {/* Branch */}
+      <PropertyRow label="Branch">
+        <BranchPicker
+          projectId={projectId}
+          branch={branch}
+          title={title}
+          onBranchChange={onBranchChange}
+        />
       </PropertyRow>
 
       {/* Labels */}
@@ -374,8 +402,8 @@ function CreatePropertiesSidebar({
 }
 
 function MobileCreateProperties({
-  projects, projectId, taskType, priority, pendingLabels,
-  onProjectChange, onTaskTypeChange, onPriorityChange,
+  projects, projectId, taskType, priority, branch, title, pendingLabels,
+  onProjectChange, onTaskTypeChange, onPriorityChange, onBranchChange,
   onShowLabelPicker, onRemoveLabel, onCreate, onDiscard, canCreate, isPending,
 }: CreateSidebarProps) {
   return (
@@ -423,6 +451,20 @@ function MobileCreateProperties({
         </div>
       </div>
 
+      {/* Branch */}
+      <div className="px-1">
+        <span className="text-xs font-medium uppercase tracking-wider text-dim">Branch</span>
+        <div className="mt-1">
+          <BranchPicker
+            projectId={projectId}
+            branch={branch}
+            title={title}
+            onBranchChange={onBranchChange}
+            mobile
+          />
+        </div>
+      </div>
+
       {/* Labels */}
       <div className="px-1">
         <span className="text-xs font-medium uppercase tracking-wider text-dim">Labels</span>
@@ -466,6 +508,130 @@ function MobileCreateProperties({
         </button>
       </div>
     </>
+  );
+}
+
+interface BranchPickerProps {
+  projectId: string;
+  branch: string;
+  title: string;
+  onBranchChange: (branch: string) => void;
+  mobile?: boolean;
+}
+
+function BranchPicker({ projectId, branch, title, onBranchChange, mobile }: BranchPickerProps) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const { data: branches, isLoading } = useQuery({
+    queryKey: ['branches', projectId],
+    queryFn: () => projectsApi.listBranches(projectId),
+    enabled: open && !!projectId,
+    staleTime: 30_000,
+  });
+
+  const filtered = useMemo(() => {
+    if (!branches) return [];
+    if (!search) return branches;
+    const lower = search.toLowerCase();
+    return branches.filter(b => b.toLowerCase().includes(lower));
+  }, [branches, search]);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  // Focus search on open
+  useEffect(() => {
+    if (open) {
+      searchRef.current?.focus();
+    } else {
+      setSearch('');
+    }
+  }, [open]);
+
+  const autoPreview = title.trim() ? slugify(title) : 'task';
+
+  if (branch) {
+    return (
+      <div className={`flex items-center gap-1 ${mobile ? '' : 'justify-end'}`}>
+        <GitBranch size={10} className="text-accent shrink-0" />
+        <span className="text-xs font-mono text-accent truncate max-w-[140px]">{branch}</span>
+        <button
+          onClick={() => onBranchChange('')}
+          className="text-dim hover:text-[var(--color-text-primary)] transition-colors shrink-0"
+          title="Reset to auto"
+        >
+          <X size={10} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button
+        onClick={() => setOpen(!open)}
+        className={`flex items-center gap-1 text-xs text-dim hover:text-[var(--color-text-primary)] transition-colors ${mobile ? '' : 'justify-end'}`}
+      >
+        <span className="truncate max-w-[140px] font-mono opacity-50">{autoPreview}</span>
+        <ChevronDown size={10} className="shrink-0" />
+      </button>
+
+      {open && (
+        <div className={`absolute z-50 mt-1 bg-elevated border border-subtle rounded-lg shadow-xl w-56 ${mobile ? 'left-0' : 'right-0'}`}>
+          <div className="p-2 border-b border-subtle">
+            <input
+              ref={searchRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search branches..."
+              className="w-full px-2 py-1 text-xs border border-subtle bg-primary rounded focus:outline-none focus:border-accent"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setOpen(false);
+                if (e.key === 'Enter' && filtered.length === 1) {
+                  onBranchChange(filtered[0]);
+                  setOpen(false);
+                }
+              }}
+            />
+          </div>
+          <div className="max-h-48 overflow-y-auto p-1">
+            {isLoading && (
+              <p className="text-xs text-dim text-center py-3">Loading...</p>
+            )}
+            {!isLoading && filtered.length === 0 && (
+              <p className="text-xs text-dim text-center py-3">
+                {search ? 'No matching branches' : 'No branches found'}
+              </p>
+            )}
+            {filtered.map(b => (
+              <button
+                key={b}
+                onClick={() => {
+                  onBranchChange(b);
+                  setOpen(false);
+                }}
+                className="w-full text-left px-2 py-1.5 text-xs font-mono rounded hover:bg-tertiary transition-colors truncate"
+              >
+                {b}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

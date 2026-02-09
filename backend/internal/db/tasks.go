@@ -42,6 +42,7 @@ type CreateTaskInput struct {
 	Description *string `json:"description,omitempty"`
 	TaskType    *string `json:"taskType,omitempty"`
 	Priority    *string `json:"priority,omitempty"`
+	Branch      *string `json:"branch,omitempty"`
 }
 
 type UpdateTaskInput struct {
@@ -74,9 +75,9 @@ func (db *DB) CreateTask(input CreateTaskInput) (*Task, error) {
 	}
 
 	_, err := db.conn.Exec(`
-		INSERT INTO tasks (id, project_id, title, description, task_type, priority, status, position, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT MAX(position) FROM tasks WHERE status = ?), -1) + 1, ?)
-	`, id, input.ProjectID, input.Title, NullString(input.Description), taskType, NullString(input.Priority), TaskStatusBacklog, TaskStatusBacklog, now)
+		INSERT INTO tasks (id, project_id, title, description, task_type, priority, branch, status, position, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT MAX(position) FROM tasks WHERE status = ?), -1) + 1, ?)
+	`, id, input.ProjectID, input.Title, NullString(input.Description), taskType, NullString(input.Priority), NullString(input.Branch), TaskStatusBacklog, TaskStatusBacklog, now)
 	if err != nil {
 		return nil, fmt.Errorf("insert task: %w", err)
 	}

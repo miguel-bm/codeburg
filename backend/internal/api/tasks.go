@@ -259,6 +259,8 @@ func (s *Server) autoCreateWorktree(task *db.Task, input *db.UpdateTaskInput) (w
 		return nil, fmt.Errorf("get project: %w", err)
 	}
 
+	adoptBranch := task.Branch != nil && *task.Branch != ""
+
 	result, err := s.worktree.Create(worktree.CreateOptions{
 		ProjectPath:  project.Path,
 		ProjectName:  project.Name,
@@ -266,6 +268,7 @@ func (s *Server) autoCreateWorktree(task *db.Task, input *db.UpdateTaskInput) (w
 		TaskTitle:    task.Title,
 		BranchName:   ptrToString(task.Branch),
 		BaseBranch:   project.DefaultBranch,
+		AdoptBranch:  adoptBranch,
 		SymlinkPaths: project.SymlinkPaths,
 		SetupScript:  ptrToString(project.SetupScript),
 	})

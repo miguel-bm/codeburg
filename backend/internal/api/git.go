@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 )
+
 
 // Git operation response types
 
@@ -90,6 +92,60 @@ func runGit(dir string, args ...string) (string, error) {
 		return "", fmt.Errorf("git %s: %s: %w", args[0], strings.TrimSpace(string(out)), err)
 	}
 	return string(out), nil
+}
+
+func (s *Server) handleListBranches(w http.ResponseWriter, r *http.Request) {
+	projectID := urlParam(r, "id")
+
+	project, err := s.db.GetProject(projectID)
+	if err != nil {
+		writeDBError(w, err, "project")
+		return
+	}
+
+	// Best-effort fetch to get latest remote refs
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "--prune")
+	fetchCmd.Dir = project.Path
+	fetchCmd.Run() // ignore errors
+
+	// List all branches (local + remote)
+	out, err := runGit(project.Path, "branch", "-a", "--format=%(refname:short)")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	seen := make(map[string]bool)
+	defaultBranch := project.DefaultBranch
+
+	scanner := bufio.NewScanner(strings.NewReader(out))
+	for scanner.Scan() {
+		name := strings.TrimSpace(scanner.Text())
+		if name == "" {
+			continue
+		}
+		// Strip "origin/" prefix for remote branches
+		if strings.HasPrefix(name, "origin/") {
+			name = strings.TrimPrefix(name, "origin/")
+		}
+		// Skip HEAD pointer and default branch
+		if name == "HEAD" || name == defaultBranch {
+			continue
+		}
+		seen[name] = true
+	}
+
+	branches := make([]string, 0, len(seen))
+	for name := range seen {
+		branches = append(branches, name)
+	}
+
+	// Sort alphabetically
+	sort.Strings(branches)
+
+	writeJSON(w, http.StatusOK, branches)
 }
 
 func (s *Server) handleGitStatus(w http.ResponseWriter, r *http.Request) {
