@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { GitBranch } from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
-import { tasksApi, projectsApi, sessionsApi } from '../api';
+import { tasksApi, projectsApi, sessionsApi, invalidateTaskQueries } from '../api';
 import type { Task, TaskStatus, CreateTaskInput, UpdateTaskResponse } from '../api';
 import { TASK_STATUS } from '../api';
 import { useMobile } from '../hooks/useMobile';
@@ -118,8 +118,7 @@ export function Dashboard() {
     mutationFn: ({ id, status, position }: { id: string; status?: TaskStatus; position?: number }) =>
       tasksApi.update(id, { status, position }),
     onSuccess: (data: UpdateTaskResponse) => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+      invalidateTaskQueries(queryClient, data.id);
       if (data.worktreeWarning?.length) {
         setWarning(data.worktreeWarning.join('; '));
       }
@@ -243,7 +242,7 @@ export function Dashboard() {
     const task = getFocusedTask();
     if (!task) return;
     tasksApi.update(task.id, { pinned: !task.pinned }).then(() => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      invalidateTaskQueries(queryClient, task.id);
     });
   }, [focus, getFocusedTask, queryClient]);
 
@@ -891,10 +890,10 @@ function CreateTaskModal({ projects, defaultProjectId, defaultStatus = TASK_STAT
     onSuccess: (task) => {
       if (defaultStatus !== TASK_STATUS.BACKLOG) {
         tasksApi.update(task.id, { status: defaultStatus }).then(() => {
-          queryClient.invalidateQueries({ queryKey: ['tasks'] });
+          invalidateTaskQueries(queryClient, task.id);
         });
       } else {
-        queryClient.invalidateQueries({ queryKey: ['tasks'] });
+        invalidateTaskQueries(queryClient, task.id);
       }
       onClose();
     },

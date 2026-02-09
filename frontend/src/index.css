@@ -114,6 +114,13 @@ body {
   outline-offset: 1px;
 }
 
+/* Form elements use border change instead of outline */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+}
+
 /* Clickable elements should have pointer cursor */
 button,
 [role="button"],

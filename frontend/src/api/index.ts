@@ -1,7 +1,7 @@
 export { api, ApiError } from './client';
 export { authApi } from './auth';
 export { projectsApi } from './projects';
-export { tasksApi } from './tasks';
+export { tasksApi, invalidateTaskQueries } from './tasks';
 export { sessionsApi } from './sessions';
 export { justfileApi } from './justfile';
 export { tunnelsApi } from './tunnels';

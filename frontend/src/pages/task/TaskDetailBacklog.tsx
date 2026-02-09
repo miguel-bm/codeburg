@@ -1,9 +1,11 @@
-import { useState, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { TaskHeader } from './TaskHeader';
-import { tasksApi } from '../../api';
+import { tasksApi, invalidateTaskQueries } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { Task, Project } from '../../api/types';
+import { useMobile } from '../../hooks/useMobile';
 
 interface Props {
   task: Task;
@@ -17,22 +19,65 @@ function slugify(title: string): string {
     .slice(0, 50) || 'task';
 }
 
+function relativeTime(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  const hours = Math.floor(mins / 60);
+  const days = Math.floor(hours / 24);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  return new Date(dateStr).toLocaleDateString();
+}
+
 export function TaskDetailBacklog({ task, project }: Props) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const isMobile = useMobile();
+
+  // Editable field state
   const [title, setTitle] = useState(task.title);
   const [editingTitle, setEditingTitle] = useState(false);
   const [description, setDescription] = useState(task.description || '');
   const [editingDesc, setEditingDesc] = useState(false);
   const [branchValue, setBranchValue] = useState(task.branch || '');
   const [editingBranch, setEditingBranch] = useState(false);
-  const branchRef = useRef<HTMLInputElement>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Sync local state when task data refreshes (unless actively editing)
+  useEffect(() => {
+    if (!editingTitle) setTitle(task.title);
+  }, [task.title, editingTitle]);
+  useEffect(() => {
+    if (!editingDesc) setDescription(task.description || '');
+  }, [task.description, editingDesc]);
+  useEffect(() => {
+    if (!editingBranch) setBranchValue(task.branch || '');
+  }, [task.branch, editingBranch]);
+
+  // Close delete modal on Escape
+  useEffect(() => {
+    if (!showDeleteConfirm) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowDeleteConfirm(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [showDeleteConfirm]);
 
   const updateTask = useMutation({
     mutationFn: (input: Parameters<typeof tasksApi.update>[1]) =>
       tasksApi.update(task.id, input),
+    onSuccess: () => invalidateTaskQueries(queryClient, task.id),
+  });
+
+  const deleteTask = useMutation({
+    mutationFn: () => tasksApi.delete(task.id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['task', task.id] });
-      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+      invalidateTaskQueries(queryClient, task.id);
+      navigate('/');
     },
   });
 
@@ -66,122 +111,338 @@ export function TaskDetailBacklog({ task, project }: Props) {
     updateTask.mutate({ status: TASK_STATUS.IN_PROGRESS });
   };
 
+  const handleTogglePin = () => {
+    updateTask.mutate({ pinned: !task.pinned });
+  };
+
+  const branchDisplay = task.branch || slugify(task.title);
+  const isAutoBranch = !task.branch;
+
+  /* ── Content column ────────────────────────────────────────── */
+
+  const content = (
+    <div className="space-y-6">
+      {/* Title — large heading, click to edit */}
+      <div>
+        {editingTitle ? (
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onBlur={handleTitleSave}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleTitleSave();
+              if (e.key === 'Escape') { setTitle(task.title); setEditingTitle(false); }
+            }}
+            className="w-full bg-primary border border-accent px-3 py-2 text-xl font-semibold focus:outline-none"
+            autoFocus
+          />
+        ) : (
+          <div
+            onClick={() => setEditingTitle(true)}
+            className="group cursor-text border border-transparent hover:border-[var(--color-border)] transition-colors px-3 py-2 -mx-3"
+          >
+            <h2 className="text-xl font-semibold group-hover:text-accent transition-colors">
+              {task.title}
+            </h2>
+          </div>
+        )}
+      </div>
+
+      {/* Description */}
+      <div>
+        <SectionHeader label="Description">
+          {!editingDesc && (
+            <button
+              onClick={() => setEditingDesc(true)}
+              className="text-xs text-dim hover:text-accent transition-colors"
+            >
+              edit
+            </button>
+          )}
+        </SectionHeader>
+        {editingDesc ? (
+          <div>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') { setDescription(task.description || ''); setEditingDesc(false); }
+              }}
+              rows={Math.max(6, description.split('\n').length + 2)}
+              className="w-full bg-primary border border-accent px-3 py-2 text-sm focus:outline-none resize-y min-h-[120px]"
+              placeholder="Describe the task — requirements, context, acceptance criteria..."
+              autoFocus
+            />
+            <div className="flex justify-end gap-2 mt-2">
+              <button
+                onClick={() => { setDescription(task.description || ''); setEditingDesc(false); }}
+                className="text-xs text-dim hover:text-[var(--color-text-primary)] px-3 py-1.5 border border-subtle transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDescSave}
+                className="text-xs text-white bg-accent hover:bg-accent-dim px-3 py-1.5 transition-colors"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div
+            onClick={() => setEditingDesc(true)}
+            className="cursor-text border border-transparent hover:border-[var(--color-border)] transition-colors px-3 py-3 -mx-3"
+          >
+            {task.description ? (
+              <p className="text-sm whitespace-pre-wrap leading-relaxed text-[var(--color-text-secondary)]">
+                {task.description}
+              </p>
+            ) : (
+              <p className="text-sm text-dim italic">
+                Click to add description...
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Branch */}
+      <div>
+        <SectionHeader label="Branch">
+          {!editingBranch && (
+            <button
+              onClick={() => setEditingBranch(true)}
+              className="text-xs text-dim hover:text-accent transition-colors"
+            >
+              edit
+            </button>
+          )}
+        </SectionHeader>
+        {editingBranch ? (
+          <input
+            type="text"
+            value={branchValue}
+            onChange={(e) => setBranchValue(e.target.value)}
+            onBlur={handleBranchSave}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleBranchSave();
+              if (e.key === 'Escape') { setBranchValue(task.branch || ''); setEditingBranch(false); }
+            }}
+            placeholder={slugify(task.title)}
+            className="w-full bg-primary border border-accent px-3 py-2 font-mono text-sm focus:outline-none"
+            autoFocus
+          />
+        ) : (
+          <div
+            onClick={() => setEditingBranch(true)}
+            className="cursor-text border border-transparent hover:border-[var(--color-border)] transition-colors px-3 py-2 -mx-3"
+          >
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-sm text-accent">{branchDisplay}</span>
+              {isAutoBranch && (
+                <span className="text-[10px] text-dim border border-[var(--color-border)] px-1.5 py-px uppercase tracking-wider">
+                  auto
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  /* ── Sidebar column ────────────────────────────────────────── */
+
+  const sidebar = (
+    <div className="space-y-4">
+      {/* Primary CTA */}
+      <div>
+        <button
+          onClick={handleStartWorking}
+          disabled={updateTask.isPending}
+          className="w-full px-4 py-3 bg-accent text-white font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+        >
+          {updateTask.isPending ? 'Starting...' : (
+            <>Start Working <span className="opacity-60">&rarr;</span></>
+          )}
+        </button>
+        <p className="text-[10px] text-dim text-center mt-1.5 uppercase tracking-wider">
+          Creates worktree &amp; branch
+        </p>
+      </div>
+
+      {/* Details panel */}
+      <div className="border border-[var(--color-border)]">
+        <PanelHeader>Details</PanelHeader>
+        <div className="divide-y divide-[var(--color-border)] text-xs">
+          <MetaRow label="Status">
+            <span className="text-[var(--color-status-backlog)]">backlog</span>
+          </MetaRow>
+          {project && (
+            <MetaRow label="Project">
+              <button
+                onClick={() => navigate(`/projects/${project.id}/settings`)}
+                className="text-accent hover:underline truncate"
+              >
+                {project.name}
+              </button>
+            </MetaRow>
+          )}
+          {project && (
+            <div className="px-3 py-2.5">
+              <span className="text-dim text-xs">Path</span>
+              <div className="font-mono text-[10px] text-[var(--color-text-secondary)] mt-1 break-all leading-relaxed">
+                {project.path}
+              </div>
+            </div>
+          )}
+          <MetaRow label="Created">
+            <span title={new Date(task.createdAt).toLocaleString()}>
+              {relativeTime(task.createdAt)}
+            </span>
+          </MetaRow>
+          <MetaRow label="ID">
+            <span
+              className="font-mono text-[10px] text-[var(--color-text-secondary)] cursor-default"
+              title={task.id}
+            >
+              {task.id.slice(0, 12)}
+            </span>
+          </MetaRow>
+        </div>
+      </div>
+
+      {/* Actions panel */}
+      <div className="border border-[var(--color-border)]">
+        <PanelHeader>Actions</PanelHeader>
+        <div className="divide-y divide-[var(--color-border)]">
+          <button
+            onClick={handleTogglePin}
+            disabled={updateTask.isPending}
+            className="w-full flex items-center justify-between px-3 py-2.5 text-xs hover:bg-tertiary transition-colors disabled:opacity-50"
+          >
+            <span>{task.pinned ? 'Unpin task' : 'Pin task'}</span>
+            <span className={task.pinned ? 'text-accent' : 'text-dim'}>
+              {task.pinned ? '\u25C6' : '\u25C7'}
+            </span>
+          </button>
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="w-full flex items-center justify-between px-3 py-2.5 text-xs text-[var(--color-error)] hover:bg-tertiary transition-colors"
+          >
+            <span>Delete task</span>
+            <span>&times;</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  /* ── Layout ────────────────────────────────────────────────── */
+
   return (
     <div className="flex flex-col h-full">
       <TaskHeader
         task={task}
         project={project}
         actions={
-          <button
-            onClick={handleStartWorking}
-            disabled={updateTask.isPending}
-            className="px-4 py-1.5 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
-          >
-            {updateTask.isPending ? 'Starting...' : 'Start Working'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleTogglePin}
+              disabled={updateTask.isPending}
+              className={`px-2 py-1.5 text-sm transition-colors disabled:opacity-50 ${
+                task.pinned ? 'text-accent' : 'text-dim hover:text-accent'
+              }`}
+              title={task.pinned ? 'Unpin' : 'Pin'}
+            >
+              {task.pinned ? '\u25C6' : '\u25C7'}
+            </button>
+            <button
+              onClick={handleStartWorking}
+              disabled={updateTask.isPending}
+              className="px-4 py-1.5 bg-accent text-white font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
+            >
+              {updateTask.isPending ? 'Starting...' : 'Start Working'}
+            </button>
+          </div>
         }
       />
 
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-2xl space-y-6">
-          {/* Title */}
-          <div>
-            <h3 className="text-xs font-medium uppercase tracking-wider text-dim mb-2">Title</h3>
-            {editingTitle ? (
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                onBlur={handleTitleSave}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleTitleSave();
-                  if (e.key === 'Escape') { setTitle(task.title); setEditingTitle(false); }
-                }}
-                className="w-full bg-primary border border-subtle rounded-md px-3 py-2 text-lg font-medium focus:outline-none focus:border-[var(--color-text-secondary)]"
-                autoFocus
-              />
-            ) : (
-              <button
-                onClick={() => setEditingTitle(true)}
-                className="text-lg font-medium hover:text-accent transition-colors text-left w-full"
-              >
-                {task.title}
-              </button>
-            )}
+        {isMobile ? (
+          <div className="space-y-8">
+            {content}
+            {sidebar}
           </div>
-
-          {/* Description */}
-          <div>
-            <h3 className="text-xs font-medium uppercase tracking-wider text-dim mb-2">Description</h3>
-            {editingDesc ? (
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                onBlur={handleDescSave}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') { setDescription(task.description || ''); setEditingDesc(false); }
-                }}
-                rows={Math.max(4, description.split('\n').length + 1)}
-                className="w-full bg-primary border border-subtle rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-text-secondary)] resize-none"
-                autoFocus
-              />
-            ) : (
-              <button
-                onClick={() => setEditingDesc(true)}
-                className="text-sm text-left w-full hover:text-accent transition-colors whitespace-pre-wrap min-h-[4em]"
-              >
-                {task.description || <span className="text-dim italic">Click to add description...</span>}
-              </button>
-            )}
+        ) : (
+          <div className="max-w-4xl mx-auto flex gap-8">
+            <div className="flex-1 min-w-0">{content}</div>
+            <div className="w-56 shrink-0">{sidebar}</div>
           </div>
+        )}
+      </div>
 
-          {/* Branch */}
-          <div>
-            <h3 className="text-xs font-medium uppercase tracking-wider text-dim mb-2">Branch</h3>
-            {editingBranch ? (
-              <input
-                ref={branchRef}
-                type="text"
-                value={branchValue}
-                onChange={(e) => setBranchValue(e.target.value)}
-                onBlur={handleBranchSave}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleBranchSave();
-                  if (e.key === 'Escape') { setBranchValue(task.branch || ''); setEditingBranch(false); }
-                }}
-                placeholder={slugify(task.title)}
-                className="w-full bg-primary border border-subtle rounded-md px-3 py-2 font-mono text-sm focus:outline-none focus:border-[var(--color-text-secondary)]"
-                autoFocus
-              />
-            ) : (
-              <button
-                onClick={() => setEditingBranch(true)}
-                className="font-mono text-sm text-left hover:text-accent transition-colors"
-              >
-                {task.branch || slugify(task.title)}
-                {!task.branch && <span className="text-dim/50 ml-2">(auto)</span>}
-              </button>
-            )}
-          </div>
-
-          {/* Details */}
-          <div>
-            <h3 className="text-xs font-medium uppercase tracking-wider text-dim mb-2">Details</h3>
-            <div className="space-y-2 text-sm">
-              {project && (
-                <div className="flex gap-4">
-                  <span className="text-dim w-24">project</span>
-                  <span>{project.name}</span>
-                </div>
-              )}
-              <div className="flex gap-4">
-                <span className="text-dim w-24">created</span>
-                <span>{new Date(task.createdAt).toLocaleString()}</span>
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-elevated border border-subtle w-full max-w-sm">
+            <div className="px-4 py-3 border-b border-subtle">
+              <h2 className="text-sm font-medium">Delete Task</h2>
+            </div>
+            <div className="p-4 space-y-4">
+              <p className="text-sm text-[var(--color-text-secondary)]">
+                Delete <strong className="text-[var(--color-text-primary)]">{task.title}</strong>?
+                This cannot be undone.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 py-2 px-4 bg-tertiary text-[var(--color-text-secondary)] text-sm hover:bg-[var(--color-border)] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => deleteTask.mutate()}
+                  disabled={deleteTask.isPending}
+                  className="flex-1 py-2 px-4 bg-[var(--color-error)] text-white font-medium text-sm hover:opacity-90 transition-colors disabled:opacity-50"
+                >
+                  {deleteTask.isPending ? 'Deleting...' : 'Delete'}
+                </button>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Small presentational helpers (file-local) ───────────────── */
+
+function SectionHeader({ label, children }: { label: string; children?: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 mb-3">
+      <h3 className="text-xs font-medium uppercase tracking-wider text-dim">{label}</h3>
+      <div className="flex-1 h-px bg-[var(--color-border)]" />
+      {children}
+    </div>
+  );
+}
+
+function PanelHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[10px] font-medium uppercase tracking-wider text-dim px-3 py-2 border-b border-[var(--color-border)] bg-secondary">
+      {children}
+    </div>
+  );
+}
+
+function MetaRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between px-3 py-2.5">
+      <span className="text-dim">{label}</span>
+      {children}
     </div>
   );
 }

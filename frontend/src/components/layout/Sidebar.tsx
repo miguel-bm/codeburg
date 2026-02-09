@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronDown, ChevronUp, X, Settings, ChevronRight, Pin, GitPullRequest, GitBranch } from 'lucide-react';
-import { sidebarApi, tasksApi, preferencesApi, TASK_STATUS } from '../../api';
+import { sidebarApi, tasksApi, preferencesApi, invalidateTaskQueries, TASK_STATUS } from '../../api';
 import type { SidebarProject, SidebarTask, SidebarSession, SidebarData, UpdateTaskResponse } from '../../api';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useKeyboardNav } from '../../hooks/useKeyboardNav';
@@ -406,8 +406,7 @@ function QuickAddTask({ projectId, onClose }: QuickAddTaskProps) {
     mutationFn: (taskId: string) =>
       tasksApi.update(taskId, { status: TASK_STATUS.IN_PROGRESS }),
     onSuccess: (data: UpdateTaskResponse) => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+      invalidateTaskQueries(queryClient, data.id);
       navigate(`/tasks/${data.id}`);
       onClose?.();
     },
@@ -493,10 +492,7 @@ function SidebarTaskNode({ task, onClose, keyboardFocused }: SidebarTaskNodeProp
   const updateMutation = useMutation({
     mutationFn: (data: { status?: string }) =>
       tasksApi.update(task.id, data as Parameters<typeof tasksApi.update>[1]),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
-    },
+    onSuccess: () => invalidateTaskQueries(queryClient, task.id),
   });
 
   const { copied: branchCopied, copy: copyBranch } = useCopyToClipboard();

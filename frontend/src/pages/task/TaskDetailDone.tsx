@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { TaskHeader } from './TaskHeader';
-import { tasksApi } from '../../api';
+import { tasksApi, invalidateTaskQueries } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { Task, Project } from '../../api/types';
 
@@ -15,10 +15,7 @@ export function TaskDetailDone({ task, project }: Props) {
   const updateTask = useMutation({
     mutationFn: (input: Parameters<typeof tasksApi.update>[1]) =>
       tasksApi.update(task.id, input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['task', task.id] });
-      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
-    },
+    onSuccess: () => invalidateTaskQueries(queryClient, task.id),
   });
 
   const handleReopen = () => {

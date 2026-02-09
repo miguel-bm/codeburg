@@ -1,5 +1,13 @@
+import type { QueryClient } from '@tanstack/react-query';
 import { api } from './client';
 import type { Task, CreateTaskInput, UpdateTaskInput, UpdateTaskResponse, TaskStatus, WorktreeResponse } from './types';
+
+/** Invalidate all task-related queries. Call after any task mutation. */
+export function invalidateTaskQueries(queryClient: QueryClient, taskId?: string) {
+  if (taskId) queryClient.invalidateQueries({ queryKey: ['task', taskId] });
+  queryClient.invalidateQueries({ queryKey: ['tasks'] });
+  queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+}
 
 export const tasksApi = {
   list: (params?: { project?: string; status?: TaskStatus }) => {
