@@ -43,6 +43,16 @@ interface UseTerminalOptions {
 
 export interface UseTerminalReturn {
   sendInput: (data: string) => void;
+  actions: {
+    copySelection: () => void;
+    pasteClipboard: () => void;
+    selectAll: () => void;
+    clearSelection: () => void;
+    clear: () => void;
+    reset: () => void;
+    scrollToBottom: () => void;
+    hasSelection: () => boolean;
+  };
 }
 
 export function useTerminal(
@@ -223,10 +233,28 @@ export function useTerminal(
 
     // Cmd+C / Ctrl+C: copy selection if present, otherwise send SIGINT
     term.attachCustomKeyEventHandler((event) => {
+      if (event.key === 'Enter' && event.shiftKey && event.type === 'keydown') {
+        if (awaitingManualReconnectRef.current) {
+          awaitingManualReconnectRef.current = false;
+          retryCountRef.current = 0;
+          term.writeln('\x1b[33m// reconnecting...\x1b[0m');
+          connectWS(term);
+          return false;
+        }
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send('\n');
+        }
+        return false;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.code === 'KeyC' && event.type === 'keydown') {
+        if (term.hasSelection()) {
+          navigator.clipboard.writeText(term.getSelection());
+          return false;
+        }
+      }
       if ((event.metaKey || event.ctrlKey) && event.code === 'KeyC' && event.type === 'keydown') {
         if (term.hasSelection()) {
           navigator.clipboard.writeText(term.getSelection());
-          term.clearSelection();
           return false;
         }
       }
@@ -283,5 +311,54 @@ export function useTerminal(
     }
   }, [connectWS]);
 
-  return { sendInput };
+  const actions = useRef<UseTerminalReturn['actions']>({
+    copySelection: () => {},
+    pasteClipboard: () => {},
+    selectAll: () => {},
+    clearSelection: () => {},
+    clear: () => {},
+    reset: () => {},
+    scrollToBottom: () => {},
+    hasSelection: () => false,
+  });
+
+  actions.current.copySelection = () => {
+    const term = termRef.current;
+    if (!term || !term.hasSelection()) return;
+    navigator.clipboard.writeText(term.getSelection()).catch(() => {});
+  };
+
+  actions.current.pasteClipboard = () => {
+    navigator.clipboard.readText().then((text) => {
+      if (text && wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(text);
+      }
+    }).catch(() => {});
+  };
+
+  actions.current.selectAll = () => {
+    termRef.current?.selectAll();
+  };
+
+  actions.current.clearSelection = () => {
+    termRef.current?.clearSelection();
+  };
+
+  actions.current.clear = () => {
+    termRef.current?.clear();
+  };
+
+  actions.current.reset = () => {
+    termRef.current?.reset();
+  };
+
+  actions.current.scrollToBottom = () => {
+    termRef.current?.scrollToBottom();
+  };
+
+  actions.current.hasSelection = () => {
+    return termRef.current?.hasSelection() ?? false;
+  };
+
+  return { sendInput, actions: actions.current };
 }

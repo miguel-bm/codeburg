@@ -14,7 +14,7 @@ import { TaskDetailDone } from './task/TaskDetailDone';
 export function TaskDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [activeSession, setActiveSession] = useState<AgentSession | null>(null);
   const [showStartSession, setShowStartSession] = useState(false);
@@ -72,12 +72,23 @@ export function TaskDetail() {
     }
   }, [sessions, activeSession]);
 
+  const selectSession = (session: AgentSession | null) => {
+    setActiveSession(session);
+    const next = new URLSearchParams(searchParams);
+    if (session) {
+      next.set('session', session.id);
+    } else {
+      next.delete('session');
+    }
+    setSearchParams(next, { replace: true });
+  };
+
   const startSessionMutation = useMutation({
     mutationFn: ({ provider, prompt, resumeSessionId }: { provider: SessionProvider; prompt: string; resumeSessionId?: string }) =>
       sessionsApi.start(id!, { provider, prompt: prompt || undefined, resumeSessionId }),
     onSuccess: (session) => {
       queryClient.invalidateQueries({ queryKey: ['sessions', id] });
-      setActiveSession(session);
+      selectSession(session);
       setShowStartSession(false);
     },
   });
@@ -86,7 +97,7 @@ export function TaskDetail() {
     mutationFn: (sessionId: string) => sessionsApi.stop(sessionId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['sessions', id] });
-      setActiveSession(null);
+      selectSession(null);
     },
   });
 
@@ -95,7 +106,7 @@ export function TaskDetail() {
     onSuccess: (_data, deletedId) => {
       queryClient.invalidateQueries({ queryKey: ['sessions', id] });
       if (activeSession?.id === deletedId) {
-        setActiveSession(null);
+        selectSession(null);
       }
     },
   });
@@ -153,7 +164,7 @@ export function TaskDetail() {
             project={project}
             sessions={sessions || []}
             activeSession={activeSession}
-            onSelectSession={setActiveSession}
+            onSelectSession={selectSession}
             onStartSession={handleStartSession}
             onCloseSession={handleCloseSession}
             onShowStartModal={() => setShowStartSession(true)}
@@ -167,7 +178,7 @@ export function TaskDetail() {
             project={project}
             sessions={sessions || []}
             activeSession={activeSession}
-            onSelectSession={setActiveSession}
+            onSelectSession={selectSession}
             onStartSession={handleStartSession}
             onCloseSession={handleCloseSession}
             onShowStartModal={() => setShowStartSession(true)}

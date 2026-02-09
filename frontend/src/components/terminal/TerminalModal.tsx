@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTerminal } from '../../hooks/useTerminal';
 import { useMobile } from '../../hooks/useMobile';
 import { TerminalToolbar } from './TerminalToolbar';
+import { TerminalContextMenu } from './TerminalContextMenu';
 
 interface TerminalModalProps {
   target: string; // tmux target (e.g., "codeburg:@1.%1")
@@ -10,8 +11,9 @@ interface TerminalModalProps {
 
 export function TerminalModal({ target, onClose }: TerminalModalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
-  const { sendInput } = useTerminal(terminalRef, target);
+  const { sendInput, actions } = useTerminal(terminalRef, target);
   const isMobile = useMobile();
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
   // Handle escape key to close
   useEffect(() => {
@@ -46,11 +48,31 @@ export function TerminalModal({ target, onClose }: TerminalModalProps) {
       {/* Terminal Container */}
       <div
         ref={terminalRef}
-        className="flex-1 min-h-0 w-full bg-[#0a0a0a] p-2"
+        className="flex-1 min-h-0 w-full bg-[#0a0a0a] p-2 select-none"
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setMenu({ x: e.clientX, y: e.clientY });
+        }}
       />
 
       {/* Mobile Toolbar */}
       {isMobile && <TerminalToolbar onInput={sendInput} />}
+      {menu && (
+        <TerminalContextMenu
+          x={menu.x}
+          y={menu.y}
+          hasSelection={actions.hasSelection()}
+          onClose={() => setMenu(null)}
+          onCopy={actions.copySelection}
+          onPaste={actions.pasteClipboard}
+          onSelectAll={actions.selectAll}
+          onClearSelection={actions.clearSelection}
+          onClear={actions.clear}
+          onReset={actions.reset}
+          onScrollToBottom={actions.scrollToBottom}
+        />
+      )}
     </div>
   );
 }
