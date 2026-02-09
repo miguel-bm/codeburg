@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef, useCallback, forwardRef } from 'r
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { GitBranch } from 'lucide-react';
+import { GitBranch, Pin, GitPullRequest } from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
 import { tasksApi, projectsApi, sessionsApi, invalidateTaskQueries } from '../api';
 import type { Task, TaskStatus, UpdateTaskResponse } from '../api';
@@ -773,7 +773,8 @@ const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
           </span>
         )}
         {task.pinned && (
-          <span className="text-xs text-[var(--color-error)]">
+          <span className="text-xs text-[var(--color-error)] flex items-center gap-0.5">
+            <Pin size={10} />
             Pinned
           </span>
         )}
@@ -795,8 +796,9 @@ const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
-            className="text-[10px] font-mono text-accent hover:underline"
+            className="text-[10px] font-mono text-accent hover:underline inline-flex items-center gap-0.5"
           >
+            <GitPullRequest size={10} />
             PR
           </a>
         )}

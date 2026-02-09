@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, Check, Plus, X } from 'lucide-react';
+import { Copy, Check, Plus, X, Play, Pin, Trash2 } from 'lucide-react';
 import { TaskHeader } from './TaskHeader';
 import { relativeTime } from './TaskHeader';
 import { tasksApi, invalidateTaskQueries, labelsApi } from '../../api';
@@ -132,8 +132,9 @@ export function TaskDetailBacklog({ task, project }: Props) {
           <button
             onClick={handleStartWorking}
             disabled={updateTask.isPending}
-            className="px-4 py-1.5 bg-accent text-white font-medium text-sm rounded-md hover:bg-accent-dim transition-colors disabled:opacity-50"
+            className="px-4 py-1.5 bg-accent text-white font-medium text-sm rounded-md hover:bg-accent-dim transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
           >
+            <Play size={14} />
             {updateTask.isPending ? 'Starting...' : 'Start Working'}
           </button>
         }
@@ -414,10 +415,11 @@ function PropertiesSidebar({
         <button
           onClick={onTogglePin}
           disabled={isPending}
-          className={`text-xs transition-colors disabled:opacity-50 ${
+          className={`text-xs transition-colors disabled:opacity-50 inline-flex items-center gap-1 ${
             task.pinned ? 'text-accent' : 'text-dim hover:text-accent'
           }`}
         >
+          <Pin size={11} />
           {task.pinned ? 'Yes' : 'No'}
         </button>
       </PropertyRow>
@@ -451,8 +453,9 @@ function PropertiesSidebar({
       <button
         onClick={onStartWorking}
         disabled={isPending}
-        className="w-full px-4 py-2.5 bg-accent text-white font-medium text-sm rounded-lg hover:bg-accent-dim transition-colors disabled:opacity-50"
+        className="w-full px-4 py-2.5 bg-accent text-white font-medium text-sm rounded-lg hover:bg-accent-dim transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
       >
+        <Play size={14} />
         {isPending ? 'Starting...' : 'Start Working'}
       </button>
       <p className="text-[10px] text-dim text-center uppercase tracking-wider">
@@ -462,8 +465,9 @@ function PropertiesSidebar({
       {/* Delete */}
       <button
         onClick={onDelete}
-        className="w-full text-xs text-dim hover:text-[var(--color-error)] py-1 transition-colors"
+        className="w-full text-xs text-dim hover:text-[var(--color-error)] py-1 transition-colors inline-flex items-center justify-center gap-1"
       >
+        <Trash2 size={11} />
         Delete task
       </button>
     </>
@@ -569,16 +573,18 @@ function MobileDetails({
         <button
           onClick={onTogglePin}
           disabled={isPending}
-          className={`text-xs px-2 py-1 rounded transition-colors disabled:opacity-50 ${
+          className={`text-xs px-2 py-1 rounded transition-colors disabled:opacity-50 inline-flex items-center gap-1 ${
             task.pinned ? 'text-accent' : 'text-dim hover:text-accent'
           }`}
         >
+          <Pin size={11} />
           {task.pinned ? 'Unpin' : 'Pin'}
         </button>
         <button
           onClick={onDelete}
-          className="text-xs text-dim hover:text-[var(--color-error)] px-2 py-1 rounded transition-colors"
+          className="text-xs text-dim hover:text-[var(--color-error)] px-2 py-1 rounded transition-colors inline-flex items-center gap-1"
         >
+          <Trash2 size={11} />
           Delete
         </button>
       </div>
@@ -588,8 +594,9 @@ function MobileDetails({
         <button
           onClick={onStartWorking}
           disabled={isPending}
-          className="w-full px-4 py-3 bg-accent text-white font-medium text-sm rounded-lg hover:bg-accent-dim transition-colors disabled:opacity-50"
+          className="w-full px-4 py-3 bg-accent text-white font-medium text-sm rounded-lg hover:bg-accent-dim transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
         >
+          <Play size={14} />
           {isPending ? 'Starting...' : 'Start Working'}
         </button>
         <p className="text-[10px] text-dim text-center mt-1.5 uppercase tracking-wider">

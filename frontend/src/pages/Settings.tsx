@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { startRegistration } from '@simplewebauthn/browser';
-import { ChevronLeft, AlertCircle, CheckCircle2, Fingerprint, Trash2, Pencil, Volume2 } from 'lucide-react';
+import { ChevronLeft, AlertCircle, CheckCircle2, Fingerprint, Trash2, Pencil, Volume2, Bell, Terminal, Code2, Lock, Send } from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
 import { authApi, preferencesApi } from '../api';
 import type { EditorType } from '../api';
@@ -10,6 +10,7 @@ import { useAuthStore } from '../stores/auth';
 import { useTerminalSettings } from '../stores/terminal';
 import type { CursorStyle } from '../stores/terminal';
 import { isNotificationSoundEnabled, setNotificationSoundEnabled, playNotificationSound } from '../lib/notificationSound';
+import { SectionCard, SectionHeader, SectionBody, FieldRow, FieldLabel, Toggle } from '../components/ui/settings';
 
 export function Settings() {
   const navigate = useNavigate();
@@ -47,87 +48,6 @@ export function Settings() {
         </div>
       </div>
     </Layout>
-  );
-}
-
-/* ─── Shared Components ──────────────────────────────────────────────── */
-
-function SectionCard({ children }: { children: React.ReactNode }) {
-  return (
-    <section className="border border-subtle rounded-md bg-secondary overflow-hidden">
-      {children}
-    </section>
-  );
-}
-
-function SectionHeader({ title, description, action }: {
-  title: string;
-  description?: string;
-  action?: React.ReactNode;
-}) {
-  return (
-    <div className="px-5 py-4 border-b border-subtle flex items-start justify-between gap-4">
-      <div>
-        <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">{title}</h2>
-        {description && (
-          <p className="text-xs text-dim mt-0.5">{description}</p>
-        )}
-      </div>
-      {action}
-    </div>
-  );
-}
-
-function SectionBody({ children, className = '', bordered = false }: { children: React.ReactNode; className?: string; bordered?: boolean }) {
-  return (
-    <div className={`px-5 py-4 ${bordered ? 'border-b border-subtle' : ''} ${className}`}>
-      {children}
-    </div>
-  );
-}
-
-function FieldRow({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-4 py-3 border-b border-subtle last:border-b-0">
-      {children}
-    </div>
-  );
-}
-
-function FieldLabel({ label, description }: { label: string; description?: string }) {
-  return (
-    <div className="min-w-0">
-      <span className="text-sm text-[var(--color-text-primary)]">{label}</span>
-      {description && (
-        <span className="block text-xs text-dim mt-0.5">{description}</span>
-      )}
-    </div>
-  );
-}
-
-/* ─── Toggle Switch ──────────────────────────────────────────────────── */
-
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className={`relative w-10 h-[22px] border rounded-full transition-all duration-200 flex-shrink-0 ${
-        checked
-          ? 'bg-accent border-accent'
-          : 'bg-tertiary border-subtle'
-      }`}
-    >
-      <span
-        className={`absolute top-[3px] w-3.5 h-3.5 rounded-full transition-all duration-200 ${
-          checked
-            ? 'left-[20px] bg-white'
-            : 'left-[3px] bg-[var(--color-text-dim)]'
-        }`}
-      />
-    </button>
   );
 }
 
@@ -208,6 +128,7 @@ function NotificationSection() {
       <SectionHeader
         title="Notifications"
         description="Alerts when an agent needs attention"
+        icon={<Bell size={15} />}
       />
       <SectionBody>
         <FieldRow>
@@ -244,6 +165,7 @@ function TerminalSettingsSection() {
       <SectionHeader
         title="Terminal"
         description="Appearance and behavior for terminal sessions"
+        icon={<Terminal size={15} />}
         action={
           <button
             onClick={settings.reset}
@@ -417,6 +339,7 @@ function EditorSection() {
       <SectionHeader
         title="Editor"
         description="Open task worktrees in your editor"
+        icon={<Code2 size={15} />}
       />
       <SectionBody bordered>
         <div className="flex items-center justify-between">
@@ -530,6 +453,7 @@ function PasswordSection() {
       <SectionHeader
         title="Password"
         description="Manage your account password"
+        icon={<Lock size={15} />}
       />
       <SectionBody>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -664,6 +588,7 @@ function PasskeySection() {
       <SectionHeader
         title="Passkeys"
         description="Passwordless sign-in with biometrics or security keys"
+        icon={<Fingerprint size={15} />}
         action={
           <button
             onClick={() => registerMutation.mutate()}
@@ -804,6 +729,7 @@ function TelegramSection() {
       <SectionHeader
         title="Telegram"
         description="Auto-login when opening Codeburg from Telegram"
+        icon={<Send size={15} />}
         action={
           <button
             onClick={() => setShowSetup((v) => !v)}

@@ -239,10 +239,13 @@ func (s *Server) dispatchWorkflow(oldTask, newTask *db.Task, resp *updateTaskRes
 	}
 }
 
+const defaultPromptTemplate = "Work on: {title}\n\n{description}"
+
 // buildPromptFromTemplate replaces {title} and {description} placeholders in a template.
+// Falls back to a sensible default when no template is configured.
 func buildPromptFromTemplate(tmpl, title, description string) string {
 	if tmpl == "" {
-		return ""
+		tmpl = defaultPromptTemplate
 	}
 	r := strings.NewReplacer("{title}", title, "{description}", description)
 	return r.Replace(tmpl)

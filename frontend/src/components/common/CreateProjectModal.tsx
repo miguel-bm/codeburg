@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Download, Plus, Lock, Globe, AlertCircle } from 'lucide-react';
 import { projectsApi } from '../../api';
 import type { CreateProjectInput } from '../../api';
 
@@ -114,30 +115,33 @@ export function CreateProjectModal({ onClose }: CreateProjectModalProps) {
           <button
             type="button"
             onClick={() => handleModeChange('import')}
-            className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+            className={`flex-1 px-4 py-2 text-sm font-medium transition-colors inline-flex items-center justify-center gap-1.5 ${
               mode === 'import'
                 ? 'text-[var(--color-text-primary)] border-b-2 border-[var(--color-accent)]'
                 : 'text-dim hover:text-[var(--color-text-secondary)]'
             }`}
           >
+            <Download size={14} />
             Import
           </button>
           <button
             type="button"
             onClick={() => handleModeChange('create')}
-            className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+            className={`flex-1 px-4 py-2 text-sm font-medium transition-colors inline-flex items-center justify-center gap-1.5 ${
               mode === 'create'
                 ? 'text-[var(--color-text-primary)] border-b-2 border-[var(--color-accent)]'
                 : 'text-dim hover:text-[var(--color-text-secondary)]'
             }`}
           >
+            <Plus size={14} />
             Create New
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           {error && (
-            <div className="border border-[var(--color-error)] rounded-md p-3 text-sm text-[var(--color-error)]">
+            <div className="flex items-start gap-2 border border-[var(--color-error)] rounded-md p-3 text-sm text-[var(--color-error)]">
+              <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
               {error}
             </div>
           )}
@@ -214,6 +218,7 @@ export function CreateProjectModal({ onClose }: CreateProjectModalProps) {
                       onChange={() => setRepoPrivate(true)}
                       className="accent-[var(--color-accent)]"
                     />
+                    <Lock size={14} className="text-dim" />
                     <span>Private</span>
                   </label>
                   <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -224,6 +229,7 @@ export function CreateProjectModal({ onClose }: CreateProjectModalProps) {
                       onChange={() => setRepoPrivate(false)}
                       className="accent-[var(--color-accent)]"
                     />
+                    <Globe size={14} className="text-dim" />
                     <span>Public</span>
                   </label>
                 </div>

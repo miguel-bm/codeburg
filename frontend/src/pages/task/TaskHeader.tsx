@@ -1,7 +1,7 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Pin, Trash2 } from 'lucide-react';
 import { tasksApi, invalidateTaskQueries } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { Task, Project } from '../../api/types';
@@ -248,17 +248,19 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
               <button
                 onClick={handleTogglePin}
                 disabled={updateTask.isPending}
-                className={`text-xs px-1.5 py-0.5 rounded transition-colors disabled:opacity-50 ${
+                className={`text-xs px-1.5 py-0.5 rounded transition-colors disabled:opacity-50 inline-flex items-center gap-1 ${
                   task.pinned ? 'text-accent' : 'text-dim hover:text-accent'
                 }`}
                 title={task.pinned ? 'Unpin' : 'Pin'}
               >
+                <Pin size={11} />
                 {task.pinned ? 'Unpin' : 'Pin'}
               </button>
               <button
                 onClick={() => setShowDeleteConfirm(true)}
-                className="text-xs text-dim hover:text-[var(--color-error)] px-1.5 py-0.5 rounded transition-colors"
+                className="text-xs text-dim hover:text-[var(--color-error)] px-1.5 py-0.5 rounded transition-colors inline-flex items-center gap-1"
               >
+                <Trash2 size={11} />
                 Delete
               </button>
             </div>

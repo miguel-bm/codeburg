@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, Check, GitPullRequest, Plus } from 'lucide-react';
 import { TaskHeader } from './TaskHeader';
 import { SessionView, SessionTabs } from '../../components/session';
 import { DiffView } from '../../components/git';
@@ -150,15 +151,17 @@ export function TaskDetailInReview({
               <button
                 onClick={handleBackToProgress}
                 disabled={updateTask.isPending}
-                className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors disabled:opacity-50"
+                className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors disabled:opacity-50 inline-flex items-center gap-1"
               >
+                <ArrowLeft size={12} />
                 Back to WIP
               </button>
               <button
                 onClick={handleMarkDone}
                 disabled={updateTask.isPending}
-                className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors disabled:opacity-50"
+                className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors disabled:opacity-50 inline-flex items-center gap-1"
               >
+                <Check size={12} />
                 Done
               </button>
             </>
@@ -187,7 +190,8 @@ export function TaskDetailInReview({
               {task.prUrl.replace(/^https?:\/\/github\.com\//, '')}
             </a>
           ) : (
-            <button onClick={handleCreatePR} disabled={createPR.isPending} className="px-2 py-1 bg-accent text-white rounded text-xs hover:bg-accent-dim transition-colors disabled:opacity-50">
+            <button onClick={handleCreatePR} disabled={createPR.isPending} className="px-2 py-1 bg-accent text-white rounded text-xs hover:bg-accent-dim transition-colors disabled:opacity-50 inline-flex items-center gap-1">
+              <GitPullRequest size={12} />
               {createPR.isPending ? 'Creating...' : 'Push & Create PR'}
             </button>
           )}
@@ -252,15 +256,17 @@ export function TaskDetailInReview({
             <button
               onClick={handleBackToProgress}
               disabled={updateTask.isPending}
-              className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors disabled:opacity-50"
+              className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors disabled:opacity-50 inline-flex items-center gap-1"
             >
+              <ArrowLeft size={12} />
               Back to WIP
             </button>
             <button
               onClick={handleMarkDone}
               disabled={updateTask.isPending}
-              className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors disabled:opacity-50"
+              className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors disabled:opacity-50 inline-flex items-center gap-1"
             >
+              <Check size={12} />
               Done
             </button>
           </>
@@ -296,7 +302,8 @@ export function TaskDetailInReview({
             {task.prUrl.replace(/^https?:\/\/github\.com\//, '')}
           </a>
         ) : (
-          <button onClick={handleCreatePR} disabled={createPR.isPending} className="px-2 py-1 bg-accent text-white rounded text-xs hover:bg-accent-dim transition-colors disabled:opacity-50">
+          <button onClick={handleCreatePR} disabled={createPR.isPending} className="px-2 py-1 bg-accent text-white rounded text-xs hover:bg-accent-dim transition-colors disabled:opacity-50 inline-flex items-center gap-1">
+            <GitPullRequest size={12} />
             {createPR.isPending ? 'Creating PR...' : 'Push & Create PR'}
           </button>
         )}
@@ -365,9 +372,10 @@ export function TaskDetailInReview({
           /* Collapsed: thin bar to open sessions */
           <button
             onClick={() => { setSessionPanelOpen(true); onShowStartModal(); }}
-            className="flex items-center justify-center gap-2 px-4 py-1.5 border-t border-subtle bg-secondary text-xs text-dim hover:text-accent hover:bg-tertiary transition-colors"
+            className="flex items-center justify-center gap-1.5 px-4 py-1.5 border-t border-subtle bg-secondary text-xs text-dim hover:text-accent hover:bg-tertiary transition-colors"
           >
-            + Session
+            <Plus size={12} />
+            Session
           </button>
         )}
       </div>

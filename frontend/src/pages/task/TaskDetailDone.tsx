@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { RotateCcw, GitBranch, GitPullRequest, FileDiff } from 'lucide-react';
 import { TaskHeader } from './TaskHeader';
 import { DiffView } from '../../components/git';
 import { tasksApi, invalidateTaskQueries } from '../../api';
@@ -32,8 +33,9 @@ export function TaskDetailDone({ task, project }: Props) {
           <button
             onClick={handleReopen}
             disabled={updateTask.isPending}
-            className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
           >
+            <RotateCcw size={12} />
             Reopen
           </button>
         }
@@ -45,13 +47,13 @@ export function TaskDetailDone({ task, project }: Props) {
           <div className="space-y-2 text-sm">
             {task.branch && (
               <div className="flex gap-4">
-                <span className="text-dim w-24">branch</span>
+                <span className="text-dim w-24 flex items-center gap-1.5"><GitBranch size={12} /> branch</span>
                 <span className="font-mono">{task.branch}</span>
               </div>
             )}
             {task.prUrl && (
               <div className="flex gap-4">
-                <span className="text-dim w-24">pull request</span>
+                <span className="text-dim w-24 flex items-center gap-1.5"><GitPullRequest size={12} /> PR</span>
                 <a
                   href={task.prUrl}
                   target="_blank"
@@ -64,7 +66,7 @@ export function TaskDetailDone({ task, project }: Props) {
             )}
             {task.diffStats && (
               <div className="flex gap-4">
-                <span className="text-dim w-24">changes</span>
+                <span className="text-dim w-24 flex items-center gap-1.5"><FileDiff size={12} /> changes</span>
                 <span>
                   <span className="text-[var(--color-success)]">+{task.diffStats.additions}</span>
                   {' / '}
