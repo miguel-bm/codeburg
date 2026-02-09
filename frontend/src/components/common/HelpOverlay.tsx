@@ -17,7 +17,7 @@ interface ShortcutSection {
 
 const dashboardShortcuts: ShortcutSection[] = [
   {
-    title: 'navigation',
+    title: 'Navigation',
     shortcuts: [
       { key: 'arrows / hjkl', action: 'move focus between cards' },
       { key: 'Enter', action: 'open focused task' },
@@ -26,7 +26,7 @@ const dashboardShortcuts: ShortcutSection[] = [
     ],
   },
   {
-    title: 'sidebar',
+    title: 'Sidebar',
     shortcuts: [
       { key: '\u2190 at col 1', action: 'focus sidebar' },
       { key: '\u2191/\u2193 (k/j)', action: 'navigate items' },
@@ -35,7 +35,7 @@ const dashboardShortcuts: ShortcutSection[] = [
     ],
   },
   {
-    title: 'actions',
+    title: 'Actions',
     shortcuts: [
       { key: 'Shift+arrow (H/L)', action: 'move card to adjacent column' },
       { key: 'Shift+Up/Down (K/J)', action: 'reorder card within column' },
@@ -49,13 +49,13 @@ const dashboardShortcuts: ShortcutSection[] = [
 
 const taskDetailShortcuts: ShortcutSection[] = [
   {
-    title: 'navigation',
+    title: 'Navigation',
     shortcuts: [
       { key: 'Escape', action: 'back to dashboard' },
     ],
   },
   {
-    title: 'actions',
+    title: 'Actions',
     shortcuts: [
       { key: 's', action: 'start session' },
       { key: '?', action: 'toggle help' },
@@ -80,24 +80,24 @@ export function HelpOverlay({ page, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 bg-[var(--color-bg-primary)]/90 z-50 flex items-center justify-center"
+      className="fixed inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm z-50 flex items-center justify-center"
       onClick={onClose}
     >
       <div
-        className="bg-secondary border border-subtle w-full max-w-md"
+        className="bg-elevated border border-subtle rounded-xl shadow-lg w-full max-w-md"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-4 py-3 border-b border-subtle">
-          <h2 className="text-sm text-accent">// keyboard_shortcuts</h2>
+          <h2 className="text-sm font-medium">Keyboard Shortcuts</h2>
         </div>
         <div className="p-4 space-y-4">
           {sections.map((section) => (
             <div key={section.title}>
-              <h3 className="text-xs text-dim mb-2">// {section.title}</h3>
+              <h3 className="text-xs font-medium uppercase tracking-wider text-dim mb-2">{section.title}</h3>
               <div className="space-y-1">
                 {section.shortcuts.map((s) => (
                   <div key={s.key} className="flex items-center justify-between text-sm">
-                    <kbd className="text-accent text-xs px-1.5 py-0.5 border border-subtle bg-primary min-w-[80px]">
+                    <kbd className="text-accent text-xs px-1.5 py-0.5 border border-subtle bg-primary rounded-md min-w-[80px]">
                       {s.key}
                     </kbd>
                     <span className="text-dim text-xs">{s.action}</span>

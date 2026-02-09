@@ -69,7 +69,7 @@ export function Layout({ children }: LayoutProps) {
       {isMobile && (
         <button
           onClick={() => setSidebarOpen(true)}
-          className="fixed top-4 left-4 z-40 p-2 border border-subtle bg-secondary hover:border-accent transition-colors"
+          className="fixed top-4 left-4 z-40 p-2 border border-subtle bg-secondary hover:bg-tertiary rounded-md transition-colors"
           aria-label="Open menu"
         >
           <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
@@ -84,7 +84,7 @@ export function Layout({ children }: LayoutProps) {
           {/* Backdrop */}
           {sidebarOpen && (
             <div
-              className="fixed inset-0 bg-[var(--color-bg-primary)]/80 z-40"
+              className="fixed inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm z-40"
               onClick={() => setSidebarOpen(false)}
             />
           )}

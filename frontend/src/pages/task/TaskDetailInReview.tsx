@@ -4,6 +4,7 @@ import { TaskHeader } from './TaskHeader';
 import { SessionView, SessionTabs } from '../../components/session';
 import { DiffView } from '../../components/git';
 import { tasksApi } from '../../api';
+import { TASK_STATUS } from '../../api';
 import type { Task, Project, AgentSession, SessionProvider } from '../../api';
 
 type MainContent =
@@ -38,11 +39,11 @@ export function TaskDetailInReview({
   });
 
   const handleBackToProgress = () => {
-    updateTask.mutate({ status: 'in_progress' });
+    updateTask.mutate({ status: TASK_STATUS.IN_PROGRESS });
   };
 
   const handleMarkDone = () => {
-    updateTask.mutate({ status: 'done' });
+    updateTask.mutate({ status: TASK_STATUS.DONE });
   };
 
   return (
@@ -55,14 +56,14 @@ export function TaskDetailInReview({
             <button
               onClick={handleBackToProgress}
               disabled={updateTask.isPending}
-              className="px-3 py-1.5 border border-subtle text-dim text-xs hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-primary)] transition-colors disabled:opacity-50"
+              className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors disabled:opacity-50"
             >
               back to wip
             </button>
             <button
               onClick={handleMarkDone}
               disabled={updateTask.isPending}
-              className="px-3 py-1.5 border border-accent text-accent text-xs hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50"
+              className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors disabled:opacity-50"
             >
               done
             </button>

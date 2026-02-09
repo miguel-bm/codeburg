@@ -47,7 +47,7 @@ export function SessionTabs({ sessions, activeSessionId, onSelect, onResume, onC
                 : 'border-transparent text-dim hover:text-[var(--color-text-primary)]'
             }`}
           >
-            <div className={`w-1.5 h-1.5 shrink-0 ${getStatusDotClass(session.status)}`} />
+            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${getStatusDotClass(session.status)}`} />
             <span>#{i + 1}</span>
             <span className="text-dim">{session.provider}</span>
             {canResume && (

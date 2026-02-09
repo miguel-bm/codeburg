@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/layout/Layout';
-import { tasksApi, projectsApi, sessionsApi } from '../api';
+import { tasksApi, projectsApi, sessionsApi, TASK_STATUS } from '../api';
 import type { AgentSession, SessionProvider } from '../api';
 import { useKeyboardNav } from '../hooks/useKeyboardNav';
 import { HelpOverlay } from '../components/common/HelpOverlay';
@@ -143,10 +143,10 @@ export function TaskDetail() {
 
   const renderView = () => {
     switch (task.status) {
-      case 'backlog':
+      case TASK_STATUS.BACKLOG:
         return <TaskDetailBacklog task={task} project={project} />;
 
-      case 'in_progress':
+      case TASK_STATUS.IN_PROGRESS:
         return (
           <TaskDetailInProgress
             task={task}
@@ -160,7 +160,7 @@ export function TaskDetail() {
           />
         );
 
-      case 'in_review':
+      case TASK_STATUS.IN_REVIEW:
         return (
           <TaskDetailInReview
             task={task}
@@ -174,7 +174,7 @@ export function TaskDetail() {
           />
         );
 
-      case 'done':
+      case TASK_STATUS.DONE:
         return <TaskDetailDone task={task} project={project} />;
 
       default:
@@ -246,33 +246,31 @@ function StartSessionModal({ taskTitle, taskDescription, onClose, onStart, isPen
   ];
 
   return (
-    <div className="fixed inset-0 bg-[var(--color-bg-primary)]/80 flex items-center justify-center p-4 z-50">
-      <div className="bg-secondary border border-subtle w-full max-w-lg">
+    <div className="fixed inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div className="bg-elevated border border-subtle rounded-xl shadow-lg w-full max-w-lg">
         <div className="px-4 py-3 border-b border-subtle">
-          <h2 className="text-sm text-accent">// start_session</h2>
+          <h2 className="text-sm font-medium">Start Session</h2>
         </div>
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           {error && (
-            <div className="border border-[var(--color-error)] p-3 text-sm text-[var(--color-error)]">
+            <div className="border border-[var(--color-error)] rounded-md p-3 text-sm text-[var(--color-error)]">
               {error}
             </div>
           )}
 
           {/* Provider Toggle */}
           <div>
-            <label className="block text-sm text-dim mb-2">provider</label>
-            <div className="flex gap-0">
-              {providers.map((p, i) => (
+            <label className="block text-sm text-dim mb-2">Provider</label>
+            <div className="flex gap-2">
+              {providers.map((p) => (
                 <button
                   key={p.id}
                   type="button"
                   onClick={() => setProvider(p.id)}
-                  className={`flex-1 py-2 px-4 text-sm border transition-colors ${
-                    i > 0 ? 'border-l-0' : ''
-                  } ${
+                  className={`flex-1 py-2 px-4 text-sm border rounded-md transition-colors ${
                     provider === p.id
                       ? 'border-accent text-accent bg-accent/10'
-                      : 'border-subtle text-dim hover:text-[var(--color-text-primary)]'
+                      : 'border-subtle text-dim hover:bg-tertiary'
                   }`}
                 >
                   {p.label}
@@ -285,13 +283,13 @@ function StartSessionModal({ taskTitle, taskDescription, onClose, onStart, isPen
           {provider !== 'terminal' && (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-sm text-dim">initial prompt</label>
+                <label className="text-sm text-dim">Initial prompt</label>
                 <button
                   type="button"
                   onClick={() => setIncludePrompt(!includePrompt)}
-                  className={`text-xs px-2 py-0.5 border transition-colors ${
+                  className={`text-xs px-2 py-0.5 border rounded-md transition-colors ${
                     includePrompt
-                      ? 'border-accent text-accent'
+                      ? 'border-accent text-accent bg-accent/10'
                       : 'border-subtle text-dim'
                   }`}
                 >
@@ -303,7 +301,7 @@ function StartSessionModal({ taskTitle, taskDescription, onClose, onStart, isPen
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   rows={4}
-                  className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none resize-none"
+                  className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent resize-none"
                   placeholder="What would you like the agent to do?"
                   autoFocus
                 />
@@ -323,14 +321,14 @@ function StartSessionModal({ taskTitle, taskDescription, onClose, onStart, isPen
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-2 px-4 border border-subtle text-dim text-sm hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-primary)] transition-colors"
+              className="flex-1 py-2 px-4 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-sm hover:bg-[var(--color-border)] transition-colors"
             >
               cancel
             </button>
             <button
               type="submit"
               disabled={isPending}
-              className="flex-1 py-2 px-4 border border-accent text-accent text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50"
+              className="flex-1 py-2 px-4 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
             >
               {isPending ? 'starting...' : 'start'}
             </button>

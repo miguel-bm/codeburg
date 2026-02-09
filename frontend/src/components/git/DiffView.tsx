@@ -41,7 +41,7 @@ export function DiffView({ taskId, file, staged, base }: DiffViewProps) {
 
 function getDiffLineClass(line: string): string {
   if (line.startsWith('+') && !line.startsWith('+++')) {
-    return 'text-accent';
+    return 'text-[var(--color-success)]';
   }
   if (line.startsWith('-') && !line.startsWith('---')) {
     return 'text-[var(--color-error)]';

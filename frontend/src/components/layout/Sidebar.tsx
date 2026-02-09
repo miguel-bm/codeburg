@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { sidebarApi, tasksApi, preferencesApi } from '../../api';
+import { sidebarApi, tasksApi, preferencesApi, TASK_STATUS } from '../../api';
 import type { SidebarProject, SidebarTask, SidebarSession, SidebarData, UpdateTaskResponse } from '../../api';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useKeyboardNav } from '../../hooks/useKeyboardNav';
@@ -94,8 +94,8 @@ export function Sidebar({ onClose, width }: SidebarProps) {
       const isCollapsed = localStorage.getItem(`sidebar-collapse-${p.id}`) === 'true';
       if (!isCollapsed) {
         const sortedTasks = [
-          ...p.tasks.filter((t) => t.status === 'in_review'),
-          ...p.tasks.filter((t) => t.status === 'in_progress'),
+          ...p.tasks.filter((t) => t.status === TASK_STATUS.IN_REVIEW),
+          ...p.tasks.filter((t) => t.status === TASK_STATUS.IN_PROGRESS),
         ];
         for (const t of sortedTasks) {
           items.push({ type: 'task', id: t.id, projectId: p.id });
@@ -170,7 +170,7 @@ export function Sidebar({ onClose, width }: SidebarProps) {
 
   return (
     <aside
-      className={`bg-secondary border-r border-subtle flex flex-col h-full ${width ? '' : 'w-72'}`}
+      className={`bg-secondary flex flex-col h-full ${width ? '' : 'w-72'}`}
       style={sidebarStyle}
     >
       {/* Header */}
@@ -178,11 +178,11 @@ export function Sidebar({ onClose, width }: SidebarProps) {
         <div className="flex items-center gap-2">
           <h1
             onClick={handleHomeClick}
-            className="text-lg font-bold text-accent hover:text-[var(--color-text-primary)] transition-colors cursor-pointer"
-          >CODEBURG</h1>
+            className="text-lg font-semibold text-[var(--color-text-primary)] hover:text-accent transition-colors cursor-pointer"
+          >Codeburg</h1>
           {waitingCount > 0 && (
-            <span className="text-xs text-[var(--color-warning)] animate-pulse font-bold">
-              [{waitingCount}]
+            <span className="text-xs bg-[var(--color-warning)]/15 text-[var(--color-warning)] animate-pulse font-medium rounded-full px-1.5 py-0.5">
+              {waitingCount}
             </span>
           )}
         </div>
@@ -191,7 +191,7 @@ export function Sidebar({ onClose, width }: SidebarProps) {
           {sidebar?.projects && sidebar.projects.length > 0 && (
             <button
               onClick={toggleCollapseAll}
-              className="p-1 text-dim hover:text-accent transition-colors"
+              className="p-1 text-dim hover:text-[var(--color-text-secondary)] rounded-md transition-colors"
               title={allCollapsed ? 'expand all' : 'collapse all'}
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
@@ -208,7 +208,7 @@ export function Sidebar({ onClose, width }: SidebarProps) {
           {onClose && (
             <button
               onClick={onClose}
-              className="p-1 hover:text-accent transition-colors"
+              className="p-1 hover:text-[var(--color-text-secondary)] rounded-md transition-colors"
               aria-label="Close menu"
             >
               <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
@@ -259,13 +259,13 @@ export function Sidebar({ onClose, width }: SidebarProps) {
       <div className="p-3 border-t border-subtle flex gap-2">
         <button
           onClick={() => setShowCreateProject(true)}
-          className="flex-1 px-3 py-2 text-sm text-dim hover:text-accent hover:bg-tertiary transition-colors border border-subtle hover:border-accent"
+          className="flex-1 px-3 py-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
         >
           + project
         </button>
         <button
           onClick={handleSettingsClick}
-          className="px-3 py-2 text-dim hover:text-accent hover:bg-tertiary transition-colors border border-subtle hover:border-accent"
+          className="px-3 py-2 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
           title="settings"
         >
           <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
@@ -333,23 +333,23 @@ function SidebarProjectNode({ project, isActive, onProjectClick, onClose, collap
 
   // Flat list: in_review first, then in_progress (each group keeps kanban order)
   const sortedTasks = [
-    ...project.tasks.filter((t) => t.status === 'in_review'),
-    ...project.tasks.filter((t) => t.status === 'in_progress'),
+    ...project.tasks.filter((t) => t.status === TASK_STATUS.IN_REVIEW),
+    ...project.tasks.filter((t) => t.status === TASK_STATUS.IN_PROGRESS),
   ];
   const hasTasks = sortedTasks.length > 0;
 
   return (
-    <div className={`border-b border-subtle border-l-2 ${isActive ? 'border-l-accent' : 'border-l-transparent'}`}>
+    <div className="border-b border-subtle">
       {/* Project header */}
       <div
         data-sidebar-project={project.id}
         onClick={() => onProjectClick(project.id)}
-        className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-tertiary transition-colors group ${keyboardFocused ? 'bg-accent/10' : ''}`}
+        className={`flex items-center gap-2 px-3 py-2 mx-1 text-sm cursor-pointer hover:bg-tertiary rounded-md transition-colors group ${isActive ? 'bg-tertiary' : ''} ${keyboardFocused ? 'bg-accent/10' : ''}`}
       >
         {hasTasks ? (
           <button
             onClick={toggleCollapse}
-            className="text-dim hover:text-accent flex-shrink-0"
+            className="text-dim hover:text-[var(--color-text-secondary)] flex-shrink-0"
           >
             <svg
               width="12"
@@ -381,7 +381,7 @@ function SidebarProjectNode({ project, isActive, onProjectClick, onClose, collap
           </svg>
         </button>
         {hasTasks && (
-          <span className="text-xs text-dim ml-auto flex-shrink-0">[{sortedTasks.length}]</span>
+          <span className="text-xs text-dim ml-auto flex-shrink-0">{sortedTasks.length}</span>
         )}
       </div>
 
@@ -425,7 +425,7 @@ function QuickAddTask({ projectId, onClose }: QuickAddTaskProps) {
   // Step 2: move to in_progress (triggers workflow)
   const moveMutation = useMutation({
     mutationFn: (taskId: string) =>
-      tasksApi.update(taskId, { status: 'in_progress' }),
+      tasksApi.update(taskId, { status: TASK_STATUS.IN_PROGRESS }),
     onSuccess: (data: UpdateTaskResponse) => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['sidebar'] });
@@ -471,7 +471,7 @@ function QuickAddTask({ projectId, onClose }: QuickAddTaskProps) {
           onBlur={handleSubmit}
           disabled={isPending}
           placeholder="task title..."
-          className="w-full text-xs px-2 py-1 border border-accent bg-primary text-[var(--color-text-primary)] focus:outline-none placeholder:text-dim"
+          className="w-full text-xs px-2 py-1 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent placeholder:text-dim"
         />
       </div>
     );
@@ -530,12 +530,12 @@ function SidebarTaskNode({ task, onClose, keyboardFocused }: SidebarTaskNodeProp
   };
 
   const handleMoveToReview = () => {
-    updateMutation.mutate({ status: 'in_review' });
+    updateMutation.mutate({ status: TASK_STATUS.IN_REVIEW });
     setContextMenu(null);
   };
 
   const handleMoveToDone = () => {
-    updateMutation.mutate({ status: 'done' });
+    updateMutation.mutate({ status: TASK_STATUS.DONE });
     setContextMenu(null);
   };
 
@@ -545,7 +545,7 @@ function SidebarTaskNode({ task, onClose, keyboardFocused }: SidebarTaskNodeProp
         data-sidebar-task={task.id}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        className={`flex items-center gap-1.5 px-6 py-1 text-xs cursor-pointer hover:bg-tertiary transition-colors group ${keyboardFocused ? 'bg-accent/10' : ''}`}
+        className={`flex items-center gap-1.5 px-6 py-1 mx-1 text-xs cursor-pointer hover:bg-tertiary rounded-md transition-colors group ${keyboardFocused ? 'bg-accent/10' : ''}`}
       >
         <TaskStatusIcon status={task.status} />
         <span className="truncate flex-1 text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-primary)]">
@@ -556,7 +556,7 @@ function SidebarTaskNode({ task, onClose, keyboardFocused }: SidebarTaskNodeProp
         )}
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {/* PR link for in_review tasks */}
-          {task.prUrl && task.status === 'in_review' && (
+          {task.prUrl && task.status === TASK_STATUS.IN_REVIEW && (
             <a
               href={task.prUrl}
               target="_blank"
@@ -571,7 +571,7 @@ function SidebarTaskNode({ task, onClose, keyboardFocused }: SidebarTaskNodeProp
           {task.diffStats && (task.diffStats.additions > 0 || task.diffStats.deletions > 0) && (
             <span className="text-[10px] font-mono">
               {task.diffStats.additions > 0 && (
-                <span className="text-accent">+{task.diffStats.additions}</span>
+                <span className="text-[var(--color-success)]">+{task.diffStats.additions}</span>
               )}
               {task.diffStats.additions > 0 && task.diffStats.deletions > 0 && ' '}
               {task.diffStats.deletions > 0 && (
@@ -640,19 +640,19 @@ function TaskNodeContextMenu({ x, y, task, onClose, onCopyBranch, onMoveToReview
     <>
       <div className="fixed inset-0 z-[100]" onClick={onClose} />
       <div
-        className="fixed z-[100] bg-secondary border border-subtle min-w-[160px]"
+        className="fixed z-[100] bg-elevated border border-subtle rounded-lg shadow-lg min-w-[160px]"
         style={menuStyle}
       >
         <button
           onClick={onOpenTask}
-          className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary hover:text-accent transition-colors"
+          className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary rounded-md transition-colors"
         >
           open task
         </button>
         {task.branch && (
           <button
             onClick={onCopyBranch}
-            className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary hover:text-accent transition-colors"
+            className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary rounded-md transition-colors"
           >
             copy branch name
           </button>
@@ -660,13 +660,13 @@ function TaskNodeContextMenu({ x, y, task, onClose, onCopyBranch, onMoveToReview
         {task.prUrl && (
           <button
             onClick={() => { window.open(task.prUrl!, '_blank'); onClose(); }}
-            className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary hover:text-accent transition-colors"
+            className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary rounded-md transition-colors"
           >
             open PR
           </button>
         )}
         <div className="border-t border-subtle" />
-        {task.status === 'in_progress' && (
+        {task.status === TASK_STATUS.IN_PROGRESS && (
           <button
             onClick={onMoveToReview}
             className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary text-[var(--color-status-in-review)] transition-colors"
@@ -674,7 +674,7 @@ function TaskNodeContextMenu({ x, y, task, onClose, onCopyBranch, onMoveToReview
             move to review
           </button>
         )}
-        {task.status === 'in_review' && (
+        {task.status === TASK_STATUS.IN_REVIEW && (
           <button
             onClick={onMoveToDone}
             className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary text-[var(--color-status-done)] transition-colors"
@@ -720,19 +720,19 @@ function SidebarSessionNode({ session, taskId, onClose }: SidebarSessionNodeProp
 
 function StatusDot({ status }: { status: string }) {
   if (status === 'running') {
-    return <span className="w-1.5 h-1.5 bg-accent flex-shrink-0" />;
+    return <span className="w-1.5 h-1.5 rounded-full bg-accent flex-shrink-0" />;
   }
   if (status === 'waiting_input') {
-    return <span className="w-1.5 h-1.5 bg-[var(--color-warning)] flex-shrink-0 animate-pulse" />;
+    return <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-warning)] flex-shrink-0 animate-pulse" />;
   }
   // idle
-  return <span className="w-1.5 h-1.5 bg-[var(--color-text-dim)] flex-shrink-0" />;
+  return <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-dim)] flex-shrink-0" />;
 }
 
 // --- Status Icon (shown before each task name) ---
 
 function TaskStatusIcon({ status }: { status: string }) {
-  if (status === 'in_review') {
+  if (status === TASK_STATUS.IN_REVIEW) {
     // PR icon — blue
     return (
       <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="flex-shrink-0">

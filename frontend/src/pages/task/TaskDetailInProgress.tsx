@@ -6,6 +6,7 @@ import { GitPanel } from '../../components/git';
 import { DiffView } from '../../components/git';
 import { ToolsPanel } from '../../components/tools';
 import { tasksApi } from '../../api';
+import { TASK_STATUS } from '../../api';
 import type { Task, Project, AgentSession, SessionProvider } from '../../api';
 import { useMobile } from '../../hooks/useMobile';
 
@@ -26,6 +27,49 @@ interface Props {
   onShowStartModal: () => void;
 }
 
+/** Reusable drag hook — tracks a pixel value from mousedown→mousemove→mouseup. */
+function useDrag(
+  containerRef: React.RefObject<HTMLElement | null>,
+  axis: 'x' | 'y',
+  initial: number,
+  clampMin: number,
+  clampMax: number,
+) {
+  const [value, setValue] = useState(initial);
+  const draggingRef = useRef(false);
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    draggingRef.current = true;
+    document.body.style.cursor = axis === 'y' ? 'row-resize' : 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!draggingRef.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const px = axis === 'y'
+        ? ev.clientY - rect.top
+        : ev.clientX - rect.left;
+      const total = axis === 'y' ? rect.height : rect.width;
+      const clamped = Math.max(clampMin, Math.min(clampMax, px / total * 100));
+      setValue(clamped);
+    };
+
+    const onMouseUp = () => {
+      draggingRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [containerRef, axis, clampMin, clampMax]);
+
+  return [value, onMouseDown] as const;
+}
+
 export function TaskDetailInProgress({
   task, project, sessions, activeSession,
   onSelectSession, onStartSession, onCloseSession,
@@ -35,9 +79,15 @@ export function TaskDetailInProgress({
   const isMobile = useMobile();
   const [mainContent, setMainContent] = useState<MainContent>({ type: 'session' });
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('sessions');
-  const [gitPanelPct, setGitPanelPct] = useState(60);
+
+  // Refs for drag containers
   const railRef = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  // Vertical split: git panel vs tools panel (percentage of rail height)
+  const [gitPanelPct, onVDividerDown] = useDrag(railRef, 'y', 60, 20, 80);
+  // Horizontal split: left rail vs main area (percentage of body width)
+  const [railWidthPct, onHDividerDown] = useDrag(bodyRef, 'x', 22, 12, 50);
 
   const updateTask = useMutation({
     mutationFn: (input: Parameters<typeof tasksApi.update>[1]) =>
@@ -49,7 +99,7 @@ export function TaskDetailInProgress({
   });
 
   const handleMoveToReview = () => {
-    updateTask.mutate({ status: 'in_review' });
+    updateTask.mutate({ status: TASK_STATUS.IN_REVIEW });
   };
 
   const handleFileClick = (file: string, staged: boolean) => {
@@ -59,27 +109,6 @@ export function TaskDetailInProgress({
   const handleRecipeRun = (command: string) => {
     onStartSession('terminal', command);
   };
-
-  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    dragging.current = true;
-
-    const onMouseMove = (ev: MouseEvent) => {
-      if (!dragging.current || !railRef.current) return;
-      const rect = railRef.current.getBoundingClientRect();
-      const pct = ((ev.clientY - rect.top) / rect.height) * 100;
-      setGitPanelPct(Math.max(20, Math.min(80, pct)));
-    };
-
-    const onMouseUp = () => {
-      dragging.current = false;
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }, []);
 
   if (isMobile) {
     return (
@@ -91,7 +120,7 @@ export function TaskDetailInProgress({
             <button
               onClick={handleMoveToReview}
               disabled={updateTask.isPending}
-              className="px-3 py-1.5 border border-accent text-accent text-xs hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50"
+              className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors disabled:opacity-50"
             >
               review
             </button>
@@ -103,7 +132,7 @@ export function TaskDetailInProgress({
           <select
             value={mobilePanel}
             onChange={(e) => setMobilePanel(e.target.value as MobilePanel)}
-            className="bg-primary border border-subtle text-sm px-2 py-1 focus:outline-none focus:border-accent"
+            className="bg-primary border border-subtle rounded-md text-sm px-2 py-1 focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
           >
             <option value="sessions">sessions</option>
             <option value="git">git</option>
@@ -188,39 +217,50 @@ export function TaskDetailInProgress({
         }
       />
 
-      <div className="flex-1 flex overflow-hidden">
+      <div ref={bodyRef} className="flex-1 flex overflow-hidden">
         {/* Left rail */}
-        <div ref={railRef} className="w-[280px] shrink-0 border-r border-subtle flex flex-col overflow-hidden">
-          <div style={{ height: `${gitPanelPct}%` }} className="overflow-y-auto shrink-0">
+        <div
+          ref={railRef}
+          style={{ width: `${railWidthPct}%` }}
+          className="shrink-0 flex flex-col overflow-hidden"
+        >
+          {/* Git panel */}
+          <div style={{ height: `${gitPanelPct}%` }} className="overflow-y-auto min-h-0">
             <GitPanel taskId={task.id} onFileClick={handleFileClick} />
           </div>
+          {/* Vertical divider (git ↔ tools) */}
           <div
-            onMouseDown={handleDividerMouseDown}
-            className="h-1 shrink-0 cursor-row-resize bg-subtle hover:bg-accent transition-colors"
+            onMouseDown={onVDividerDown}
+            className="h-1 shrink-0 cursor-row-resize border-y border-subtle hover:bg-accent/40 transition-colors"
           />
+          {/* Tools panel */}
           <div className="flex-1 overflow-y-auto min-h-0">
             <ToolsPanel taskId={task.id} onRecipeRun={handleRecipeRun} />
           </div>
         </div>
 
+        {/* Horizontal divider (rail ↔ main) */}
+        <div
+          onMouseDown={onHDividerDown}
+          className="w-1 shrink-0 cursor-col-resize border-x border-subtle hover:bg-accent/40 transition-colors"
+        />
+
         {/* Main area */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           {/* Session tabs */}
-          {sessions.length > 0 && (
-            <SessionTabs
-              sessions={sessions}
-              activeSessionId={mainContent.type === 'session' ? activeSession?.id : undefined}
-              onSelect={(session) => {
-                onSelectSession(session);
-                setMainContent({ type: 'session' });
-              }}
-              onResume={(session) => {
-                onStartSession('claude', '', session.id);
-              }}
-              onClose={onCloseSession}
-              onNewSession={onShowStartModal}
-            />
-          )}
+          <SessionTabs
+            sessions={sessions}
+            activeSessionId={mainContent.type === 'session' ? activeSession?.id : undefined}
+            onSelect={(session) => {
+              onSelectSession(session);
+              setMainContent({ type: 'session' });
+            }}
+            onResume={(session) => {
+              onStartSession('claude', '', session.id);
+            }}
+            onClose={onCloseSession}
+            onNewSession={onShowStartModal}
+          />
 
           {/* Main content */}
           <div className="flex-1 overflow-hidden">

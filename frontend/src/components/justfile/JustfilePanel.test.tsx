@@ -45,7 +45,7 @@ describe('JustfilePanel', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('// no justfile found')).toBeInTheDocument();
+      expect(screen.getByText('No justfile found')).toBeInTheDocument();
     });
   });
 
@@ -73,7 +73,7 @@ describe('JustfilePanel', () => {
 
     expect(screen.getByText('Build the project')).toBeInTheDocument();
     expect(screen.getByText('Run tests')).toBeInTheDocument();
-    expect(screen.getByText('// recipes (3)')).toBeInTheDocument();
+    expect(screen.getByText('Recipes (3)')).toBeInTheDocument();
   });
 
   it('shows recipe args', async () => {
@@ -170,7 +170,7 @@ describe('JustfilePanel', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('// run a recipe to see output')).toBeInTheDocument();
+      expect(screen.getByText('Run a recipe to see output')).toBeInTheDocument();
     });
   });
 });

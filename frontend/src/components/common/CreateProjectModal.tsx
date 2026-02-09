@@ -78,35 +78,35 @@ export function CreateProjectModal({ onClose }: CreateProjectModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-[var(--color-bg-primary)]/80 flex items-center justify-center p-4 z-50">
-      <div className="bg-secondary border border-subtle w-full max-w-md">
+    <div className="fixed inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div className="bg-elevated border border-subtle rounded-xl shadow-lg w-full max-w-md">
         <div className="px-4 py-3 border-b border-subtle">
-          <h2 className="text-sm text-accent">// new_project</h2>
+          <h2 className="text-sm font-medium">New Project</h2>
         </div>
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           {error && (
-            <div className="border border-[var(--color-error)] p-3 text-sm text-[var(--color-error)]">
+            <div className="border border-[var(--color-error)] rounded-md p-3 text-sm text-[var(--color-error)]">
               {error}
             </div>
           )}
           <div>
-            <label className="block text-sm text-dim mb-1">path or github url</label>
+            <label className="block text-sm text-dim mb-1">Path or GitHub URL</label>
             <input
               type="text"
               value={source}
               onChange={(e) => handleSourceChange(e.target.value)}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none"
+              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
               placeholder="https://github.com/user/repo or /path/to/project"
               required
             />
             {isClone && name && (
               <p className="text-xs text-dim mt-1">
-                // will clone to ~/.codeburg/repos/{name}/
+                Will clone to ~/.codeburg/repos/{name}/
               </p>
             )}
           </div>
           <div>
-            <label className="block text-sm text-dim mb-1">name</label>
+            <label className="block text-sm text-dim mb-1">Name</label>
             <input
               type="text"
               value={name}
@@ -114,7 +114,7 @@ export function CreateProjectModal({ onClose }: CreateProjectModalProps) {
                 setName(e.target.value);
                 setNameManuallyEdited(true);
               }}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none"
+              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
               placeholder="my-project"
               required
             />
@@ -123,14 +123,14 @@ export function CreateProjectModal({ onClose }: CreateProjectModalProps) {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-2 px-4 border border-subtle text-dim text-sm hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-primary)] transition-colors"
+              className="flex-1 py-2 px-4 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-sm hover:bg-[var(--color-border)] transition-colors"
             >
               cancel
             </button>
             <button
               type="submit"
               disabled={createMutation.isPending}
-              className="flex-1 py-2 px-4 border border-accent text-accent text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50"
+              className="flex-1 py-2 px-4 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
             >
               {createMutation.isPending
                 ? (isClone ? 'cloning...' : 'creating...')

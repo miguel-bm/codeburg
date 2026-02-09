@@ -11,7 +11,7 @@ export function SessionList({ sessions, activeSessionId, onSelect, onResume }: S
   if (sessions.length === 0) {
     return (
       <div className="p-4 text-center text-sm text-dim">
-        // no_sessions
+        No sessions
       </div>
     );
   }
@@ -22,9 +22,9 @@ export function SessionList({ sessions, activeSessionId, onSelect, onResume }: S
         <button
           key={session.id}
           onClick={() => onSelect(session)}
-          className={`w-full px-4 py-3 text-left transition-colors ${
+          className={`w-full px-4 py-3 text-left rounded-md transition-colors ${
             session.id === activeSessionId
-              ? 'bg-accent/10 border-l-2 border-accent'
+              ? 'bg-accent/10'
               : 'hover:bg-secondary'
           }`}
         >
@@ -77,8 +77,8 @@ function SessionStatusBadge({ status }: SessionStatusBadgeProps) {
   };
 
   return (
-    <span className={`text-xs ${getStatusStyle()}`}>
-      [{status}]
+    <span className={`text-xs rounded-full px-2 py-0.5 ${getStatusStyle()}`}>
+      {status.replace('_', ' ')}
     </span>
   );
 }

@@ -1,56 +1,56 @@
 @import "tailwindcss";
 
 /* Codeburg Design System
- * Dark-first, high contrast, Matrix-inspired
- * Monospace typography, sharp corners, minimal elevation
+ * Dark-first, polished macOS app aesthetic
+ * System fonts for UI, monospace for code
+ * Subtle rounded corners, clean shadows, dense and professional
  */
 
 @theme {
-  /* Background colors - very dark (dark mode default) */
-  --color-bg-primary: oklch(0.08 0 0);
-  --color-bg-secondary: oklch(0.11 0 0);
-  --color-bg-tertiary: oklch(0.14 0 0);
+  /* Backgrounds - polished dark grays (not pure black) */
+  --color-bg-primary: oklch(0.145 0.004 265);
+  --color-bg-secondary: oklch(0.175 0.004 265);
+  --color-bg-tertiary: oklch(0.21 0.004 265);
+  --color-bg-elevated: oklch(0.22 0.006 265);
 
-  /* Text colors - high contrast */
-  --color-text-primary: oklch(0.95 0 0);
-  --color-text-secondary: oklch(0.75 0 0);
-  --color-text-dim: oklch(0.6 0 0);        /* Brightened for readability */
+  /* Text - softer hierarchy */
+  --color-text-primary: oklch(0.93 0 0);
+  --color-text-secondary: oklch(0.65 0 0);
+  --color-text-dim: oklch(0.50 0.004 265);
 
-  /* Accent - Matrix green */
-  --color-accent: oklch(0.75 0.2 145);
-  --color-accent-dim: oklch(0.55 0.15 145);
-  --color-accent-glow: oklch(0.75 0.2 145 / 0.3);
+  /* Accent - professional blue */
+  --color-accent: oklch(0.65 0.19 260);
+  --color-accent-dim: oklch(0.50 0.15 260);
+  --color-accent-glow: oklch(0.65 0.19 260 / 0.15);
 
   /* Status colors */
-  --color-status-backlog: oklch(0.5 0 0);
-  --color-status-in-progress: oklch(0.75 0.2 145);
-  --color-status-in-review: oklch(0.75 0.15 250);
-  --color-status-done: oklch(0.6 0.1 145);
+  --color-status-backlog: oklch(0.55 0.01 260);
+  --color-status-in-progress: oklch(0.65 0.19 260);
+  --color-status-in-review: oklch(0.65 0.16 300);
+  --color-status-done: oklch(0.65 0.17 155);
 
   /* Semantic colors */
-  --color-error: oklch(0.7 0.2 30);
-  --color-warning: oklch(0.75 0.15 85);
+  --color-error: oklch(0.65 0.2 25);
+  --color-warning: oklch(0.72 0.15 75);
+  --color-success: oklch(0.65 0.17 155);
 
-  /* Borders - brightened for visibility */
-  --color-border: oklch(0.35 0 0);
-  --color-border-accent: oklch(0.75 0.2 145 / 0.6);
+  /* Borders - subtle */
+  --color-border: oklch(0.26 0.004 265);
+  --color-border-accent: oklch(0.65 0.19 260 / 0.5);
 
-  /* Fonts - all monospace */
-  --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", ui-monospace, monospace;
+  /* Fonts - system font for UI, mono for code */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, monospace;
 }
 
 /* Base styles */
 :root {
-  font-family: var(--font-mono);
-  font-size: 14px;
-  line-height: 1.6;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
   font-weight: 400;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-* {
-  border-radius: 0 !important;
 }
 
 body {
@@ -63,37 +63,43 @@ body {
 /* Light mode overrides via CSS custom properties */
 @media (prefers-color-scheme: light) {
   :root {
-    --color-bg-primary: oklch(0.98 0 0);
-    --color-bg-secondary: oklch(0.95 0 0);
-    --color-bg-tertiary: oklch(0.92 0 0);
-    --color-text-primary: oklch(0.1 0 0);
-    --color-text-secondary: oklch(0.35 0 0);
-    --color-text-dim: oklch(0.55 0 0);
-    --color-accent: oklch(0.45 0.2 145);
-    --color-accent-dim: oklch(0.35 0.15 145);
-    --color-accent-glow: oklch(0.45 0.2 145 / 0.2);
-    --color-border: oklch(0.8 0 0);
-    --color-border-accent: oklch(0.45 0.2 145 / 0.5);
+    --color-bg-primary: oklch(0.97 0.003 265);
+    --color-bg-secondary: oklch(0.94 0.003 265);
+    --color-bg-tertiary: oklch(0.91 0.003 265);
+    --color-bg-elevated: oklch(0.99 0.002 265);
+    --color-text-primary: oklch(0.15 0.004 265);
+    --color-text-secondary: oklch(0.40 0.004 265);
+    --color-text-dim: oklch(0.55 0.004 265);
+    --color-accent: oklch(0.55 0.19 260);
+    --color-accent-dim: oklch(0.45 0.15 260);
+    --color-accent-glow: oklch(0.55 0.19 260 / 0.12);
+    --color-border: oklch(0.82 0.003 265);
+    --color-border-accent: oklch(0.55 0.19 260 / 0.4);
+    --color-status-backlog: oklch(0.50 0.01 260);
+    --color-status-in-progress: oklch(0.55 0.19 260);
+    --color-status-in-review: oklch(0.55 0.16 300);
+    --color-status-done: oklch(0.55 0.17 155);
+    --color-success: oklch(0.55 0.17 155);
   }
 }
 
-/* Scrollbar styling */
+/* Scrollbar styling - thin, macOS style */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--color-bg-primary);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border: 1px solid var(--color-bg-primary);
+  background: oklch(0.4 0 0 / 0.3);
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-accent-dim);
+  background: oklch(0.5 0 0 / 0.5);
 }
 
 /* Selection */
@@ -104,8 +110,8 @@ body {
 
 /* Focus styles */
 :focus-visible {
-  outline: 1px solid var(--color-accent);
-  outline-offset: 1px;
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 /* Clickable elements should have pointer cursor */
@@ -144,6 +150,10 @@ button:disabled,
   background-color: var(--color-bg-tertiary);
 }
 
+@utility bg-elevated {
+  background-color: var(--color-bg-elevated);
+}
+
 @utility border-subtle {
   border-color: var(--color-border);
 }
@@ -152,14 +162,15 @@ button:disabled,
   border-color: var(--color-accent);
 }
 
-@utility glow-accent {
-  box-shadow: 0 0 10px var(--color-accent-glow), 0 0 20px var(--color-accent-glow);
+@utility shadow-accent {
+  box-shadow: 0 0 0 3px var(--color-accent-glow);
 }
 
 /* Drop target highlight */
 @utility drop-target {
   border-color: var(--color-accent) !important;
-  background-color: oklch(0.75 0.2 145 / 0.1) !important;
+  background-color: oklch(0.65 0.19 260 / 0.08) !important;
+  border-radius: 0.5rem;
 }
 
 /* Status badge utilities */
@@ -179,20 +190,6 @@ button:disabled,
   color: var(--color-status-done);
 }
 
-/* Animation for active/pulsing elements */
-@keyframes pulse-glow {
-  0%, 100% {
-    box-shadow: 0 0 5px var(--color-accent-glow);
-  }
-  50% {
-    box-shadow: 0 0 15px var(--color-accent-glow), 0 0 25px var(--color-accent-glow);
-  }
-}
-
-.animate-pulse-glow {
-  animation: pulse-glow 2s ease-in-out infinite;
-}
-
 /* Drop target pulsing placeholder */
 @keyframes drop-target-pulse {
   0%, 100% { opacity: 0.3; }
@@ -205,9 +202,6 @@ button:disabled,
 
 /* Respect reduced motion */
 @media (prefers-reduced-motion: reduce) {
-  .animate-pulse-glow {
-    animation: none;
-  }
   .animate-drop-pulse {
     animation: none;
   }

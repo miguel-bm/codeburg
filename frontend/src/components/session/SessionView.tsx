@@ -13,7 +13,7 @@ export function SessionView({ session }: SessionViewProps) {
   if (!tmuxTarget) {
     return (
       <div className="flex items-center justify-center h-full text-dim">
-        // no terminal target
+          No terminal target
       </div>
     );
   }
@@ -79,7 +79,7 @@ function StatusIndicator({ status }: StatusIndicatorProps) {
 
   return (
     <div className="flex items-center gap-2">
-      <div className={`w-2 h-2 ${getStatusColor()}`} />
+      <div className={`w-2 h-2 rounded-full ${getStatusColor()}`} />
       <span className="text-xs text-dim">{getStatusText()}</span>
     </div>
   );
@@ -96,7 +96,7 @@ function ActivityIndicator({ lastActivityAt }: ActivityIndicatorProps) {
   if (secondsAgo < 10) {
     return (
       <div className="flex items-center gap-1">
-        <div className="w-1.5 h-1.5 bg-accent animate-pulse" />
+        <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
         <span className="text-xs text-dim">active</span>
       </div>
     );

@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { TaskHeader } from './TaskHeader';
 import { tasksApi } from '../../api';
+import { TASK_STATUS } from '../../api/types';
 import type { Task, Project } from '../../api/types';
 
 interface Props {
@@ -62,7 +63,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
   };
 
   const handleStartWorking = () => {
-    updateTask.mutate({ status: 'in_progress' });
+    updateTask.mutate({ status: TASK_STATUS.IN_PROGRESS });
   };
 
   return (
@@ -74,7 +75,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
           <button
             onClick={handleStartWorking}
             disabled={updateTask.isPending}
-            className="px-4 py-1.5 border border-accent text-accent text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50"
+            className="px-4 py-1.5 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
           >
             {updateTask.isPending ? 'starting...' : 'start working'}
           </button>
@@ -85,7 +86,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
         <div className="max-w-2xl space-y-6">
           {/* Title */}
           <div>
-            <h3 className="text-sm text-dim mb-2">// title</h3>
+            <h3 className="text-xs font-medium uppercase tracking-wider text-dim mb-2">Title</h3>
             {editingTitle ? (
               <input
                 type="text"
@@ -96,7 +97,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
                   if (e.key === 'Enter') handleTitleSave();
                   if (e.key === 'Escape') { setTitle(task.title); setEditingTitle(false); }
                 }}
-                className="w-full bg-primary border border-accent px-3 py-2 text-lg font-medium focus:outline-none"
+                className="w-full bg-primary border border-subtle rounded-md px-3 py-2 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
                 autoFocus
               />
             ) : (
@@ -111,7 +112,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
 
           {/* Description */}
           <div>
-            <h3 className="text-sm text-dim mb-2">// description</h3>
+            <h3 className="text-xs font-medium uppercase tracking-wider text-dim mb-2">Description</h3>
             {editingDesc ? (
               <textarea
                 value={description}
@@ -121,7 +122,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
                   if (e.key === 'Escape') { setDescription(task.description || ''); setEditingDesc(false); }
                 }}
                 rows={Math.max(4, description.split('\n').length + 1)}
-                className="w-full bg-primary border border-accent px-3 py-2 text-sm focus:outline-none resize-none"
+                className="w-full bg-primary border border-subtle rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent resize-none"
                 autoFocus
               />
             ) : (
@@ -136,7 +137,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
 
           {/* Branch */}
           <div>
-            <h3 className="text-sm text-dim mb-2">// branch</h3>
+            <h3 className="text-xs font-medium uppercase tracking-wider text-dim mb-2">Branch</h3>
             {editingBranch ? (
               <input
                 ref={branchRef}
@@ -149,7 +150,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
                   if (e.key === 'Escape') { setBranchValue(task.branch || ''); setEditingBranch(false); }
                 }}
                 placeholder={slugify(task.title)}
-                className="w-full bg-primary border border-accent px-3 py-2 font-mono text-sm focus:outline-none"
+                className="w-full bg-primary border border-subtle rounded-md px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
                 autoFocus
               />
             ) : (
@@ -165,7 +166,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
 
           {/* Details */}
           <div>
-            <h3 className="text-sm text-dim mb-2">// details</h3>
+            <h3 className="text-xs font-medium uppercase tracking-wider text-dim mb-2">Details</h3>
             <div className="space-y-2 text-sm">
               {project && (
                 <div className="flex gap-4">

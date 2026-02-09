@@ -115,14 +115,15 @@ Session struct uses `sync.Mutex` for status but the in-memory session map uses c
 
 ---
 
-### 8. Inconsistent Logging Strategy
+### 8. ~~Inconsistent Logging Strategy~~ RESOLVED
 
 **Files**:
-- `backend/internal/worktree/worktree.go:140,147,175,202` - uses `fmt.Fprintf(os.Stderr)`
+- ~~`backend/internal/worktree/worktree.go:140,147,175,202` - uses `fmt.Fprintf(os.Stderr)`~~ (fixed 2026-02-08, now uses `slog.Warn`)
 - ~~`backend/internal/api/tasks.go:137` - uses `fmt.Printf`~~ (fixed 2026-02-08, now uses `slog.Warn`)
 - Other handlers use `slog`
 
 **Category**: Observability
+**Status**: Fixed (2026-02-08)
 
 Mix of `fmt.Printf`, `fmt.Fprintf(os.Stderr)`, and `slog.*` makes log aggregation and filtering unreliable.
 
@@ -132,9 +133,10 @@ Mix of `fmt.Printf`, `fmt.Fprintf(os.Stderr)`, and `slog.*` makes log aggregatio
 
 ---
 
-### 9. Task Status Constants Not Shared
+### 9. ~~Task Status Constants Not Shared~~ RESOLVED
 
 **Category**: Architecture
+**Status**: Fixed (2026-02-08)
 
 Backend defines `TaskStatus*` constants in Go. Frontend uses string literals (`"backlog"`, `"in_progress"`) scattered across components. A typo or rename on one side silently breaks the other.
 
@@ -214,7 +216,7 @@ Mixes session management, hook token writing, HTTP handlers, in-memory state, an
 
 ## Duplication
 
-### 14. Tunnel UI Logic Duplicated
+### 14. ~~Tunnel UI Logic Duplicated~~ RESOLVED
 
 **Files**:
 - `frontend/src/components/tunnel/TunnelPanel.tsx` (157 lines)
@@ -223,6 +225,7 @@ Mixes session management, hook token writing, HTTP handlers, in-memory state, an
 ~70% overlap: same port validation, copy-to-clipboard, mutation handlers.
 
 **Fix**: Extract shared `TunnelManager` component or `useTunnels()` hook.
+**Status**: Fixed (2026-02-08)
 
 | Confidence | Severity | Ease of Fix |
 |------------|----------|-------------|
@@ -419,9 +422,9 @@ All imports use relative paths (`../../api/client`, `../test/wrapper`). Deep nes
 |---|-------|------------|----------|------|
 | ~~3~~ | ~~No React error boundaries~~ Fixed | 5 | 4 | 4 |
 | ~~4~~ | ~~No 401 handling~~ Fixed (refresh still TODO) | 5 | 4 | 3 |
-| 9 | Task status constants not shared | 5 | 3 | 3 |
-| 8 | Inconsistent logging | 5 | 2 | 4 |
-| 14 | Tunnel UI duplication | 5 | 2 | 4 |
+| ~~9~~ | ~~Task status constants not shared~~ Fixed | 5 | 3 | 3 |
+| ~~8~~ | ~~Inconsistent logging~~ Fixed | 5 | 2 | 4 |
+| ~~14~~ | ~~Tunnel UI duplication~~ Fixed | 5 | 2 | 4 |
 
 ### Plan For (Larger refactors)
 | # | Issue | Confidence | Severity | Ease |
@@ -453,6 +456,9 @@ Record fixes here as they are applied. Mark the corresponding issue heading with
 | 2026-02-08 | #5 | `tasks.go`: replaced `fmt.Printf` with `slog.Warn` for worktree failure. `sessions.go`: handle `GetSession` error with `slog.Warn`, fall back to original session. `preferences.ts` left as-is (intentional fallback). | Claude Code |
 | 2026-02-08 | #3 | Added `ErrorBoundary` class component wrapping the entire app in `App.tsx`. Shows error message + reload button on crash instead of white screen. | Claude Code |
 | 2026-02-08 | #4 | Added 401 interceptor in `api/client.ts` that calls `logout()` via callback. Auth paths excluded to avoid loops. Wired up in `stores/auth.ts` using `setOnUnauthorized`. Token refresh deferred (needs backend). | Claude Code |
+| 2026-02-08 | #9 | Added `TASK_STATUS` constants and `ALL_TASK_STATUSES` array in `api/types.ts`. Replaced all string literals across 10 files (Dashboard, TaskDetail, TaskDetailBacklog/Done/InProgress/InReview, TaskHeader, Sidebar, CommandPalette). | Claude Code |
+| 2026-02-08 | #8 | Replaced all 4 `fmt.Fprintf(os.Stderr, ...)` calls in `worktree.go` with structured `slog.Warn(...)`. All backend logging now uses `slog`. | Claude Code |
+| 2026-02-08 | #14 | Extracted `useTunnels(taskId)` hook to `hooks/useTunnels.ts`. Both `TunnelPanel.tsx` and `ToolsPanel.tsx` `TunnelsSection` now use the shared hook — query, mutations, port state, and clipboard all deduplicated. | Claude Code |
 | | | | |
 | | | | |
 | | | | |

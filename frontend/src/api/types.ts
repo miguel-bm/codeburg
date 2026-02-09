@@ -65,6 +65,20 @@ export interface WorktreeResponse {
 
 export type TaskStatus = 'backlog' | 'in_progress' | 'in_review' | 'done';
 
+export const TASK_STATUS = {
+  BACKLOG: 'backlog',
+  IN_PROGRESS: 'in_progress',
+  IN_REVIEW: 'in_review',
+  DONE: 'done',
+} as const satisfies Record<string, TaskStatus>;
+
+export const ALL_TASK_STATUSES: TaskStatus[] = [
+  TASK_STATUS.BACKLOG,
+  TASK_STATUS.IN_PROGRESS,
+  TASK_STATUS.IN_REVIEW,
+  TASK_STATUS.DONE,
+];
+
 export interface DiffStats {
   additions: number;
   deletions: number;

@@ -29,14 +29,14 @@ export function TerminalModal({ target, onClose }: TerminalModalProps) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-subtle bg-secondary">
         <div className="flex items-center gap-4">
-          <span className="text-sm text-accent font-mono">// terminal</span>
+          <span className="text-sm font-medium">Terminal</span>
           <span className="text-xs text-dim font-mono">{target}</span>
         </div>
         <div className="flex items-center gap-4">
           <span className="text-xs text-dim">ctrl+esc to close</span>
           <button
             onClick={onClose}
-            className="px-3 py-1 text-sm border border-subtle text-dim hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-primary)] transition-colors"
+            className="px-3 py-1 text-sm bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors"
           >
             close
           </button>

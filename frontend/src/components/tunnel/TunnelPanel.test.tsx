@@ -51,7 +51,7 @@ describe('TunnelPanel', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('// no active tunnels')).toBeInTheDocument();
+      expect(screen.getByText('No active tunnels')).toBeInTheDocument();
     });
   });
 
@@ -219,7 +219,7 @@ describe('TunnelPanel', () => {
     );
   });
 
-  it('shows "// tunnels" header', async () => {
+  it('shows "Tunnels" header', async () => {
     mockedApi.list.mockResolvedValue([]);
 
     render(
@@ -229,7 +229,7 @@ describe('TunnelPanel', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('// tunnels')).toBeInTheDocument();
+      expect(screen.getByText('Tunnels')).toBeInTheDocument();
     });
   });
 });

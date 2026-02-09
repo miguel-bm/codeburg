@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { TaskHeader } from './TaskHeader';
 import { tasksApi } from '../../api';
+import { TASK_STATUS } from '../../api/types';
 import type { Task, Project } from '../../api/types';
 
 interface Props {
@@ -21,7 +22,7 @@ export function TaskDetailDone({ task, project }: Props) {
   });
 
   const handleReopen = () => {
-    updateTask.mutate({ status: 'in_progress' });
+    updateTask.mutate({ status: TASK_STATUS.IN_PROGRESS });
   };
 
   return (
@@ -33,7 +34,7 @@ export function TaskDetailDone({ task, project }: Props) {
           <button
             onClick={handleReopen}
             disabled={updateTask.isPending}
-            className="px-3 py-1.5 border border-subtle text-dim text-xs hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-primary)] transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors disabled:opacity-50"
           >
             reopen
           </button>
@@ -43,7 +44,7 @@ export function TaskDetailDone({ task, project }: Props) {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-2xl space-y-6">
           <div>
-            <h3 className="text-sm text-dim mb-2">// summary</h3>
+            <h3 className="text-xs font-medium uppercase tracking-wider text-dim mb-2">Summary</h3>
             {task.description && (
               <p className="text-sm whitespace-pre-wrap mb-4">{task.description}</p>
             )}
@@ -71,7 +72,7 @@ export function TaskDetailDone({ task, project }: Props) {
                 <div className="flex gap-4">
                   <span className="text-dim w-24">changes</span>
                   <span>
-                    <span className="text-accent">+{task.diffStats.additions}</span>
+                    <span className="text-[var(--color-success)]">+{task.diffStats.additions}</span>
                     {' / '}
                     <span className="text-[var(--color-error)]">-{task.diffStats.deletions}</span>
                   </span>

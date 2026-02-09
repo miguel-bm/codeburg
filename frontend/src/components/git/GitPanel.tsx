@@ -100,25 +100,25 @@ export function GitPanel({ taskId, onFileClick }: GitPanelProps) {
             }
           }}
           placeholder="commit message..."
-          className="flex-1 min-w-0 bg-primary border border-subtle px-2 py-1 text-xs focus:outline-none focus:border-accent"
+          className="flex-1 min-w-0 bg-primary border border-subtle rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
         />
         <button
           onClick={() => commitMutation.mutate({ message: commitMsg.trim() })}
           disabled={!canCommit}
-          className="px-2 py-1 border border-accent text-accent hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-accent shrink-0"
+          className="px-2 py-1 bg-accent text-white rounded-md font-medium hover:bg-accent-dim transition-colors disabled:opacity-30 shrink-0"
         >
           {commitMutation.isPending ? '...' : 'commit'}
         </button>
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setShowMenu(!showMenu)}
-            className="px-1.5 py-1 border border-subtle text-dim hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-primary)] transition-colors shrink-0"
+            className="px-1.5 py-1 bg-tertiary text-dim rounded-md hover:text-[var(--color-text-primary)] hover:bg-[var(--color-border)] transition-colors shrink-0"
             title="More actions"
           >
             ...
           </button>
           {showMenu && (
-            <div className="absolute right-0 top-full mt-1 bg-secondary border border-subtle z-10 min-w-[100px]">
+            <div className="absolute right-0 top-full mt-1 bg-elevated border border-subtle rounded-md shadow-md z-10 min-w-[100px]">
               <button
                 onClick={() => {
                   commitMutation.mutate({ message: commitMsg.trim(), amend: true });
@@ -262,7 +262,7 @@ function FileRow({ file, action, onAction, onClick }: {
 }) {
   return (
     <div className="flex items-center gap-1 px-3 py-0.5 hover:bg-accent/5 group">
-      <span className="text-accent font-mono w-4 text-center shrink-0">
+      <span className="text-[var(--color-success)] font-mono w-4 text-center shrink-0">
         {statusLabel(file.status)}
       </span>
       <button
@@ -273,7 +273,7 @@ function FileRow({ file, action, onAction, onClick }: {
         {file.path}
       </button>
       {file.additions != null && file.additions > 0 && (
-        <span className="text-accent shrink-0">+{file.additions}</span>
+        <span className="text-[var(--color-success)] shrink-0">+{file.additions}</span>
       )}
       {file.deletions != null && file.deletions > 0 && (
         <span className="text-[var(--color-error)] shrink-0">-{file.deletions}</span>

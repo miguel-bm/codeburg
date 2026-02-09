@@ -59,7 +59,7 @@ export function JustfilePanel({ taskId }: JustfilePanelProps) {
   if (!data?.hasJustfile) {
     return (
       <div className="p-4 text-sm text-dim">
-        // no justfile found
+        No justfile found
       </div>
     );
   }
@@ -69,7 +69,7 @@ export function JustfilePanel({ taskId }: JustfilePanelProps) {
       {/* Recipe List */}
       <div className="border-b border-subtle">
         <div className="px-4 py-2 text-xs text-dim">
-          // recipes ({data.recipes.length})
+          Recipes ({data.recipes.length})
         </div>
         <div className="max-h-48 overflow-y-auto">
           {data.recipes.map((recipe) => (
@@ -113,7 +113,7 @@ export function JustfilePanel({ taskId }: JustfilePanelProps) {
             value={args}
             onChange={(e) => setArgs(e.target.value)}
             placeholder={selectedRecipe.args}
-            className="w-full mt-1 px-2 py-1 text-sm bg-primary border border-subtle focus:border-accent focus:outline-none"
+            className="w-full mt-1 px-2 py-1 text-sm bg-primary border border-subtle rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
           />
         </div>
       )}
@@ -121,7 +121,7 @@ export function JustfilePanel({ taskId }: JustfilePanelProps) {
       {/* Output */}
       <div className="flex-1 flex flex-col min-h-0">
         <div className="px-4 py-2 text-xs text-dim border-b border-subtle flex items-center justify-between">
-          <span>// output</span>
+          <span>Output</span>
           {output && (
             <button
               onClick={() => setOutput('')}
@@ -135,7 +135,7 @@ export function JustfilePanel({ taskId }: JustfilePanelProps) {
           ref={outputRef}
           className="flex-1 p-4 text-xs font-mono overflow-auto bg-primary whitespace-pre-wrap"
         >
-          {output || '// run a recipe to see output'}
+          {output || 'Run a recipe to see output'}
         </pre>
       </div>
     </div>

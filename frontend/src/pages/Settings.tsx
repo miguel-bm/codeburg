@@ -23,7 +23,7 @@ export function Settings() {
             >
               &lt; back
             </button>
-            <h1 className="text-lg font-medium">// settings</h1>
+            <h1 className="text-lg font-medium">Settings</h1>
           </div>
         </header>
 
@@ -38,10 +38,10 @@ export function Settings() {
 
             {/* Logout */}
             <div>
-              <h2 className="text-sm text-dim mb-3">// session</h2>
+              <h2 className="text-xs font-medium uppercase tracking-wider text-dim mb-3">Session</h2>
               <button
                 onClick={logout}
-                className="px-4 py-2 border border-[var(--color-error)] text-[var(--color-error)] text-sm hover:bg-[var(--color-error)] hover:text-[var(--color-bg-primary)] transition-colors"
+                className="px-4 py-2 bg-[var(--color-error)]/10 text-[var(--color-error)] rounded-md text-sm hover:bg-[var(--color-error)]/20 transition-colors"
               >
                 logout
               </button>
@@ -63,12 +63,12 @@ function TerminalSettingsForm() {
   const settings = useTerminalSettings();
 
   const selectClass =
-    'block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none appearance-none';
+    'block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent appearance-none';
 
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm text-dim">// terminal</h2>
+        <h2 className="text-xs font-medium uppercase tracking-wider text-dim">Terminal</h2>
         <button
           onClick={settings.reset}
           className="text-xs text-dim hover:text-[var(--color-text-primary)] transition-colors"
@@ -93,7 +93,7 @@ function TerminalSettingsForm() {
             className="w-full accent-[var(--color-accent)]"
           />
           <div
-            className="mt-2 px-3 py-2 bg-[#0a0a0a] border border-subtle overflow-hidden"
+            className="mt-2 px-3 py-2 bg-[#0a0a0a] border border-subtle rounded-md overflow-hidden"
             style={{ fontFamily: 'JetBrains Mono, Menlo, Monaco, Consolas, monospace', fontSize: `${settings.fontSize}px` }}
           >
             <span className="text-[#22c55e]">$</span>{' '}
@@ -184,14 +184,14 @@ function ToggleRow({ label, description, checked, onChange }: {
         role="switch"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
-        className={`relative w-9 h-5 border transition-colors ${
+        className={`relative w-9 h-5 border rounded-full transition-colors ${
           checked
             ? 'bg-accent border-accent'
             : 'bg-[#1a1a1a] border-subtle'
         }`}
       >
         <span
-          className={`absolute top-0.5 w-3.5 h-3.5 bg-[var(--color-bg-primary)] transition-transform ${
+          className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-[var(--color-bg-primary)] transition-transform ${
             checked ? 'left-[18px]' : 'left-0.5'
           }`}
         />
@@ -242,15 +242,15 @@ function PasswordChangeForm() {
 
   return (
     <div>
-      <h2 className="text-sm text-dim mb-3">// change_password</h2>
+      <h2 className="text-xs font-medium uppercase tracking-wider text-dim mb-3">Change Password</h2>
       <form onSubmit={handleSubmit} className="space-y-3">
         {error && (
-          <div className="border border-[var(--color-error)] p-3 text-sm text-[var(--color-error)]">
+          <div className="border border-[var(--color-error)] rounded-md p-3 text-sm text-[var(--color-error)]">
             {error}
           </div>
         )}
         {success && (
-          <div className="border border-accent p-3 text-sm text-accent">
+          <div className="border border-[var(--color-success)] rounded-md p-3 text-sm text-[var(--color-success)]">
             password changed successfully
           </div>
         )}
@@ -260,7 +260,7 @@ function PasswordChangeForm() {
             type="password"
             value={currentPassword}
             onChange={(e) => setCurrentPassword(e.target.value)}
-            className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none"
+            className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
             required
           />
         </div>
@@ -270,7 +270,7 @@ function PasswordChangeForm() {
             type="password"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
-            className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none"
+            className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
             required
             minLength={8}
           />
@@ -281,7 +281,7 @@ function PasswordChangeForm() {
             type="password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
-            className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none"
+            className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
             required
             minLength={8}
           />
@@ -289,7 +289,7 @@ function PasswordChangeForm() {
         <button
           type="submit"
           disabled={mutation.isPending}
-          className="px-4 py-2 border border-accent text-accent text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50"
+          className="px-4 py-2 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
         >
           {mutation.isPending ? 'changing...' : 'change password'}
         </button>

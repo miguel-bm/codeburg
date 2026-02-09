@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { sidebarApi, projectsApi } from '../../api';
+import { sidebarApi, projectsApi, TASK_STATUS } from '../../api';
 
 interface CommandItem {
   id: string;
@@ -75,7 +75,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
             type: 'task',
             label: t.title,
             detail: `${p.name} · ${t.status.replace('_', ' ')}`,
-            icon: t.status === 'in_review' ? '!' : '#',
+            icon: t.status === TASK_STATUS.IN_REVIEW ? '!' : '#',
             onSelect: () => { navigate(`/tasks/${t.id}`); onClose(); },
           });
 
@@ -160,10 +160,10 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   return createPortal(
     <div className="fixed inset-0 z-[200] flex items-start justify-center pt-[15vh]">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-[var(--color-bg-primary)]/80" onClick={onClose} />
+      <div className="absolute inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm" onClick={onClose} />
 
       {/* Palette */}
-      <div className="relative w-full max-w-lg bg-secondary border border-accent shadow-lg">
+      <div className="relative w-full max-w-lg bg-elevated border border-subtle rounded-xl shadow-lg">
         {/* Search input */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-subtle">
           <span className="text-accent text-sm">&gt;</span>
@@ -190,7 +190,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
               <div
                 key={item.id}
                 onClick={item.onSelect}
-                className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
+                className={`flex items-center gap-3 px-4 py-2.5 mx-1 rounded-md cursor-pointer transition-colors ${
                   i === selectedIndex
                     ? 'bg-tertiary text-[var(--color-text-primary)]'
                     : 'text-[var(--color-text-secondary)] hover:bg-tertiary'

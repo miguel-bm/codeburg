@@ -38,19 +38,19 @@ export function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-primary px-4">
-      <div className="max-w-md w-full space-y-8">
+      <div className="max-w-sm w-full space-y-8">
         <div>
-          <h1 className="text-2xl font-bold text-center text-accent">
-            CODEBURG
+          <h1 className="text-2xl font-semibold text-center text-[var(--color-text-primary)]">
+            Codeburg
           </h1>
           <p className="mt-2 text-center text-dim text-sm">
-            {needsSetup ? '// initialize password' : '// authenticate'}
+            {needsSetup ? 'Set up your password' : 'Sign in to continue'}
           </p>
         </div>
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           {error && (
-            <div className="border border-[var(--color-error)] p-3 text-sm text-[var(--color-error)]">
+            <div className="border border-[var(--color-error)] rounded-md p-3 text-sm text-[var(--color-error)]">
               {error}
             </div>
           )}
@@ -58,7 +58,7 @@ export function Login() {
           <div className="space-y-4">
             <div>
               <label htmlFor="password" className="block text-sm text-dim mb-1">
-                password
+                Password
               </label>
               <input
                 id="password"
@@ -66,7 +66,7 @@ export function Login() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="block w-full px-3 py-2 border border-subtle bg-secondary text-[var(--color-text-primary)] focus:border-accent focus:outline-none"
+                className="block w-full px-3 py-2 border border-subtle bg-secondary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
                 placeholder="********"
               />
             </div>
@@ -74,7 +74,7 @@ export function Login() {
             {needsSetup && (
               <div>
                 <label htmlFor="confirmPassword" className="block text-sm text-dim mb-1">
-                  confirm_password
+                  Confirm password
                 </label>
                 <input
                   id="confirmPassword"
@@ -82,7 +82,7 @@ export function Login() {
                   required
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="block w-full px-3 py-2 border border-subtle bg-secondary text-[var(--color-text-primary)] focus:border-accent focus:outline-none"
+                  className="block w-full px-3 py-2 border border-subtle bg-secondary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
                   placeholder="********"
                 />
               </div>
@@ -92,9 +92,9 @@ export function Login() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full py-2 px-4 border border-accent text-accent hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-2 px-4 bg-accent text-white rounded-md font-medium hover:bg-accent-dim transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLoading ? 'loading...' : needsSetup ? 'initialize' : 'login'}
+            {isLoading ? 'loading...' : needsSetup ? 'Initialize' : 'Sign in'}
           </button>
         </form>
       </div>

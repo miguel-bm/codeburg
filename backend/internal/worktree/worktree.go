@@ -3,6 +3,7 @@ package worktree
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -137,14 +138,14 @@ func (m *Manager) Create(opts CreateOptions) (*CreateResult, error) {
 		dstPath := filepath.Join(worktreePath, symlinkPath)
 
 		if err := m.createSymlink(srcPath, dstPath); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to create symlink %s -> %s: %v\n", dstPath, srcPath, err)
+			slog.Warn("failed to create symlink", "dst", dstPath, "src", srcPath, "error", err)
 		}
 	}
 
 	// Run setup script if provided
 	if opts.SetupScript != "" {
 		if err := m.runScript(worktreePath, opts.SetupScript); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: setup script failed: %v\n", err)
+			slog.Warn("setup script failed", "worktree", worktreePath, "error", err)
 		}
 	}
 
@@ -172,7 +173,7 @@ func (m *Manager) Delete(opts DeleteOptions) error {
 	// Run teardown script if provided
 	if opts.TeardownScript != "" {
 		if err := m.runScript(opts.WorktreePath, opts.TeardownScript); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: teardown script failed: %v\n", err)
+			slog.Warn("teardown script failed", "worktree", opts.WorktreePath, "error", err)
 		}
 	}
 
@@ -199,7 +200,7 @@ func (m *Manager) Delete(opts DeleteOptions) error {
 	// Delete the branch if requested
 	if opts.DeleteBranch && branchName != "" {
 		if err := m.deleteBranch(opts.ProjectPath, branchName); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to delete branch %s: %v\n", branchName, err)
+			slog.Warn("failed to delete branch", "branch", branchName, "error", err)
 		}
 	}
 

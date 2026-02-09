@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/layout/Layout';
 import { tasksApi, projectsApi, sessionsApi } from '../api';
 import type { Task, TaskStatus, CreateTaskInput, UpdateTaskResponse } from '../api';
+import { TASK_STATUS } from '../api';
 import { useMobile } from '../hooks/useMobile';
 import { useSwipe } from '../hooks/useSwipe';
 import { useLongPress } from '../hooks/useLongPress';
@@ -14,10 +15,10 @@ import { CreateProjectModal } from '../components/common/CreateProjectModal';
 import { useSidebarFocusStore } from '../stores/sidebarFocus';
 
 const COLUMNS: { id: TaskStatus; title: string; color: string }[] = [
-  { id: 'backlog', title: 'BACKLOG', color: 'status-backlog' },
-  { id: 'in_progress', title: 'IN_PROGRESS', color: 'status-in-progress' },
-  { id: 'in_review', title: 'IN_REVIEW', color: 'status-in-review' },
-  { id: 'done', title: 'DONE', color: 'status-done' },
+  { id: TASK_STATUS.BACKLOG, title: 'Backlog', color: 'status-backlog' },
+  { id: TASK_STATUS.IN_PROGRESS, title: 'In Progress', color: 'status-in-progress' },
+  { id: TASK_STATUS.IN_REVIEW, title: 'In Review', color: 'status-in-review' },
+  { id: TASK_STATUS.DONE, title: 'Done', color: 'status-done' },
 ];
 
 interface ContextMenu {
@@ -70,7 +71,7 @@ export function Dashboard() {
     }
   }, [selectedProjectId]);
   const [showCreateTask, setShowCreateTask] = useState(false);
-  const [createTaskStatus, setCreateTaskStatus] = useState<TaskStatus>('backlog');
+  const [createTaskStatus, setCreateTaskStatus] = useState<TaskStatus>(TASK_STATUS.BACKLOG);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [activeColumnIndex, setActiveColumnIndex] = useState(0);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
@@ -476,9 +477,9 @@ export function Dashboard() {
                     : 'text-dim hover:text-[var(--color-text-primary)]'
                 }`}
               >
-                {column.title.slice(0, 8)}
+                {column.title}
                 <span className="ml-1 text-dim">
-                  [{getTasksByStatus(column.id).length}]
+                  {getTasksByStatus(column.id).length}
                 </span>
               </button>
             ))}
@@ -521,7 +522,7 @@ export function Dashboard() {
                 <div
                   key={column.id}
                   ref={(el) => { columnRefs.current[colIdx] = el; }}
-                  className={`flex-1 min-w-0 flex flex-col bg-secondary border transition-colors ${
+                  className={`flex-1 min-w-0 flex flex-col bg-secondary rounded-lg border transition-colors ${
                     focus?.col === colIdx
                       ? 'border-accent'
                       : 'border-subtle'
@@ -530,11 +531,11 @@ export function Dashboard() {
                   {/* Column Header */}
                   <div className="px-4 py-3 border-b border-subtle">
                     <div className="flex items-center justify-between">
-                      <h3 className={`text-sm font-medium ${column.color}`}>
+                      <h3 className={`text-xs font-medium uppercase tracking-wider ${column.color}`}>
                         {column.title}
                       </h3>
-                      <span className="text-sm text-dim">
-                        [{colTasks.length}]
+                      <span className="text-xs text-dim">
+                        {colTasks.length}
                       </span>
                     </div>
                   </div>
@@ -618,7 +619,7 @@ export function Dashboard() {
           x={contextMenu.x}
           y={contextMenu.y}
           taskId={contextMenu.taskId}
-          currentStatus={tasks?.find((t) => t.id === contextMenu.taskId)?.status ?? 'backlog'}
+          currentStatus={tasks?.find((t) => t.id === contextMenu.taskId)?.status ?? TASK_STATUS.BACKLOG}
           onClose={() => setContextMenu(null)}
           onStatusChange={(status) => {
             updateTaskMutation.mutate({ id: contextMenu.taskId, status });
@@ -661,7 +662,7 @@ export function Dashboard() {
 function DropPlaceholder({ height }: { height: number }) {
   return (
     <div
-      className="border-2 border-dashed border-accent bg-[var(--color-accent-glow)] animate-drop-pulse mb-2"
+      className="border-2 border-dashed border-accent bg-[var(--color-accent-glow)] rounded-md animate-drop-pulse mb-2"
       style={{ height }}
     />
   );
@@ -685,7 +686,7 @@ function NewTaskPlaceholder({ focused, onClick }: NewTaskPlaceholderProps) {
     <div
       ref={ref}
       onClick={onClick}
-      className={`p-3 border border-dashed text-center text-sm cursor-pointer transition-colors ${
+      className={`p-3 border border-dashed rounded-md text-center text-sm cursor-pointer transition-colors ${
         focused
           ? 'border-accent text-accent bg-[var(--color-accent-glow)]'
           : 'border-subtle text-dim hover:border-accent hover:text-accent'
@@ -697,10 +698,10 @@ function NewTaskPlaceholder({ focused, onClick }: NewTaskPlaceholderProps) {
 }
 
 const STATUS_COLORS: Record<TaskStatus, string> = {
-  backlog: 'var(--color-status-backlog)',
-  in_progress: 'var(--color-status-in-progress)',
-  in_review: 'var(--color-status-in-review)',
-  done: 'var(--color-status-done)',
+  [TASK_STATUS.BACKLOG]: 'var(--color-status-backlog)',
+  [TASK_STATUS.IN_PROGRESS]: 'var(--color-status-in-progress)',
+  [TASK_STATUS.IN_REVIEW]: 'var(--color-status-in-review)',
+  [TASK_STATUS.DONE]: 'var(--color-status-done)',
 };
 
 interface TaskCardProps {
@@ -757,10 +758,9 @@ const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
       id={`task-${task.id}`}
       {...(isMobile ? longPressHandlers : {})}
       onMouseDown={!isMobile ? onMouseDown : undefined}
-      className={`bg-primary p-3 border-l-2 border transition-all cursor-pointer select-none ${
+      className={`bg-primary p-3 rounded-md border transition-all cursor-pointer select-none ${
         isMobile ? 'select-none' : ''
-      } ${ghost ? 'opacity-20' : ''} ${focused ? 'border-accent bg-[var(--color-accent-glow)]' : 'border-subtle hover:border-accent'}`}
-      style={{ borderLeftColor: STATUS_COLORS[task.status] }}
+      } ${ghost ? 'opacity-20' : ''} ${focused ? 'border-accent bg-[var(--color-accent-glow)]' : 'border-subtle hover:border-[var(--color-text-dim)]'}`}
     >
       <h4 className="font-medium text-sm">
         {task.title}
@@ -785,7 +785,7 @@ const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
         {task.diffStats && (task.diffStats.additions > 0 || task.diffStats.deletions > 0) && (
           <span className="text-[10px] font-mono">
             {task.diffStats.additions > 0 && (
-              <span className="text-accent">+{task.diffStats.additions}</span>
+              <span className="text-[var(--color-success)]">+{task.diffStats.additions}</span>
             )}
             {task.diffStats.additions > 0 && task.diffStats.deletions > 0 && ' '}
             {task.diffStats.deletions > 0 && (
@@ -838,11 +838,11 @@ function TaskContextMenu({ x, y, currentStatus, onClose, onStatusChange }: TaskC
         onClick={onClose}
       />
       <div
-        className="fixed z-50 bg-secondary border border-subtle min-w-[150px]"
+        className="fixed z-50 bg-elevated border border-subtle rounded-lg shadow-lg min-w-[150px]"
         style={menuStyle}
       >
-        <div className="px-3 py-2 text-xs text-dim border-b border-subtle">
-          // move_to
+        <div className="px-3 py-2 text-xs font-medium uppercase tracking-wider text-dim border-b border-subtle">
+          Move to
         </div>
         {COLUMNS.map((column) => (
           <button
@@ -873,7 +873,7 @@ interface CreateTaskModalProps {
   onClose: () => void;
 }
 
-function CreateTaskModal({ projects, defaultProjectId, defaultStatus = 'backlog', onClose }: CreateTaskModalProps) {
+function CreateTaskModal({ projects, defaultProjectId, defaultStatus = TASK_STATUS.BACKLOG, onClose }: CreateTaskModalProps) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', h);
@@ -895,7 +895,7 @@ function CreateTaskModal({ projects, defaultProjectId, defaultStatus = 'backlog'
     mutationFn: ({ projectId, input }: { projectId: string; input: CreateTaskInput }) =>
       tasksApi.create(projectId, input),
     onSuccess: (task) => {
-      if (defaultStatus !== 'backlog') {
+      if (defaultStatus !== TASK_STATUS.BACKLOG) {
         tasksApi.update(task.id, { status: defaultStatus }).then(() => {
           queryClient.invalidateQueries({ queryKey: ['tasks'] });
         });
@@ -929,23 +929,23 @@ function CreateTaskModal({ projects, defaultProjectId, defaultStatus = 'backlog'
   };
 
   return (
-    <div className="fixed inset-0 bg-[var(--color-bg-primary)]/80 flex items-center justify-center p-4 z-50">
-      <div className="bg-secondary border border-subtle w-full max-w-md">
+    <div className="fixed inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div className="bg-elevated border border-subtle rounded-xl shadow-lg w-full max-w-md">
         <div className="px-4 py-3 border-b border-subtle">
-          <h2 className="text-sm text-accent">// new_task</h2>
+          <h2 className="text-sm font-medium">New Task</h2>
         </div>
         <form onSubmit={handleSubmit} onKeyDown={handleKeyDown} className="p-4 space-y-4">
           {error && (
-            <div className="border border-[var(--color-error)] p-3 text-sm text-[var(--color-error)]">
+            <div className="border border-[var(--color-error)] rounded-md p-3 text-sm text-[var(--color-error)]">
               {error}
             </div>
           )}
           <div>
-            <label className="block text-sm text-dim mb-1">project</label>
+            <label className="block text-sm text-dim mb-1">Project</label>
             <select
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none"
+              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
             >
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -955,24 +955,24 @@ function CreateTaskModal({ projects, defaultProjectId, defaultStatus = 'backlog'
             </select>
           </div>
           <div>
-            <label className="block text-sm text-dim mb-1">title</label>
+            <label className="block text-sm text-dim mb-1">Title</label>
             <input
               ref={titleRef}
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none"
+              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
               placeholder="implement feature x"
               required
             />
           </div>
           <div>
-            <label className="block text-sm text-dim mb-1">description</label>
+            <label className="block text-sm text-dim mb-1">Description</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none resize-none"
+              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent resize-none"
               placeholder="optional description..."
             />
           </div>
@@ -980,14 +980,14 @@ function CreateTaskModal({ projects, defaultProjectId, defaultStatus = 'backlog'
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-2 px-4 border border-subtle text-dim text-sm hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-primary)] transition-colors"
+              className="flex-1 py-2 px-4 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-sm hover:bg-[var(--color-border)] transition-colors"
             >
               cancel
             </button>
             <button
               type="submit"
               disabled={!canSubmit}
-              className="flex-1 py-2 px-4 border border-accent text-accent text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 py-2 px-4 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {createMutation.isPending ? 'creating...' : 'create'}
             </button>
@@ -1027,28 +1027,28 @@ function WorkflowPromptModal({ taskId, onClose }: WorkflowPromptModalProps) {
   });
 
   return (
-    <div className="fixed inset-0 bg-[var(--color-bg-primary)]/80 flex items-center justify-center p-4 z-50">
-      <div className="bg-secondary border border-subtle w-full max-w-md">
+    <div className="fixed inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div className="bg-elevated border border-subtle rounded-xl shadow-lg w-full max-w-md">
         <div className="px-4 py-3 border-b border-subtle">
-          <h2 className="text-sm text-accent">// start_agent_session</h2>
+          <h2 className="text-sm font-medium">Start Agent Session</h2>
         </div>
         <div className="p-4 space-y-4">
           {error && (
-            <div className="border border-[var(--color-error)] p-3 text-sm text-[var(--color-error)]">
+            <div className="border border-[var(--color-error)] rounded-md p-3 text-sm text-[var(--color-error)]">
               {error}
             </div>
           )}
           <div>
-            <label className="block text-sm text-dim mb-2">provider</label>
+            <label className="block text-sm text-dim mb-2">Provider</label>
             <div className="flex gap-2">
               {(['claude', 'codex'] as const).map((p) => (
                 <button
                   key={p}
                   onClick={() => setProvider(p)}
-                  className={`flex-1 py-2 px-4 border text-sm transition-colors ${
+                  className={`flex-1 py-2 px-4 border rounded-md text-sm transition-colors ${
                     provider === p
-                      ? 'border-accent text-accent'
-                      : 'border-subtle text-dim hover:border-accent hover:text-accent'
+                      ? 'border-accent text-accent bg-accent/10'
+                      : 'border-subtle text-dim hover:bg-tertiary'
                   }`}
                 >
                   {p}
@@ -1057,26 +1057,26 @@ function WorkflowPromptModal({ taskId, onClose }: WorkflowPromptModalProps) {
             </div>
           </div>
           <div>
-            <label className="block text-sm text-dim mb-1">prompt (optional)</label>
+            <label className="block text-sm text-dim mb-1">Prompt (optional)</label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={3}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] focus:border-accent focus:outline-none resize-none"
+              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent resize-none"
               placeholder="describe what the agent should do..."
             />
           </div>
           <div className="flex gap-2 pt-2">
             <button
               onClick={onClose}
-              className="flex-1 py-2 px-4 border border-subtle text-dim text-sm hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-primary)] transition-colors"
+              className="flex-1 py-2 px-4 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-sm hover:bg-[var(--color-border)] transition-colors"
             >
               skip
             </button>
             <button
               onClick={() => startMutation.mutate()}
               disabled={startMutation.isPending}
-              className="flex-1 py-2 px-4 border border-accent text-accent text-sm hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50"
+              className="flex-1 py-2 px-4 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
             >
               {startMutation.isPending ? 'starting...' : 'start'}
             </button>

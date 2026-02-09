@@ -1,48 +1,14 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { tunnelsApi } from '../../api';
-import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
+import { useTunnels } from '../../hooks/useTunnels';
 
 interface TunnelPanelProps {
   taskId: string;
 }
 
 export function TunnelPanel({ taskId }: TunnelPanelProps) {
-  const queryClient = useQueryClient();
-  const [port, setPort] = useState('');
-  const [showCreate, setShowCreate] = useState(false);
-
-  const { data: tunnels, isLoading } = useQuery({
-    queryKey: ['tunnels', taskId],
-    queryFn: () => tunnelsApi.list(taskId),
-    refetchInterval: 10000, // Poll to detect stopped tunnels
-  });
-
-  const createMutation = useMutation({
-    mutationFn: (port: number) => tunnelsApi.create(taskId, port),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tunnels', taskId] });
-      setPort('');
-      setShowCreate(false);
-    },
-  });
-
-  const stopMutation = useMutation({
-    mutationFn: (tunnelId: string) => tunnelsApi.stop(tunnelId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tunnels', taskId] });
-    },
-  });
-
-  const handleCreate = (e: React.FormEvent) => {
-    e.preventDefault();
-    const portNum = parseInt(port, 10);
-    if (portNum > 0 && portNum <= 65535) {
-      createMutation.mutate(portNum);
-    }
-  };
-
-  const { copied, copy: copyToClipboard } = useCopyToClipboard();
+  const {
+    tunnels, isLoading, port, setPort, showCreate, setShowCreate,
+    createMutation, stopMutation, copied, copyUrl, handleCreate,
+  } = useTunnels(taskId);
 
   if (isLoading) {
     return (
@@ -56,7 +22,7 @@ export function TunnelPanel({ taskId }: TunnelPanelProps) {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="px-4 py-3 border-b border-subtle flex items-center justify-between">
-        <span className="text-sm text-dim">// tunnels</span>
+        <span className="text-xs font-medium uppercase tracking-wider text-dim">Tunnels</span>
         {!showCreate && (
           <button
             onClick={() => setShowCreate(true)}
@@ -78,13 +44,13 @@ export function TunnelPanel({ taskId }: TunnelPanelProps) {
               placeholder="port (e.g. 3000)"
               min="1"
               max="65535"
-              className="flex-1 px-2 py-1 text-sm bg-primary border border-subtle focus:border-accent focus:outline-none"
+              className="flex-1 px-2 py-1 text-sm bg-primary border border-subtle rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
               autoFocus
             />
             <button
               type="submit"
               disabled={createMutation.isPending || !port}
-              className="px-3 py-1 text-sm border border-accent text-accent hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50"
+              className="px-3 py-1 text-sm bg-accent text-white rounded-md font-medium hover:bg-accent-dim transition-colors disabled:opacity-50"
             >
               {createMutation.isPending ? '...' : 'create'}
             </button>
@@ -106,16 +72,16 @@ export function TunnelPanel({ taskId }: TunnelPanelProps) {
 
       {/* Tunnel List */}
       <div className="flex-1 overflow-y-auto">
-        {tunnels?.length === 0 ? (
+        {tunnels.length === 0 ? (
           <div className="p-4 text-sm text-dim text-center">
-            // no active tunnels
+            No active tunnels
             <div className="mt-2 text-xs">
               Create a tunnel to expose a local port to the internet
             </div>
           </div>
         ) : (
           <div className="divide-y divide-subtle">
-            {tunnels?.map((tunnel) => (
+            {tunnels.map((tunnel) => (
               <div key={tunnel.id} className="p-4">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-mono text-accent">
@@ -139,7 +105,7 @@ export function TunnelPanel({ taskId }: TunnelPanelProps) {
                     {tunnel.url}
                   </a>
                   <button
-                    onClick={() => copyToClipboard(tunnel.url)}
+                    onClick={() => copyUrl(tunnel.url)}
                     className={`text-xs shrink-0 ${copied ? 'text-accent' : 'text-dim hover:text-[var(--color-text-primary)]'}`}
                     title="Copy URL"
                   >

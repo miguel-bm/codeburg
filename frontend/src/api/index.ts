@@ -8,6 +8,7 @@ export { tunnelsApi } from './tunnels';
 export { sidebarApi } from './sidebar';
 export { preferencesApi } from './preferences';
 export { gitApi } from './git';
+export { TASK_STATUS, ALL_TASK_STATUSES } from './types';
 export * from './types';
 export type { AgentSession, SessionStatus, SessionProvider, StartSessionInput } from './sessions';
 export type { Recipe, JustfileInfo, RunResult } from './justfile';

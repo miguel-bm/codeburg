@@ -77,7 +77,7 @@ export function TerminalToolbar({ onInput }: TerminalToolbarProps) {
             handlePress(key.id, key.data);
           }}
           onClick={() => handlePress(key.id, key.data)}
-          className={`flex-shrink-0 px-3 py-2 text-xs font-mono border transition-colors select-none flex items-center justify-center min-w-[36px]
+          className={`flex-shrink-0 px-3 py-2 text-xs font-mono border rounded-md transition-colors select-none flex items-center justify-center min-w-[36px]
             ${flash === key.id
               ? 'bg-accent text-[#0a0a0a] border-accent'
               : 'bg-[#1a1a1a] text-dim border-subtle active:bg-accent active:text-[#0a0a0a]'
