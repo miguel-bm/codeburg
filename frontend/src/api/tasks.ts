@@ -34,4 +34,7 @@ export const tasksApi = {
 
   deleteWorktree: (taskId: string) =>
     api.delete(`/tasks/${taskId}/worktree`),
+
+  createPR: (taskId: string) =>
+    api.post<{ prUrl: string }>(`/tasks/${taskId}/create-pr`, {}),
 };

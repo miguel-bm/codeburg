@@ -329,11 +329,11 @@ All sessions are terminal-based, rendered via xterm.js connected to tmux windows
 
 ### Design System
 
-- Dark mode primary, Matrix-inspired green highlights
-- Monospace font everywhere (JetBrains Mono)
-- No rounded corners - sharp edges only
-- Slim borders in highlight color
-- Flat cards (same background, not elevated)
+- Modern professional macOS app aesthetic
+- Dark mode primary with light mode support
+- Compact, dense, well-organized, straightforward
+- System fonts for UI, monospace for code
+- Subtle rounded corners, clean shadows
 
 ## Current Status
 

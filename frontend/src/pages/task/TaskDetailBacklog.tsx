@@ -121,46 +121,45 @@ export function TaskDetailBacklog({ task, project }: Props) {
   /* ── Content column ────────────────────────────────────────── */
 
   const content = (
-    <div className="space-y-6">
-      {/* Title — large heading, click to edit */}
-      <div>
-        {editingTitle ? (
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onBlur={handleTitleSave}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleTitleSave();
-              if (e.key === 'Escape') { setTitle(task.title); setEditingTitle(false); }
-            }}
-            className="w-full bg-primary border border-accent px-3 py-2 text-xl font-semibold focus:outline-none"
-            autoFocus
-          />
-        ) : (
-          <div
-            onClick={() => setEditingTitle(true)}
-            className="group cursor-text border border-transparent hover:border-[var(--color-border)] transition-colors px-3 py-2 -mx-3"
-          >
-            <h2 className="text-xl font-semibold group-hover:text-accent transition-colors">
-              {task.title}
-            </h2>
-          </div>
-        )}
-      </div>
+    <div className="space-y-5">
+      {/* Title — click to edit, seamless transition */}
+      {editingTitle ? (
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onBlur={handleTitleSave}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleTitleSave();
+            if (e.key === 'Escape') { setTitle(task.title); setEditingTitle(false); }
+          }}
+          className="w-full bg-transparent border border-accent rounded-lg px-3 py-2 text-xl font-semibold text-[var(--color-text-primary)] focus:outline-none shadow-accent"
+          autoFocus
+        />
+      ) : (
+        <div
+          onClick={() => setEditingTitle(true)}
+          className="group cursor-text border border-transparent hover:border-[var(--color-border)] rounded-lg px-3 py-2 transition-colors"
+        >
+          <h2 className="text-xl font-semibold text-[var(--color-text-primary)] group-hover:text-accent transition-colors">
+            {task.title}
+          </h2>
+        </div>
+      )}
 
       {/* Description */}
       <div>
-        <SectionHeader label="Description">
+        <div className="flex items-center justify-between mb-2 px-1">
+          <span className="text-xs font-medium uppercase tracking-wider text-[var(--color-text-secondary)]">Description</span>
           {!editingDesc && (
             <button
               onClick={() => setEditingDesc(true)}
-              className="text-xs text-dim hover:text-accent transition-colors"
+              className="text-xs text-[var(--color-text-secondary)] hover:text-accent transition-colors"
             >
               edit
             </button>
           )}
-        </SectionHeader>
+        </div>
         {editingDesc ? (
           <div>
             <textarea
@@ -170,20 +169,20 @@ export function TaskDetailBacklog({ task, project }: Props) {
                 if (e.key === 'Escape') { setDescription(task.description || ''); setEditingDesc(false); }
               }}
               rows={Math.max(6, description.split('\n').length + 2)}
-              className="w-full bg-primary border border-accent px-3 py-2 text-sm focus:outline-none resize-y min-h-[120px]"
+              className="w-full bg-transparent border border-accent rounded-lg px-3 py-2.5 text-sm text-[var(--color-text-primary)] focus:outline-none shadow-accent resize-y min-h-[120px] leading-relaxed"
               placeholder="Describe the task — requirements, context, acceptance criteria..."
               autoFocus
             />
             <div className="flex justify-end gap-2 mt-2">
               <button
                 onClick={() => { setDescription(task.description || ''); setEditingDesc(false); }}
-                className="text-xs text-dim hover:text-[var(--color-text-primary)] px-3 py-1.5 border border-subtle transition-colors"
+                className="text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] px-3 py-1.5 rounded-md border border-subtle transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDescSave}
-                className="text-xs text-white bg-accent hover:bg-accent-dim px-3 py-1.5 transition-colors"
+                className="text-xs text-white bg-accent hover:bg-accent-dim px-3 py-1.5 rounded-md transition-colors"
               >
                 Save
               </button>
@@ -192,14 +191,14 @@ export function TaskDetailBacklog({ task, project }: Props) {
         ) : (
           <div
             onClick={() => setEditingDesc(true)}
-            className="cursor-text border border-transparent hover:border-[var(--color-border)] transition-colors px-3 py-3 -mx-3"
+            className="cursor-text border border-transparent hover:border-[var(--color-border)] rounded-lg px-3 py-2.5 transition-colors min-h-[120px]"
           >
             {task.description ? (
-              <p className="text-sm whitespace-pre-wrap leading-relaxed text-[var(--color-text-secondary)]">
+              <p className="text-sm whitespace-pre-wrap leading-relaxed text-[var(--color-text-primary)]">
                 {task.description}
               </p>
             ) : (
-              <p className="text-sm text-dim italic">
+              <p className="text-sm text-[var(--color-text-secondary)] italic">
                 Click to add description...
               </p>
             )}
@@ -209,16 +208,17 @@ export function TaskDetailBacklog({ task, project }: Props) {
 
       {/* Branch */}
       <div>
-        <SectionHeader label="Branch">
+        <div className="flex items-center justify-between mb-2 px-1">
+          <span className="text-xs font-medium uppercase tracking-wider text-[var(--color-text-secondary)]">Branch</span>
           {!editingBranch && (
             <button
               onClick={() => setEditingBranch(true)}
-              className="text-xs text-dim hover:text-accent transition-colors"
+              className="text-xs text-[var(--color-text-secondary)] hover:text-accent transition-colors"
             >
               edit
             </button>
           )}
-        </SectionHeader>
+        </div>
         {editingBranch ? (
           <input
             type="text"
@@ -230,18 +230,18 @@ export function TaskDetailBacklog({ task, project }: Props) {
               if (e.key === 'Escape') { setBranchValue(task.branch || ''); setEditingBranch(false); }
             }}
             placeholder={slugify(task.title)}
-            className="w-full bg-primary border border-accent px-3 py-2 font-mono text-sm focus:outline-none"
+            className="w-full bg-transparent border border-accent rounded-lg px-3 py-2 font-mono text-sm text-[var(--color-text-primary)] focus:outline-none shadow-accent"
             autoFocus
           />
         ) : (
           <div
             onClick={() => setEditingBranch(true)}
-            className="cursor-text border border-transparent hover:border-[var(--color-border)] transition-colors px-3 py-2 -mx-3"
+            className="cursor-text border border-transparent hover:border-[var(--color-border)] rounded-lg px-3 py-2 transition-colors"
           >
             <div className="flex items-center gap-2">
               <span className="font-mono text-sm text-accent">{branchDisplay}</span>
               {isAutoBranch && (
-                <span className="text-[10px] text-dim border border-[var(--color-border)] px-1.5 py-px uppercase tracking-wider">
+                <span className="text-[10px] text-[var(--color-text-secondary)] border border-[var(--color-border)] rounded-full px-1.5 py-px uppercase tracking-wider">
                   auto
                 </span>
               )}
@@ -261,20 +261,22 @@ export function TaskDetailBacklog({ task, project }: Props) {
         <button
           onClick={handleStartWorking}
           disabled={updateTask.isPending}
-          className="w-full px-4 py-3 bg-accent text-white font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          className="w-full px-4 py-3 bg-accent text-white font-medium text-sm rounded-lg hover:bg-accent-dim transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
         >
           {updateTask.isPending ? 'Starting...' : (
             <>Start Working <span className="opacity-60">&rarr;</span></>
           )}
         </button>
-        <p className="text-[10px] text-dim text-center mt-1.5 uppercase tracking-wider">
+        <p className="text-[10px] text-[var(--color-text-secondary)] text-center mt-1.5 uppercase tracking-wider">
           Creates worktree &amp; branch
         </p>
       </div>
 
       {/* Details panel */}
-      <div className="border border-[var(--color-border)]">
-        <PanelHeader>Details</PanelHeader>
+      <div className="border border-[var(--color-border)] rounded-lg overflow-hidden">
+        <div className="text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-secondary)] px-3 py-2 border-b border-[var(--color-border)] bg-secondary">
+          Details
+        </div>
         <div className="divide-y divide-[var(--color-border)] text-xs">
           <MetaRow label="Status">
             <span className="text-[var(--color-status-backlog)]">backlog</span>
@@ -291,8 +293,8 @@ export function TaskDetailBacklog({ task, project }: Props) {
           )}
           {project && (
             <div className="px-3 py-2.5">
-              <span className="text-dim text-xs">Path</span>
-              <div className="font-mono text-[10px] text-[var(--color-text-secondary)] mt-1 break-all leading-relaxed">
+              <span className="text-[var(--color-text-secondary)] text-xs">Path</span>
+              <div className="font-mono text-[10px] text-[var(--color-text-primary)] opacity-60 mt-1 break-all leading-relaxed">
                 {project.path}
               </div>
             </div>
@@ -314,16 +316,18 @@ export function TaskDetailBacklog({ task, project }: Props) {
       </div>
 
       {/* Actions panel */}
-      <div className="border border-[var(--color-border)]">
-        <PanelHeader>Actions</PanelHeader>
+      <div className="border border-[var(--color-border)] rounded-lg overflow-hidden">
+        <div className="text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-secondary)] px-3 py-2 border-b border-[var(--color-border)] bg-secondary">
+          Actions
+        </div>
         <div className="divide-y divide-[var(--color-border)]">
           <button
             onClick={handleTogglePin}
             disabled={updateTask.isPending}
-            className="w-full flex items-center justify-between px-3 py-2.5 text-xs hover:bg-tertiary transition-colors disabled:opacity-50"
+            className="w-full flex items-center justify-between px-3 py-2.5 text-xs text-[var(--color-text-primary)] hover:bg-tertiary transition-colors disabled:opacity-50"
           >
             <span>{task.pinned ? 'Unpin task' : 'Pin task'}</span>
-            <span className={task.pinned ? 'text-accent' : 'text-dim'}>
+            <span className={task.pinned ? 'text-accent' : 'text-[var(--color-text-secondary)]'}>
               {task.pinned ? '\u25C6' : '\u25C7'}
             </span>
           </button>
@@ -351,8 +355,8 @@ export function TaskDetailBacklog({ task, project }: Props) {
             <button
               onClick={handleTogglePin}
               disabled={updateTask.isPending}
-              className={`px-2 py-1.5 text-sm transition-colors disabled:opacity-50 ${
-                task.pinned ? 'text-accent' : 'text-dim hover:text-accent'
+              className={`px-2 py-1.5 text-sm rounded-md transition-colors disabled:opacity-50 ${
+                task.pinned ? 'text-accent' : 'text-[var(--color-text-secondary)] hover:text-accent'
               }`}
               title={task.pinned ? 'Unpin' : 'Pin'}
             >
@@ -361,7 +365,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
             <button
               onClick={handleStartWorking}
               disabled={updateTask.isPending}
-              className="px-4 py-1.5 bg-accent text-white font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
+              className="px-4 py-1.5 bg-accent text-white font-medium text-sm rounded-md hover:bg-accent-dim transition-colors disabled:opacity-50"
             >
               {updateTask.isPending ? 'Starting...' : 'Start Working'}
             </button>
@@ -386,11 +390,11 @@ export function TaskDetailBacklog({ task, project }: Props) {
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-elevated border border-subtle w-full max-w-sm">
-            <div className="px-4 py-3 border-b border-subtle">
-              <h2 className="text-sm font-medium">Delete Task</h2>
+          <div className="bg-elevated border border-subtle rounded-xl w-full max-w-sm shadow-lg">
+            <div className="px-5 py-4 border-b border-subtle">
+              <h2 className="text-sm font-medium text-[var(--color-text-primary)]">Delete Task</h2>
             </div>
-            <div className="p-4 space-y-4">
+            <div className="p-5 space-y-5">
               <p className="text-sm text-[var(--color-text-secondary)]">
                 Delete <strong className="text-[var(--color-text-primary)]">{task.title}</strong>?
                 This cannot be undone.
@@ -398,14 +402,14 @@ export function TaskDetailBacklog({ task, project }: Props) {
               <div className="flex gap-2">
                 <button
                   onClick={() => setShowDeleteConfirm(false)}
-                  className="flex-1 py-2 px-4 bg-tertiary text-[var(--color-text-secondary)] text-sm hover:bg-[var(--color-border)] transition-colors"
+                  className="flex-1 py-2 px-4 bg-tertiary text-[var(--color-text-secondary)] text-sm rounded-lg hover:bg-[var(--color-border)] transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={() => deleteTask.mutate()}
                   disabled={deleteTask.isPending}
-                  className="flex-1 py-2 px-4 bg-[var(--color-error)] text-white font-medium text-sm hover:opacity-90 transition-colors disabled:opacity-50"
+                  className="flex-1 py-2 px-4 bg-[var(--color-error)] text-white font-medium text-sm rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
                 >
                   {deleteTask.isPending ? 'Deleting...' : 'Delete'}
                 </button>
@@ -420,28 +424,10 @@ export function TaskDetailBacklog({ task, project }: Props) {
 
 /* ── Small presentational helpers (file-local) ───────────────── */
 
-function SectionHeader({ label, children }: { label: string; children?: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-3 mb-3">
-      <h3 className="text-xs font-medium uppercase tracking-wider text-dim">{label}</h3>
-      <div className="flex-1 h-px bg-[var(--color-border)]" />
-      {children}
-    </div>
-  );
-}
-
-function PanelHeader({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-[10px] font-medium uppercase tracking-wider text-dim px-3 py-2 border-b border-[var(--color-border)] bg-secondary">
-      {children}
-    </div>
-  );
-}
-
 function MetaRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between px-3 py-2.5">
-      <span className="text-dim">{label}</span>
+      <span className="text-[var(--color-text-secondary)]">{label}</span>
       {children}
     </div>
   );

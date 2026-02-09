@@ -207,9 +207,20 @@ button:disabled,
   animation: drop-target-pulse 1.5s ease-in-out infinite;
 }
 
+/* Cursor blink for settings preview */
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.animate-blink {
+  animation: cursor-blink 1s step-end infinite;
+}
+
 /* Respect reduced motion */
 @media (prefers-reduced-motion: reduce) {
-  .animate-drop-pulse {
+  .animate-drop-pulse,
+  .animate-blink {
     animation: none;
   }
 }

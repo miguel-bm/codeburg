@@ -146,6 +146,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/tasks/{id}", s.handleGetTask)
 		r.Patch("/api/tasks/{id}", s.handleUpdateTask)
 		r.Delete("/api/tasks/{id}", s.handleDeleteTask)
+		r.Post("/api/tasks/{id}/create-pr", s.handleCreatePR)
 
 		// Worktrees
 		r.Post("/api/tasks/{id}/worktree", s.handleCreateWorktree)

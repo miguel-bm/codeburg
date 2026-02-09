@@ -93,7 +93,14 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, task)
+	result := taskWithDiffStats{Task: task}
+	if task.WorktreePath != nil && *task.WorktreePath != "" {
+		if stats := s.getCachedDiffStats(task); stats != nil {
+			result.DiffStats = stats
+		}
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
@@ -266,6 +273,14 @@ func (s *Server) handleProgressToReview(task *db.Task, project *db.Project, cfg 
 		workDir = project.Path
 	}
 
+	// Guard: skip PR workflow if there are no changes on this branch
+	logOut, err := runGit(workDir, "log", "--oneline", project.DefaultBranch+"..HEAD")
+	if err == nil && strings.TrimSpace(logOut) == "" {
+		wfErr := "no changes on branch " + branch + " compared to " + project.DefaultBranch
+		resp.WorkflowError = &wfErr
+		return
+	}
+
 	switch cfg.Action {
 	case "pr_auto":
 		if !github.Available() {
@@ -414,6 +429,65 @@ func directMergeBranch(repoPath, baseBranch, featureBranch string) error {
 	}
 
 	return nil
+}
+
+// handleCreatePR manually pushes the branch and creates a PR for a task.
+func (s *Server) handleCreatePR(w http.ResponseWriter, r *http.Request) {
+	id := urlParam(r, "id")
+
+	task, err := s.db.GetTask(id)
+	if err != nil {
+		writeDBError(w, err, "task")
+		return
+	}
+
+	project, err := s.db.GetProject(task.ProjectID)
+	if err != nil {
+		writeDBError(w, err, "project")
+		return
+	}
+
+	branch := ptrToString(task.Branch)
+	if branch == "" {
+		writeError(w, http.StatusBadRequest, "task has no branch")
+		return
+	}
+
+	if !github.Available() {
+		writeError(w, http.StatusServiceUnavailable, "gh CLI not available")
+		return
+	}
+
+	workDir := ptrToString(task.WorktreePath)
+	if workDir == "" {
+		workDir = project.Path
+	}
+
+	// Check for changes
+	logOut, err := runGit(workDir, "log", "--oneline", project.DefaultBranch+"..HEAD")
+	if err == nil && strings.TrimSpace(logOut) == "" {
+		writeError(w, http.StatusBadRequest, "no changes on branch "+branch+" compared to "+project.DefaultBranch)
+		return
+	}
+
+	// Push branch
+	if err := github.PushBranch(workDir, branch); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to push branch: %v", err))
+		return
+	}
+
+	// Create PR
+	body := ptrToString(task.Description)
+	prURL, err := github.CreatePR(workDir, task.Title, body, project.DefaultBranch, branch)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create PR: %v", err))
+		return
+	}
+
+	// Store PR URL
+	s.db.UpdateTask(task.ID, db.UpdateTaskInput{PRURL: &prURL})
+
+	writeJSON(w, http.StatusOK, map[string]string{"prUrl": prURL})
 }
 
 func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {

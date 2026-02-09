@@ -5,9 +5,9 @@ import { SessionView, SessionTabs } from '../../components/session';
 import { GitPanel } from '../../components/git';
 import { DiffView } from '../../components/git';
 import { ToolsPanel } from '../../components/tools';
-import { tasksApi, invalidateTaskQueries } from '../../api';
+import { tasksApi, invalidateTaskQueries, gitApi } from '../../api';
 import { TASK_STATUS } from '../../api';
-import type { Task, Project, AgentSession, SessionProvider } from '../../api';
+import type { Task, Project, AgentSession, SessionProvider, UpdateTaskResponse } from '../../api';
 import { useMobile } from '../../hooks/useMobile';
 
 type MainContent =
@@ -79,6 +79,8 @@ export function TaskDetailInProgress({
   const isMobile = useMobile();
   const [mainContent, setMainContent] = useState<MainContent>({ type: 'session' });
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('sessions');
+  const [warning, setWarning] = useState<string | null>(null);
+  const [dirtyConfirm, setDirtyConfirm] = useState<{ staged: number; unstaged: number; untracked: number } | null>(null);
 
   // Refs for drag containers
   const railRef = useRef<HTMLDivElement>(null);
@@ -92,11 +94,38 @@ export function TaskDetailInProgress({
   const updateTask = useMutation({
     mutationFn: (input: Parameters<typeof tasksApi.update>[1]) =>
       tasksApi.update(task.id, input),
-    onSuccess: () => invalidateTaskQueries(queryClient, task.id),
+    onSuccess: (data: UpdateTaskResponse) => {
+      invalidateTaskQueries(queryClient, data.id);
+      if (data.worktreeWarning?.length) {
+        setWarning(data.worktreeWarning.join('; '));
+      }
+      if (data.workflowError) {
+        setWarning((prev) => prev ? `${prev}; ${data.workflowError}` : data.workflowError!);
+      }
+    },
   });
 
-  const handleMoveToReview = () => {
+  const doMoveToReview = () => {
+    setDirtyConfirm(null);
     updateTask.mutate({ status: TASK_STATUS.IN_REVIEW });
+  };
+
+  const handleMoveToReview = async () => {
+    try {
+      const status = await gitApi.status(task.id);
+      const dirty = status.staged.length + status.unstaged.length + status.untracked.length;
+      if (dirty > 0) {
+        setDirtyConfirm({
+          staged: status.staged.length,
+          unstaged: status.unstaged.length,
+          untracked: status.untracked.length,
+        });
+        return;
+      }
+    } catch {
+      // If git status fails (e.g. no worktree), proceed anyway
+    }
+    doMoveToReview();
   };
 
   const handleFileClick = (file: string, staged: boolean) => {
@@ -106,6 +135,45 @@ export function TaskDetailInProgress({
   const handleRecipeRun = (command: string) => {
     onStartSession('terminal', command);
   };
+
+  const warningBanner = warning && (
+    <div className="flex items-center justify-between px-4 py-2 bg-[var(--color-warning,#b8860b)]/10 border-b border-[var(--color-warning,#b8860b)]/30 text-[var(--color-warning,#b8860b)] text-xs">
+      <span>{warning}</span>
+      <button onClick={() => setWarning(null)} className="ml-4 hover:text-[var(--color-text-primary)] transition-colors">
+        Dismiss
+      </button>
+    </div>
+  );
+
+  const dirtyModal = dirtyConfirm && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div className="bg-primary border border-subtle rounded-lg shadow-xl p-6 max-w-sm mx-4">
+        <h3 className="text-sm font-semibold mb-2">Uncommitted changes</h3>
+        <p className="text-xs text-dim mb-3">
+          This worktree has uncommitted changes that will not be included in the review:
+        </p>
+        <ul className="text-xs text-dim mb-4 space-y-1">
+          {dirtyConfirm.staged > 0 && <li>{dirtyConfirm.staged} staged file{dirtyConfirm.staged !== 1 ? 's' : ''}</li>}
+          {dirtyConfirm.unstaged > 0 && <li>{dirtyConfirm.unstaged} unstaged file{dirtyConfirm.unstaged !== 1 ? 's' : ''}</li>}
+          {dirtyConfirm.untracked > 0 && <li>{dirtyConfirm.untracked} untracked file{dirtyConfirm.untracked !== 1 ? 's' : ''}</li>}
+        </ul>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={() => setDirtyConfirm(null)}
+            className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={doMoveToReview}
+            className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors"
+          >
+            Move anyway
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   if (isMobile) {
     return (
@@ -123,6 +191,8 @@ export function TaskDetailInProgress({
             </button>
           }
         />
+        {warningBanner}
+        {dirtyModal}
 
         {/* Panel selector + session selector */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-subtle bg-secondary">
@@ -213,6 +283,8 @@ export function TaskDetailInProgress({
           </button>
         }
       />
+      {warningBanner}
+      {dirtyModal}
 
       <div ref={bodyRef} className="flex-1 flex overflow-hidden">
         {/* Left rail */}

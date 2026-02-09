@@ -32,7 +32,7 @@ export function Settings() {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-xl mx-auto px-6 py-8 space-y-6">
+          <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
             <TerminalSettingsSection />
             <PasswordSection />
             <DangerZone onLogout={logout} />
@@ -71,9 +71,9 @@ function SectionHeader({ title, description, action }: {
   );
 }
 
-function SectionBody({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+function SectionBody({ children, className = '', bordered = false }: { children: React.ReactNode; className?: string; bordered?: boolean }) {
   return (
-    <div className={`px-5 py-4 ${className}`}>
+    <div className={`px-5 py-4 ${bordered ? 'border-b border-subtle' : ''} ${className}`}>
       {children}
     </div>
   );
@@ -124,6 +124,68 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
   );
 }
 
+/* ─── Terminal Cursor (inline in preview) ─────────────────────────────── */
+
+function TerminalCursor({ style, blink }: { style: CursorStyle; blink: boolean }) {
+  const blinkClass = blink ? 'animate-blink' : '';
+
+  if (style === 'block') {
+    return (
+      <span
+        className={`inline-block w-[0.6em] h-[1.15em] align-text-bottom ${blinkClass}`}
+        style={{ backgroundColor: 'var(--color-text-primary)' }}
+      />
+    );
+  }
+  if (style === 'underline') {
+    return (
+      <span
+        className={`inline-block w-[0.6em] h-[2px] align-baseline ${blinkClass}`}
+        style={{ backgroundColor: 'var(--color-text-primary)' }}
+      />
+    );
+  }
+  // bar
+  return (
+    <span
+      className={`inline-block w-[2px] h-[1.15em] align-text-bottom ${blinkClass}`}
+      style={{ backgroundColor: 'var(--color-text-primary)' }}
+    />
+  );
+}
+
+/* ─── Cursor Preview (style selector buttons) ────────────────────────── */
+
+function CursorPreview({ style, active, blink }: { style: CursorStyle; active: boolean; blink: boolean }) {
+  const color = active ? 'var(--color-accent)' : 'var(--color-text-dim)';
+  const blinkClass = blink && active ? 'animate-blink' : '';
+
+  return (
+    <div className="flex items-end h-6 font-mono text-base leading-none" aria-hidden>
+      <span style={{ color }} className="opacity-70">A</span>
+      {style === 'block' && (
+        <span
+          className={`inline-block w-[0.6em] h-[1.1em] -mb-px ${blinkClass}`}
+          style={{ backgroundColor: color }}
+        />
+      )}
+      {style === 'underline' && (
+        <span
+          className={`inline-block w-[0.6em] h-[2px] mb-0 ${blinkClass}`}
+          style={{ backgroundColor: color }}
+        />
+      )}
+      {style === 'bar' && (
+        <span
+          className={`inline-block w-[2px] h-[1.1em] -mb-px ${blinkClass}`}
+          style={{ backgroundColor: color }}
+        />
+      )}
+      <span style={{ color }} className="opacity-70">b</span>
+    </div>
+  );
+}
+
 /* ─── Terminal Settings ──────────────────────────────────────────────── */
 
 const CURSOR_STYLES: { value: CursorStyle; label: string }[] = [
@@ -150,8 +212,8 @@ function TerminalSettingsSection() {
         }
       />
 
-      {/* Font Size with Preview */}
-      <div className="px-5 py-4 border-b border-subtle">
+      {/* Font Size + Terminal Preview */}
+      <SectionBody bordered>
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm text-[var(--color-text-primary)]">Font size</span>
           <span className="text-sm font-mono text-accent tabular-nums">{settings.fontSize}px</span>
@@ -180,11 +242,16 @@ function TerminalSettingsSection() {
             {' '}
             <span className="text-[var(--color-error)]">-15</span>
           </div>
+          <div className="mt-1">
+            <span className="text-[var(--color-success)]">~</span>
+            <span className="text-dim mx-1.5">$</span>
+            <TerminalCursor style={settings.cursorStyle} blink={settings.cursorBlink} />
+          </div>
         </div>
-      </div>
+      </SectionBody>
 
       {/* Scrollback */}
-      <div className="px-5 py-4 border-b border-subtle">
+      <SectionBody bordered>
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm text-[var(--color-text-primary)]">Scrollback lines</span>
           <span className="text-sm font-mono text-accent tabular-nums">{settings.scrollback.toLocaleString()}</span>
@@ -202,35 +269,34 @@ function TerminalSettingsSection() {
           <span>1,000</span>
           <span>50,000</span>
         </div>
-      </div>
+      </SectionBody>
 
       {/* Cursor Style */}
-      <div className="px-5 py-4 border-b border-subtle">
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-[var(--color-text-primary)]">Cursor style</span>
-          <div className="flex gap-1">
-            {CURSOR_STYLES.map((s) => (
-              <button
-                key={s.value}
-                onClick={() => settings.set('cursorStyle', s.value)}
-                className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
-                  settings.cursorStyle === s.value
-                    ? 'bg-accent/15 border-accent text-accent'
-                    : 'bg-primary border-subtle text-dim hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-dim)]'
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
+      <SectionBody bordered>
+        <span className="text-sm text-[var(--color-text-primary)]">Cursor style</span>
+        <div className="flex gap-2 mt-3">
+          {CURSOR_STYLES.map((s) => (
+            <button
+              key={s.value}
+              onClick={() => settings.set('cursorStyle', s.value)}
+              className={`flex-1 flex flex-col items-center gap-2 px-3 py-3 text-xs rounded-md border transition-colors ${
+                settings.cursorStyle === s.value
+                  ? 'bg-accent/15 border-accent text-accent'
+                  : 'bg-primary border-subtle text-dim hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-dim)]'
+              }`}
+            >
+              <CursorPreview style={s.value} active={settings.cursorStyle === s.value} blink={settings.cursorBlink} />
+              <span>{s.label}</span>
+            </button>
+          ))}
         </div>
-      </div>
+      </SectionBody>
 
       {/* Toggles */}
       <SectionBody>
         <div className="space-y-0">
           <FieldRow>
-            <FieldLabel label="Cursor blink" />
+            <FieldLabel label="Cursor blink" description="Animate the cursor on and off" />
             <Toggle checked={settings.cursorBlink} onChange={(v) => settings.set('cursorBlink', v)} />
           </FieldRow>
           <FieldRow>
