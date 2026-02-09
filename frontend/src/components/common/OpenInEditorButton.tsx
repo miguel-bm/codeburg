@@ -82,7 +82,7 @@ interface ModalProps {
 
 function ConfigureEditorModal({ initialConfig, onClose, onSaved }: ModalProps) {
   const [editor, setEditor] = useState<EditorType>(initialConfig?.editor ?? 'vscode');
-  const [sshHost, setSshHost] = useState(initialConfig?.sshHost ?? '');
+  const [sshHost, setSshHost] = useState(initialConfig?.sshHost ?? 'codeburg-server');
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };

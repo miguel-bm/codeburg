@@ -10,6 +10,7 @@ interface TaskHeaderProps {
   task: Task;
   project?: Project;
   actions?: ReactNode;
+  expandable?: boolean;
 }
 
 const statusColors: Record<string, string> = {
@@ -39,7 +40,7 @@ function relativeTime(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString();
 }
 
-export function TaskHeader({ task, project, actions }: TaskHeaderProps) {
+export function TaskHeader({ task, project, actions, expandable = true }: TaskHeaderProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
@@ -116,13 +117,15 @@ export function TaskHeader({ task, project, actions }: TaskHeaderProps) {
               {task.branch}
             </span>
           )}
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="text-dim hover:text-[var(--color-text-primary)] transition-colors shrink-0"
-            title={expanded ? 'collapse details' : 'expand details'}
-          >
-            <ChevronDown size={14} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
-          </button>
+          {expandable && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="text-dim hover:text-[var(--color-text-primary)] transition-colors shrink-0"
+              title={expanded ? 'collapse details' : 'expand details'}
+            >
+              <ChevronDown size={14} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+            </button>
+          )}
         </div>
         {actions && (
           <div className="flex items-center gap-2 shrink-0">
@@ -132,7 +135,7 @@ export function TaskHeader({ task, project, actions }: TaskHeaderProps) {
       </div>
 
       {/* Expandable detail panel */}
-      {expanded && (
+      {expandable && expanded && (
         <div className="border-t border-subtle px-4 py-3 space-y-3">
           {/* Editable title */}
           <div>

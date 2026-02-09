@@ -348,7 +348,7 @@ function EditorSection() {
   useEffect(() => {
     preferencesApi.getEditorConfig().then((cfg) => {
       setEditor(cfg.editor);
-      setSshHost(cfg.sshHost ?? '');
+      setSshHost(cfg.sshHost ?? 'codeburg-server');
       setLoaded(true);
     }).catch(() => setLoaded(true));
   }, []);
@@ -812,6 +812,7 @@ function TelegramSection() {
               onChange={(e) => setBotToken(e.target.value)}
               className={inputClass}
               placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v..."
+              autoComplete="off"
             />
           </div>
 
