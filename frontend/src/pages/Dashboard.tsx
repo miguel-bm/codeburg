@@ -697,13 +697,6 @@ function NewTaskPlaceholder({ focused, onClick }: NewTaskPlaceholderProps) {
   );
 }
 
-const STATUS_COLORS: Record<TaskStatus, string> = {
-  [TASK_STATUS.BACKLOG]: 'var(--color-status-backlog)',
-  [TASK_STATUS.IN_PROGRESS]: 'var(--color-status-in-progress)',
-  [TASK_STATUS.IN_REVIEW]: 'var(--color-status-in-review)',
-  [TASK_STATUS.DONE]: 'var(--color-status-done)',
-};
-
 interface TaskCardProps {
   task: Task;
   projectName?: string;
