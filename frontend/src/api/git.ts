@@ -53,8 +53,17 @@ export const gitApi = {
   unstage: (taskId: string, files: string[]) =>
     api.post<void>(`/tasks/${taskId}/git/unstage`, { files }),
 
+  revert: (taskId: string, payload: { tracked?: string[]; untracked?: string[] }) =>
+    api.post<void>(`/tasks/${taskId}/git/revert`, payload),
+
   commit: (taskId: string, message: string, amend?: boolean) =>
     api.post<GitCommitResult>(`/tasks/${taskId}/git/commit`, { message, amend }),
+
+  pull: (taskId: string) =>
+    api.post<void>(`/tasks/${taskId}/git/pull`),
+
+  push: (taskId: string) =>
+    api.post<void>(`/tasks/${taskId}/git/push`),
 
   stash: (taskId: string, action: 'push' | 'pop' | 'list') =>
     api.post<GitStashResponse>(`/tasks/${taskId}/git/stash`, { action }),

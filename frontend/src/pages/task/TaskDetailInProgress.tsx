@@ -130,7 +130,12 @@ export function TaskDetailInProgress({
   };
 
   const handleFileClick = (file: string, staged: boolean) => {
-    setMainContent({ type: 'diff', file, staged });
+    setMainContent((prev) => {
+      if (prev.type === 'diff' && prev.file === file && prev.staged === staged) {
+        return { type: 'session' };
+      }
+      return { type: 'diff', file, staged };
+    });
   };
 
   const handleRecipeRun = (command: string) => {
@@ -250,7 +255,13 @@ export function TaskDetailInProgress({
             )
           ) : mobilePanel === 'git' ? (
             <div className="overflow-y-auto h-full">
-              <GitPanel taskId={task.id} onFileClick={handleFileClick} />
+              <GitPanel
+                taskId={task.id}
+                onFileClick={handleFileClick}
+                selectedFile={mainContent.type === 'diff' ? mainContent.file : undefined}
+                selectedStaged={mainContent.type === 'diff' ? mainContent.staged : undefined}
+                scrollable={false}
+              />
               {mainContent.type === 'diff' && (
                 <div className="border-t border-subtle">
                   <DiffView
@@ -301,8 +312,13 @@ export function TaskDetailInProgress({
           className="shrink-0 flex flex-col overflow-hidden"
         >
           {/* Git panel */}
-          <div style={{ height: `${gitPanelPct}%` }} className="overflow-y-auto min-h-0">
-            <GitPanel taskId={task.id} onFileClick={handleFileClick} />
+          <div style={{ height: `${gitPanelPct}%` }} className="overflow-hidden min-h-0">
+            <GitPanel
+              taskId={task.id}
+              onFileClick={handleFileClick}
+              selectedFile={mainContent.type === 'diff' ? mainContent.file : undefined}
+              selectedStaged={mainContent.type === 'diff' ? mainContent.staged : undefined}
+            />
           </div>
           {/* Vertical divider (git ↔ tools) */}
           <div

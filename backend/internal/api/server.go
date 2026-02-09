@@ -229,7 +229,10 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/tasks/{id}/git/diff", s.handleGitDiff)
 		r.Post("/api/tasks/{id}/git/stage", s.handleGitStage)
 		r.Post("/api/tasks/{id}/git/unstage", s.handleGitUnstage)
+		r.Post("/api/tasks/{id}/git/revert", s.handleGitRevert)
 		r.Post("/api/tasks/{id}/git/commit", s.handleGitCommit)
+		r.Post("/api/tasks/{id}/git/pull", s.handleGitPull)
+		r.Post("/api/tasks/{id}/git/push", s.handleGitPush)
 		r.Post("/api/tasks/{id}/git/stash", s.handleGitStash)
 
 		// Labels

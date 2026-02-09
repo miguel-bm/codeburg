@@ -43,6 +43,11 @@ type GitCommitRequest struct {
 	Amend   bool   `json:"amend,omitempty"`
 }
 
+type GitRevertRequest struct {
+	Tracked   []string `json:"tracked,omitempty"`
+	Untracked []string `json:"untracked,omitempty"`
+}
+
 type GitCommitResponse struct {
 	Hash    string `json:"hash"`
 	Message string `json:"message"`
@@ -423,6 +428,42 @@ func (s *Server) handleGitUnstage(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleGitRevert(w http.ResponseWriter, r *http.Request) {
+	workDir, ok := s.resolveTaskWorkDir(w, r)
+	if !ok {
+		return
+	}
+
+	var req GitRevertRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.Tracked) == 0 && len(req.Untracked) == 0 {
+		writeError(w, http.StatusBadRequest, "tracked or untracked files are required")
+		return
+	}
+
+	if len(req.Tracked) > 0 {
+		args := append([]string{"restore", "--staged", "--worktree", "--"}, req.Tracked...)
+		if _, err := runGit(workDir, args...); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	if len(req.Untracked) > 0 {
+		args := append([]string{"clean", "-f", "-d", "--"}, req.Untracked...)
+		if _, err := runGit(workDir, args...); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleGitCommit(w http.ResponseWriter, r *http.Request) {
 	workDir, ok := s.resolveTaskWorkDir(w, r)
 	if !ok {
@@ -478,6 +519,38 @@ func (s *Server) handleGitCommit(w http.ResponseWriter, r *http.Request) {
 		Hash:    strings.TrimSpace(hashOut),
 		Message: strings.TrimSpace(msgOut),
 	})
+}
+
+func (s *Server) handleGitPull(w http.ResponseWriter, r *http.Request) {
+	workDir, ok := s.resolveTaskWorkDir(w, r)
+	if !ok {
+		return
+	}
+
+	if _, err := runGit(workDir, "pull", "--ff-only"); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Invalidate diff stats cache for this task
+	taskID := urlParam(r, "id")
+	s.diffStatsCache.Delete(taskID)
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
+	workDir, ok := s.resolveTaskWorkDir(w, r)
+	if !ok {
+		return
+	}
+
+	if _, err := runGit(workDir, "push"); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleGitStash(w http.ResponseWriter, r *http.Request) {
