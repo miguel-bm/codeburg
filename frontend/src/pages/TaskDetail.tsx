@@ -20,6 +20,7 @@ export function TaskDetail() {
   const [showStartSession, setShowStartSession] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const sessionFromUrl = searchParams.get('session');
+  const [didInitSession, setDidInitSession] = useState(false);
 
   const { data: task, isLoading: taskLoading } = useQuery({
     queryKey: ['task', id],
@@ -46,7 +47,7 @@ export function TaskDetail() {
     setActiveSession(null);
   }, [id]);
 
-  // Auto-select session from URL param or first active session
+  // Auto-select session from URL param only (do not override manual selection)
   useEffect(() => {
     if (!sessions) return;
     if (sessionFromUrl) {
@@ -56,11 +57,22 @@ export function TaskDetail() {
         return;
       }
     }
-    if (!activeSession) {
-      const active = sessions.find((s) => s.status === 'running' || s.status === 'waiting_input');
-      if (active) setActiveSession(active);
-    }
   }, [sessionFromUrl, sessions, id, activeSession]);
+
+  // Initial default: pick the first session once if none selected
+  useEffect(() => {
+    if (didInitSession) return;
+    if (!sessions || sessions.length === 0) return;
+    if (activeSession || sessionFromUrl) {
+      setDidInitSession(true);
+      return;
+    }
+    const sorted = [...sessions].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+    selectSession(sorted[0]);
+    setDidInitSession(true);
+  }, [didInitSession, sessions, activeSession, sessionFromUrl]);
 
   // Keep activeSession in sync with polling data
   useEffect(() => {
@@ -68,6 +80,9 @@ export function TaskDetail() {
       const updated = sessions.find((s) => s.id === activeSession.id);
       if (updated && (updated.status !== activeSession.status || updated.lastActivityAt !== activeSession.lastActivityAt)) {
         setActiveSession(updated);
+      }
+      if (!updated) {
+        setActiveSession(null);
       }
     }
   }, [sessions, activeSession]);
