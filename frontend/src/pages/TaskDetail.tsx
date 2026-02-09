@@ -95,9 +95,10 @@ export function TaskDetail() {
 
   const stopSessionMutation = useMutation({
     mutationFn: (sessionId: string) => sessionsApi.stop(sessionId),
-    onSuccess: () => {
+    onSuccess: (_data, sessionId) => {
       queryClient.invalidateQueries({ queryKey: ['sessions', id] });
       selectSession(null);
+      deleteSessionMutation.mutate(sessionId);
     },
   });
 

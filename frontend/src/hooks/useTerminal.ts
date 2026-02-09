@@ -70,6 +70,7 @@ export function useTerminal(
   const stableTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const disposedRef = useRef(false);
   const awaitingManualReconnectRef = useRef(false);
+  const ignoreNextCarriageReturnRef = useRef(false);
   const sessionStatusRef = useRef(options?.sessionStatus);
 
   const settings = useTerminalSettings();
@@ -227,6 +228,11 @@ export function useTerminal(
 
     // Input handler — sends to current WS, or triggers reconnect
     term.onData((data) => {
+      if (ignoreNextCarriageReturnRef.current && (data === '\r' || data === '\n')) {
+        ignoreNextCarriageReturnRef.current = false;
+        emitDebug('shift-enter:ignored-cr');
+        return;
+      }
       emitDebug('data:input', { length: data.length });
       if (awaitingManualReconnectRef.current) {
         awaitingManualReconnectRef.current = false;
@@ -272,6 +278,7 @@ export function useTerminal(
         if (wsRef.current?.readyState === WebSocket.OPEN) {
           wsRef.current.send('\n');
           emitDebug('shift-enter:sent-lf');
+          ignoreNextCarriageReturnRef.current = true;
         }
         return false;
       }
