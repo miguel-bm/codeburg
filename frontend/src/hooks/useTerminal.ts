@@ -39,6 +39,8 @@ const RETRY_DELAYS = [1000, 2000, 4000, 8000, 16000];
 interface UseTerminalOptions {
   sessionId?: string;
   sessionStatus?: string;
+  debug?: boolean;
+  onDebugEvent?: (message: string) => void;
 }
 
 export interface UseTerminalReturn {
@@ -71,6 +73,15 @@ export function useTerminal(
   const sessionStatusRef = useRef(options?.sessionStatus);
 
   const settings = useTerminalSettings();
+  const debugEnabled = options?.debug === true;
+  const emitDebug = useCallback((message: string, data?: Record<string, unknown>) => {
+    if (!debugEnabled) return;
+    const payload = data ? ` ${JSON.stringify(data)}` : '';
+    const line = `${message}${payload}`;
+    options?.onDebugEvent?.(line);
+    // eslint-disable-next-line no-console
+    console.debug(`[DEBUG][terminal] ${line}`);
+  }, [debugEnabled, options]);
 
   // Keep ref in sync so closures always see latest status
   sessionStatusRef.current = options?.sessionStatus;
@@ -96,6 +107,7 @@ export function useTerminal(
     ws.onopen = () => {
       const wasRetry = retryCountRef.current > 0;
       awaitingManualReconnectRef.current = false;
+      emitDebug('ws:open', { retry: wasRetry });
 
       if (wasRetry) {
         term.writeln('\x1b[32m// reconnected\x1b[0m');
@@ -128,10 +140,12 @@ export function useTerminal(
     };
 
     ws.onerror = () => {
+      emitDebug('ws:error');
       // onclose will fire after this, handle retry there
     };
 
     ws.onclose = (event) => {
+      emitDebug('ws:close', { code: event.code, reason: event.reason, wasClean: event.wasClean });
       if (stableTimerRef.current) clearTimeout(stableTimerRef.current);
       if (disposedRef.current) return;
 
@@ -213,6 +227,7 @@ export function useTerminal(
 
     // Input handler — sends to current WS, or triggers reconnect
     term.onData((data) => {
+      emitDebug('data:input', { length: data.length });
       if (awaitingManualReconnectRef.current) {
         awaitingManualReconnectRef.current = false;
         retryCountRef.current = 0;
@@ -226,14 +241,27 @@ export function useTerminal(
     });
 
     term.onResize(({ cols, rows }) => {
+      emitDebug('term:resize', { cols, rows });
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: 'resize', cols, rows }));
       }
     });
+    term.onSelectionChange(() => {
+      emitDebug('selection:change', { hasSelection: term.hasSelection() });
+    });
 
     // Cmd+C / Ctrl+C: copy selection if present, otherwise send SIGINT
     term.attachCustomKeyEventHandler((event) => {
-      if (event.key === 'Enter' && event.shiftKey && event.type === 'keydown') {
+      emitDebug('key', {
+        type: event.type,
+        key: event.key,
+        code: event.code,
+        shift: event.shiftKey,
+        ctrl: event.ctrlKey,
+        meta: event.metaKey,
+        alt: event.altKey,
+      });
+      if ((event.code === 'Enter' || event.code === 'NumpadEnter') && event.shiftKey && event.type === 'keydown') {
         if (awaitingManualReconnectRef.current) {
           awaitingManualReconnectRef.current = false;
           retryCountRef.current = 0;
@@ -243,18 +271,25 @@ export function useTerminal(
         }
         if (wsRef.current?.readyState === WebSocket.OPEN) {
           wsRef.current.send('\n');
+          emitDebug('shift-enter:sent-lf');
         }
         return false;
       }
       if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.code === 'KeyC' && event.type === 'keydown') {
         if (term.hasSelection()) {
-          navigator.clipboard.writeText(term.getSelection());
+          navigator.clipboard.writeText(term.getSelection()).catch(() => {
+            emitDebug('copy:failed');
+          });
+          emitDebug('copy:selection');
           return false;
         }
       }
       if ((event.metaKey || event.ctrlKey) && event.code === 'KeyC' && event.type === 'keydown') {
         if (term.hasSelection()) {
-          navigator.clipboard.writeText(term.getSelection());
+          navigator.clipboard.writeText(term.getSelection()).catch(() => {
+            emitDebug('copy:failed');
+          });
+          emitDebug('copy:selection');
           return false;
         }
       }
@@ -263,7 +298,10 @@ export function useTerminal(
         navigator.clipboard.readText().then((text) => {
           if (text && wsRef.current?.readyState === WebSocket.OPEN) {
             wsRef.current.send(text);
+            emitDebug('paste:clipboard', { length: text.length });
           }
+        }).catch(() => {
+          emitDebug('paste:failed');
         });
         return false;
       }
@@ -325,15 +363,22 @@ export function useTerminal(
   actions.current.copySelection = () => {
     const term = termRef.current;
     if (!term || !term.hasSelection()) return;
-    navigator.clipboard.writeText(term.getSelection()).catch(() => {});
+    navigator.clipboard.writeText(term.getSelection()).then(() => {
+      emitDebug('copy:selection');
+    }).catch(() => {
+      emitDebug('copy:failed');
+    });
   };
 
   actions.current.pasteClipboard = () => {
     navigator.clipboard.readText().then((text) => {
       if (text && wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(text);
+        emitDebug('paste:clipboard', { length: text.length });
       }
-    }).catch(() => {});
+    }).catch(() => {
+      emitDebug('paste:failed');
+    });
   };
 
   actions.current.selectAll = () => {
