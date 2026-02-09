@@ -58,14 +58,14 @@ export function TaskDetailInReview({
               disabled={updateTask.isPending}
               className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors disabled:opacity-50"
             >
-              back to wip
+              Back to WIP
             </button>
             <button
               onClick={handleMarkDone}
               disabled={updateTask.isPending}
               className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors disabled:opacity-50"
             >
-              done
+              Done
             </button>
           </>
         }
@@ -82,7 +82,7 @@ export function TaskDetailInReview({
                 : 'text-dim hover:text-[var(--color-text-primary)]'
             }`}
           >
-            diff
+            Diff
           </button>
           {sessions.length > 0 && (
             <SessionTabs
@@ -126,7 +126,7 @@ export function TaskDetailInReview({
             <SessionView session={activeSession} />
           ) : (
             <div className="flex items-center justify-center h-full text-dim text-sm">
-              select a session
+              Select a session
             </div>
           )}
         </div>

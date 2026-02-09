@@ -18,7 +18,7 @@ export function ProjectSettings() {
   if (isLoading) {
     return (
       <Layout>
-        <div className="p-6 text-dim">loading...</div>
+        <div className="p-6 text-dim">Loading...</div>
       </Layout>
     );
   }
@@ -26,7 +26,7 @@ export function ProjectSettings() {
   if (!project) {
     return (
       <Layout>
-        <div className="p-6 text-dim">project not found</div>
+        <div className="p-6 text-dim">Project not found</div>
       </Layout>
     );
   }
@@ -39,7 +39,7 @@ export function ProjectSettings() {
             onClick={() => navigate('/')}
             className="text-dim hover:text-accent transition-colors text-sm"
           >
-            &lt; back
+            &lt; Back
           </button>
           <h2 className="text-sm font-medium">{project.name} / Settings</h2>
         </div>
@@ -82,7 +82,7 @@ function GeneralSection({ project }: { project: Project }) {
           <input
             value={name}
             onChange={(e) => { setName(e.target.value); setDirty(true); }}
-            className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent text-sm"
+            className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)] text-sm"
           />
         </div>
         <div>
@@ -94,7 +94,7 @@ function GeneralSection({ project }: { project: Project }) {
           <input
             value={defaultBranch}
             onChange={(e) => { setDefaultBranch(e.target.value); setDirty(true); }}
-            className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent text-sm"
+            className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)] text-sm"
           />
         </div>
         {dirty && (
@@ -103,7 +103,7 @@ function GeneralSection({ project }: { project: Project }) {
             disabled={updateMutation.isPending}
             className="px-4 py-2 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
           >
-            {updateMutation.isPending ? 'saving...' : 'save'}
+            {updateMutation.isPending ? 'Saving...' : 'Save'}
           </button>
         )}
       </div>
@@ -171,7 +171,7 @@ function WorkflowSection({ project }: { project: Project }) {
               <select
                 value={b2p?.action ?? 'nothing'}
                 onChange={(e) => updateBacklogToProgress({ action: e.target.value as BacklogToProgressConfig['action'] })}
-                className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent text-sm"
+                className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)] text-sm"
               >
                 <option value="nothing">nothing</option>
                 <option value="auto_claude">auto-start claude</option>
@@ -187,7 +187,7 @@ function WorkflowSection({ project }: { project: Project }) {
                     <input
                       value={b2p.defaultModel ?? ''}
                       onChange={(e) => updateBacklogToProgress({ defaultModel: e.target.value || undefined })}
-                      className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent text-sm"
+                      className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)] text-sm"
                       placeholder="e.g. claude-sonnet-4-5-20250929"
                     />
                   </div>
@@ -198,7 +198,7 @@ function WorkflowSection({ project }: { project: Project }) {
                     value={b2p.promptTemplate ?? ''}
                     onChange={(e) => updateBacklogToProgress({ promptTemplate: e.target.value || undefined })}
                     rows={3}
-                    className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent text-sm resize-none"
+                    className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)] text-sm resize-none"
                     placeholder="Work on: {title}&#10;&#10;{description}"
                   />
                   <p className="text-xs text-dim mt-1">use {'{title}'} and {'{description}'} as placeholders</p>
@@ -217,7 +217,7 @@ function WorkflowSection({ project }: { project: Project }) {
               <select
                 value={p2r?.action ?? 'nothing'}
                 onChange={(e) => updateProgressToReview({ action: e.target.value as ProgressToReviewConfig['action'] })}
-                className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent text-sm"
+                className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)] text-sm"
               >
                 <option value="nothing">nothing</option>
                 <option value="pr_manual">push branch (manual PR)</option>
@@ -230,7 +230,7 @@ function WorkflowSection({ project }: { project: Project }) {
                 <input
                   value={p2r.prBaseBranch ?? ''}
                   onChange={(e) => updateProgressToReview({ prBaseBranch: e.target.value || undefined })}
-                  className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent text-sm"
+                  className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)] text-sm"
                   placeholder="main"
                 />
               </div>
@@ -247,7 +247,7 @@ function WorkflowSection({ project }: { project: Project }) {
               <select
                 value={r2d?.action ?? 'nothing'}
                 onChange={(e) => updateReviewToDone({ action: e.target.value as ReviewToDoneConfig['action'] })}
-                className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent text-sm"
+                className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)] text-sm"
               >
                 <option value="nothing">nothing</option>
                 <option value="merge_branch">merge branch directly</option>
@@ -261,7 +261,7 @@ function WorkflowSection({ project }: { project: Project }) {
                   <select
                     value={r2d.mergeStrategy ?? 'squash'}
                     onChange={(e) => updateReviewToDone({ mergeStrategy: e.target.value as 'merge' | 'squash' | 'rebase' })}
-                    className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent text-sm"
+                    className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)] text-sm"
                   >
                     <option value="squash">squash</option>
                     <option value="merge">merge</option>
@@ -297,7 +297,7 @@ function WorkflowSection({ project }: { project: Project }) {
             disabled={updateMutation.isPending}
             className="px-4 py-2 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
           >
-            {updateMutation.isPending ? 'saving...' : 'save workflow'}
+            {updateMutation.isPending ? 'Saving...' : 'Save Workflow'}
           </button>
         )}
       </div>

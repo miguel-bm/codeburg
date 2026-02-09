@@ -76,11 +76,11 @@ export function GitPanel({ taskId, onFileClick }: GitPanelProps) {
   }, [showMenu]);
 
   if (isLoading) {
-    return <div className="p-3 text-xs text-dim">loading git...</div>;
+    return <div className="p-3 text-xs text-dim">Loading git...</div>;
   }
 
   if (!status) {
-    return <div className="p-3 text-xs text-dim">no git info</div>;
+    return <div className="p-3 text-xs text-dim">No git info</div>;
   }
 
   const totalChanges = status.staged.length + status.unstaged.length + status.untracked.length;
@@ -99,15 +99,15 @@ export function GitPanel({ taskId, onFileClick }: GitPanelProps) {
               commitMutation.mutate({ message: commitMsg.trim() });
             }
           }}
-          placeholder="commit message..."
-          className="flex-1 min-w-0 bg-primary border border-subtle rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+          placeholder="Commit message..."
+          className="flex-1 min-w-0 bg-primary border border-subtle rounded-md px-2 py-1 text-xs focus:outline-none focus:border-[var(--color-text-secondary)]"
         />
         <button
           onClick={() => commitMutation.mutate({ message: commitMsg.trim() })}
           disabled={!canCommit}
           className="px-2 py-1 bg-accent text-white rounded-md font-medium hover:bg-accent-dim transition-colors disabled:opacity-30 shrink-0"
         >
-          {commitMutation.isPending ? '...' : 'commit'}
+          {commitMutation.isPending ? '...' : 'Commit'}
         </button>
         <div className="relative" ref={menuRef}>
           <button
@@ -127,7 +127,7 @@ export function GitPanel({ taskId, onFileClick }: GitPanelProps) {
                 disabled={commitMutation.isPending}
                 className="w-full text-left px-3 py-1.5 text-xs text-dim hover:text-[var(--color-text-primary)] hover:bg-accent/5 transition-colors disabled:opacity-30"
               >
-                amend
+                Amend
               </button>
               <button
                 onClick={() => {
@@ -137,7 +137,7 @@ export function GitPanel({ taskId, onFileClick }: GitPanelProps) {
                 disabled={stashMutation.isPending || totalChanges === 0}
                 className="w-full text-left px-3 py-1.5 text-xs text-dim hover:text-[var(--color-text-primary)] hover:bg-accent/5 transition-colors disabled:opacity-30"
               >
-                stash
+                Stash
               </button>
               <button
                 onClick={() => {
@@ -147,7 +147,7 @@ export function GitPanel({ taskId, onFileClick }: GitPanelProps) {
                 disabled={stashMutation.isPending}
                 className="w-full text-left px-3 py-1.5 text-xs text-dim hover:text-[var(--color-text-primary)] hover:bg-accent/5 transition-colors disabled:opacity-30"
               >
-                pop
+                Pop
               </button>
             </div>
           )}
@@ -171,7 +171,7 @@ export function GitPanel({ taskId, onFileClick }: GitPanelProps) {
       </div>
 
       {totalChanges === 0 && (
-        <div className="p-3 text-dim text-center">clean working tree</div>
+        <div className="p-3 text-dim text-center">Clean working tree</div>
       )}
 
       {/* Staged */}

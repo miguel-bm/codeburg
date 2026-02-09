@@ -51,7 +51,7 @@ export function JustfilePanel({ taskId }: JustfilePanelProps) {
   if (isLoading) {
     return (
       <div className="p-4 text-sm text-dim">
-        loading justfile...
+        Loading justfile...
       </div>
     );
   }
@@ -97,7 +97,7 @@ export function JustfilePanel({ taskId }: JustfilePanelProps) {
                 )}
               </div>
               <span className="text-xs text-dim">
-                {isRunning && selectedRecipe?.name === recipe.name ? 'running...' : 'run'}
+                {isRunning && selectedRecipe?.name === recipe.name ? 'Running...' : 'Run'}
               </span>
             </button>
           ))}
@@ -107,13 +107,13 @@ export function JustfilePanel({ taskId }: JustfilePanelProps) {
       {/* Args Input */}
       {selectedRecipe?.args && (
         <div className="px-4 py-2 border-b border-subtle">
-          <label className="text-xs text-dim">args:</label>
+          <label className="text-xs text-dim">Args:</label>
           <input
             type="text"
             value={args}
             onChange={(e) => setArgs(e.target.value)}
             placeholder={selectedRecipe.args}
-            className="w-full mt-1 px-2 py-1 text-sm bg-primary border border-subtle rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+            className="w-full mt-1 px-2 py-1 text-sm bg-primary border border-subtle rounded-md focus:outline-none focus:border-[var(--color-text-secondary)]"
           />
         </div>
       )}
@@ -127,7 +127,7 @@ export function JustfilePanel({ taskId }: JustfilePanelProps) {
               onClick={() => setOutput('')}
               className="text-dim hover:text-[var(--color-text-primary)]"
             >
-              clear
+              Clear
             </button>
           )}
         </div>

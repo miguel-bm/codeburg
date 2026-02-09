@@ -183,7 +183,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
         <div ref={listRef} className="max-h-[50vh] overflow-y-auto">
           {filtered.length === 0 ? (
             <div className="px-4 py-6 text-sm text-dim text-center">
-              no results
+              No results
             </div>
           ) : (
             filtered.map((item, i) => (
@@ -215,9 +215,9 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
 
         {/* Footer hint */}
         <div className="px-4 py-2 border-t border-subtle flex gap-4 text-[10px] text-dim">
-          <span>arrows navigate</span>
-          <span>enter select</span>
-          <span>esc close</span>
+          <span>Arrows navigate</span>
+          <span>Enter select</span>
+          <span>Esc close</span>
         </div>
       </div>
     </div>,

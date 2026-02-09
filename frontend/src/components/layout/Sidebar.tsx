@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ChevronDown, ChevronUp, X, Settings, ChevronRight, Pin, GitPullRequest, GitBranch } from 'lucide-react';
 import { sidebarApi, tasksApi, preferencesApi, TASK_STATUS } from '../../api';
 import type { SidebarProject, SidebarTask, SidebarSession, SidebarData, UpdateTaskResponse } from '../../api';
 import { useWebSocket } from '../../hooks/useWebSocket';
@@ -194,15 +195,7 @@ export function Sidebar({ onClose, width }: SidebarProps) {
               className="p-1 text-dim hover:text-[var(--color-text-secondary)] rounded-md transition-colors"
               title={allCollapsed ? 'expand all' : 'collapse all'}
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                {allCollapsed ? (
-                  // Expand icon (arrows outward)
-                  <path d="M2 5l5 4 5-4" fill="none" stroke="currentColor" strokeWidth="1.5" />
-                ) : (
-                  // Collapse icon (arrows inward)
-                  <path d="M2 9l5-4 5 4" fill="none" stroke="currentColor" strokeWidth="1.5" />
-                )}
-              </svg>
+              {allCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
             </button>
           )}
           {onClose && (
@@ -211,9 +204,7 @@ export function Sidebar({ onClose, width }: SidebarProps) {
               className="p-1 hover:text-[var(--color-text-secondary)] rounded-md transition-colors"
               aria-label="Close menu"
             >
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" />
-              </svg>
+              <X size={20} />
             </button>
           )}
         </div>
@@ -232,7 +223,7 @@ export function Sidebar({ onClose, width }: SidebarProps) {
           </div>
         ) : !sidebar?.projects?.length ? (
           <div className="px-4 py-6 text-sm text-dim text-center">
-            no projects yet
+            No projects yet
           </div>
         ) : (
           sidebar.projects.map((project) => {
@@ -261,16 +252,14 @@ export function Sidebar({ onClose, width }: SidebarProps) {
           onClick={() => setShowCreateProject(true)}
           className="flex-1 px-3 py-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
         >
-          + project
+          + Project
         </button>
         <button
           onClick={handleSettingsClick}
           className="px-3 py-2 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
           title="settings"
         >
-          <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-          </svg>
+          <Settings size={16} />
         </button>
       </div>
 
@@ -351,15 +340,7 @@ function SidebarProjectNode({ project, isActive, onProjectClick, onClose, collap
             onClick={toggleCollapse}
             className="text-dim hover:text-[var(--color-text-secondary)] flex-shrink-0"
           >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 12 12"
-              fill="currentColor"
-              className={`transition-transform ${collapsed ? '' : 'rotate-90'}`}
-            >
-              <path d="M4 2l4 4-4 4V2z" />
-            </svg>
+            <ChevronRight size={12} className={`transition-transform ${collapsed ? '' : 'rotate-90'}`} />
           </button>
         ) : (
           <div className="w-3 flex-shrink-0" />
@@ -376,9 +357,7 @@ function SidebarProjectNode({ project, isActive, onProjectClick, onClose, collap
           }`}
           title={project.pinned ? 'unpin project' : 'pin project'}
         >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M4.456.734a1.75 1.75 0 0 1 2.826.504l.613 1.327a3.1 3.1 0 0 0 2.084 1.707l2.451.484a1.75 1.75 0 0 1 .757 3.028l-1.527 1.227a3.1 3.1 0 0 0-1.085 2.456v.542a1.75 1.75 0 0 1-2.871 1.344L6.022 11.86l-4.236 4.07a.75.75 0 1 1-1.04-1.08L4.87 10.8l-1.57-1.57a1.75 1.75 0 0 1 .504-2.826L5.41 5.5A3.1 3.1 0 0 0 7.323 3.66z" />
-          </svg>
+          <Pin size={12} />
         </button>
         {hasTasks && (
           <span className="text-xs text-dim ml-auto flex-shrink-0">{sortedTasks.length}</span>
@@ -471,7 +450,7 @@ function QuickAddTask({ projectId, onClose }: QuickAddTaskProps) {
           onBlur={handleSubmit}
           disabled={isPending}
           placeholder="task title..."
-          className="w-full text-xs px-2 py-1 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent placeholder:text-dim"
+          className="w-full text-xs px-2 py-1 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)] placeholder:text-dim"
         />
       </div>
     );
@@ -482,7 +461,7 @@ function QuickAddTask({ projectId, onClose }: QuickAddTaskProps) {
       onClick={() => setEditing(true)}
       className="w-full px-6 py-1 text-[11px] text-dim hover:text-accent transition-colors text-left"
     >
-      + task
+      + Task
     </button>
   );
 }
@@ -647,14 +626,14 @@ function TaskNodeContextMenu({ x, y, task, onClose, onCopyBranch, onMoveToReview
           onClick={onOpenTask}
           className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary rounded-md transition-colors"
         >
-          open task
+          Open Task
         </button>
         {task.branch && (
           <button
             onClick={onCopyBranch}
             className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary rounded-md transition-colors"
           >
-            copy branch name
+            Copy Branch Name
           </button>
         )}
         {task.prUrl && (
@@ -662,7 +641,7 @@ function TaskNodeContextMenu({ x, y, task, onClose, onCopyBranch, onMoveToReview
             onClick={() => { window.open(task.prUrl!, '_blank'); onClose(); }}
             className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary rounded-md transition-colors"
           >
-            open PR
+            Open PR
           </button>
         )}
         <div className="border-t border-subtle" />
@@ -671,7 +650,7 @@ function TaskNodeContextMenu({ x, y, task, onClose, onCopyBranch, onMoveToReview
             onClick={onMoveToReview}
             className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary text-[var(--color-status-in-review)] transition-colors"
           >
-            move to review
+            Move to Review
           </button>
         )}
         {task.status === TASK_STATUS.IN_REVIEW && (
@@ -679,7 +658,7 @@ function TaskNodeContextMenu({ x, y, task, onClose, onCopyBranch, onMoveToReview
             onClick={onMoveToDone}
             className="w-full px-3 py-2 text-left text-xs hover:bg-tertiary text-[var(--color-status-done)] transition-colors"
           >
-            move to done
+            Move to Done
           </button>
         )}
       </div>
@@ -733,26 +712,8 @@ function StatusDot({ status }: { status: string }) {
 
 function TaskStatusIcon({ status }: { status: string }) {
   if (status === TASK_STATUS.IN_REVIEW) {
-    // PR icon — blue
-    return (
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="flex-shrink-0">
-        <circle cx="3" cy="3" r="1.5" stroke="var(--color-status-in-review)" strokeWidth="1.2" />
-        <circle cx="3" cy="9" r="1.5" stroke="var(--color-status-in-review)" strokeWidth="1.2" />
-        <line x1="3" y1="4.5" x2="3" y2="7.5" stroke="var(--color-status-in-review)" strokeWidth="1.2" />
-        <circle cx="9" cy="9" r="1.5" stroke="var(--color-status-in-review)" strokeWidth="1.2" />
-        <path d="M9 7.5V5.5C9 4.5 8 4 7 4H5" stroke="var(--color-status-in-review)" strokeWidth="1.2" />
-        <path d="M6.5 2.5L5 4L6.5 5.5" stroke="var(--color-status-in-review)" strokeWidth="1.2" fill="none" />
-      </svg>
-    );
+    return <GitPullRequest size={12} className="flex-shrink-0" style={{ color: 'var(--color-status-in-review)' }} />;
   }
   // Branch icon — green (in_progress)
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="flex-shrink-0">
-      <circle cx="3" cy="3" r="1.5" stroke="var(--color-status-in-progress)" strokeWidth="1.2" />
-      <circle cx="3" cy="9" r="1.5" stroke="var(--color-status-in-progress)" strokeWidth="1.2" />
-      <line x1="3" y1="4.5" x2="3" y2="7.5" stroke="var(--color-status-in-progress)" strokeWidth="1.2" />
-      <circle cx="9" cy="3" r="1.5" stroke="var(--color-status-in-progress)" strokeWidth="1.2" />
-      <path d="M9 4.5V5.5C9 6.5 8 7 7 7H3" stroke="var(--color-status-in-progress)" strokeWidth="1.2" />
-    </svg>
-  );
+  return <GitBranch size={12} className="flex-shrink-0" style={{ color: 'var(--color-status-in-progress)' }} />;
 }

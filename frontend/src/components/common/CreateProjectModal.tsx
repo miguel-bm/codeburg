@@ -95,7 +95,7 @@ export function CreateProjectModal({ onClose }: CreateProjectModalProps) {
               type="text"
               value={source}
               onChange={(e) => handleSourceChange(e.target.value)}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)]"
               placeholder="https://github.com/user/repo or /path/to/project"
               required
             />
@@ -114,7 +114,7 @@ export function CreateProjectModal({ onClose }: CreateProjectModalProps) {
                 setName(e.target.value);
                 setNameManuallyEdited(true);
               }}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)]"
               placeholder="my-project"
               required
             />
@@ -125,7 +125,7 @@ export function CreateProjectModal({ onClose }: CreateProjectModalProps) {
               onClick={onClose}
               className="flex-1 py-2 px-4 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-sm hover:bg-[var(--color-border)] transition-colors"
             >
-              cancel
+              Cancel
             </button>
             <button
               type="submit"
@@ -133,8 +133,8 @@ export function CreateProjectModal({ onClose }: CreateProjectModalProps) {
               className="flex-1 py-2 px-4 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
             >
               {createMutation.isPending
-                ? (isClone ? 'cloning...' : 'creating...')
-                : 'create'}
+                ? (isClone ? 'Cloning...' : 'Creating...')
+                : 'Create'}
             </button>
           </div>
         </form>

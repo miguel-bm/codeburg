@@ -36,7 +36,7 @@ export function TaskDetailDone({ task, project }: Props) {
             disabled={updateTask.isPending}
             className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors disabled:opacity-50"
           >
-            reopen
+            Reopen
           </button>
         }
       />

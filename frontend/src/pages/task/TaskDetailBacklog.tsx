@@ -77,7 +77,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
             disabled={updateTask.isPending}
             className="px-4 py-1.5 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
           >
-            {updateTask.isPending ? 'starting...' : 'start working'}
+            {updateTask.isPending ? 'Starting...' : 'Start Working'}
           </button>
         }
       />
@@ -97,7 +97,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
                   if (e.key === 'Enter') handleTitleSave();
                   if (e.key === 'Escape') { setTitle(task.title); setEditingTitle(false); }
                 }}
-                className="w-full bg-primary border border-subtle rounded-md px-3 py-2 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+                className="w-full bg-primary border border-subtle rounded-md px-3 py-2 text-lg font-medium focus:outline-none focus:border-[var(--color-text-secondary)]"
                 autoFocus
               />
             ) : (
@@ -122,7 +122,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
                   if (e.key === 'Escape') { setDescription(task.description || ''); setEditingDesc(false); }
                 }}
                 rows={Math.max(4, description.split('\n').length + 1)}
-                className="w-full bg-primary border border-subtle rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent resize-none"
+                className="w-full bg-primary border border-subtle rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[var(--color-text-secondary)] resize-none"
                 autoFocus
               />
             ) : (
@@ -130,7 +130,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
                 onClick={() => setEditingDesc(true)}
                 className="text-sm text-left w-full hover:text-accent transition-colors whitespace-pre-wrap min-h-[4em]"
               >
-                {task.description || <span className="text-dim italic">click to add description...</span>}
+                {task.description || <span className="text-dim italic">Click to add description...</span>}
               </button>
             )}
           </div>
@@ -150,7 +150,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
                   if (e.key === 'Escape') { setBranchValue(task.branch || ''); setEditingBranch(false); }
                 }}
                 placeholder={slugify(task.title)}
-                className="w-full bg-primary border border-subtle rounded-md px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+                className="w-full bg-primary border border-subtle rounded-md px-3 py-2 font-mono text-sm focus:outline-none focus:border-[var(--color-text-secondary)]"
                 autoFocus
               />
             ) : (

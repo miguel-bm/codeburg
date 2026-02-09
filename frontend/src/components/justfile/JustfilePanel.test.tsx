@@ -29,7 +29,7 @@ describe('JustfilePanel', () => {
       </TestWrapper>
     );
 
-    expect(screen.getByText('loading justfile...')).toBeInTheDocument();
+    expect(screen.getByText('Loading justfile...')).toBeInTheDocument();
   });
 
   it('shows "no justfile" when project has none', async () => {

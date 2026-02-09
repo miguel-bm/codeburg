@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { Menu } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { useMobile } from '../../hooks/useMobile';
 
@@ -72,9 +73,7 @@ export function Layout({ children }: LayoutProps) {
           className="fixed top-4 left-4 z-40 p-2 border border-subtle bg-secondary hover:bg-tertiary rounded-md transition-colors"
           aria-label="Open menu"
         >
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M2 4h16v2H2V4zm0 5h16v2H2V9zm0 5h16v2H2v-2z" />
-          </svg>
+          <Menu size={20} />
         </button>
       )}
 

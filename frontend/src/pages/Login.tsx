@@ -66,7 +66,7 @@ export function Login() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="block w-full px-3 py-2 border border-subtle bg-secondary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+                className="block w-full px-3 py-2 border border-subtle bg-secondary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)]"
                 placeholder="********"
               />
             </div>
@@ -82,7 +82,7 @@ export function Login() {
                   required
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="block w-full px-3 py-2 border border-subtle bg-secondary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+                  className="block w-full px-3 py-2 border border-subtle bg-secondary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)]"
                   placeholder="********"
                 />
               </div>
@@ -94,7 +94,7 @@ export function Login() {
             disabled={isLoading}
             className="w-full py-2 px-4 bg-accent text-white rounded-md font-medium hover:bg-accent-dim transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLoading ? 'loading...' : needsSetup ? 'Initialize' : 'Sign in'}
+            {isLoading ? 'Loading...' : needsSetup ? 'Initialize' : 'Sign in'}
           </button>
         </form>
       </div>

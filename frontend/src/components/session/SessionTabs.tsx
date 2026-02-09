@@ -58,7 +58,7 @@ export function SessionTabs({ sessions, activeSessionId, onSelect, onResume, onC
                 }}
                 className="text-accent hover:underline"
               >
-                resume
+                Resume
               </span>
             )}
             {canClose && (

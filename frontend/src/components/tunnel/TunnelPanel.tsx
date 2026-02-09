@@ -13,7 +13,7 @@ export function TunnelPanel({ taskId }: TunnelPanelProps) {
   if (isLoading) {
     return (
       <div className="p-4 text-sm text-dim">
-        loading tunnels...
+        Loading tunnels...
       </div>
     );
   }
@@ -28,7 +28,7 @@ export function TunnelPanel({ taskId }: TunnelPanelProps) {
             onClick={() => setShowCreate(true)}
             className="text-xs text-accent hover:underline"
           >
-            + new
+            + New
           </button>
         )}
       </div>
@@ -44,7 +44,7 @@ export function TunnelPanel({ taskId }: TunnelPanelProps) {
               placeholder="port (e.g. 3000)"
               min="1"
               max="65535"
-              className="flex-1 px-2 py-1 text-sm bg-primary border border-subtle rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+              className="flex-1 px-2 py-1 text-sm bg-primary border border-subtle rounded-md focus:outline-none focus:border-[var(--color-text-secondary)]"
               autoFocus
             />
             <button
@@ -52,14 +52,14 @@ export function TunnelPanel({ taskId }: TunnelPanelProps) {
               disabled={createMutation.isPending || !port}
               className="px-3 py-1 text-sm bg-accent text-white rounded-md font-medium hover:bg-accent-dim transition-colors disabled:opacity-50"
             >
-              {createMutation.isPending ? '...' : 'create'}
+              {createMutation.isPending ? '...' : 'Create'}
             </button>
             <button
               type="button"
               onClick={() => setShowCreate(false)}
               className="px-2 py-1 text-sm text-dim hover:text-[var(--color-text-primary)]"
             >
-              cancel
+              Cancel
             </button>
           </div>
           {createMutation.error && (
@@ -92,7 +92,7 @@ export function TunnelPanel({ taskId }: TunnelPanelProps) {
                     disabled={stopMutation.isPending}
                     className="text-xs text-[var(--color-error)] hover:underline disabled:opacity-50"
                   >
-                    stop
+                    Stop
                   </button>
                 </div>
                 <div className="mt-2 flex items-center gap-2">
@@ -109,7 +109,7 @@ export function TunnelPanel({ taskId }: TunnelPanelProps) {
                     className={`text-xs shrink-0 ${copied ? 'text-accent' : 'text-dim hover:text-[var(--color-text-primary)]'}`}
                     title="Copy URL"
                   >
-                    {copied ? 'copied!' : 'copy'}
+                    {copied ? 'Copied!' : 'Copy'}
                   </button>
                 </div>
               </div>

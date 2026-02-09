@@ -125,7 +125,7 @@ export function TaskDetail() {
     return (
       <Layout>
         <div className="flex items-center justify-center h-full text-dim">
-          loading...
+          Loading...
         </div>
       </Layout>
     );
@@ -135,7 +135,7 @@ export function TaskDetail() {
     return (
       <Layout>
         <div className="flex items-center justify-center h-full text-dim">
-          task not found
+          Task not found
         </div>
       </Layout>
     );
@@ -301,7 +301,7 @@ function StartSessionModal({ taskTitle, taskDescription, onClose, onStart, isPen
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   rows={4}
-                  className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent resize-none"
+                  className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)] resize-none"
                   placeholder="What would you like the agent to do?"
                   autoFocus
                 />
@@ -323,14 +323,14 @@ function StartSessionModal({ taskTitle, taskDescription, onClose, onStart, isPen
               onClick={onClose}
               className="flex-1 py-2 px-4 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-sm hover:bg-[var(--color-border)] transition-colors"
             >
-              cancel
+              Cancel
             </button>
             <button
               type="submit"
               disabled={isPending}
               className="flex-1 py-2 px-4 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
             >
-              {isPending ? 'starting...' : 'start'}
+              {isPending ? 'Starting...' : 'Start'}
             </button>
           </div>
         </form>

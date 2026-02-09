@@ -132,11 +132,11 @@ export function TaskDetailInProgress({
           <select
             value={mobilePanel}
             onChange={(e) => setMobilePanel(e.target.value as MobilePanel)}
-            className="bg-primary border border-subtle rounded-md text-sm px-2 py-1 focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+            className="bg-primary border border-subtle rounded-md text-sm px-2 py-1 focus:outline-none focus:border-[var(--color-text-secondary)]"
           >
-            <option value="sessions">sessions</option>
-            <option value="git">git</option>
-            <option value="tools">tools</option>
+            <option value="sessions">Sessions</option>
+            <option value="git">Git</option>
+            <option value="tools">Tools</option>
           </select>
           {mobilePanel === 'sessions' && sessions.length > 0 && (
             <select
@@ -147,7 +147,7 @@ export function TaskDetailInProgress({
               }}
               className="bg-primary border border-subtle text-sm px-2 py-1 focus:outline-none focus:border-accent flex-1 min-w-0"
             >
-              <option value="">select session...</option>
+              <option value="">Select session...</option>
               {[...sessions]
                 .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
                 .map((s, i) => (
@@ -162,7 +162,7 @@ export function TaskDetailInProgress({
               onClick={onShowStartModal}
               className="text-xs text-accent hover:underline shrink-0"
             >
-              + new
+              + New
             </button>
           )}
         </div>
@@ -174,7 +174,7 @@ export function TaskDetailInProgress({
               <SessionView session={activeSession} />
             ) : (
               <div className="flex items-center justify-center h-full text-dim text-sm">
-                select or start a session
+                Select or start a session
               </div>
             )
           ) : mobilePanel === 'git' ? (
@@ -210,9 +210,9 @@ export function TaskDetailInProgress({
           <button
             onClick={handleMoveToReview}
             disabled={updateTask.isPending}
-            className="px-3 py-1.5 border border-accent text-accent text-xs hover:bg-accent hover:text-[var(--color-bg-primary)] transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors disabled:opacity-50"
           >
-            review
+            Review
           </button>
         }
       />
@@ -269,7 +269,7 @@ export function TaskDetailInProgress({
                 <SessionView session={activeSession} />
               ) : (
                 <div className="flex items-center justify-center h-full text-dim text-sm">
-                  select or start a session
+                  Select or start a session
                 </div>
               )
             ) : (
@@ -283,7 +283,7 @@ export function TaskDetailInProgress({
                     onClick={() => setMainContent({ type: 'session' })}
                     className="text-xs text-dim hover:text-accent"
                   >
-                    back to session
+                    Back to session
                   </button>
                 </div>
                 <div className="flex-1 overflow-auto">

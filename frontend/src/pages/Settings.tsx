@@ -21,7 +21,7 @@ export function Settings() {
               onClick={() => navigate('/')}
               className="text-dim hover:text-[var(--color-text-primary)] transition-colors"
             >
-              &lt; back
+              &lt; Back
             </button>
             <h1 className="text-lg font-medium">Settings</h1>
           </div>
@@ -43,7 +43,7 @@ export function Settings() {
                 onClick={logout}
                 className="px-4 py-2 bg-[var(--color-error)]/10 text-[var(--color-error)] rounded-md text-sm hover:bg-[var(--color-error)]/20 transition-colors"
               >
-                logout
+                Logout
               </button>
             </div>
           </div>
@@ -63,7 +63,7 @@ function TerminalSettingsForm() {
   const settings = useTerminalSettings();
 
   const selectClass =
-    'block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent appearance-none';
+    'block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)] appearance-none';
 
   return (
     <div>
@@ -73,7 +73,7 @@ function TerminalSettingsForm() {
           onClick={settings.reset}
           className="text-xs text-dim hover:text-[var(--color-text-primary)] transition-colors"
         >
-          reset defaults
+          Reset Defaults
         </button>
       </div>
       <div className="space-y-3">
@@ -251,7 +251,7 @@ function PasswordChangeForm() {
         )}
         {success && (
           <div className="border border-[var(--color-success)] rounded-md p-3 text-sm text-[var(--color-success)]">
-            password changed successfully
+            Password changed successfully
           </div>
         )}
         <div>
@@ -260,7 +260,7 @@ function PasswordChangeForm() {
             type="password"
             value={currentPassword}
             onChange={(e) => setCurrentPassword(e.target.value)}
-            className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+            className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)]"
             required
           />
         </div>
@@ -270,7 +270,7 @@ function PasswordChangeForm() {
             type="password"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
-            className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+            className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)]"
             required
             minLength={8}
           />
@@ -281,7 +281,7 @@ function PasswordChangeForm() {
             type="password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
-            className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+            className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)]"
             required
             minLength={8}
           />
@@ -291,7 +291,7 @@ function PasswordChangeForm() {
           disabled={mutation.isPending}
           className="px-4 py-2 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
         >
-          {mutation.isPending ? 'changing...' : 'change password'}
+          {mutation.isPending ? 'Changing...' : 'Change Password'}
         </button>
       </form>
     </div>

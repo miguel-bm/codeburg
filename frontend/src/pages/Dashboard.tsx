@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef, useCallback, forwardRef } from 'r
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { GitBranch } from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
 import { tasksApi, projectsApi, sessionsApi } from '../api';
 import type { Task, TaskStatus, CreateTaskInput, UpdateTaskResponse } from '../api';
@@ -456,7 +457,7 @@ export function Dashboard() {
             onClick={() => setWarning(null)}
             className="ml-4 hover:text-[var(--color-text-primary)] transition-colors"
           >
-            dismiss
+            Dismiss
           </button>
         </div>
       )}
@@ -491,7 +492,7 @@ export function Dashboard() {
             {...swipeHandlers}
           >
             {tasksLoading ? (
-              <div className="text-center text-dim py-8 text-sm">loading...</div>
+              <div className="text-center text-dim py-8 text-sm">Loading...</div>
             ) : (
               <div className="space-y-3">
                 {getTasksByStatus(COLUMNS[activeColumnIndex].id).map((task, cardIdx) => (
@@ -544,7 +545,7 @@ export function Dashboard() {
                   <div className="flex-1 p-2 space-y-2 overflow-y-auto">
                     {tasksLoading ? (
                       <div className="text-center text-dim py-4 text-sm">
-                        loading...
+                        Loading...
                       </div>
                     ) : (
                       <>
@@ -692,7 +693,7 @@ function NewTaskPlaceholder({ focused, onClick }: NewTaskPlaceholderProps) {
           : 'border-subtle text-dim hover:border-accent hover:text-accent'
       }`}
     >
-      + new task
+      + New Task
     </div>
   );
 }
@@ -766,13 +767,13 @@ const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
         )}
         {task.branch && (
           <span className="text-xs text-dim font-mono flex items-center gap-1">
-            <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor"><path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Z"/></svg>
+            <GitBranch size={12} className="flex-shrink-0" />
             {task.branch}
           </span>
         )}
         {task.pinned && (
           <span className="text-xs text-[var(--color-error)]">
-            pinned
+            Pinned
           </span>
         )}
         {task.diffStats && (task.diffStats.additions > 0 || task.diffStats.deletions > 0) && (
@@ -938,7 +939,7 @@ function CreateTaskModal({ projects, defaultProjectId, defaultStatus = TASK_STAT
             <select
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)]"
             >
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -954,7 +955,7 @@ function CreateTaskModal({ projects, defaultProjectId, defaultStatus = TASK_STAT
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)]"
               placeholder="implement feature x"
               required
             />
@@ -965,7 +966,7 @@ function CreateTaskModal({ projects, defaultProjectId, defaultStatus = TASK_STAT
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent resize-none"
+              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)] resize-none"
               placeholder="optional description..."
             />
           </div>
@@ -975,14 +976,14 @@ function CreateTaskModal({ projects, defaultProjectId, defaultStatus = TASK_STAT
               onClick={onClose}
               className="flex-1 py-2 px-4 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-sm hover:bg-[var(--color-border)] transition-colors"
             >
-              cancel
+              Cancel
             </button>
             <button
               type="submit"
               disabled={!canSubmit}
               className="flex-1 py-2 px-4 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {createMutation.isPending ? 'creating...' : 'create'}
+              {createMutation.isPending ? 'Creating...' : 'Create'}
             </button>
           </div>
         </form>
@@ -1055,7 +1056,7 @@ function WorkflowPromptModal({ taskId, onClose }: WorkflowPromptModalProps) {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={3}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent resize-none"
+              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)] resize-none"
               placeholder="describe what the agent should do..."
             />
           </div>
@@ -1064,14 +1065,14 @@ function WorkflowPromptModal({ taskId, onClose }: WorkflowPromptModalProps) {
               onClick={onClose}
               className="flex-1 py-2 px-4 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-sm hover:bg-[var(--color-border)] transition-colors"
             >
-              skip
+              Skip
             </button>
             <button
               onClick={() => startMutation.mutate()}
               disabled={startMutation.isPending}
               className="flex-1 py-2 px-4 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
             >
-              {startMutation.isPending ? 'starting...' : 'start'}
+              {startMutation.isPending ? 'Starting...' : 'Start'}
             </button>
           </div>
         </div>

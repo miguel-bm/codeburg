@@ -23,14 +23,14 @@ function RecipesSection({ taskId, onRecipeRun }: { taskId: string; onRecipeRun: 
   });
 
   if (isLoading) {
-    return <div className="px-3 py-2 text-dim">loading recipes...</div>;
+    return <div className="px-3 py-2 text-dim">Loading recipes...</div>;
   }
 
   if (!data?.hasJustfile || data.recipes.length === 0) {
     return (
       <div className="px-3 py-2 border-b border-subtle">
         <span className="text-xs font-medium uppercase tracking-wider text-dim">Recipes</span>
-        <div className="mt-1 text-dim">no justfile found</div>
+        <div className="mt-1 text-dim">No justfile found</div>
       </div>
     );
   }
@@ -69,7 +69,7 @@ function TunnelsSection({ taskId }: { taskId: string }) {
             onClick={() => setShowCreate(true)}
             className="text-accent hover:underline"
           >
-            + new
+            + New
           </button>
         )}
       </div>
@@ -84,7 +84,7 @@ function TunnelsSection({ taskId }: { taskId: string }) {
               placeholder="port"
               min="1"
               max="65535"
-              className="w-20 px-2 py-0.5 bg-primary border border-subtle rounded-md focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+              className="w-20 px-2 py-0.5 bg-primary border border-subtle rounded-md focus:outline-none focus:border-[var(--color-text-secondary)]"
               autoFocus
             />
             <button
@@ -92,7 +92,7 @@ function TunnelsSection({ taskId }: { taskId: string }) {
               disabled={createMutation.isPending || !port}
               className="px-2 py-0.5 bg-accent text-white rounded-md font-medium hover:bg-accent-dim transition-colors disabled:opacity-50"
             >
-              go
+              Go
             </button>
             <button
               type="button"
@@ -115,13 +115,13 @@ function TunnelsSection({ taskId }: { taskId: string }) {
                 className={`text-dim hover:text-accent truncate ${copied ? 'text-accent' : ''}`}
                 title={tunnel.url}
               >
-                {copied ? 'copied' : 'copy'}
+                {copied ? 'Copied' : 'Copy'}
               </button>
               <button
                 onClick={() => stopMutation.mutate(tunnel.id)}
                 className="text-dim hover:text-[var(--color-error)]"
               >
-                stop
+                Stop
               </button>
             </div>
           ))}
@@ -129,7 +129,7 @@ function TunnelsSection({ taskId }: { taskId: string }) {
       )}
 
       {tunnels.length === 0 && !showCreate && (
-        <div className="px-3 pb-2 text-dim">no tunnels</div>
+        <div className="px-3 pb-2 text-dim">No tunnels</div>
       )}
     </div>
   );

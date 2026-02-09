@@ -65,15 +65,15 @@ function StatusIndicator({ status }: StatusIndicatorProps) {
   const getStatusText = () => {
     switch (status) {
       case 'running':
-        return 'running';
+        return 'Running';
       case 'waiting_input':
-        return 'waiting';
+        return 'Waiting';
       case 'completed':
-        return 'done';
+        return 'Done';
       case 'error':
-        return 'error';
+        return 'Error';
       default:
-        return 'idle';
+        return 'Idle';
     }
   };
 
@@ -97,7 +97,7 @@ function ActivityIndicator({ lastActivityAt }: ActivityIndicatorProps) {
     return (
       <div className="flex items-center gap-1">
         <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-        <span className="text-xs text-dim">active</span>
+        <span className="text-xs text-dim">Active</span>
       </div>
     );
   }

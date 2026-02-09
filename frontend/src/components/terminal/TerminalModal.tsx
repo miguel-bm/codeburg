@@ -33,12 +33,12 @@ export function TerminalModal({ target, onClose }: TerminalModalProps) {
           <span className="text-xs text-dim font-mono">{target}</span>
         </div>
         <div className="flex items-center gap-4">
-          <span className="text-xs text-dim">ctrl+esc to close</span>
+          <span className="text-xs text-dim">Ctrl+Esc to close</span>
           <button
             onClick={onClose}
             className="px-3 py-1 text-sm bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors"
           >
-            close
+            Close
           </button>
         </div>
       </div>

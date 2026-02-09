@@ -1,48 +1,9 @@
 import { useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, CornerDownLeft } from 'lucide-react';
 
 interface TerminalToolbarProps {
   onInput: (data: string) => void;
-}
-
-function ArrowUp() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square">
-      <path d="M8 13V3M3 7l5-5 5 5" />
-    </svg>
-  );
-}
-
-function ArrowDown() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square">
-      <path d="M8 3v10M3 9l5 5 5-5" />
-    </svg>
-  );
-}
-
-function ArrowLeft() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square">
-      <path d="M13 8H3M7 3L2 8l5 5" />
-    </svg>
-  );
-}
-
-function ArrowRight() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square">
-      <path d="M3 8h10M9 3l5 5-5 5" />
-    </svg>
-  );
-}
-
-function EnterKey() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square">
-      <path d="M13 3v6H4M4 9l3-3M4 9l3 3" />
-    </svg>
-  );
 }
 
 const KEYS: { id: string; label: ReactNode; data: string }[] = [
@@ -51,11 +12,11 @@ const KEYS: { id: string; label: ReactNode; data: string }[] = [
   { id: 'ctrl-c', label: '^C', data: '\x03' },
   { id: 'ctrl-d', label: '^D', data: '\x04' },
   { id: 'ctrl-z', label: '^Z', data: '\x1a' },
-  { id: 'up', label: <ArrowUp />, data: '\x1b[A' },
-  { id: 'down', label: <ArrowDown />, data: '\x1b[B' },
-  { id: 'left', label: <ArrowLeft />, data: '\x1b[D' },
-  { id: 'right', label: <ArrowRight />, data: '\x1b[C' },
-  { id: 'enter', label: <EnterKey />, data: '\r' },
+  { id: 'up', label: <ArrowUp size={16} />, data: '\x1b[A' },
+  { id: 'down', label: <ArrowDown size={16} />, data: '\x1b[B' },
+  { id: 'left', label: <ArrowLeft size={16} />, data: '\x1b[D' },
+  { id: 'right', label: <ArrowRight size={16} />, data: '\x1b[C' },
+  { id: 'enter', label: <CornerDownLeft size={16} />, data: '\r' },
 ];
 
 export function TerminalToolbar({ onInput }: TerminalToolbarProps) {

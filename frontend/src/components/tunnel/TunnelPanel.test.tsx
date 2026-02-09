@@ -38,7 +38,7 @@ describe('TunnelPanel', () => {
       </TestWrapper>
     );
 
-    expect(screen.getByText('loading tunnels...')).toBeInTheDocument();
+    expect(screen.getByText('Loading tunnels...')).toBeInTheDocument();
   });
 
   it('shows empty state when no tunnels', async () => {
@@ -97,14 +97,14 @@ describe('TunnelPanel', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('+ new')).toBeInTheDocument();
+      expect(screen.getByText('+ New')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText('+ new'));
+    await user.click(screen.getByText('+ New'));
 
     expect(screen.getByPlaceholderText('port (e.g. 3000)')).toBeInTheDocument();
-    expect(screen.getByText('create')).toBeInTheDocument();
-    expect(screen.getByText('cancel')).toBeInTheDocument();
+    expect(screen.getByText('Create')).toBeInTheDocument();
+    expect(screen.getByText('Cancel')).toBeInTheDocument();
   });
 
   it('creates a tunnel with port', async () => {
@@ -124,14 +124,14 @@ describe('TunnelPanel', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('+ new')).toBeInTheDocument();
+      expect(screen.getByText('+ New')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText('+ new'));
+    await user.click(screen.getByText('+ New'));
 
     const input = screen.getByPlaceholderText('port (e.g. 3000)');
     await user.type(input, '3000');
-    await user.click(screen.getByText('create'));
+    await user.click(screen.getByText('Create'));
 
     expect(mockedApi.create).toHaveBeenCalledWith('task-1', 3000);
   });
@@ -147,13 +147,13 @@ describe('TunnelPanel', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('+ new')).toBeInTheDocument();
+      expect(screen.getByText('+ New')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText('+ new'));
+    await user.click(screen.getByText('+ New'));
     expect(screen.getByPlaceholderText('port (e.g. 3000)')).toBeInTheDocument();
 
-    await user.click(screen.getByText('cancel'));
+    await user.click(screen.getByText('Cancel'));
     expect(screen.queryByPlaceholderText('port (e.g. 3000)')).not.toBeInTheDocument();
   });
 
@@ -179,7 +179,7 @@ describe('TunnelPanel', () => {
       expect(screen.getByText(':3000')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText('stop'));
+    await user.click(screen.getByText('Stop'));
 
     expect(mockedApi.stop).toHaveBeenCalledWith('tunnel-1');
   });
@@ -212,7 +212,7 @@ describe('TunnelPanel', () => {
     });
 
     // Use fireEvent instead of userEvent to avoid userEvent's clipboard interception
-    fireEvent.click(screen.getByText('copy'));
+    fireEvent.click(screen.getByText('Copy'));
 
     expect(writeText).toHaveBeenCalledWith(
       'https://test.trycloudflare.com'
