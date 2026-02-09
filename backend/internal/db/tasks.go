@@ -23,11 +23,14 @@ type Task struct {
 	Title        string     `json:"title"`
 	Description  *string    `json:"description,omitempty"`
 	Status       TaskStatus `json:"status"`
+	TaskType     string     `json:"taskType"`
+	Priority     *string    `json:"priority,omitempty"`
 	Branch       *string    `json:"branch,omitempty"`
 	WorktreePath *string    `json:"worktreePath,omitempty"`
 	PRURL        *string    `json:"prUrl,omitempty"`
 	Pinned       bool       `json:"pinned"`
 	Position     int        `json:"position"`
+	Labels       []*Label   `json:"labels"`
 	CreatedAt    time.Time  `json:"createdAt"`
 	StartedAt    *time.Time `json:"startedAt,omitempty"`
 	CompletedAt  *time.Time `json:"completedAt,omitempty"`
@@ -37,12 +40,16 @@ type CreateTaskInput struct {
 	ProjectID   string  `json:"projectId"`
 	Title       string  `json:"title"`
 	Description *string `json:"description,omitempty"`
+	TaskType    *string `json:"taskType,omitempty"`
+	Priority    *string `json:"priority,omitempty"`
 }
 
 type UpdateTaskInput struct {
 	Title        *string     `json:"title,omitempty"`
 	Description  *string     `json:"description,omitempty"`
 	Status       *TaskStatus `json:"status,omitempty"`
+	TaskType     *string     `json:"taskType,omitempty"`
+	Priority     *string     `json:"priority,omitempty"`
 	Branch       *string     `json:"branch,omitempty"`
 	WorktreePath *string     `json:"worktreePath,omitempty"`
 	PRURL        *string     `json:"prUrl,omitempty"`
@@ -61,10 +68,15 @@ func (db *DB) CreateTask(input CreateTaskInput) (*Task, error) {
 	id := NewID()
 	now := time.Now()
 
+	taskType := "task"
+	if input.TaskType != nil {
+		taskType = *input.TaskType
+	}
+
 	_, err := db.conn.Exec(`
-		INSERT INTO tasks (id, project_id, title, description, status, position, created_at)
-		VALUES (?, ?, ?, ?, ?, COALESCE((SELECT MAX(position) FROM tasks WHERE status = ?), -1) + 1, ?)
-	`, id, input.ProjectID, input.Title, NullString(input.Description), TaskStatusBacklog, TaskStatusBacklog, now)
+		INSERT INTO tasks (id, project_id, title, description, task_type, priority, status, position, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT MAX(position) FROM tasks WHERE status = ?), -1) + 1, ?)
+	`, id, input.ProjectID, input.Title, NullString(input.Description), taskType, NullString(input.Priority), TaskStatusBacklog, TaskStatusBacklog, now)
 	if err != nil {
 		return nil, fmt.Errorf("insert task: %w", err)
 	}
@@ -75,8 +87,9 @@ func (db *DB) CreateTask(input CreateTaskInput) (*Task, error) {
 // GetTask retrieves a task by ID
 func (db *DB) GetTask(id string) (*Task, error) {
 	row := db.conn.QueryRow(`
-		SELECT id, project_id, title, description, status, branch, worktree_path, pr_url,
-		       pinned, position, created_at, started_at, completed_at
+		SELECT id, project_id, title, description, status, task_type, priority,
+		       branch, worktree_path, pr_url, pinned, position,
+		       created_at, started_at, completed_at
 		FROM tasks WHERE id = ?
 	`, id)
 
@@ -90,8 +103,9 @@ func (db *DB) GetTask(id string) (*Task, error) {
 // ListTasks retrieves tasks with optional filtering
 func (db *DB) ListTasks(filter TaskFilter) ([]*Task, error) {
 	query := `
-		SELECT id, project_id, title, description, status, branch, worktree_path, pr_url,
-		       pinned, position, created_at, started_at, completed_at
+		SELECT id, project_id, title, description, status, task_type, priority,
+		       branch, worktree_path, pr_url, pinned, position,
+		       created_at, started_at, completed_at
 		FROM tasks WHERE 1=1
 	`
 	var args []any
@@ -202,6 +216,14 @@ func (db *DB) UpdateTask(id string, input UpdateTaskInput) (*Task, error) {
 		query += ", description = ?"
 		args = append(args, *input.Description)
 	}
+	if input.TaskType != nil {
+		query += ", task_type = ?"
+		args = append(args, *input.TaskType)
+	}
+	if input.Priority != nil {
+		query += ", priority = ?"
+		args = append(args, NullString(input.Priority))
+	}
 	if input.Status != nil {
 		query += ", status = ?"
 		args = append(args, *input.Status)
@@ -287,25 +309,32 @@ func (db *DB) DeleteTask(id string) error {
 
 func scanTask(scan scanFunc) (*Task, error) {
 	var t Task
-	var description, branch, worktreePath, prURL sql.NullString
+	var description, taskType, priority, branch, worktreePath, prURL sql.NullString
 	var position sql.NullInt64
 	var startedAt, completedAt sql.NullTime
 
 	err := scan(
-		&t.ID, &t.ProjectID, &t.Title, &description, &t.Status,
-		&branch, &worktreePath, &prURL, &t.Pinned, &position, &t.CreatedAt, &startedAt, &completedAt,
+		&t.ID, &t.ProjectID, &t.Title, &description, &t.Status, &taskType, &priority,
+		&branch, &worktreePath, &prURL, &t.Pinned, &position,
+		&t.CreatedAt, &startedAt, &completedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	t.Description = StringPtr(description)
+	t.TaskType = "task"
+	if taskType.Valid && taskType.String != "" {
+		t.TaskType = taskType.String
+	}
+	t.Priority = StringPtr(priority)
 	t.Branch = StringPtr(branch)
 	t.WorktreePath = StringPtr(worktreePath)
 	t.PRURL = StringPtr(prURL)
 	if position.Valid {
 		t.Position = int(position.Int64)
 	}
+	t.Labels = make([]*Label, 0)
 	t.StartedAt = TimePtr(startedAt)
 	t.CompletedAt = TimePtr(completedAt)
 

@@ -5,6 +5,7 @@ import { useAuthStore } from './stores/auth';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { TaskDetail } from './pages/TaskDetail';
+import { TaskCreate } from './pages/task/TaskCreate';
 import { ProjectSettings } from './pages/ProjectSettings';
 import { Settings } from './pages/Settings';
 import { CommandPalette, useCommandPalette } from './components/common/CommandPalette';
@@ -50,6 +51,7 @@ function AppShell() {
     <>
       <Routes>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/tasks/new" element={<TaskCreate />} />
         <Route path="/tasks/:id" element={<TaskDetail />} />
         <Route path="/projects/:id/settings" element={<ProjectSettings />} />
         <Route path="/settings" element={<Settings />} />

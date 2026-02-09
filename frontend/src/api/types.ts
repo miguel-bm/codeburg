@@ -40,6 +40,9 @@ export interface CreateProjectInput {
   name: string;
   path?: string;
   githubUrl?: string;
+  createRepo?: boolean;
+  description?: string;
+  private?: boolean;
   gitOrigin?: string;
   defaultBranch?: string;
   symlinkPaths?: string[];
@@ -84,17 +87,27 @@ export interface DiffStats {
   deletions: number;
 }
 
+export interface Label {
+  id: string;
+  projectId: string;
+  name: string;
+  color: string;
+}
+
 export interface Task {
   id: string;
   projectId: string;
   title: string;
   description?: string;
   status: TaskStatus;
+  taskType: string;
+  priority?: string;
   branch?: string;
   worktreePath?: string;
   prUrl?: string;
   pinned: boolean;
   position: number;
+  labels: Label[];
   diffStats?: DiffStats;
   createdAt: string;
   startedAt?: string;
@@ -104,12 +117,16 @@ export interface Task {
 export interface CreateTaskInput {
   title: string;
   description?: string;
+  taskType?: string;
+  priority?: string;
 }
 
 export interface UpdateTaskInput {
   title?: string;
   description?: string;
   status?: TaskStatus;
+  taskType?: string;
+  priority?: string;
   branch?: string;
   worktreePath?: string;
   prUrl?: string;

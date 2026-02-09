@@ -53,7 +53,7 @@ sudo bash -c "curl -sSL https://raw.githubusercontent.com/miguel-bm/codeburg/mai
 #   (on VM)            sudo bash /root/setup.sh
 ```
 
-The setup script installs everything: Go, Node.js, pnpm, tmux, just, cloudflared, creates the `codeburg` user, builds the project, and starts the systemd service.
+The setup script installs everything: Go, Node.js, pnpm, tmux, just, cloudflared, gh CLI, creates the `codeburg` user, builds the project, and starts the systemd service.
 
 **Note:** The build happens on the server (Linux amd64). Do not commit locally-built binaries — `backend/codeburg` is in `.gitignore`.
 
@@ -213,7 +213,18 @@ Telegram login lets you open Codeburg as a Telegram Web App with automatic authe
 3. Enter your bot token (from @BotFather) and Telegram user ID (from @userinfobot)
 4. Click **Save** — the bot starts automatically
 
-### 5c. Start Building
+### 5c. Authenticate GitHub CLI (Optional)
+
+If you want to create new GitHub repos from Codeburg:
+
+```bash
+ssh codeburg-server
+gh auth login
+```
+
+Follow the prompts to authenticate. This enables the "Create New" option in the Add Project modal.
+
+### 5d. Start Building
 
 Create your first project and start working!
 

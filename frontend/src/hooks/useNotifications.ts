@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { sidebarApi } from '../api';
 import type { SidebarData } from '../api';
 import { useWebSocket } from './useWebSocket';
+import { playNotificationSound } from '../lib/notificationSound';
 
 // Draw a count badge on the favicon
 function setFaviconBadge(count: number) {
@@ -108,9 +109,10 @@ export function useNotifications() {
       document.title = document.title.replace(/^\[\d+\] /, '');
     }
 
-    // Fire browser notification for new waiting sessions
+    // Fire browser notification + sound for new waiting sessions
     if (count > prevCountRef.current && prevCountRef.current >= 0) {
       const delta = count - prevCountRef.current;
+      playNotificationSound();
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification('Codeburg', {
           body: `${delta} agent${delta > 1 ? 's' : ''} waiting for input`,

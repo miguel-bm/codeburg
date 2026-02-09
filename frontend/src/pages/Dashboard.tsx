@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { GitBranch } from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
 import { tasksApi, projectsApi, sessionsApi, invalidateTaskQueries } from '../api';
-import type { Task, TaskStatus, CreateTaskInput, UpdateTaskResponse } from '../api';
+import type { Task, TaskStatus, UpdateTaskResponse } from '../api';
 import { TASK_STATUS } from '../api';
 import { useMobile } from '../hooks/useMobile';
 import { useSwipe } from '../hooks/useSwipe';
@@ -71,8 +71,6 @@ export function Dashboard() {
       sessionStorage.removeItem(SESSION_KEY);
     }
   }, [selectedProjectId]);
-  const [showCreateTask, setShowCreateTask] = useState(false);
-  const [createTaskStatus, setCreateTaskStatus] = useState<TaskStatus>(TASK_STATUS.BACKLOG);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [activeColumnIndex, setActiveColumnIndex] = useState(0);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
@@ -154,6 +152,14 @@ export function Dashboard() {
   };
 
   const hasProjects = projects && projects.length > 0;
+
+  const navigateToCreate = useCallback((status?: TaskStatus) => {
+    const params = new URLSearchParams();
+    if (selectedProjectId) params.set('project', selectedProjectId);
+    if (status && status !== TASK_STATUS.BACKLOG) params.set('status', status);
+    const qs = params.toString();
+    navigate(`/tasks/new${qs ? `?${qs}` : ''}`);
+  }, [navigate, selectedProjectId]);
 
   const getColumnTasks = useCallback(
     (colIdx: number): Task[] => tasksByStatus.get(COLUMNS[colIdx]?.id) ?? [],
@@ -286,8 +292,7 @@ export function Dashboard() {
         if (task) {
           navigate(`/tasks/${task.id}`);
         } else if (hasProjects) {
-          setCreateTaskStatus(COLUMNS[focus.col].id);
-          setShowCreateTask(true);
+          navigateToCreate(COLUMNS[focus.col].id);
         }
       },
       Escape: () => setFocus(null),
@@ -302,8 +307,7 @@ export function Dashboard() {
       x: togglePin,
       n: () => {
         if (hasProjects) {
-          setCreateTaskStatus(COLUMNS[focus?.col ?? 0].id);
-          setShowCreateTask(true);
+          navigateToCreate(COLUMNS[focus?.col ?? 0].id);
         }
       },
       p: () => setShowCreateProject(true),
@@ -313,7 +317,7 @@ export function Dashboard() {
       '4': () => setFocus({ col: 3, card: 0 }),
       '?': () => setShowHelp(true),
     },
-    enabled: !showCreateTask && !showCreateProject && !showHelp && !contextMenu && !drag && !sidebarFocused,
+    enabled: !showCreateProject && !showHelp && !contextMenu && !drag && !sidebarFocused,
   });
 
   // Sync mobile tab to focus column
@@ -506,7 +510,7 @@ export function Dashboard() {
                 ))}
                 <NewTaskPlaceholder
                   focused={focus?.col === activeColumnIndex && focus?.card === getTasksByStatus(COLUMNS[activeColumnIndex].id).length}
-                  onClick={() => { if (hasProjects) { setCreateTaskStatus(COLUMNS[activeColumnIndex].id); setShowCreateTask(true); } }}
+                  onClick={() => { if (hasProjects) navigateToCreate(COLUMNS[activeColumnIndex].id); }}
                 />
               </div>
             )}
@@ -576,7 +580,7 @@ export function Dashboard() {
                         )}
                         <NewTaskPlaceholder
                           focused={focus?.col === colIdx && focus?.card === colTasks.length}
-                          onClick={() => { if (hasProjects) { setCreateTaskStatus(column.id); setShowCreateTask(true); } }}
+                          onClick={() => { if (hasProjects) navigateToCreate(column.id); }}
                         />
                       </>
                     )}
@@ -631,16 +635,6 @@ export function Dashboard() {
       {/* Create Project Modal */}
       {showCreateProject && (
         <CreateProjectModal onClose={() => setShowCreateProject(false)} />
-      )}
-
-      {/* Create Task Modal */}
-      {showCreateTask && hasProjects && (
-        <CreateTaskModal
-          projects={projects!}
-          defaultProjectId={selectedProjectId}
-          defaultStatus={createTaskStatus}
-          onClose={() => setShowCreateTask(false)}
-        />
       )}
 
       {/* Workflow Prompt Modal */}
@@ -764,6 +758,14 @@ const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
             {projectName}
           </span>
         )}
+        {task.taskType && task.taskType !== 'task' && (
+          <span className="text-[10px] text-dim capitalize">
+            {task.taskType}
+          </span>
+        )}
+        {task.priority && (
+          <PriorityDot priority={task.priority} />
+        )}
         {task.branch && (
           <span className="text-xs text-dim font-mono flex items-center gap-1">
             <GitBranch size={12} className="flex-shrink-0" />
@@ -798,10 +800,36 @@ const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
             PR
           </a>
         )}
+        {task.labels?.slice(0, 3).map(label => (
+          <span
+            key={label.id}
+            className="text-[10px] px-1.5 py-px rounded-full text-white font-medium"
+            style={{ backgroundColor: label.color }}
+          >
+            {label.name}
+          </span>
+        ))}
       </div>
     </div>
   );
 });
+
+const PRIORITY_COLORS: Record<string, string> = {
+  urgent: 'var(--color-error)',
+  high: '#f97316',
+  medium: '#eab308',
+  low: 'var(--color-text-dim)',
+};
+
+function PriorityDot({ priority }: { priority: string }) {
+  const color = PRIORITY_COLORS[priority] || 'var(--color-text-dim)';
+  return (
+    <span className="flex items-center gap-0.5 text-[10px]" style={{ color }}>
+      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} />
+      {priority}
+    </span>
+  );
+}
 
 interface TaskContextMenuProps {
   x: number;
@@ -856,138 +884,6 @@ function TaskContextMenu({ x, y, currentStatus, onClose, onStatusChange }: TaskC
         ))}
       </div>
     </>
-  );
-}
-
-interface CreateTaskModalProps {
-  projects: { id: string; name: string }[];
-  defaultProjectId?: string;
-  defaultStatus?: TaskStatus;
-  onClose: () => void;
-}
-
-function CreateTaskModal({ projects, defaultProjectId, defaultStatus = TASK_STATUS.BACKLOG, onClose }: CreateTaskModalProps) {
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [onClose]);
-
-  const [projectId, setProjectId] = useState(defaultProjectId ?? projects[0]?.id ?? '');
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [error, setError] = useState('');
-  const titleRef = useRef<HTMLInputElement>(null);
-  const queryClient = useQueryClient();
-
-  useEffect(() => {
-    titleRef.current?.focus();
-  }, []);
-
-  const createMutation = useMutation({
-    mutationFn: ({ projectId, input }: { projectId: string; input: CreateTaskInput }) =>
-      tasksApi.create(projectId, input),
-    onSuccess: (task) => {
-      if (defaultStatus !== TASK_STATUS.BACKLOG) {
-        tasksApi.update(task.id, { status: defaultStatus }).then(() => {
-          invalidateTaskQueries(queryClient, task.id);
-        });
-      } else {
-        invalidateTaskQueries(queryClient, task.id);
-      }
-      onClose();
-    },
-    onError: (err) => {
-      setError(err instanceof Error ? err.message : 'Failed to create task');
-    },
-  });
-
-  const canSubmit = title.trim().length > 0 && !createMutation.isPending;
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!canSubmit) return;
-    setError('');
-    createMutation.mutate({
-      projectId,
-      input: { title, description: description || undefined },
-    });
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canSubmit) {
-      e.preventDefault();
-      handleSubmit(e);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-      <div className="bg-elevated border border-subtle rounded-xl shadow-lg w-full max-w-md">
-        <div className="px-4 py-3 border-b border-subtle">
-          <h2 className="text-sm font-medium">New Task</h2>
-        </div>
-        <form onSubmit={handleSubmit} onKeyDown={handleKeyDown} className="p-4 space-y-4">
-          {error && (
-            <div className="border border-[var(--color-error)] rounded-md p-3 text-sm text-[var(--color-error)]">
-              {error}
-            </div>
-          )}
-          <div>
-            <label className="block text-sm text-dim mb-1">Project</label>
-            <select
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)]"
-            >
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm text-dim mb-1">Title</label>
-            <input
-              ref={titleRef}
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)]"
-              placeholder="implement feature x"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-dim mb-1">Description</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)] resize-none"
-              placeholder="optional description..."
-            />
-          </div>
-          <div className="flex gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-2 px-4 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-sm hover:bg-[var(--color-border)] transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              className="flex-1 py-2 px-4 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {createMutation.isPending ? 'Creating...' : 'Create'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
   );
 }
 

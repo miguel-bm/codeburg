@@ -229,6 +229,13 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/tasks/{id}/git/commit", s.handleGitCommit)
 		r.Post("/api/tasks/{id}/git/stash", s.handleGitStash)
 
+		// Labels
+		r.Get("/api/projects/{id}/labels", s.handleListLabels)
+		r.Post("/api/projects/{id}/labels", s.handleCreateLabel)
+		r.Delete("/api/labels/{id}", s.handleDeleteLabel)
+		r.Post("/api/tasks/{id}/labels", s.handleAssignLabel)
+		r.Delete("/api/tasks/{id}/labels/{labelId}", s.handleUnassignLabel)
+
 		// Tunnels
 		r.Get("/api/tasks/{id}/tunnels", s.handleListTunnels)
 		r.Post("/api/tasks/{id}/tunnels", s.handleCreateTunnel)

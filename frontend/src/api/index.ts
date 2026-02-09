@@ -9,6 +9,7 @@ export { sidebarApi } from './sidebar';
 export { preferencesApi } from './preferences';
 export type { EditorConfig, EditorType } from './preferences';
 export { gitApi } from './git';
+export { labelsApi } from './labels';
 export { TASK_STATUS, ALL_TASK_STATUSES } from './types';
 export * from './types';
 export type { AgentSession, SessionStatus, SessionProvider, StartSessionInput } from './sessions';

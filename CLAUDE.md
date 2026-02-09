@@ -38,6 +38,11 @@ Personal system for managing code projects with AI agents.
   just --version
   ```
 
+- **gh** - GitHub CLI (optional, for creating repos and PR features)
+  ```bash
+  gh --version
+  ```
+
 - **cloudflared** - Tunnel support (optional, for tunnel features)
   ```bash
   cloudflared --version

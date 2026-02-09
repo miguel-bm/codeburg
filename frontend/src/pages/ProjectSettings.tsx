@@ -55,17 +55,19 @@ export function ProjectSettings() {
 function GeneralSection({ project }: { project: Project }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState(project.name);
+  const [gitOrigin, setGitOrigin] = useState(project.gitOrigin ?? '');
   const [defaultBranch, setDefaultBranch] = useState(project.defaultBranch);
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     setName(project.name);
+    setGitOrigin(project.gitOrigin ?? '');
     setDefaultBranch(project.defaultBranch);
     setDirty(false);
   }, [project]);
 
   const updateMutation = useMutation({
-    mutationFn: () => projectsApi.update(project.id, { name, defaultBranch }),
+    mutationFn: () => projectsApi.update(project.id, { name, defaultBranch, gitOrigin: gitOrigin || undefined }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', project.id] });
       queryClient.invalidateQueries({ queryKey: ['projects'] });
@@ -88,6 +90,15 @@ function GeneralSection({ project }: { project: Project }) {
         <div>
           <label className="block text-xs text-dim mb-1">path</label>
           <div className="px-3 py-2 border border-subtle bg-primary text-dim rounded-md text-sm">{project.path}</div>
+        </div>
+        <div>
+          <label className="block text-xs text-dim mb-1">git remote</label>
+          <input
+            value={gitOrigin}
+            onChange={(e) => { setGitOrigin(e.target.value); setDirty(true); }}
+            className="block w-full px-3 py-2 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)] text-sm"
+            placeholder="https://github.com/user/repo.git"
+          />
         </div>
         <div>
           <label className="block text-xs text-dim mb-1">default branch</label>

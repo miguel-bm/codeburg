@@ -2,6 +2,7 @@ package github
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -48,6 +49,103 @@ func CreatePR(workDir, title, body, baseBranch, headBranch string) (string, erro
 		return "", fmt.Errorf("gh pr create: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return strings.TrimSpace(string(output)), nil
+}
+
+// CreateRepoInput holds parameters for creating a new GitHub repo.
+type CreateRepoInput struct {
+	Name        string
+	Description string
+	Private     bool
+	CloneDir    string // parent directory (e.g. ~/.codeburg/repos/)
+}
+
+// CreateRepoResult holds the result of a successful repo creation.
+type CreateRepoResult struct {
+	Path          string
+	HTTPSURL      string
+	DefaultBranch string
+}
+
+// CreateRepo creates a new GitHub repository, clones it locally, and makes an initial commit.
+func CreateRepo(input CreateRepoInput) (*CreateRepoResult, error) {
+	if !Available() {
+		return nil, fmt.Errorf("gh CLI is not authenticated — run 'gh auth login' first")
+	}
+
+	// Ensure clone directory exists
+	if err := os.MkdirAll(input.CloneDir, 0755); err != nil {
+		return nil, fmt.Errorf("create clone dir: %w", err)
+	}
+
+	// Check destination doesn't already exist
+	dest := input.CloneDir + "/" + input.Name
+	if _, err := os.Stat(dest); err == nil {
+		return nil, fmt.Errorf("destination already exists: %s", dest)
+	}
+
+	// Build gh repo create args
+	args := []string{"repo", "create", input.Name, "--clone"}
+	if input.Private {
+		args = append(args, "--private")
+	} else {
+		args = append(args, "--public")
+	}
+	if input.Description != "" {
+		args = append(args, "--description", input.Description)
+	}
+
+	cmd := exec.Command("gh", args...)
+	cmd.Dir = input.CloneDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("gh repo create: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+
+	// Make an initial commit so worktrees work immediately
+	initCmd := exec.Command("git", "commit", "--allow-empty", "-m", "Initial commit")
+	initCmd.Dir = dest
+	if out, err := initCmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("initial commit: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+
+	// Push the initial commit
+	pushCmd := exec.Command("git", "push", "-u", "origin", "HEAD")
+	pushCmd.Dir = dest
+	if out, err := pushCmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("initial push: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+
+	// Detect default branch
+	branch := detectBranch(dest)
+
+	// Get remote URL
+	remoteURL := getRemoteURL(dest)
+
+	return &CreateRepoResult{
+		Path:          dest,
+		HTTPSURL:      remoteURL,
+		DefaultBranch: branch,
+	}, nil
+}
+
+// detectBranch returns the current branch name of a repo.
+func detectBranch(repoPath string) string {
+	cmd := exec.Command("git", "-C", repoPath, "symbolic-ref", "--short", "HEAD")
+	out, err := cmd.Output()
+	if err == nil {
+		return strings.TrimSpace(string(out))
+	}
+	return "main"
+}
+
+// getRemoteURL returns the origin remote URL for a repo.
+func getRemoteURL(repoPath string) string {
+	cmd := exec.Command("git", "-C", repoPath, "remote", "get-url", "origin")
+	out, err := cmd.Output()
+	if err == nil {
+		return strings.TrimSpace(string(out))
+	}
+	return ""
 }
 
 // MergePR merges a pull request.

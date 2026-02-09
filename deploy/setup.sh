@@ -90,6 +90,19 @@ if ! command -v cloudflared &>/dev/null; then
 fi
 echo "    cloudflared $(cloudflared --version 2>&1 | head -1)"
 
+# --- GitHub CLI ---
+echo ""
+echo "==> Installing GitHub CLI..."
+if ! command -v gh &>/dev/null; then
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
+        gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list
+    apt-get update
+    apt-get install -y gh
+fi
+echo "    gh $(gh --version | head -1)"
+
 # --- Create codeburg user ---
 echo ""
 echo "==> Creating ${CODEBURG_USER} user..."
@@ -232,7 +245,11 @@ echo "       User codeburg"
 echo ""
 echo "6. Deploy updates with: just deploy"
 echo ""
-echo "7. Install agent CLIs (optional, as codeburg user):"
+echo "7. Authenticate GitHub CLI (optional, as codeburg user):"
+echo "   su - codeburg"
+echo "   gh auth login"
+echo ""
+echo "8. Install agent CLIs (optional, as codeburg user):"
 echo "   su - codeburg"
 echo ""
 echo "   # Claude Code (native installer, auto-updates)"

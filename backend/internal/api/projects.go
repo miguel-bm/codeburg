@@ -27,6 +27,9 @@ type createProjectRequest struct {
 	Name           string   `json:"name"`
 	Path           string   `json:"path"`
 	GitHubURL      string   `json:"githubUrl"`
+	CreateRepo     bool     `json:"createRepo"`
+	Description    string   `json:"description"`
+	Private        bool     `json:"private"`
 	GitOrigin      *string  `json:"gitOrigin,omitempty"`
 	DefaultBranch  *string  `json:"defaultBranch,omitempty"`
 	SymlinkPaths   []string `json:"symlinkPaths,omitempty"`
@@ -43,7 +46,42 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 
 	var input db.CreateProjectInput
 
-	if req.GitHubURL != "" {
+	if req.CreateRepo {
+		// Create new GitHub repo + clone
+		if req.Name == "" {
+			writeError(w, http.StatusBadRequest, "name is required")
+			return
+		}
+
+		result, err := github.CreateRepo(github.CreateRepoInput{
+			Name:        req.Name,
+			Description: req.Description,
+			Private:     req.Private,
+			CloneDir:    s.gitclone.BaseDir,
+		})
+		if err != nil {
+			if strings.Contains(err.Error(), "destination already exists") {
+				writeError(w, http.StatusConflict, err.Error())
+				return
+			}
+			if strings.Contains(err.Error(), "not authenticated") {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "create repo failed: "+err.Error())
+			return
+		}
+
+		input = db.CreateProjectInput{
+			Name:           req.Name,
+			Path:           result.Path,
+			GitOrigin:      &result.HTTPSURL,
+			DefaultBranch:  &result.DefaultBranch,
+			SymlinkPaths:   req.SymlinkPaths,
+			SetupScript:    req.SetupScript,
+			TeardownScript: req.TeardownScript,
+		}
+	} else if req.GitHubURL != "" {
 		// Clone from GitHub URL
 		if !gitclone.IsGitHubURL(req.GitHubURL) {
 			writeError(w, http.StatusBadRequest, "invalid GitHub URL")

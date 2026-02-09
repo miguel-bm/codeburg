@@ -13,21 +13,21 @@ interface TaskHeaderProps {
   expandable?: boolean;
 }
 
-const statusColors: Record<string, string> = {
+export const statusColors: Record<string, string> = {
   [TASK_STATUS.BACKLOG]: 'bg-[var(--color-status-backlog)]/15 text-[var(--color-status-backlog)]',
   [TASK_STATUS.IN_PROGRESS]: 'bg-[var(--color-status-in-progress)]/15 text-[var(--color-status-in-progress)]',
   [TASK_STATUS.IN_REVIEW]: 'bg-[var(--color-status-in-review)]/15 text-[var(--color-status-in-review)]',
   [TASK_STATUS.DONE]: 'bg-[var(--color-status-done)]/15 text-[var(--color-status-done)]',
 };
 
-const statusLabels: Record<string, string> = {
+export const statusLabels: Record<string, string> = {
   [TASK_STATUS.BACKLOG]: 'backlog',
   [TASK_STATUS.IN_PROGRESS]: 'in progress',
   [TASK_STATUS.IN_REVIEW]: 'in review',
   [TASK_STATUS.DONE]: 'done',
 };
 
-function relativeTime(dateStr: string): string {
+export function relativeTime(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
   const hours = Math.floor(mins / 60);

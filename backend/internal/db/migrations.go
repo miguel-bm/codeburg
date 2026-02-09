@@ -229,4 +229,11 @@ var migrations = []migration{
 			);
 		`,
 	},
+	{
+		version: 10,
+		sql: `
+			-- Add priority column to tasks
+			ALTER TABLE tasks ADD COLUMN priority TEXT;
+		`,
+	},
 }

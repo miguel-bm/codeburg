@@ -36,9 +36,19 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Batch-load labels for all tasks
+	taskIDs := make([]string, len(tasks))
+	for i, t := range tasks {
+		taskIDs[i] = t.ID
+	}
+	labelsMap, _ := s.db.GetTasksLabels(taskIDs)
+
 	// Enrich tasks that have worktrees with diff stats
 	result := make([]taskWithDiffStats, len(tasks))
 	for i, t := range tasks {
+		if labels, ok := labelsMap[t.ID]; ok {
+			t.Labels = labels
+		}
 		result[i] = taskWithDiffStats{Task: t}
 		if t.WorktreePath == nil || *t.WorktreePath == "" {
 			continue
@@ -91,6 +101,11 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeDBError(w, err, "task")
 		return
+	}
+
+	// Load labels for this task
+	if labels, err := s.db.GetTaskLabels(id); err == nil {
+		task.Labels = labels
 	}
 
 	result := taskWithDiffStats{Task: task}
@@ -150,6 +165,11 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeDBError(w, err, "task")
 		return
+	}
+
+	// Load labels
+	if labels, err := s.db.GetTaskLabels(id); err == nil {
+		task.Labels = labels
 	}
 
 	// Check for workflow automation on status transitions

@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { startRegistration } from '@simplewebauthn/browser';
-import { ChevronLeft, AlertCircle, CheckCircle2, Fingerprint, Trash2, Pencil } from 'lucide-react';
+import { ChevronLeft, AlertCircle, CheckCircle2, Fingerprint, Trash2, Pencil, Volume2 } from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
 import { authApi, preferencesApi } from '../api';
 import type { EditorType } from '../api';
 import { useAuthStore } from '../stores/auth';
 import { useTerminalSettings } from '../stores/terminal';
 import type { CursorStyle } from '../stores/terminal';
+import { isNotificationSoundEnabled, setNotificationSoundEnabled, playNotificationSound } from '../lib/notificationSound';
 
 export function Settings() {
   const navigate = useNavigate();
@@ -35,6 +36,7 @@ export function Settings() {
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
+            <NotificationSection />
             <TerminalSettingsSection />
             <EditorSection />
             <PasskeySection />
@@ -188,6 +190,41 @@ function CursorPreview({ style, active, blink }: { style: CursorStyle; active: b
       )}
       <span style={{ color }} className="opacity-70">b</span>
     </div>
+  );
+}
+
+/* ─── Notification Settings ──────────────────────────────────────────── */
+
+function NotificationSection() {
+  const [soundEnabled, setSoundEnabled] = useState(isNotificationSoundEnabled);
+
+  const handleToggle = (enabled: boolean) => {
+    setSoundEnabled(enabled);
+    setNotificationSoundEnabled(enabled);
+  };
+
+  return (
+    <SectionCard>
+      <SectionHeader
+        title="Notifications"
+        description="Alerts when an agent needs attention"
+      />
+      <SectionBody>
+        <FieldRow>
+          <FieldLabel label="Sound alerts" description="Play a sound when an agent needs attention" />
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => playNotificationSound()}
+              className="p-1.5 text-dim hover:text-accent transition-colors rounded"
+              title="Test sound"
+            >
+              <Volume2 size={16} />
+            </button>
+            <Toggle checked={soundEnabled} onChange={handleToggle} />
+          </div>
+        </FieldRow>
+      </SectionBody>
+    </SectionCard>
   );
 }
 
