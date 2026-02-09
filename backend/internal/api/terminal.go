@@ -78,7 +78,8 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 // start begins the tmux attach session
 func (ts *TerminalSession) start(target string) error {
 	// Create command to attach to tmux
-	ts.cmd = exec.Command("tmux", "attach-session", "-t", target)
+	session := tmuxSessionFromTarget(target)
+	ts.cmd = exec.Command("tmux", "attach-session", "-t", session)
 
 	// Create PTY
 	ptmx, err := pty.Start(ts.cmd)
@@ -93,7 +94,35 @@ func (ts *TerminalSession) start(target string) error {
 		Cols: 80,
 	})
 
+	// Pin this client to the target window/pane so reconnects don't drift.
+	go pinClientToTarget(ptmx.Name(), target)
+
 	return nil
+}
+
+// tmux attach-session only targets sessions; ensure client is switched to the exact target pane.
+func pinClientToTarget(clientTTY string, target string) {
+	if clientTTY == "" || target == "" {
+		return
+	}
+	// Give tmux a moment to register the client.
+	for i := 0; i < 20; i++ {
+		cmd := exec.Command("tmux", "switch-client", "-c", clientTTY, "-t", target)
+		if err := cmd.Run(); err == nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// tmux target is session:window.pane — attach-session only accepts session.
+func tmuxSessionFromTarget(target string) string {
+	for i := 0; i < len(target); i++ {
+		if target[i] == ':' {
+			return target[:i]
+		}
+	}
+	return target
 }
 
 // readFromPTY reads from the PTY and sends to WebSocket
