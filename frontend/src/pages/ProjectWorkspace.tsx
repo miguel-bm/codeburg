@@ -3,7 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import CodeMirror from '@uiw/react-codemirror';
 import type { Extension } from '@codemirror/state';
-import { oneDark } from '@codemirror/theme-one-dark';
 import { langs } from '@uiw/codemirror-extensions-langs';
 import { Tree, type NodeApi, type NodeRendererProps } from 'react-arborist';
 import {
@@ -20,6 +19,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Save,
   Settings,
   Trash2,
@@ -137,6 +137,27 @@ function fileName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
+function filterFileTree(nodes: FileTreeNodeData[], query: string): FileTreeNodeData[] {
+  if (!query) return nodes;
+
+  const visit = (node: FileTreeNodeData): FileTreeNodeData | null => {
+    const matches = node.name.toLowerCase().includes(query) || node.path.toLowerCase().includes(query);
+    if (node.type === 'file') {
+      return matches ? node : null;
+    }
+    const filteredChildren = (node.children ?? [])
+      .map(visit)
+      .filter((child): child is FileTreeNodeData => child !== null);
+
+    if (matches || filteredChildren.length > 0) {
+      return { ...node, children: filteredChildren };
+    }
+    return null;
+  };
+
+  return nodes.map(visit).filter((node): node is FileTreeNodeData => node !== null);
+}
+
 export function ProjectWorkspace() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -145,12 +166,13 @@ export function ProjectWorkspace() {
 
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('files');
   const [treeSelection, setTreeSelection] = useState<string | null>(null);
+  const [fileSearch, setFileSearch] = useState('');
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [draftByPath, setDraftByPath] = useState<Record<string, string>>({});
   const [dirtyByPath, setDirtyByPath] = useState<Record<string, boolean>>({});
   const treeContainerRef = useRef<HTMLDivElement>(null);
-  const [treeHeight, setTreeHeight] = useState(300);
+  const [treeHeight, setTreeHeight] = useState(420);
 
   const [secretRows, setSecretRows] = useState<ProjectSecretFile[]>([]);
   const [secretsDirty, setSecretsDirty] = useState(false);
@@ -195,13 +217,19 @@ export function ProjectWorkspace() {
   useEffect(() => {
     const el = treeContainerRef.current;
     if (!el) return;
-    const obs = new ResizeObserver((entries) => {
-      const [entry] = entries;
-      if (!entry) return;
-      setTreeHeight(Math.max(220, Math.floor(entry.contentRect.height)));
-    });
+    const measure = () => {
+      setTreeHeight(Math.max(220, Math.floor(el.clientHeight)));
+    };
+    const obs = new ResizeObserver(() => measure());
+    measure();
+    const frame = requestAnimationFrame(measure);
     obs.observe(el);
-    return () => obs.disconnect();
+    window.addEventListener('resize', measure);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', measure);
+      obs.disconnect();
+    };
   }, []);
 
   useEffect(() => {
@@ -218,7 +246,12 @@ export function ProjectWorkspace() {
     () => new Map(fileEntries.map((entry) => [entry.path, entry])),
     [fileEntries],
   );
+  const normalizedFileSearch = fileSearch.trim().toLowerCase();
   const treeData = useMemo(() => buildFileTree(fileEntries), [fileEntries]);
+  const filteredTreeData = useMemo(
+    () => filterFileTree(treeData, normalizedFileSearch),
+    [treeData, normalizedFileSearch],
+  );
   const activeFileData = activeTab
     ? queryClient.getQueryData<ProjectFileContentResponse>(['project-file', id, activeTab]) ?? activeFileResponse
     : undefined;
@@ -642,20 +675,42 @@ export function ProjectWorkspace() {
         </div>
       </div>
       <div className="px-3 py-1 text-[11px] text-dim border-b border-subtle font-mono truncate">/</div>
+      <div className="px-3 py-2 border-b border-subtle bg-secondary/40">
+        <div className="relative">
+          <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
+          <input
+            value={fileSearch}
+            onChange={(e) => setFileSearch(e.target.value)}
+            placeholder="Search files..."
+            className="w-full bg-primary border border-subtle rounded-md pl-7 pr-8 py-1.5 text-xs focus:outline-none focus:border-[var(--color-text-secondary)]"
+          />
+          {fileSearch && (
+            <button
+              onClick={() => setFileSearch('')}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary transition-colors"
+              title="Clear search"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
+      </div>
       <div ref={treeContainerRef} className="flex-1 min-h-0 overflow-hidden">
         {filesLoading ? (
           <div className="p-3 text-xs text-dim">Loading files...</div>
         ) : treeData.length === 0 ? (
           <div className="p-3 text-xs text-dim">No files yet</div>
+        ) : filteredTreeData.length === 0 ? (
+          <div className="p-3 text-xs text-dim">No files match "{fileSearch.trim()}".</div>
         ) : (
           <Tree<FileTreeNodeData>
-            data={treeData}
+            data={filteredTreeData}
             width="100%"
             height={treeHeight}
             rowHeight={28}
             indent={18}
             selection={treeSelection ?? undefined}
-            openByDefault={false}
+            openByDefault={normalizedFileSearch.length > 0}
             onSelect={(nodes: NodeApi<FileTreeNodeData>[]) => {
               const node = nodes[0];
               if (!node) return;
@@ -671,39 +726,43 @@ export function ProjectWorkspace() {
 
   const previewPanel = (
     <div className="h-full min-h-0 flex flex-col overflow-hidden">
-      <div className="px-3 py-2 border-b border-subtle flex items-center gap-2 overflow-x-auto">
-        {openTabs.length === 0 ? (
-          <span className="text-xs text-dim uppercase tracking-wider">Editor</span>
-        ) : (
-          openTabs.map((path) => (
-            <button
-              key={path}
-              onClick={() => {
-                setActiveTab(path);
-                setTreeSelection(path);
-              }}
-              className={`shrink-0 max-w-[260px] inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs transition-colors ${
-                activeTab === path
-                  ? 'border-accent bg-accent/10 text-accent'
-                  : 'border-subtle bg-primary hover:bg-tertiary text-dim'
-              }`}
-              title={path}
-            >
-              <span className="truncate">{fileName(path)}</span>
-              {dirtyByPath[path] && <span className="text-[10px] text-[var(--color-warning)]">●</span>}
-              <span
-                onClick={(ev) => {
-                  ev.stopPropagation();
-                  closeFileTab(path);
+      <div className="h-10 border-b border-subtle bg-secondary flex items-center">
+        <div className="h-full min-w-0 flex-1 flex items-center overflow-x-auto">
+          {openTabs.length === 0 ? (
+            <span className="px-3 text-xs text-dim uppercase tracking-wider">Editor</span>
+          ) : (
+            openTabs.map((path) => (
+              <button
+                key={path}
+                onClick={() => {
+                  setActiveTab(path);
+                  setTreeSelection(path);
                 }}
-                className="inline-flex"
+                className={`h-full shrink-0 max-w-[280px] flex items-center gap-2 px-3 text-xs transition-colors whitespace-nowrap border-b-2 ${
+                  activeTab === path
+                    ? 'border-accent text-accent bg-accent/10'
+                    : 'border-transparent text-dim hover:text-[var(--color-text-primary)]'
+                }`}
+                title={path}
               >
-                <X size={12} />
-              </span>
-            </button>
-          ))
-        )}
-        <div className="ml-auto flex items-center gap-2 shrink-0">
+                <FileText size={12} className="shrink-0" />
+                <span className="truncate">{fileName(path)}</span>
+                {dirtyByPath[path] && <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-warning)] shrink-0" />}
+                <span
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    closeFileTab(path);
+                  }}
+                  className="inline-flex items-center justify-center h-6 w-6 rounded-md text-dim hover:text-[var(--color-error)] hover:bg-[var(--color-error)]/10 transition-colors ml-0.5"
+                  title="Close tab"
+                >
+                  <X size={12} />
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+        <div className="h-full px-3 border-l border-subtle flex items-center gap-2 shrink-0 bg-secondary/80">
           {activeTab && <span className="text-[11px] font-mono text-dim truncate max-w-[220px]">{activeTab}</span>}
           <button
             onClick={saveActiveTab}
@@ -727,11 +786,10 @@ export function ProjectWorkspace() {
         ) : activeFileData.truncated ? (
           <div className="p-3 text-xs text-dim">File is too large for in-app editing (preview limit: 256 KiB).</div>
         ) : (
-          <div className="h-full [&_.cm-editor]:h-full [&_.cm-scroller]:font-mono [&_.cm-scroller]:text-xs">
+          <div className="h-full min-h-0 [&_.cm-editor]:h-full [&_.cm-editor]:max-h-full [&_.cm-editor]:overflow-hidden [&_.cm-editor]:bg-primary [&_.cm-editor]:text-[var(--color-text-primary)] [&_.cm-editor.cm-focused]:outline-none [&_.cm-scroller]:max-h-full [&_.cm-scroller]:overflow-auto [&_.cm-scroller]:font-mono [&_.cm-scroller]:text-xs [&_.cm-content]:min-h-full [&_.cm-content]:py-2 [&_.cm-gutters]:bg-secondary [&_.cm-gutters]:text-dim [&_.cm-gutters]:border-r [&_.cm-gutters]:border-subtle [&_.cm-activeLine]:bg-accent/10 [&_.cm-activeLineGutter]:bg-transparent [&_.cm-activeLineGutter]:text-[var(--color-text-secondary)] [&_.cm-cursor]:border-l-[var(--color-accent)] [&_.cm-selectionBackground]:bg-accent/20">
             <CodeMirror
               value={activeDraft}
               height="100%"
-              theme={oneDark}
               extensions={activeTab ? getLanguageExtension(activeTab) : []}
               onChange={(value: string) => {
                 if (!activeTab || !activeFileData) return;

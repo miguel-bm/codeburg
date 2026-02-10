@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { RotateCcw, GitBranch, GitPullRequest, FileDiff } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { TaskHeader } from './TaskHeader';
-import { DiffView } from '../../components/git';
+import { TaskGitMetaBar } from './TaskGitMetaBar';
+import { BaseDiffExplorer } from '../../components/git';
 import { tasksApi, invalidateTaskQueries } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { Task, Project } from '../../api/types';
@@ -41,47 +42,16 @@ export function TaskDetailDone({ task, project }: Props) {
         }
       />
 
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-2xl space-y-6">
-          {/* Summary stats */}
-          <div className="space-y-2 text-sm">
-            {task.branch && (
-              <div className="flex gap-4">
-                <span className="text-dim w-24 flex items-center gap-1.5"><GitBranch size={12} /> branch</span>
-                <span className="font-mono">{task.branch}</span>
-              </div>
-            )}
-            {task.prUrl && (
-              <div className="flex gap-4">
-                <span className="text-dim w-24 flex items-center gap-1.5"><GitPullRequest size={12} /> PR</span>
-                <a
-                  href={task.prUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-accent hover:underline font-mono text-xs"
-                >
-                  {task.prUrl}
-                </a>
-              </div>
-            )}
-            {task.diffStats && (
-              <div className="flex gap-4">
-                <span className="text-dim w-24 flex items-center gap-1.5"><FileDiff size={12} /> changes</span>
-                <span>
-                  <span className="text-[var(--color-success)]">+{task.diffStats.additions}</span>
-                  {' / '}
-                  <span className="text-[var(--color-error)]">-{task.diffStats.deletions}</span>
-                </span>
-              </div>
-            )}
-          </div>
+      <TaskGitMetaBar task={task} />
 
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-6xl space-y-6">
           {/* Diff view if worktree still exists */}
           {task.worktreePath && (
             <div>
               <h3 className="text-xs font-medium uppercase tracking-wider text-dim mb-2">Changes</h3>
-              <div className="border border-subtle rounded-lg overflow-hidden">
-                <DiffView taskId={task.id} base />
+              <div className="border border-subtle rounded-lg overflow-hidden h-[28rem] md:h-[34rem]">
+                <BaseDiffExplorer taskId={task.id} />
               </div>
             </div>
           )}

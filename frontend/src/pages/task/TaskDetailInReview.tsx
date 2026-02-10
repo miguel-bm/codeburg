@@ -1,10 +1,10 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Check, GitPullRequest, Plus } from 'lucide-react';
+import { ArrowLeft, Check, Plus } from 'lucide-react';
 import { TaskHeader } from './TaskHeader';
+import { TaskGitMetaBar } from './TaskGitMetaBar';
 import { NewSessionComposer, SessionView, SessionTabs } from '../../components/session';
-import { DiffView } from '../../components/git';
-import { parseDiffFiles } from '../../components/git/diffFiles';
+import { BaseDiffExplorer } from '../../components/git';
 import { tasksApi, invalidateTaskQueries, gitApi } from '../../api';
 import { TASK_STATUS } from '../../api';
 import type { Task, Project, AgentSession, SessionProvider, UpdateTaskResponse } from '../../api';
@@ -34,7 +34,7 @@ export function TaskDetailInReview({
 }: Props) {
   const queryClient = useQueryClient();
   const isMobile = useMobile();
-  const [selectedFile, setSelectedFile] = useState<string | undefined>();
+  const [diffFileCount, setDiffFileCount] = useState(0);
   const [warning, setWarning] = useState<string | null>(null);
   const [sessionPanelOpen, setSessionPanelOpen] = useState(false);
   const showComposer = showStartComposer || sessions.length === 0;
@@ -92,16 +92,6 @@ export function TaskDetailInReview({
     queryFn: () => gitApi.status(task.id),
     enabled: !!task.worktreePath,
   });
-
-  const { data: baseDiff } = useQuery({
-    queryKey: ['git-diff', task.id, undefined, undefined, true],
-    queryFn: () => gitApi.diff(task.id, { base: true }),
-  });
-
-  const diffFiles = useMemo(() => {
-    if (!baseDiff?.diff) return [];
-    return parseDiffFiles(baseDiff.diff);
-  }, [baseDiff]);
 
   const handleBackToProgress = () => {
     updateTask.mutate({ status: TASK_STATUS.IN_PROGRESS });
@@ -161,27 +151,13 @@ export function TaskDetailInReview({
           </div>
         )}
 
-        {/* Branch + PR bar */}
-        <div className="flex items-center gap-3 px-4 py-1.5 border-b border-subtle bg-secondary text-xs">
-          {task.branch && <span className="font-mono text-dim">{task.branch}</span>}
-          {task.diffStats && (
-            <span>
-              <span className="text-[var(--color-success)]">+{task.diffStats.additions}</span>{' '}
-              <span className="text-[var(--color-error)]">-{task.diffStats.deletions}</span>
-            </span>
-          )}
-          <span className="ml-auto" />
-          {task.prUrl ? (
-            <a href={task.prUrl} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline font-mono truncate text-[11px]">
-              {task.prUrl.replace(/^https?:\/\/github\.com\//, '')}
-            </a>
-          ) : (
-            <button onClick={handleCreatePR} disabled={createPR.isPending} className="px-2 py-1 bg-accent text-white rounded text-xs hover:bg-accent-dim transition-colors disabled:opacity-50 inline-flex items-center gap-1">
-              <GitPullRequest size={12} />
-              {createPR.isPending ? 'Creating...' : 'Push & Create PR'}
-            </button>
-          )}
-        </div>
+        <TaskGitMetaBar
+          task={task}
+          onCreatePr={handleCreatePR}
+          createPrPending={createPR.isPending}
+          createPrPendingLabel="Creating..."
+          prLinkClassName="text-accent hover:underline font-mono truncate text-[11px]"
+        />
 
         {/* Mobile: tab between diff and sessions */}
         <div className="flex items-center border-b border-subtle bg-secondary">
@@ -189,7 +165,7 @@ export function TaskDetailInReview({
             onClick={() => setSessionPanelOpen(false)}
             className={`px-4 py-2 text-xs transition-colors ${!sessionPanelOpen ? 'text-accent border-b-2 border-accent' : 'text-dim'}`}
           >
-            Diff {diffFiles.length > 0 && `(${diffFiles.length})`}
+            Diff {diffFileCount > 0 && `(${diffFileCount})`}
           </button>
           <button
             onClick={() => setSessionPanelOpen(true)}
@@ -201,8 +177,8 @@ export function TaskDetailInReview({
 
         <div className="flex-1 overflow-hidden">
           {!sessionPanelOpen ? (
-            <div className="h-full overflow-auto">
-              <DiffView taskId={task.id} base file={selectedFile} />
+            <div className="h-full">
+              <BaseDiffExplorer taskId={task.id} onFileCountChange={setDiffFileCount} />
             </div>
           ) : (
             <div className="flex flex-col h-full">
@@ -286,65 +262,18 @@ export function TaskDetailInReview({
         </div>
       )}
 
-      {/* Branch info + PR bar */}
-      <div className="flex items-center gap-3 px-4 py-1.5 border-b border-subtle bg-secondary text-xs">
-        {task.branch && <span className="font-mono text-dim">{task.branch}</span>}
-        {task.diffStats && (
-          <span>
-            <span className="text-[var(--color-success)]">+{task.diffStats.additions}</span>{' '}
-            <span className="text-[var(--color-error)]">-{task.diffStats.deletions}</span>
-          </span>
-        )}
-        {gitStatus && (gitStatus.ahead > 0 || gitStatus.behind > 0) && (
-          <span className="text-dim">
-            {gitStatus.ahead > 0 && <span>{gitStatus.ahead} ahead</span>}
-            {gitStatus.ahead > 0 && gitStatus.behind > 0 && ', '}
-            {gitStatus.behind > 0 && <span>{gitStatus.behind} behind</span>}
-          </span>
-        )}
-        <span className="ml-auto" />
-        {task.prUrl ? (
-          <a href={task.prUrl} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline font-mono truncate">
-            {task.prUrl.replace(/^https?:\/\/github\.com\//, '')}
-          </a>
-        ) : (
-          <button onClick={handleCreatePR} disabled={createPR.isPending} className="px-2 py-1 bg-accent text-white rounded text-xs hover:bg-accent-dim transition-colors disabled:opacity-50 inline-flex items-center gap-1">
-            <GitPullRequest size={12} />
-            {createPR.isPending ? 'Creating PR...' : 'Push & Create PR'}
-          </button>
-        )}
-      </div>
+      <TaskGitMetaBar
+        task={task}
+        gitStatus={gitStatus}
+        onCreatePr={handleCreatePR}
+        createPrPending={createPR.isPending}
+      />
 
       {/* Main content: diff + optional session panel below */}
       <div ref={containerRef} className="flex-1 flex flex-col overflow-hidden">
         {/* Diff area */}
         <div style={shouldShowPanel ? { height: `${splitPct}%` } : undefined} className={`${shouldShowPanel ? '' : 'flex-1'} flex overflow-hidden`}>
-          {/* File list sidebar */}
-          {diffFiles.length > 0 && (
-            <div className="w-56 shrink-0 border-r border-subtle overflow-y-auto bg-secondary">
-              <button
-                onClick={() => setSelectedFile(undefined)}
-                className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${!selectedFile ? 'bg-accent/10 text-accent' : 'text-dim hover:bg-tertiary'}`}
-              >
-                All files ({diffFiles.length})
-              </button>
-              {diffFiles.map((f) => (
-                <button
-                  key={f.path}
-                  onClick={() => setSelectedFile(f.path)}
-                  className={`w-full text-left px-3 py-1.5 text-xs transition-colors truncate ${selectedFile === f.path ? 'bg-accent/10 text-accent' : 'text-dim hover:bg-tertiary'}`}
-                  title={f.path}
-                >
-                  <span className="font-mono">{f.path.split('/').pop()}</span>
-                  <span className="ml-1 text-[var(--color-success)]">+{f.additions}</span>
-                  <span className="ml-0.5 text-[var(--color-error)]">-{f.deletions}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="flex-1 overflow-auto">
-            <DiffView taskId={task.id} base file={selectedFile} />
-          </div>
+          <BaseDiffExplorer taskId={task.id} onFileCountChange={setDiffFileCount} />
         </div>
 
         {/* Session panel toggle / divider */}

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { PatchDiff } from '@pierre/diffs/react';
 import { gitApi } from '../../api';
 import { useMobile } from '../../hooks/useMobile';
+import { parseDiffFiles, splitDiffIntoFilePatches } from './diffFiles';
 
 interface DiffViewProps {
   taskId: string;
@@ -17,6 +18,15 @@ export function DiffView({ taskId, file, staged, base }: DiffViewProps) {
     queryKey: ['git-diff', taskId, file, staged, base],
     queryFn: () => gitApi.diff(taskId, { file, staged, base }),
   });
+
+  const filePatches = useMemo(
+    () => splitDiffIntoFilePatches(data?.diff || ''),
+    [data?.diff],
+  );
+  const fileSummaries = useMemo(
+    () => parseDiffFiles(data?.diff || ''),
+    [data?.diff],
+  );
 
   const options = useMemo(() => ({
     diffStyle: isMobile ? 'unified' as const : 'split' as const,
@@ -37,6 +47,21 @@ export function DiffView({ taskId, file, staged, base }: DiffViewProps) {
 
   if (!data?.diff) {
     return <div className="p-4 text-xs text-dim">no changes</div>;
+  }
+
+  if (!file && filePatches.length > 1) {
+    return (
+      <div className="p-2 min-h-full space-y-3">
+        {filePatches.map((patch, idx) => (
+          <section key={`${fileSummaries[idx]?.path || 'patch'}-${idx}`} className="border border-subtle rounded-md overflow-hidden">
+            <div className="px-3 py-1.5 bg-secondary border-b border-subtle text-[11px] font-mono text-dim">
+              {fileSummaries[idx]?.path || `file ${idx + 1}`}
+            </div>
+            <PatchDiff patch={patch} options={options} />
+          </section>
+        ))}
+      </div>
+    );
   }
 
   return (

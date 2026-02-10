@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/miguel-bm/codeburg/internal/db"
@@ -43,6 +44,8 @@ type syncProjectDefaultBranchResponse struct {
 	Remote  string `json:"remote"`
 	Updated bool   `json:"updated"`
 }
+
+var checkedOutAtPathPattern = regexp.MustCompile(`checked out at '([^']+)'`)
 
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	var req createProjectRequest
@@ -261,8 +264,29 @@ func (s *Server) handleSyncProjectDefaultBranch(w http.ResponseWriter, r *http.R
 	}
 
 	if _, err := runGit(project.Path, "fetch", ".", fmt.Sprintf("%s:%s", remoteRef, branch)); err != nil {
-		writeError(w, http.StatusConflict, fmt.Sprintf("failed to fast-forward %s to %s: %v", branch, remoteRef, err))
-		return
+		// If the branch is checked out in any worktree, git fetch-refspec refuses.
+		// In that case we can fast-forward by pulling in that checked-out worktree.
+		checkedOutPath := checkedOutPathFromFetchError(err.Error())
+		if checkedOutPath == "" {
+			writeError(w, http.StatusConflict, fmt.Sprintf("failed to fast-forward %s to %s: %v", branch, remoteRef, err))
+			return
+		}
+
+		currentBranchOut, currentBranchErr := runGit(checkedOutPath, "branch", "--show-current")
+		if currentBranchErr != nil {
+			writeError(w, http.StatusConflict, fmt.Sprintf("failed to inspect checked-out branch at %s: %v", checkedOutPath, currentBranchErr))
+			return
+		}
+		currentBranch := strings.TrimSpace(currentBranchOut)
+		if currentBranch != branch {
+			writeError(w, http.StatusConflict, fmt.Sprintf("cannot sync %s: it is checked out at %s on branch %s", branch, checkedOutPath, currentBranch))
+			return
+		}
+
+		if _, pullErr := runGit(checkedOutPath, "pull", "--ff-only", "origin", branch); pullErr != nil {
+			writeError(w, http.StatusConflict, fmt.Sprintf("failed to fast-forward %s in checked-out worktree at %s: %v", branch, checkedOutPath, pullErr))
+			return
+		}
 	}
 
 	afterOut, err := runGit(project.Path, "rev-parse", "--verify", branch)
@@ -277,6 +301,14 @@ func (s *Server) handleSyncProjectDefaultBranch(w http.ResponseWriter, r *http.R
 		Remote:  remoteRef,
 		Updated: beforeHash == "" || beforeHash != afterHash,
 	})
+}
+
+func checkedOutPathFromFetchError(message string) string {
+	matches := checkedOutAtPathPattern.FindStringSubmatch(message)
+	if len(matches) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(matches[1])
 }
 
 func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {

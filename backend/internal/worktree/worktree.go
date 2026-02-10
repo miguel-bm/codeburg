@@ -138,11 +138,12 @@ func (m *Manager) Create(opts CreateOptions) (*CreateResult, error) {
 		warnings = append(warnings, fmt.Sprintf("could not fetch from remote: %v — worktree may be based on stale %s", err, opts.BaseBranch))
 	}
 
-	// Fast-forward the base branch to match origin (so new worktrees start fresh)
-	if !fetchFailed {
-		if err := m.fastForwardBase(opts.ProjectPath, opts.BaseBranch); err != nil {
-			warnings = append(warnings, fmt.Sprintf("could not fast-forward %s to match origin: %v — worktree may be based on stale %s", opts.BaseBranch, err, opts.BaseBranch))
-		}
+	// Prefer creating from origin/<base> when available so we don't depend on
+	// mutating local checked-out refs (which can be blocked by git/worktree rules).
+	baseRef := opts.BaseBranch
+	remoteBaseRef := "origin/" + opts.BaseBranch
+	if !fetchFailed && m.branchExists(opts.ProjectPath, remoteBaseRef) {
+		baseRef = remoteBaseRef
 	}
 
 	// When adopting a pre-existing branch, ensure it exists locally.
@@ -164,7 +165,7 @@ func (m *Manager) Create(opts CreateOptions) (*CreateResult, error) {
 
 	// Create the branch and worktree
 	// First, try to create a new branch from the base
-	if err := m.createBranchAndWorktree(opts.ProjectPath, worktreePath, branchName, opts.BaseBranch); err != nil {
+	if err := m.createBranchAndWorktree(opts.ProjectPath, worktreePath, branchName, baseRef); err != nil {
 		return nil, fmt.Errorf("create worktree: %w", err)
 	}
 
