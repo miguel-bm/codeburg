@@ -550,7 +550,7 @@ export function Dashboard() {
                 <div
                   key={column.id}
                   ref={(el) => { columnRefs.current[colIdx] = el; }}
-                  className={`flex-1 min-w-0 flex flex-col bg-secondary rounded-lg border transition-colors ${
+                  className={`group flex-1 min-w-0 flex flex-col bg-secondary rounded-lg border transition-colors ${
                     focus?.col === colIdx
                       ? 'border-accent'
                       : 'border-subtle'
@@ -604,6 +604,8 @@ export function Dashboard() {
                         )}
                         <NewTaskPlaceholder
                           focused={focus?.col === colIdx && focus?.card === colTasks.length}
+                          selected={focus?.col === colIdx}
+                          showOnHover
                           onClick={() => { if (hasProjects) navigateToCreate(column.id); }}
                         />
                       </>
@@ -688,11 +690,13 @@ function DropPlaceholder({ height }: { height: number }) {
 
 interface NewTaskPlaceholderProps {
   focused?: boolean;
+  selected?: boolean;
+  showOnHover?: boolean;
   onClick: () => void;
 }
 
-function NewTaskPlaceholder({ focused, onClick }: NewTaskPlaceholderProps) {
-  const ref = useRef<HTMLDivElement>(null);
+function NewTaskPlaceholder({ focused, selected, showOnHover, onClick }: NewTaskPlaceholderProps) {
+  const ref = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (focused && ref.current) {
@@ -700,18 +704,21 @@ function NewTaskPlaceholder({ focused, onClick }: NewTaskPlaceholderProps) {
     }
   }, [focused]);
 
+  const visible = !!focused || !!selected;
+
   return (
-    <div
+    <button
       ref={ref}
+      type="button"
       onClick={onClick}
-      className={`p-3 border border-dashed rounded-md text-center text-sm cursor-pointer transition-colors ${
+      className={`${showOnHover && !visible ? 'hidden group-hover:block' : 'block'} w-full p-3 border rounded-md text-center text-sm cursor-pointer transition-colors focus-visible:outline-none ${
         focused
           ? 'border-accent text-accent bg-[var(--color-accent-glow)]'
-          : 'border-subtle text-dim hover:border-accent hover:text-accent'
+          : 'border-subtle text-dim bg-tertiary hover:border-[var(--color-text-dim)] hover:text-[var(--color-text-primary)] hover:bg-secondary'
       }`}
     >
-      + New Task
-    </div>
+      + New task
+    </button>
   );
 }
 

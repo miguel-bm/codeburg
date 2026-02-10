@@ -29,6 +29,7 @@ import {
 import { Layout } from '../components/layout/Layout';
 import { OpenInEditorButton } from '../components/common/OpenInEditorButton';
 import { projectsApi } from '../api';
+import { getResolvedTheme, subscribeToThemeChange } from '../lib/theme';
 import type {
   ProjectFileContentResponse,
   ProjectFileEntry,
@@ -184,6 +185,7 @@ export function ProjectWorkspace() {
   const [secretEditorSaving, setSecretEditorSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const [editorTheme, setEditorTheme] = useState<'dark' | 'light'>(() => getResolvedTheme());
 
   const bodyRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);
@@ -230,6 +232,13 @@ export function ProjectWorkspace() {
       window.removeEventListener('resize', measure);
       obs.disconnect();
     };
+  }, []);
+
+  useEffect(() => {
+    setEditorTheme(getResolvedTheme());
+    return subscribeToThemeChange(({ resolvedTheme }) => {
+      setEditorTheme(resolvedTheme);
+    });
   }, []);
 
   useEffect(() => {
@@ -786,11 +795,18 @@ export function ProjectWorkspace() {
         ) : activeFileData.truncated ? (
           <div className="p-3 text-xs text-dim">File is too large for in-app editing (preview limit: 256 KiB).</div>
         ) : (
-          <div className="h-full min-h-0 [&_.cm-editor]:h-full [&_.cm-editor]:max-h-full [&_.cm-editor]:overflow-hidden [&_.cm-editor]:bg-primary [&_.cm-editor]:text-[var(--color-text-primary)] [&_.cm-editor.cm-focused]:outline-none [&_.cm-scroller]:max-h-full [&_.cm-scroller]:overflow-auto [&_.cm-scroller]:font-mono [&_.cm-scroller]:text-xs [&_.cm-content]:min-h-full [&_.cm-content]:py-2 [&_.cm-gutters]:bg-secondary [&_.cm-gutters]:text-dim [&_.cm-gutters]:border-r [&_.cm-gutters]:border-subtle [&_.cm-activeLine]:bg-accent/10 [&_.cm-activeLineGutter]:bg-transparent [&_.cm-activeLineGutter]:text-[var(--color-text-secondary)] [&_.cm-cursor]:border-l-[var(--color-accent)] [&_.cm-selectionBackground]:bg-accent/20">
+          <div className="h-full min-h-0 [&_.cm-editor]:h-full [&_.cm-editor]:overflow-hidden [&_.cm-scroller]:h-full [&_.cm-scroller]:overflow-y-auto [&_.cm-scroller]:overflow-x-auto [&_.cm-scroller]:font-mono [&_.cm-scroller]:text-xs">
             <CodeMirror
               value={activeDraft}
               height="100%"
+              maxHeight="100%"
+              theme={editorTheme}
               extensions={activeTab ? getLanguageExtension(activeTab) : []}
+              onCreateEditor={(view) => {
+                view.scrollDOM.style.height = '100%';
+                view.scrollDOM.style.overflowY = 'auto';
+                view.scrollDOM.style.overflowX = 'auto';
+              }}
               onChange={(value: string) => {
                 if (!activeTab || !activeFileData) return;
                 setDraftByPath((prev) => ({ ...prev, [activeTab]: value }));

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { startRegistration } from '@simplewebauthn/browser';
-import { ChevronLeft, AlertCircle, CheckCircle2, Fingerprint, Trash2, Pencil, Volume2, Bell, Terminal, Code2, Lock, Send, Keyboard, Search, X, LogOut, ArrowUp, ArrowDown } from 'lucide-react';
+import { ChevronLeft, AlertCircle, CheckCircle2, Fingerprint, Trash2, Pencil, Volume2, Bell, Terminal, Code2, Lock, Send, Keyboard, Search, X, LogOut, ArrowUp, ArrowDown, SunMoon } from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
 import { authApi, preferencesApi } from '../api';
 import type { EditorType } from '../api';
@@ -17,6 +17,8 @@ import {
   useSessionShortcutSettings,
 } from '../stores/keyboard';
 import { isNotificationSoundEnabled, setNotificationSoundEnabled, playNotificationSound } from '../lib/notificationSound';
+import { getResolvedTheme, getThemePreference, setThemePreference, subscribeToThemeChange } from '../lib/theme';
+import type { ThemePreference } from '../lib/theme';
 import { SectionCard, SectionHeader, SectionBody, FieldRow, FieldLabel, Toggle } from '../components/ui/settings';
 import { Select } from '../components/ui/Select';
 import type { SelectOption } from '../components/ui/Select';
@@ -51,6 +53,15 @@ export function Settings() {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const sections = useMemo<SettingsSection[]>(() => ([
+    {
+      id: 'appearance',
+      group: 'general',
+      title: 'Appearance',
+      description: 'Switch between dark and light themes',
+      keywords: ['theme', 'dark', 'light', 'appearance'],
+      icon: <SunMoon size={15} />,
+      content: <AppearanceSection />,
+    },
     {
       id: 'notifications',
       group: 'general',
@@ -348,8 +359,6 @@ export function Settings() {
                         <span className="text-accent">{activeSection.icon}</span>
                         <span className="text-xs text-[var(--color-text-secondary)]">{SETTINGS_GROUP_LABELS[activeSection.group]}</span>
                       </div>
-                      <h2 className="text-sm font-semibold text-[var(--color-text-primary)] mt-2">{activeSection.title}</h2>
-                      <p className="text-xs text-dim mt-0.5">{activeSection.description}</p>
                     </div>
                     <div key={activeSection.id} className="transition-opacity duration-150">
                       {activeSection.content}
@@ -371,7 +380,55 @@ export function Settings() {
   );
 }
 
-/* ─── Terminal Cursor (inline in preview) ─────────────────────────────── */
+/* ─── Appearance Settings ─────────────────────────────────────────────── */
+
+const THEME_OPTIONS: SelectOption<ThemePreference>[] = [
+  { value: 'system', label: 'System', description: 'Follow your OS appearance setting' },
+  { value: 'dark', label: 'Dark', description: 'Always use dark mode' },
+  { value: 'light', label: 'Light', description: 'Always use light mode' },
+];
+
+function AppearanceSection() {
+  const [themePreference, setThemePreferenceState] = useState<ThemePreference>(() => getThemePreference());
+  const resolvedTheme = getResolvedTheme(themePreference);
+
+  useEffect(() => (
+    subscribeToThemeChange(({ preference }) => {
+      setThemePreferenceState(preference);
+    })
+  ), []);
+
+  const handleThemeChange = (value: ThemePreference) => {
+    setThemePreferenceState(value);
+    setThemePreference(value);
+  };
+
+  return (
+    <SectionCard>
+      <SectionHeader
+        title="Appearance"
+        description="Switch between dark and light themes"
+        icon={<SunMoon size={15} />}
+      />
+      <SectionBody>
+        <FieldRow>
+          <FieldLabel
+            label="Theme"
+            description={`Current mode: ${resolvedTheme}`}
+          />
+          <Select
+            value={themePreference}
+            onChange={handleThemeChange}
+            options={THEME_OPTIONS}
+            className="min-w-[210px]"
+          />
+        </FieldRow>
+      </SectionBody>
+    </SectionCard>
+  );
+}
+
+/* ─── Keyboard Shortcuts ─────────────────────────────────────────────── */
 
 function KeyboardShortcutsSection() {
   const shortcuts = useSessionShortcutSettings();

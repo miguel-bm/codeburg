@@ -61,8 +61,28 @@ body {
 }
 
 /* Light mode overrides via CSS custom properties */
+:root[data-theme='light'] {
+  --color-bg-primary: oklch(0.97 0.003 265);
+  --color-bg-secondary: oklch(0.94 0.003 265);
+  --color-bg-tertiary: oklch(0.91 0.003 265);
+  --color-bg-elevated: oklch(0.99 0.002 265);
+  --color-text-primary: oklch(0.15 0.004 265);
+  --color-text-secondary: oklch(0.40 0.004 265);
+  --color-text-dim: oklch(0.55 0.004 265);
+  --color-accent: oklch(0.55 0.19 260);
+  --color-accent-dim: oklch(0.45 0.15 260);
+  --color-accent-glow: oklch(0.55 0.19 260 / 0.12);
+  --color-border: oklch(0.82 0.003 265);
+  --color-border-accent: oklch(0.55 0.19 260 / 0.4);
+  --color-status-backlog: oklch(0.50 0.01 260);
+  --color-status-in-progress: oklch(0.55 0.19 260);
+  --color-status-in-review: oklch(0.55 0.16 300);
+  --color-status-done: oklch(0.55 0.17 155);
+  --color-success: oklch(0.55 0.17 155);
+}
+
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme]) {
     --color-bg-primary: oklch(0.97 0.003 265);
     --color-bg-secondary: oklch(0.94 0.003 265);
     --color-bg-tertiary: oklch(0.91 0.003 265);
