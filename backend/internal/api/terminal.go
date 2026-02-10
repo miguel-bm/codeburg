@@ -23,6 +23,11 @@ type TerminalSession struct {
 	lastInput time.Time
 }
 
+const (
+	terminalPingPeriod = 30 * time.Second
+	terminalPongWait   = 90 * time.Second
+)
+
 // handleTerminalWS handles websocket connections for terminal access.
 // Query params:
 //   - session: codeburg session ID (required)
@@ -64,6 +69,7 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go ts.readFromRuntime(snapshot, stream)
+	go ts.keepAlive()
 	ts.readFromWS()
 }
 
@@ -97,6 +103,10 @@ func (ts *TerminalSession) writeBinary(data []byte) error {
 
 func (ts *TerminalSession) readFromWS() {
 	defer ts.close()
+	_ = ts.conn.SetReadDeadline(time.Now().Add(terminalPongWait))
+	ts.conn.SetPongHandler(func(string) error {
+		return ts.conn.SetReadDeadline(time.Now().Add(terminalPongWait))
+	})
 
 	for {
 		msgType, message, err := ts.conn.ReadMessage()
@@ -123,6 +133,28 @@ func (ts *TerminalSession) readFromWS() {
 			}
 		}
 	}
+}
+
+func (ts *TerminalSession) keepAlive() {
+	ticker := time.NewTicker(terminalPingPeriod)
+	defer ticker.Stop()
+	defer ts.close()
+
+	for range ticker.C {
+		if err := ts.writePing(); err != nil {
+			return
+		}
+	}
+}
+
+func (ts *TerminalSession) writePing() error {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.closed {
+		return websocket.ErrCloseSent
+	}
+	_ = ts.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	return ts.conn.WriteMessage(websocket.PingMessage, nil)
 }
 
 func (ts *TerminalSession) handleUserInput(message []byte) {

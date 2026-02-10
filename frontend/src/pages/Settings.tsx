@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { startRegistration } from '@simplewebauthn/browser';
-import { ChevronLeft, AlertCircle, CheckCircle2, Fingerprint, Trash2, Pencil, Volume2, Bell, Terminal, Code2, Lock, Send, Keyboard, Search } from 'lucide-react';
+import { ChevronLeft, AlertCircle, CheckCircle2, Fingerprint, Trash2, Pencil, Volume2, Bell, Terminal, Code2, Lock, Send, Keyboard, Search, X, LogOut } from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
 import { authApi, preferencesApi } from '../api';
 import type { EditorType } from '../api';
@@ -18,16 +18,41 @@ import {
 } from '../stores/keyboard';
 import { isNotificationSoundEnabled, setNotificationSoundEnabled, playNotificationSound } from '../lib/notificationSound';
 import { SectionCard, SectionHeader, SectionBody, FieldRow, FieldLabel, Toggle } from '../components/ui/settings';
+import { Select } from '../components/ui/Select';
+import type { SelectOption } from '../components/ui/Select';
+
+type SettingsGroupId = 'general' | 'integrations' | 'security' | 'account';
+
+type SettingsSection = {
+  id: string;
+  group: SettingsGroupId;
+  title: string;
+  description: string;
+  keywords: string[];
+  icon: React.ReactNode;
+  content: React.ReactNode;
+};
+
+const SETTINGS_GROUP_ORDER: SettingsGroupId[] = ['general', 'integrations', 'security', 'account'];
+
+const SETTINGS_GROUP_LABELS: Record<SettingsGroupId, string> = {
+  general: 'General',
+  integrations: 'Integrations',
+  security: 'Security',
+  account: 'Account',
+};
 
 export function Settings() {
   const navigate = useNavigate();
   const logout = useAuthStore((s) => s.logout);
   const [search, setSearch] = useState('');
   const [activeSectionId, setActiveSectionId] = useState('notifications');
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const sections = useMemo(() => ([
+  const sections = useMemo<SettingsSection[]>(() => ([
     {
       id: 'notifications',
+      group: 'general',
       title: 'Notifications',
       description: 'Alerts when an agent needs attention',
       keywords: ['sound', 'alerts', 'audio'],
@@ -36,6 +61,7 @@ export function Settings() {
     },
     {
       id: 'keyboard',
+      group: 'general',
       title: 'Keyboard',
       description: 'Session tab switching shortcuts and layout defaults',
       keywords: ['shortcuts', 'layout', 'bindings'],
@@ -44,6 +70,7 @@ export function Settings() {
     },
     {
       id: 'terminal',
+      group: 'general',
       title: 'Terminal',
       description: 'Appearance and behavior for terminal sessions',
       keywords: ['cursor', 'font', 'scrollback', 'webgl'],
@@ -52,6 +79,7 @@ export function Settings() {
     },
     {
       id: 'editor',
+      group: 'general',
       title: 'Editor',
       description: 'Open task worktrees in your editor',
       keywords: ['vscode', 'cursor', 'ssh'],
@@ -60,6 +88,7 @@ export function Settings() {
     },
     {
       id: 'passkeys',
+      group: 'security',
       title: 'Passkeys',
       description: 'Passwordless sign-in with biometrics or security keys',
       keywords: ['security', 'webauthn', 'biometrics'],
@@ -68,6 +97,7 @@ export function Settings() {
     },
     {
       id: 'telegram',
+      group: 'integrations',
       title: 'Telegram',
       description: 'Auto-login when opening Codeburg from Telegram',
       keywords: ['bot', 'token', 'notifications', 'chat'],
@@ -76,6 +106,7 @@ export function Settings() {
     },
     {
       id: 'password',
+      group: 'security',
       title: 'Password',
       description: 'Manage your account password',
       keywords: ['security', 'credentials', 'account'],
@@ -84,10 +115,11 @@ export function Settings() {
     },
     {
       id: 'danger',
+      group: 'account',
       title: 'Log out',
       description: 'End your current session',
       keywords: ['logout', 'session', 'account'],
-      icon: <Lock size={15} />,
+      icon: <LogOut size={15} />,
       content: <DangerZone onLogout={logout} />,
     },
   ]), [logout]);
@@ -104,6 +136,60 @@ export function Settings() {
   const activeSection = filteredSections.find((section) => section.id === activeSectionId)
     ?? filteredSections[0]
     ?? null;
+  const activeSectionIndex = filteredSections.findIndex((section) => section.id === activeSection?.id);
+  const sectionSelectOptions = useMemo<SelectOption<string>[]>(() => (
+    filteredSections.map((section) => ({
+      value: section.id,
+      label: section.title,
+      description: SETTINGS_GROUP_LABELS[section.group],
+    }))
+  ), [filteredSections]);
+
+  const groupedSections = useMemo(() => (
+    SETTINGS_GROUP_ORDER
+      .map((group) => ({
+        group,
+        label: SETTINGS_GROUP_LABELS[group],
+        items: filteredSections.filter((section) => section.group === group),
+      }))
+      .filter((group) => group.items.length > 0)
+  ), [filteredSections]);
+
+  useEffect(() => {
+    const handleKeydown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      }
+
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      if (filteredSections.length === 0) return;
+
+      const target = e.target as HTMLElement | null;
+      const tagName = target?.tagName.toLowerCase();
+      const isEditable = Boolean(
+        target?.isContentEditable
+          || tagName === 'input'
+          || tagName === 'textarea'
+          || tagName === 'select',
+      );
+      const isInsideSelect = Boolean(target?.closest('[data-settings-skip-nav-hotkeys="true"]'));
+
+      if (isEditable || isInsideSelect) return;
+
+      e.preventDefault();
+      const currentIndex = activeSectionIndex >= 0 ? activeSectionIndex : 0;
+      const nextIndex = e.key === 'ArrowDown'
+        ? (currentIndex + 1) % filteredSections.length
+        : (currentIndex - 1 + filteredSections.length) % filteredSections.length;
+      setActiveSectionId(filteredSections[nextIndex].id);
+    };
+
+    window.addEventListener('keydown', handleKeydown);
+    return () => window.removeEventListener('keydown', handleKeydown);
+  }, [filteredSections, activeSectionIndex]);
 
   return (
     <Layout>
@@ -127,67 +213,108 @@ export function Settings() {
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-6xl mx-auto w-full px-4 sm:px-6 py-5 md:py-6">
             <div className="grid grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)] gap-4 md:gap-6 items-start">
-              <aside className="border border-subtle rounded-md bg-secondary overflow-hidden md:sticky md:top-4">
-                <div className="px-4 py-3 border-b border-subtle">
-                  <label htmlFor="settings-search" className="text-xs text-dim block mb-2">
-                    Search settings
-                  </label>
+              <aside
+                className="border border-subtle rounded-2xl bg-secondary overflow-hidden md:sticky md:top-4"
+                style={{ boxShadow: '0 10px 30px oklch(0.08 0 0 / 0.25)' }}
+              >
+                <div
+                  className="px-4 py-3 border-b border-subtle"
+                  style={{ backgroundImage: 'linear-gradient(180deg, color-mix(in oklab, var(--color-bg-elevated) 88%, transparent), transparent)' }}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[11px] uppercase tracking-[0.08em] text-dim">All Settings</p>
+                    <p className="text-xs text-dim">{filteredSections.length}</p>
+                  </div>
                   <div className="relative">
                     <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim" />
                     <input
+                      ref={searchInputRef}
                       id="settings-search"
                       type="text"
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Filter sections..."
-                      className="w-full pl-8 pr-3 py-2 rounded-md border border-subtle bg-primary text-sm text-[var(--color-text-primary)] focus:outline-none focus:border-accent"
+                      placeholder="Search settings"
+                      className="w-full pl-8 pr-9 py-2 rounded-xl border border-subtle bg-primary text-sm text-[var(--color-text-primary)] focus:outline-none focus:border-accent transition-colors"
                     />
+                    {search && (
+                      <button
+                        onClick={() => setSearch('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-dim hover:text-[var(--color-text-primary)]"
+                        aria-label="Clear search"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
                   </div>
+                  <p className="text-[10px] text-dim mt-2">
+                    <kbd className="px-1 py-0.5 rounded border border-subtle bg-secondary">Ctrl/Cmd+F</kbd>
+                    {' '}search
+                    {' \u00b7 '}
+                    <kbd className="px-1 py-0.5 rounded border border-subtle bg-secondary">\u2191</kbd>
+                    {' '}
+                    <kbd className="px-1 py-0.5 rounded border border-subtle bg-secondary">\u2193</kbd>
+                    {' '}navigate
+                  </p>
                 </div>
 
-                <div className="px-4 py-3 md:hidden border-b border-subtle">
-                  <label htmlFor="settings-section-picker" className="text-xs text-dim block mb-2">
-                    Section
-                  </label>
-                  <select
-                    id="settings-section-picker"
-                    value={activeSection?.id ?? ''}
-                    onChange={(e) => setActiveSectionId(e.target.value)}
-                    className="w-full bg-primary border border-subtle rounded-md text-sm px-2.5 py-2 focus:outline-none focus:border-accent"
-                    disabled={filteredSections.length === 0}
-                  >
-                    {filteredSections.map((section) => (
-                      <option key={section.id} value={section.id}>{section.title}</option>
-                    ))}
-                  </select>
-                </div>
+                <nav className="md:hidden px-3 py-3 border-b border-subtle" data-settings-skip-nav-hotkeys="true">
+                  {filteredSections.length === 0 ? (
+                    <p className="text-sm text-dim px-1 py-2">No sections match your search.</p>
+                  ) : (
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.08em] text-dim mb-2 px-1">Section</p>
+                      <Select
+                        value={activeSection?.id ?? filteredSections[0].id}
+                        onChange={setActiveSectionId}
+                        options={sectionSelectOptions}
+                        className="[&>button]:rounded-xl [&>button]:py-2.5"
+                      />
+                    </div>
+                  )}
+                </nav>
 
                 <nav className="hidden md:block p-2 max-h-[calc(100vh-14rem)] overflow-y-auto">
-                  {filteredSections.length === 0 ? (
+                  {groupedSections.length === 0 ? (
                     <p className="text-sm text-dim px-2 py-3">No sections match your search.</p>
                   ) : (
-                    filteredSections.map((section) => (
-                      <button
-                        key={section.id}
-                        onClick={() => setActiveSectionId(section.id)}
-                        className={`w-full text-left px-3 py-2.5 rounded-md transition-colors ${
-                          activeSection?.id === section.id
-                            ? 'bg-accent/15 border border-accent/50'
-                            : 'border border-transparent hover:bg-primary'
-                        }`}
-                      >
-                        <div className="flex items-start gap-2.5">
-                          <span className={`${activeSection?.id === section.id ? 'text-accent' : 'text-dim'} mt-0.5`}>
-                            {section.icon}
-                          </span>
-                          <div className="min-w-0">
-                            <p className={`text-sm ${activeSection?.id === section.id ? 'text-[var(--color-text-primary)]' : 'text-dim'}`}>
-                              {section.title}
-                            </p>
-                            <p className="text-xs text-dim mt-0.5 line-clamp-2">{section.description}</p>
-                          </div>
+                    groupedSections.map((group) => (
+                      <div key={group.group} className="mb-2.5 last:mb-0">
+                        <p className="px-2 py-1 text-[10px] uppercase tracking-[0.1em] text-dim">
+                          {group.label}
+                        </p>
+                        <div className="space-y-1">
+                          {group.items.map((section) => (
+                            <button
+                              key={section.id}
+                              onClick={() => setActiveSectionId(section.id)}
+                              className={`relative group w-full text-left px-3 py-2.5 rounded-xl border transition-colors ${
+                                activeSection?.id === section.id
+                                  ? 'bg-accent/15 border-accent/55'
+                                  : 'border-transparent hover:border-subtle hover:bg-primary'
+                              }`}
+                            >
+                              <span className={`absolute left-0.5 top-2 bottom-2 w-[3px] rounded-full transition-opacity ${activeSection?.id === section.id ? 'opacity-100 bg-accent' : 'opacity-0'}`} />
+                              <div className="flex items-start gap-2.5">
+                                <span
+                                  className={`mt-0.5 flex h-7 w-7 items-center justify-center rounded-[10px] border transition-colors ${
+                                    activeSection?.id === section.id
+                                      ? 'border-accent/50 bg-accent/20 text-accent'
+                                      : 'border-subtle bg-primary text-dim group-hover:text-[var(--color-text-primary)]'
+                                  }`}
+                                >
+                                  {section.icon}
+                                </span>
+                                <div className="min-w-0">
+                                  <p className={`text-sm leading-tight ${activeSection?.id === section.id ? 'text-[var(--color-text-primary)]' : 'text-dim group-hover:text-[var(--color-text-primary)]'}`}>
+                                    {section.title}
+                                  </p>
+                                  <p className="text-xs text-dim mt-1 line-clamp-2">{section.description}</p>
+                                </div>
+                              </div>
+                            </button>
+                          ))}
                         </div>
-                      </button>
+                      </div>
                     ))
                   )}
                 </nav>
@@ -195,12 +322,18 @@ export function Settings() {
 
               <section className="min-w-0">
                 {activeSection ? (
-                  <div className="space-y-4">
-                    <div className="md:hidden px-1">
-                      <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">{activeSection.title}</h2>
+                  <div className="space-y-3">
+                    <div className="px-1 md:px-0">
+                      <div className="inline-flex items-center gap-2 rounded-full px-2.5 py-1 border border-subtle bg-secondary">
+                        <span className="text-accent">{activeSection.icon}</span>
+                        <span className="text-xs text-dim uppercase tracking-[0.08em]">{SETTINGS_GROUP_LABELS[activeSection.group]}</span>
+                      </div>
+                      <h2 className="text-sm font-semibold text-[var(--color-text-primary)] mt-2">{activeSection.title}</h2>
                       <p className="text-xs text-dim mt-0.5">{activeSection.description}</p>
                     </div>
-                    {activeSection.content}
+                    <div key={activeSection.id} className="transition-opacity duration-150">
+                      {activeSection.content}
+                    </div>
                   </div>
                 ) : (
                   <SectionCard>

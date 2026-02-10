@@ -32,7 +32,7 @@ export function SessionTabs({ sessions, activeSessionId, onSelect, onResume, onC
   );
 
   return (
-    <div className="flex items-center border-b border-subtle bg-secondary overflow-x-auto">
+    <div className="h-10 flex items-center border-b border-subtle bg-secondary overflow-x-auto">
       {sorted.map((session, i) => {
         const isActive = session.id === activeSessionId;
         const canResume = onResume && session.provider === 'claude' && session.status === 'completed';
@@ -42,7 +42,7 @@ export function SessionTabs({ sessions, activeSessionId, onSelect, onResume, onC
           <button
             key={session.id}
             onClick={() => onSelect(session)}
-            className={`flex items-center gap-2 px-3 py-2 text-xs transition-colors whitespace-nowrap border-b-2 ${
+            className={`h-full flex items-center gap-2 px-3 text-xs transition-colors whitespace-nowrap border-b-2 ${
               isActive
                 ? 'border-accent text-accent bg-accent/10'
                 : 'border-transparent text-dim hover:text-[var(--color-text-primary)]'
@@ -79,7 +79,7 @@ export function SessionTabs({ sessions, activeSessionId, onSelect, onResume, onC
       })}
       <button
         onClick={onNewSession}
-        className="inline-flex items-center justify-center h-8 w-8 mx-1 text-dim hover:text-accent hover:bg-accent/10 rounded-md transition-colors border-b-2 border-transparent"
+        className="inline-flex items-center justify-center h-8 w-8 mx-1 shrink-0 text-dim hover:text-accent hover:bg-accent/10 rounded-md transition-colors border-b-2 border-transparent"
         title="New session"
         aria-label="New session"
       >
