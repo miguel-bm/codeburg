@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import CodeMirror, { EditorView } from '@uiw/react-codemirror';
 import type { Extension } from '@codemirror/state';
-import { oneDark } from '@codemirror/theme-one-dark';
+import { atomone } from '@uiw/codemirror-theme-atomone';
 import { langs } from '@uiw/codemirror-extensions-langs';
 import { Tree, type NodeApi, type NodeRendererProps } from 'react-arborist';
 import {
@@ -160,19 +160,6 @@ function filterFileTree(nodes: FileTreeNodeData[], query: string): FileTreeNodeD
   return nodes.map(visit).filter((node): node is FileTreeNodeData => node !== null);
 }
 
-const oneDarkProSurface = EditorView.theme({
-  '&': {
-    backgroundColor: '#1f232a',
-  },
-  '.cm-scroller': {
-    backgroundColor: '#1f232a',
-  },
-  '.cm-gutters': {
-    backgroundColor: '#1b1f26',
-    borderRight: '1px solid #2b313c',
-  },
-}, { dark: true });
-
 export function ProjectWorkspace() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -280,14 +267,10 @@ export function ProjectWorkspace() {
     : undefined;
   const editorExtensions = useMemo(() => {
     const languageExtensions = activeTab ? getLanguageExtension(activeTab) : [];
-    return [
-      ...languageExtensions,
-      EditorView.lineWrapping,
-      ...(editorTheme === 'dark' ? [oneDarkProSurface] : []),
-    ];
-  }, [activeTab, editorTheme]);
+    return [...languageExtensions, EditorView.lineWrapping];
+  }, [activeTab]);
   const editorSurfaceStyle = useMemo(
-    () => ({ backgroundColor: editorTheme === 'dark' ? '#1f232a' : '#ffffff' }),
+    () => ({ backgroundColor: editorTheme === 'dark' ? '#272C35' : '#ffffff' }),
     [editorTheme],
   );
   const activeDraft = activeTab
@@ -829,7 +812,7 @@ export function ProjectWorkspace() {
               value={activeDraft}
               height="auto"
               minHeight="100%"
-              theme={editorTheme === 'dark' ? oneDark : 'light'}
+              theme={editorTheme === 'dark' ? atomone : 'light'}
               extensions={editorExtensions}
               onChange={(value: string) => {
                 if (!activeTab || !activeFileData) return;
