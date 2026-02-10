@@ -13,7 +13,7 @@ import { useMobile } from '../../hooks/useMobile';
 
 type MainContent =
   | { type: 'session' }
-  | { type: 'diff'; file?: string; staged?: boolean };
+  | { type: 'diff'; file?: string; staged?: boolean; base?: boolean };
 
 type MobilePanel = 'sessions' | 'git' | 'tools';
 
@@ -129,12 +129,12 @@ export function TaskDetailInProgress({
     doMoveToReview();
   };
 
-  const handleFileClick = (file: string, staged: boolean) => {
+  const handleFileClick = (file?: string, staged?: boolean, base?: boolean) => {
     setMainContent((prev) => {
-      if (prev.type === 'diff' && prev.file === file && prev.staged === staged) {
+      if (prev.type === 'diff' && prev.file === file && prev.staged === staged && prev.base === base) {
         return { type: 'session' };
       }
-      return { type: 'diff', file, staged };
+      return { type: 'diff', file, staged, base };
     });
   };
 
@@ -260,6 +260,7 @@ export function TaskDetailInProgress({
                 onFileClick={handleFileClick}
                 selectedFile={mainContent.type === 'diff' ? mainContent.file : undefined}
                 selectedStaged={mainContent.type === 'diff' ? mainContent.staged : undefined}
+                selectedBase={mainContent.type === 'diff' ? mainContent.base : undefined}
                 scrollable={false}
               />
               {mainContent.type === 'diff' && (
@@ -268,6 +269,7 @@ export function TaskDetailInProgress({
                     taskId={task.id}
                     file={mainContent.file}
                     staged={mainContent.staged}
+                    base={mainContent.base}
                   />
                 </div>
               )}
@@ -318,6 +320,7 @@ export function TaskDetailInProgress({
               onFileClick={handleFileClick}
               selectedFile={mainContent.type === 'diff' ? mainContent.file : undefined}
               selectedStaged={mainContent.type === 'diff' ? mainContent.staged : undefined}
+              selectedBase={mainContent.type === 'diff' ? mainContent.base : undefined}
             />
           </div>
           {/* Vertical divider (git ↔ tools) */}
@@ -369,7 +372,9 @@ export function TaskDetailInProgress({
                 <div className="flex items-center justify-between px-4 py-2 border-b border-subtle bg-secondary">
                   <span className="text-xs font-mono text-dim">
                     {mainContent.file || 'full branch diff'}
-                    {mainContent.staged && ' (staged)'}
+                    {mainContent.base
+                      ? ` (vs ${project?.defaultBranch || 'main'})`
+                      : (mainContent.staged ? ' (staged)' : '')}
                   </span>
                   <button
                     onClick={() => setMainContent({ type: 'session' })}
@@ -383,6 +388,7 @@ export function TaskDetailInProgress({
                     taskId={task.id}
                     file={mainContent.file}
                     staged={mainContent.staged}
+                    base={mainContent.base}
                   />
                 </div>
               </div>

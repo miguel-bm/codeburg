@@ -2,12 +2,14 @@ import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { gitApi } from '../../api';
 import type { GitFileStatus } from '../../api';
+import { parseDiffFiles } from './diffFiles';
 
 interface GitPanelProps {
   taskId: string;
-  onFileClick: (file: string, staged: boolean) => void;
+  onFileClick: (file?: string, staged?: boolean, base?: boolean) => void;
   selectedFile?: string;
   selectedStaged?: boolean;
+  selectedBase?: boolean;
   scrollable?: boolean;
 }
 
@@ -49,10 +51,18 @@ function DotsIcon() {
   );
 }
 
-export function GitPanel({ taskId, onFileClick, selectedFile, selectedStaged, scrollable = true }: GitPanelProps) {
+export function GitPanel({
+  taskId,
+  onFileClick,
+  selectedFile,
+  selectedStaged,
+  selectedBase,
+  scrollable = true,
+}: GitPanelProps) {
   const queryClient = useQueryClient();
   const [commitMsg, setCommitMsg] = useState('');
   const [showMenu, setShowMenu] = useState(false);
+  const [showBranchDiff, setShowBranchDiff] = useState(true);
   const [showStaged, setShowStaged] = useState(true);
   const [showUnstaged, setShowUnstaged] = useState(true);
   const [showUntracked, setShowUntracked] = useState(true);
@@ -61,6 +71,13 @@ export function GitPanel({ taskId, onFileClick, selectedFile, selectedStaged, sc
   const { data: status, isLoading } = useQuery({
     queryKey: ['git-status', taskId],
     queryFn: () => gitApi.status(taskId),
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
+  });
+
+  const { data: baseDiff } = useQuery({
+    queryKey: ['git-diff', taskId, undefined, undefined, true],
+    queryFn: () => gitApi.diff(taskId, { base: true }),
     refetchInterval: 5000,
     refetchIntervalInBackground: false,
   });
@@ -133,6 +150,7 @@ export function GitPanel({ taskId, onFileClick, selectedFile, selectedStaged, sc
   const stageAllFiles = [...status.unstaged.map((f) => f.path), ...status.untracked];
   const canStageAll = stageAllFiles.length > 0 && !stageMutation.isPending;
   const canRevertAny = totalChanges > 0 && !revertMutation.isPending;
+  const baseDiffFiles = parseDiffFiles(baseDiff?.diff || '');
 
   const handleRevert = (tracked: string[], untracked: string[], label: string) => {
     if (!tracked.length && !untracked.length) return;
@@ -307,6 +325,38 @@ export function GitPanel({ taskId, onFileClick, selectedFile, selectedStaged, sc
           <div className="p-3 text-dim text-center">Clean working tree</div>
         )}
 
+        {/* Branch diff (full worktree delta vs project default branch) */}
+        <Section
+          title={`branch changes (${baseDiffFiles.length})`}
+          open={showBranchDiff}
+          onToggle={() => setShowBranchDiff(!showBranchDiff)}
+          actions={(
+            <button
+              onClick={() => onFileClick(undefined, undefined, true)}
+              disabled={!baseDiff?.diff}
+              className="text-[10px] text-dim hover:text-[var(--color-text-primary)] disabled:opacity-40"
+              title="Open full branch diff against the default branch"
+            >
+              Open full diff
+            </button>
+          )}
+        >
+          {baseDiffFiles.length > 0 ? (
+            baseDiffFiles.map((f) => (
+              <BaseFileRow
+                key={f.path}
+                file={f}
+                onClick={() => onFileClick(f.path, undefined, true)}
+                selected={selectedBase === true && selectedFile === f.path}
+              />
+            ))
+          ) : (
+            <div className="px-3 py-2 text-dim text-[11px]">
+              No branch changes against the default branch
+            </div>
+          )}
+        </Section>
+
         {/* Staged */}
         {status.staged.length > 0 && (
           <Section
@@ -336,7 +386,7 @@ export function GitPanel({ taskId, onFileClick, selectedFile, selectedStaged, sc
                 onAction={() => unstageMutation.mutate([f.path])}
                 onClick={() => onFileClick(f.path, true)}
                 onRevert={() => handleRevert([f.path], [], f.path)}
-                selected={selectedFile === f.path && selectedStaged === true}
+                selected={selectedBase !== true && selectedFile === f.path && selectedStaged === true}
               />
             ))}
           </Section>
@@ -384,7 +434,7 @@ export function GitPanel({ taskId, onFileClick, selectedFile, selectedStaged, sc
                 onAction={() => stageMutation.mutate([f.path])}
                 onClick={() => onFileClick(f.path, false)}
                 onRevert={() => handleRevert([f.path], [], f.path)}
-                selected={selectedFile === f.path && selectedStaged === false}
+                selected={selectedBase !== true && selectedFile === f.path && selectedStaged === false}
               />
             ))}
           </Section>
@@ -432,7 +482,7 @@ export function GitPanel({ taskId, onFileClick, selectedFile, selectedStaged, sc
                 onAction={() => stageMutation.mutate([path])}
                 onClick={() => onFileClick(path, false)}
                 onRevert={() => handleRevert([], [path], path)}
-                selected={selectedFile === path && selectedStaged === false}
+                selected={selectedBase !== true && selectedFile === path && selectedStaged === false}
               />
             ))}
           </Section>
@@ -519,6 +569,35 @@ function FileRow({ file, action, onAction, onClick, onRevert, selected }: {
           </Icon>
         </button>
       </div>
+    </div>
+  );
+}
+
+function BaseFileRow({
+  file,
+  onClick,
+  selected,
+}: {
+  file: { path: string; additions: number; deletions: number };
+  onClick: () => void;
+  selected: boolean;
+}) {
+  return (
+    <div className={`flex items-center gap-1 px-3 py-0.5 hover:bg-accent/5 group ${selected ? 'bg-accent/10' : ''}`}>
+      <span className="text-dim font-mono w-4 text-center shrink-0">Δ</span>
+      <button
+        onClick={onClick}
+        className="flex-1 text-left truncate font-mono text-[var(--color-text-primary)] hover:text-accent transition-colors"
+        title={file.path}
+      >
+        {file.path}
+      </button>
+      {file.additions > 0 && (
+        <span className="text-[var(--color-success)] shrink-0">+{file.additions}</span>
+      )}
+      {file.deletions > 0 && (
+        <span className="text-[var(--color-error)] shrink-0">-{file.deletions}</span>
+      )}
     </div>
   );
 }
