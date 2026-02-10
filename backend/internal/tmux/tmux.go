@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 )
 
 const (
@@ -231,28 +234,41 @@ func (m *Manager) streamOutput(target string, output chan<- string) {
 // PipeOutput creates a pipe to capture real-time output from a pane
 // Returns a reader that can be used to stream output
 func (m *Manager) PipeOutput(target string) (*bufio.Reader, func(), error) {
-	// Use tmux pipe-pane to redirect output
-	// This is more efficient than polling capture-pane
+	// Use tmux pipe-pane to redirect output into a FIFO and stream it.
+	// This avoids attaching a tmux client and prevents drift between windows.
 
-	// Create a named pipe or use stdout from a subprocess
-	cmd := exec.Command("tmux", "pipe-pane", "-t", target, "-O", "cat")
-	stdout, err := cmd.StdoutPipe()
+	tmpDir, err := os.MkdirTemp("", "codeburg-pipe-")
 	if err != nil {
-		return nil, nil, fmt.Errorf("create pipe: %w", err)
+		return nil, nil, fmt.Errorf("create temp dir: %w", err)
+	}
+	fifoPath := filepath.Join(tmpDir, "pane.fifo")
+	if err := syscall.Mkfifo(fifoPath, 0600); err != nil {
+		os.RemoveAll(tmpDir)
+		return nil, nil, fmt.Errorf("mkfifo: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
-		return nil, nil, fmt.Errorf("start pipe: %w", err)
+	// Start piping pane output into the FIFO (tmux runs command via shell).
+	pipeCmd := fmt.Sprintf("cat > %s", fifoPath)
+	if err := exec.Command("tmux", "pipe-pane", "-t", target, "-O", pipeCmd).Run(); err != nil {
+		os.RemoveAll(tmpDir)
+		return nil, nil, fmt.Errorf("start pipe-pane: %w", err)
+	}
+
+	// Open FIFO for reading (blocks until a writer connects).
+	fifo, err := os.OpenFile(fifoPath, os.O_RDONLY, 0600)
+	if err != nil {
+		exec.Command("tmux", "pipe-pane", "-t", target).Run()
+		os.RemoveAll(tmpDir)
+		return nil, nil, fmt.Errorf("open fifo: %w", err)
 	}
 
 	cleanup := func() {
-		// Stop piping
 		exec.Command("tmux", "pipe-pane", "-t", target).Run()
-		cmd.Process.Kill()
-		cmd.Wait()
+		fifo.Close()
+		os.RemoveAll(tmpDir)
 	}
 
-	return bufio.NewReader(stdout), cleanup, nil
+	return bufio.NewReader(fifo), cleanup, nil
 }
 
 // ListWindows lists all windows in the codeburg session
