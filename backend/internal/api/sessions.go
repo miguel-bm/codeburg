@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -232,6 +233,11 @@ func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*
 	}
 
 	command, args := buildSessionCommand(req, notifyScript, resumeProviderSessionID)
+	originalCommand := command
+	command, args = withShellFallback(command, args)
+	if originalCommand != command {
+		slog.Warn("provider command not found in service PATH, using login-shell fallback", "session_id", dbSession.ID, "provider", req.Provider, "command", originalCommand)
+	}
 	startErr := s.sessions.runtime.Start(dbSession.ID, ptyruntime.StartOptions{
 		WorkDir: workDir,
 		Command: command,
@@ -276,6 +282,34 @@ func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*
 		return dbSession, nil
 	}
 	return updatedSession, nil
+}
+
+func withShellFallback(command string, args []string) (string, []string) {
+	if command == "" {
+		return command, args
+	}
+	if _, err := exec.LookPath(command); err == nil {
+		return command, args
+	}
+
+	// Use login shell so user-level PATH customizations are applied.
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/bash"
+	}
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, shellQuote(command))
+	for _, arg := range args {
+		parts = append(parts, shellQuote(arg))
+	}
+	return shell, []string{"-lc", strings.Join(parts, " ")}
+}
+
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
 
 func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {

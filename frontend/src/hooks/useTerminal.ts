@@ -67,6 +67,8 @@ export function useTerminal(
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stableTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lifecycleRef = useRef(0);
+  const reconnectRef = useRef<(() => void) | null>(null);
   const disposedRef = useRef(false);
   const awaitingManualReconnectRef = useRef(false);
   const ignoreNextCarriageReturnRef = useRef(false);
@@ -92,93 +94,11 @@ export function useTerminal(
     return `${protocol}//${window.location.host}/ws/terminal?session=${encodeURIComponent(sessionId)}`;
   }, [sessionId]);
 
-  // Connect (or reconnect) the WebSocket to an existing Terminal
-  const connectWS = useCallback((term: Terminal) => {
-    if (disposedRef.current) return;
-
-    const ws = new WebSocket(wsUrl());
-    wsRef.current = ws;
-    ws.binaryType = 'arraybuffer';
-
-    ws.onopen = () => {
-      const wasRetry = retryCountRef.current > 0;
-      awaitingManualReconnectRef.current = false;
-      emitDebug('ws:open', { retry: wasRetry });
-
-      if (wasRetry) {
-        term.writeln('\x1b[32m// reconnected\x1b[0m');
-      } else {
-        term.writeln('\x1b[32m// connected\x1b[0m');
-      }
-      term.writeln('');
-
-      ws.send(JSON.stringify({
-        type: 'resize',
-        cols: term.cols,
-        rows: term.rows,
-      }));
-
-      // Only reset retry counter after connection is stable for 3s.
-      // Prevents infinite retry loops when the server immediately closes
-      // (e.g. tmux window gone → "can't find window" → close).
-      if (stableTimerRef.current) clearTimeout(stableTimerRef.current);
-      stableTimerRef.current = setTimeout(() => {
-        retryCountRef.current = 0;
-      }, 3000);
-    };
-
-    ws.onmessage = (event) => {
-      if (event.data instanceof ArrayBuffer) {
-        term.write(new Uint8Array(event.data));
-      } else {
-        term.write(event.data);
-      }
-    };
-
-    ws.onerror = () => {
-      emitDebug('ws:error');
-      // onclose will fire after this, handle retry there
-    };
-
-    ws.onclose = (event) => {
-      emitDebug('ws:close', { code: event.code, reason: event.reason, wasClean: event.wasClean });
-      if (stableTimerRef.current) clearTimeout(stableTimerRef.current);
-      if (disposedRef.current) return;
-
-      // Backend sent 4000 = tmux window no longer exists
-      if (event.code === 4000) {
-        term.writeln('');
-        term.writeln('\x1b[33m// session ended — terminal no longer available\x1b[0m');
-        return;
-      }
-
-      // Session is finished — don't retry
-      const status = sessionStatusRef.current;
-      if (status === 'completed' || status === 'error') {
-        term.writeln('');
-        term.writeln('\x1b[33m// session ended\x1b[0m');
-        return;
-      }
-
-      if (retryCountRef.current < MAX_RETRIES) {
-        const delay = RETRY_DELAYS[retryCountRef.current];
-        term.writeln('');
-        term.writeln(`\x1b[33m// disconnected — retrying in ${delay / 1000}s...\x1b[0m`);
-        retryTimerRef.current = setTimeout(() => {
-          retryCountRef.current++;
-          connectWS(term);
-        }, delay);
-      } else {
-        term.writeln('');
-        term.writeln('\x1b[33m// disconnected — press any key to reconnect\x1b[0m');
-        awaitingManualReconnectRef.current = true;
-      }
-    };
-  }, [wsUrl]);
-
   // Create terminal + initial WS connection
   useEffect(() => {
     if (!containerRef.current) return;
+    lifecycleRef.current += 1;
+    const lifecycle = lifecycleRef.current;
     disposedRef.current = false;
 
     const term = new Terminal({
@@ -221,6 +141,94 @@ export function useTerminal(
 
     fit.fit();
 
+    const isStale = () => disposedRef.current || lifecycleRef.current !== lifecycle;
+
+    // Connect (or reconnect) the WebSocket to this terminal lifecycle.
+    const connectWS = () => {
+      if (isStale()) return;
+
+      const ws = new WebSocket(wsUrl());
+      ws.binaryType = 'arraybuffer';
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        if (isStale()) return;
+        const wasRetry = retryCountRef.current > 0;
+        awaitingManualReconnectRef.current = false;
+        emitDebug('ws:open', { retry: wasRetry });
+
+        if (wasRetry) {
+          term.writeln('\x1b[32m// reconnected\x1b[0m');
+        } else {
+          term.writeln('\x1b[32m// connected\x1b[0m');
+        }
+        term.writeln('');
+
+        ws.send(JSON.stringify({
+          type: 'resize',
+          cols: term.cols,
+          rows: term.rows,
+        }));
+
+        if (stableTimerRef.current) clearTimeout(stableTimerRef.current);
+        stableTimerRef.current = setTimeout(() => {
+          if (!isStale()) {
+            retryCountRef.current = 0;
+          }
+        }, 3000);
+      };
+
+      ws.onmessage = (event) => {
+        if (isStale()) return;
+        if (event.data instanceof ArrayBuffer) {
+          term.write(new Uint8Array(event.data));
+        } else {
+          term.write(event.data);
+        }
+      };
+
+      ws.onerror = () => {
+        if (isStale()) return;
+        emitDebug('ws:error');
+      };
+
+      ws.onclose = (event) => {
+        if (isStale()) return;
+        emitDebug('ws:close', { code: event.code, reason: event.reason, wasClean: event.wasClean });
+        if (stableTimerRef.current) clearTimeout(stableTimerRef.current);
+        if (disposedRef.current) return;
+
+        if (event.code === 4000) {
+          term.writeln('');
+          term.writeln('\x1b[33m// session ended — terminal no longer available\x1b[0m');
+          return;
+        }
+
+        const status = sessionStatusRef.current;
+        if (status === 'completed' || status === 'error') {
+          term.writeln('');
+          term.writeln('\x1b[33m// session ended\x1b[0m');
+          return;
+        }
+
+        if (retryCountRef.current < MAX_RETRIES) {
+          const delay = RETRY_DELAYS[retryCountRef.current];
+          term.writeln('');
+          term.writeln(`\x1b[33m// disconnected — retrying in ${delay / 1000}s...\x1b[0m`);
+          retryTimerRef.current = setTimeout(() => {
+            if (isStale()) return;
+            retryCountRef.current++;
+            connectWS();
+          }, delay);
+        } else {
+          term.writeln('');
+          term.writeln('\x1b[33m// disconnected — press any key to reconnect\x1b[0m');
+          awaitingManualReconnectRef.current = true;
+        }
+      };
+    };
+    reconnectRef.current = connectWS;
+
     // Input handler — sends to current WS, or triggers reconnect
     term.onData((data) => {
       if (ignoreNextCarriageReturnRef.current && (data === '\r' || data === '\n')) {
@@ -233,7 +241,7 @@ export function useTerminal(
         awaitingManualReconnectRef.current = false;
         retryCountRef.current = 0;
         term.writeln('\x1b[33m// reconnecting...\x1b[0m');
-        connectWS(term);
+        connectWS();
         return;
       }
       if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -267,7 +275,7 @@ export function useTerminal(
           awaitingManualReconnectRef.current = false;
           retryCountRef.current = 0;
           term.writeln('\x1b[33m// reconnecting...\x1b[0m');
-          connectWS(term);
+          connectWS();
           return false;
         }
         if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -313,17 +321,18 @@ export function useTerminal(
     term.focus();
 
     // Start WebSocket connection
-    connectWS(term);
+    connectWS();
 
     return () => {
       disposedRef.current = true;
+      reconnectRef.current = null;
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
       if (stableTimerRef.current) clearTimeout(stableTimerRef.current);
       wsRef.current?.close();
       term.dispose();
       termRef.current = null;
     };
-  }, [sessionId, containerRef, connectWS, settings.fontSize, settings.scrollback, settings.cursorStyle, settings.cursorBlink, settings.webLinks, settings.webgl]);
+  }, [sessionId, containerRef, wsUrl, settings.fontSize, settings.scrollback, settings.cursorStyle, settings.cursorBlink, settings.webLinks, settings.webgl]);
 
   // Re-fit on container resize
   useEffect(() => {
@@ -343,13 +352,13 @@ export function useTerminal(
       awaitingManualReconnectRef.current = false;
       retryCountRef.current = 0;
       termRef.current.writeln('\x1b[33m// reconnecting...\x1b[0m');
-      connectWS(termRef.current);
+      reconnectRef.current?.();
       return;
     }
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(data);
     }
-  }, [connectWS]);
+  }, []);
 
   const actions = useRef<UseTerminalReturn['actions']>({
     copySelection: () => {},
