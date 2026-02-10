@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/layout/Layout';
@@ -6,6 +6,7 @@ import { tasksApi, projectsApi, sessionsApi, TASK_STATUS } from '../api';
 import type { AgentSession, SessionProvider } from '../api';
 import { useKeyboardNav } from '../hooks/useKeyboardNav';
 import { HelpOverlay } from '../components/common/HelpOverlay';
+import { useSessionShortcutSettings } from '../stores/keyboard';
 import { TaskDetailBacklog } from './task/TaskDetailBacklog';
 import { TaskDetailInProgress } from './task/TaskDetailInProgress';
 import { TaskDetailInReview } from './task/TaskDetailInReview';
@@ -19,6 +20,7 @@ export function TaskDetail() {
   const [activeSession, setActiveSession] = useState<AgentSession | null>(null);
   const [showStartSession, setShowStartSession] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const sessionShortcuts = useSessionShortcutSettings();
   const sessionFromUrl = searchParams.get('session');
   const [didInitSession, setDidInitSession] = useState(false);
 
@@ -98,6 +100,28 @@ export function TaskDetail() {
     setSearchParams(next, { replace: true });
   };
 
+  const orderedSessions = useMemo(() => {
+    return [...(sessions || [])].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+  }, [sessions]);
+
+  const cycleSession = (offset: 1 | -1) => {
+    if (orderedSessions.length === 0) return;
+    if (orderedSessions.length === 1) {
+      selectSession(orderedSessions[0]);
+      return;
+    }
+
+    const currentIndex = activeSession
+      ? orderedSessions.findIndex((session) => session.id === activeSession.id)
+      : -1;
+
+    const baseIndex = currentIndex === -1 ? 0 : currentIndex;
+    const nextIndex = (baseIndex + offset + orderedSessions.length) % orderedSessions.length;
+    selectSession(orderedSessions[nextIndex]);
+  };
+
   const startSessionMutation = useMutation({
     mutationFn: ({ provider, prompt, resumeSessionId }: { provider: SessionProvider; prompt: string; resumeSessionId?: string }) =>
       sessionsApi.start(id!, { provider, prompt: prompt || undefined, resumeSessionId }),
@@ -139,12 +163,23 @@ export function TaskDetail() {
     }
   };
 
+  const keyMap: Record<string, () => void> = {
+    Escape: () => navigate('/'),
+    s: () => setShowStartSession(true),
+    '?': () => setShowHelp(true),
+  };
+
+  if (orderedSessions.length > 0) {
+    if (sessionShortcuts.nextSession) {
+      keyMap[sessionShortcuts.nextSession] = () => cycleSession(1);
+    }
+    if (sessionShortcuts.prevSession && sessionShortcuts.prevSession !== sessionShortcuts.nextSession) {
+      keyMap[sessionShortcuts.prevSession] = () => cycleSession(-1);
+    }
+  }
+
   useKeyboardNav({
-    keyMap: {
-      Escape: () => navigate('/'),
-      s: () => setShowStartSession(true),
-      '?': () => setShowHelp(true),
-    },
+    keyMap,
     enabled: !showStartSession && !showHelp,
   });
 

@@ -1,3 +1,5 @@
+import { useMemo } from 'react';
+import { ExternalLink } from 'lucide-react';
 import { TerminalView } from './TerminalView';
 import type { AgentSession, SessionStatus } from '../../api/sessions';
 
@@ -6,6 +8,16 @@ interface SessionViewProps {
 }
 
 export function SessionView({ session }: SessionViewProps) {
+  const openSessionHref = useMemo(() => {
+    if (typeof window === 'undefined') {
+      return `?session=${encodeURIComponent(session.id)}`;
+    }
+    const params = new URLSearchParams(window.location.search);
+    params.set('session', session.id);
+    const query = params.toString();
+    return `${window.location.pathname}${query ? `?${query}` : ''}`;
+  }, [session.id]);
+
   return (
     <div className="flex flex-col h-full">
       {/* Status Bar */}
@@ -17,9 +29,21 @@ export function SessionView({ session }: SessionViewProps) {
             session: {session.id.slice(0, 8)}...
           </span>
         </div>
-        {session.lastActivityAt && (
-          <ActivityIndicator lastActivityAt={session.lastActivityAt} />
-        )}
+        <div className="flex items-center gap-2">
+          <a
+            href={openSessionHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center h-7 w-7 rounded-md text-dim hover:text-accent hover:bg-accent/10 transition-colors"
+            title="Open this session in a new browser tab"
+            aria-label="Open this session in a new browser tab"
+          >
+            <ExternalLink size={14} />
+          </a>
+          {session.lastActivityAt && (
+            <ActivityIndicator lastActivityAt={session.lastActivityAt} />
+          )}
+        </div>
       </div>
 
       {/* Terminal */}
