@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import CodeMirror, { EditorView } from '@uiw/react-codemirror';
 import type { Extension } from '@codemirror/state';
-import { atomone } from '@uiw/codemirror-theme-atomone';
+import { oneDark } from '@codemirror/theme-one-dark';
 import { langs } from '@uiw/codemirror-extensions-langs';
 import { Tree, type NodeApi, type NodeRendererProps } from 'react-arborist';
 import {
@@ -160,6 +160,54 @@ function filterFileTree(nodes: FileTreeNodeData[], query: string): FileTreeNodeD
   return nodes.map(visit).filter((node): node is FileTreeNodeData => node !== null);
 }
 
+const diffAlignedDarkEditorChrome = EditorView.theme({
+  '&': {
+    backgroundColor: '#070707',
+  },
+  '.cm-scroller': {
+    backgroundColor: '#070707',
+  },
+  '.cm-gutters': {
+    backgroundColor: '#070707',
+    color: '#84848A',
+    borderRight: '1px solid #141415',
+  },
+  '.cm-activeLine': {
+    backgroundColor: '#19283c8c',
+  },
+  '.cm-activeLineGutter': {
+    color: '#adadb1',
+    backgroundColor: '#19283c8c',
+  },
+  '.cm-selectionBackground, .cm-content ::selection': {
+    backgroundColor: '#009fff4d',
+  },
+}, { dark: true });
+
+const diffAlignedLightEditorChrome = EditorView.theme({
+  '&': {
+    backgroundColor: '#ffffff',
+  },
+  '.cm-scroller': {
+    backgroundColor: '#ffffff',
+  },
+  '.cm-gutters': {
+    backgroundColor: '#ffffff',
+    color: '#84848A',
+    borderRight: '1px solid #eeeeef',
+  },
+  '.cm-activeLine': {
+    backgroundColor: '#dfebff8c',
+  },
+  '.cm-activeLineGutter': {
+    color: '#6C6C71',
+    backgroundColor: '#dfebff8c',
+  },
+  '.cm-selectionBackground, .cm-content ::selection': {
+    backgroundColor: '#009fff2e',
+  },
+}, { dark: false });
+
 export function ProjectWorkspace() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -267,10 +315,14 @@ export function ProjectWorkspace() {
     : undefined;
   const editorExtensions = useMemo(() => {
     const languageExtensions = activeTab ? getLanguageExtension(activeTab) : [];
-    return [...languageExtensions, EditorView.lineWrapping];
-  }, [activeTab]);
+    return [
+      ...languageExtensions,
+      EditorView.lineWrapping,
+      editorTheme === 'dark' ? diffAlignedDarkEditorChrome : diffAlignedLightEditorChrome,
+    ];
+  }, [activeTab, editorTheme]);
   const editorSurfaceStyle = useMemo(
-    () => ({ backgroundColor: editorTheme === 'dark' ? '#272C35' : '#ffffff' }),
+    () => ({ backgroundColor: editorTheme === 'dark' ? '#070707' : '#ffffff' }),
     [editorTheme],
   );
   const activeDraft = activeTab
@@ -812,7 +864,7 @@ export function ProjectWorkspace() {
               value={activeDraft}
               height="auto"
               minHeight="100%"
-              theme={editorTheme === 'dark' ? atomone : 'light'}
+              theme={editorTheme === 'dark' ? oneDark : 'light'}
               extensions={editorExtensions}
               onChange={(value: string) => {
                 if (!activeTab || !activeFileData) return;
