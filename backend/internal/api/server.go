@@ -108,8 +108,8 @@ func NewServer(database *db.DB) *Server {
 				RPID:          rpID,
 				RPOrigins:     []string{config.Auth.Origin},
 				AuthenticatorSelection: protocol.AuthenticatorSelection{
-					ResidentKey:        protocol.ResidentKeyRequirementRequired,
-					UserVerification:   protocol.VerificationPreferred,
+					ResidentKey:      protocol.ResidentKeyRequirementRequired,
+					UserVerification: protocol.VerificationPreferred,
 				},
 			})
 			if err != nil {
@@ -217,7 +217,8 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/sessions/{id}/stop", s.handleStopSession)
 		r.Delete("/api/sessions/{id}", s.handleDeleteSession)
 
-		// Justfile
+		// Recipes / Justfile
+		r.Get("/api/tasks/{id}/recipes", s.handleListTaskRecipes)
 		r.Get("/api/projects/{id}/justfile", s.handleListJustRecipes)
 		r.Post("/api/projects/{id}/just/{recipe}", s.handleRunJustRecipe)
 		r.Get("/api/tasks/{id}/justfile", s.handleListTaskJustRecipes)

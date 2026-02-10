@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { justfileApi } from '../../api';
+import { recipesApi } from '../../api';
 import { useTunnels } from '../../hooks/useTunnels';
 
 interface ToolsPanelProps {
@@ -18,19 +18,19 @@ export function ToolsPanel({ taskId, onRecipeRun }: ToolsPanelProps) {
 
 function RecipesSection({ taskId, onRecipeRun }: { taskId: string; onRecipeRun: (cmd: string) => void }) {
   const { data, isLoading } = useQuery({
-    queryKey: ['task-justfile', taskId],
-    queryFn: () => justfileApi.listTaskRecipes(taskId),
+    queryKey: ['task-recipes', taskId],
+    queryFn: () => recipesApi.listTaskRecipes(taskId),
   });
 
   if (isLoading) {
     return <div className="px-3 py-2 text-dim">Loading recipes...</div>;
   }
 
-  if (!data?.hasJustfile || data.recipes.length === 0) {
+  if (!data?.recipes?.length) {
     return (
       <div className="px-3 py-2 border-b border-subtle">
         <span className="text-xs font-medium uppercase tracking-wider text-dim">Recipes</span>
-        <div className="mt-1 text-dim">No justfile found</div>
+        <div className="mt-1 text-dim">No recipes found</div>
       </div>
     );
   }
@@ -41,12 +41,13 @@ function RecipesSection({ taskId, onRecipeRun }: { taskId: string; onRecipeRun: 
       <div className="px-2 pb-2 flex flex-wrap gap-1">
         {data.recipes.map((recipe) => (
           <button
-            key={recipe.name}
-            onClick={() => onRecipeRun(`just ${recipe.name}`)}
+            key={`${recipe.source}:${recipe.name}:${recipe.command}`}
+            onClick={() => onRecipeRun(recipe.command)}
             className="px-2 py-0.5 bg-tertiary text-dim rounded-md hover:text-[var(--color-text-primary)] hover:bg-[var(--color-border)] transition-colors"
-            title={recipe.description || recipe.name}
+            title={recipe.description || recipe.command}
           >
-            {recipe.name}
+            <span>{recipe.name}</span>
+            <span className="ml-1 opacity-70">({recipe.source})</span>
           </button>
         ))}
       </div>

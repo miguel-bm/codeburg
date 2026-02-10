@@ -147,8 +147,6 @@ export function GitPanel({
 
   const totalChanges = status.staged.length + status.unstaged.length + status.untracked.length;
   const canCommit = commitMsg.trim() && status.staged.length > 0 && !commitMutation.isPending;
-  const stageAllFiles = [...status.unstaged.map((f) => f.path), ...status.untracked];
-  const canStageAll = stageAllFiles.length > 0 && !stageMutation.isPending;
   const canRevertAny = totalChanges > 0 && !revertMutation.isPending;
   const baseDiffFiles = parseDiffFiles(baseDiff?.diff || '');
 
@@ -180,17 +178,6 @@ export function GitPanel({
           className="px-2 py-1 bg-accent text-white rounded-md font-medium hover:bg-accent-dim transition-colors disabled:opacity-30 shrink-0"
         >
           {commitMutation.isPending ? '...' : 'Commit'}
-        </button>
-        <button
-          onClick={() => stageMutation.mutate(stageAllFiles)}
-          disabled={!canStageAll}
-          className="px-2 py-1 bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors disabled:opacity-30 shrink-0 flex items-center gap-1"
-          title="Stage all changes"
-        >
-          <Icon className="w-3.5 h-3.5">
-            <path d="M10 4v12M4 10h12" />
-          </Icon>
-          Stage all
         </button>
         <div className="relative" ref={menuRef}>
           <button

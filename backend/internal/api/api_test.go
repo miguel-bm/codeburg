@@ -752,6 +752,146 @@ func TestListTaskJustRecipes_NoJustfile(t *testing.T) {
 	}
 }
 
+func TestListTaskRecipes_MultiSource(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+
+	if err := os.WriteFile(filepath.Join(repoPath, "justfile"), []byte(`fmt:
+	@echo "fmt"`), 0644); err != nil {
+		t.Fatalf("write justfile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoPath, "Makefile"), []byte(`lint: ## Lint code
+	@echo lint
+
+build test: ## Build and test
+	@echo build
+
+.PHONY: lint build test`), 0644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoPath, "package.json"), []byte(`{
+  "name": "recipes-test",
+  "scripts": {
+    "dev": "vite",
+    "test": "vitest",
+    "build": "tsc -b"
+  }
+}`), 0644); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoPath, "Taskfile.yml"), []byte(`version: "3"
+tasks:
+  deploy:
+    desc: Deploy app
+    cmds:
+      - ./deploy.sh`), 0644); err != nil {
+		t.Fatalf("write Taskfile.yml: %v", err)
+	}
+
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "recipes", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Recipe Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	resp := env.get("/api/tasks/" + task.ID + "/recipes")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Recipes []struct {
+			Name        string `json:"name"`
+			Command     string `json:"command"`
+			Source      string `json:"source"`
+			Description string `json:"description"`
+		} `json:"recipes"`
+		Sources []string `json:"sources"`
+	}
+	decodeResponse(t, resp, &body)
+
+	if len(body.Recipes) == 0 {
+		t.Fatal("expected recipes, got none")
+	}
+
+	byKey := make(map[string]string, len(body.Recipes))
+	for _, recipe := range body.Recipes {
+		byKey[recipe.Source+":"+recipe.Name] = recipe.Command
+	}
+
+	expectedCommands := map[string]string{
+		"justfile:fmt":       "just fmt",
+		"makefile:lint":      "make lint",
+		"package.json:test":  "npm run test",
+		"taskfile:deploy":    "task deploy",
+		"package.json:build": "npm run build",
+	}
+	for key, command := range expectedCommands {
+		got, ok := byKey[key]
+		if !ok {
+			t.Errorf("missing recipe %q", key)
+			continue
+		}
+		if got != command {
+			t.Errorf("recipe %q: expected command %q, got %q", key, command, got)
+		}
+	}
+
+	sourceSet := make(map[string]struct{}, len(body.Sources))
+	for _, source := range body.Sources {
+		sourceSet[source] = struct{}{}
+	}
+	for _, source := range []string{"justfile", "makefile", "package.json", "taskfile"} {
+		if _, ok := sourceSet[source]; !ok {
+			t.Errorf("expected source %q in response", source)
+		}
+	}
+}
+
+func TestListTaskRecipes_Empty(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "recipes-empty", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "No Recipes",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	resp := env.get("/api/tasks/" + task.ID + "/recipes")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	var body struct {
+		Recipes []map[string]interface{} `json:"recipes"`
+		Sources []string                 `json:"sources"`
+	}
+	decodeResponse(t, resp, &body)
+
+	if len(body.Recipes) != 0 {
+		t.Errorf("expected 0 recipes, got %d", len(body.Recipes))
+	}
+	if len(body.Sources) != 0 {
+		t.Errorf("expected 0 sources, got %d", len(body.Sources))
+	}
+}
+
 // --- Tunnel API Tests ---
 
 func TestListTunnels_Empty(t *testing.T) {
