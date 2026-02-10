@@ -1,5 +1,8 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { PatchDiff } from '@pierre/diffs/react';
 import { gitApi } from '../../api';
+import { useMobile } from '../../hooks/useMobile';
 
 interface DiffViewProps {
   taskId: string;
@@ -9,10 +12,20 @@ interface DiffViewProps {
 }
 
 export function DiffView({ taskId, file, staged, base }: DiffViewProps) {
+  const isMobile = useMobile();
   const { data, isLoading, error } = useQuery({
     queryKey: ['git-diff', taskId, file, staged, base],
     queryFn: () => gitApi.diff(taskId, { file, staged, base }),
   });
+
+  const options = useMemo(() => ({
+    diffStyle: isMobile ? 'unified' as const : 'split' as const,
+    diffIndicators: 'bars' as const,
+    hunkSeparators: 'line-info' as const,
+    lineDiffType: 'word' as const,
+    overflow: 'scroll' as const,
+    themeType: 'system' as const,
+  }), [isMobile]);
 
   if (isLoading) {
     return <div className="p-4 text-xs text-dim">loading diff...</div>;
@@ -26,31 +39,9 @@ export function DiffView({ taskId, file, staged, base }: DiffViewProps) {
     return <div className="p-4 text-xs text-dim">no changes</div>;
   }
 
-  const lines = data.diff.split('\n');
-
   return (
-    <pre className="p-4 text-xs font-mono leading-relaxed overflow-x-auto">
-      {lines.map((line, i) => (
-        <div key={i} className={getDiffLineClass(line)}>
-          {line}
-        </div>
-      ))}
-    </pre>
+    <div className="p-2 min-h-full">
+      <PatchDiff patch={data.diff} options={options} />
+    </div>
   );
-}
-
-function getDiffLineClass(line: string): string {
-  if (line.startsWith('+') && !line.startsWith('+++')) {
-    return 'text-[var(--color-success)]';
-  }
-  if (line.startsWith('-') && !line.startsWith('---')) {
-    return 'text-[var(--color-error)]';
-  }
-  if (line.startsWith('@@')) {
-    return 'text-dim';
-  }
-  if (line.startsWith('diff --git') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++')) {
-    return 'text-dim';
-  }
-  return '';
 }
