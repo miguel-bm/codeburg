@@ -1,7 +1,7 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { TaskHeader } from './TaskHeader';
-import { SessionView, SessionTabs } from '../../components/session';
+import { NewSessionComposer, SessionView, SessionTabs } from '../../components/session';
 import { GitPanel } from '../../components/git';
 import { DiffView } from '../../components/git';
 import { ToolsPanel } from '../../components/tools';
@@ -13,6 +13,7 @@ import { useMobile } from '../../hooks/useMobile';
 
 type MainContent =
   | { type: 'session' }
+  | { type: 'new_session' }
   | { type: 'diff'; file?: string; staged?: boolean; base?: boolean };
 
 type MobilePanel = 'sessions' | 'git' | 'tools';
@@ -25,7 +26,11 @@ interface Props {
   onSelectSession: (session: AgentSession) => void;
   onStartSession: (provider: SessionProvider, prompt: string, resumeSessionId?: string) => void;
   onCloseSession: (session: AgentSession) => void;
-  onShowStartModal: () => void;
+  onShowStartComposer: () => void;
+  onHideStartComposer: () => void;
+  showStartComposer: boolean;
+  startSessionPending: boolean;
+  startSessionError?: string;
 }
 
 /** Reusable drag hook — tracks a pixel value from mousedown→mousemove→mouseup. */
@@ -74,7 +79,8 @@ function useDrag(
 export function TaskDetailInProgress({
   task, project, sessions, activeSession,
   onSelectSession, onStartSession, onCloseSession,
-  onShowStartModal,
+  onShowStartComposer, onHideStartComposer, showStartComposer,
+  startSessionPending, startSessionError,
 }: Props) {
   const queryClient = useQueryClient();
   const isMobile = useMobile();
@@ -91,6 +97,14 @@ export function TaskDetailInProgress({
   const [gitPanelPct, onVDividerDown] = useDrag(railRef, 'y', 60, 20, 80);
   // Horizontal split: left rail vs main area (percentage of body width)
   const [railWidthPct, onHDividerDown] = useDrag(bodyRef, 'x', 22, 12, 50);
+
+  useEffect(() => {
+    setMainContent((prev) => {
+      if (showStartComposer) return { type: 'new_session' };
+      if (prev.type === 'new_session') return { type: 'session' };
+      return prev;
+    });
+  }, [showStartComposer]);
 
   const updateTask = useMutation({
     mutationFn: (input: Parameters<typeof tasksApi.update>[1]) =>
@@ -139,7 +153,8 @@ export function TaskDetailInProgress({
   };
 
   const handleRecipeRun = (command: string) => {
-    onStartSession('terminal', command);
+    const persistentCommand = `{ ${command}; __cb_exit=$?; echo; echo "[codeburg] Recipe exited with code $__cb_exit. Terminal kept open."; exec "\${SHELL:-/bin/bash}" -il; }`;
+    onStartSession('terminal', persistentCommand);
   };
 
   const warningBanner = warning && (
@@ -219,7 +234,10 @@ export function TaskDetailInProgress({
               value={activeSession?.id || ''}
               onChange={(e) => {
                 const s = sessions.find(s => s.id === e.target.value);
-                if (s) onSelectSession(s);
+                if (s) {
+                  onHideStartComposer();
+                  onSelectSession(s);
+                }
               }}
               className="bg-primary border border-subtle text-sm px-2 py-1 focus:outline-none focus:border-accent flex-1 min-w-0"
             >
@@ -235,7 +253,7 @@ export function TaskDetailInProgress({
           )}
           {mobilePanel === 'sessions' && (
             <button
-              onClick={onShowStartModal}
+              onClick={onShowStartComposer}
               className="text-xs text-accent hover:underline shrink-0"
             >
               + New
@@ -246,7 +264,16 @@ export function TaskDetailInProgress({
         {/* Content */}
         <div className="flex-1 overflow-hidden">
           {mobilePanel === 'sessions' ? (
-            activeSession ? (
+            showStartComposer ? (
+              <NewSessionComposer
+                taskTitle={task.title}
+                taskDescription={task.description}
+                onStart={(provider, prompt) => onStartSession(provider, prompt)}
+                onCancel={onHideStartComposer}
+                isPending={startSessionPending}
+                error={startSessionError}
+              />
+            ) : activeSession ? (
               <SessionView session={activeSession} />
             ) : (
               <div className="flex items-center justify-center h-full text-dim text-sm">
@@ -345,21 +372,36 @@ export function TaskDetailInProgress({
           {/* Session tabs */}
           <SessionTabs
             sessions={sessions}
-            activeSessionId={mainContent.type === 'session' ? activeSession?.id : undefined}
+            activeSessionId={showStartComposer
+              ? undefined
+              : (mainContent.type === 'session' ? activeSession?.id : undefined)}
             onSelect={(session) => {
               onSelectSession(session);
+              onHideStartComposer();
               setMainContent({ type: 'session' });
             }}
             onResume={(session) => {
+              onHideStartComposer();
               onStartSession('claude', '', session.id);
             }}
             onClose={onCloseSession}
-            onNewSession={onShowStartModal}
+            onNewSession={onShowStartComposer}
+            showNewSessionTab={showStartComposer}
+            onCancelNewSession={onHideStartComposer}
           />
 
           {/* Main content */}
           <div className="flex-1 overflow-hidden">
-            {mainContent.type === 'session' ? (
+            {showStartComposer || mainContent.type === 'new_session' ? (
+              <NewSessionComposer
+                taskTitle={task.title}
+                taskDescription={task.description}
+                onStart={(provider, prompt) => onStartSession(provider, prompt)}
+                onCancel={onHideStartComposer}
+                isPending={startSessionPending}
+                error={startSessionError}
+              />
+            ) : mainContent.type === 'session' ? (
               activeSession ? (
                 <SessionView session={activeSession} />
               ) : (

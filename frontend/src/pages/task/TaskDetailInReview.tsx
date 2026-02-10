@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Check, GitPullRequest, Plus } from 'lucide-react';
 import { TaskHeader } from './TaskHeader';
-import { SessionView, SessionTabs } from '../../components/session';
+import { NewSessionComposer, SessionView, SessionTabs } from '../../components/session';
 import { DiffView } from '../../components/git';
 import { parseDiffFiles } from '../../components/git/diffFiles';
 import { tasksApi, invalidateTaskQueries, gitApi } from '../../api';
@@ -19,12 +19,18 @@ interface Props {
   onSelectSession: (session: AgentSession) => void;
   onStartSession: (provider: SessionProvider, prompt: string, resumeSessionId?: string) => void;
   onCloseSession: (session: AgentSession) => void;
-  onShowStartModal: () => void;
+  onShowStartComposer: () => void;
+  onHideStartComposer: () => void;
+  showStartComposer: boolean;
+  startSessionPending: boolean;
+  startSessionError?: string;
 }
 
 export function TaskDetailInReview({
   task, project, sessions, activeSession,
-  onSelectSession, onStartSession, onCloseSession, onShowStartModal,
+  onSelectSession, onStartSession, onCloseSession,
+  onShowStartComposer, onHideStartComposer, showStartComposer,
+  startSessionPending, startSessionError,
 }: Props) {
   const queryClient = useQueryClient();
   const isMobile = useMobile();
@@ -112,7 +118,7 @@ export function TaskDetailInReview({
   const activeSessions = sessions.filter(s => s.status === 'running' || s.status === 'waiting_input');
 
   // Auto-open panel when there are active sessions
-  const shouldShowPanel = sessionPanelOpen || activeSessions.length > 0;
+  const shouldShowPanel = showStartComposer || sessionPanelOpen || activeSessions.length > 0;
 
   if (isMobile) {
     return (
@@ -197,14 +203,34 @@ export function TaskDetailInReview({
             <div className="flex flex-col h-full">
               <SessionTabs
                 sessions={sessions}
-                activeSessionId={activeSession?.id}
-                onSelect={onSelectSession}
-                onResume={(session) => onStartSession('claude', '', session.id)}
+                activeSessionId={showStartComposer ? undefined : activeSession?.id}
+                onSelect={(session) => {
+                  onHideStartComposer();
+                  onSelectSession(session);
+                }}
+                onResume={(session) => {
+                  onHideStartComposer();
+                  onStartSession('claude', '', session.id);
+                }}
                 onClose={onCloseSession}
-                onNewSession={onShowStartModal}
+                onNewSession={() => {
+                  setSessionPanelOpen(true);
+                  onShowStartComposer();
+                }}
+                showNewSessionTab={showStartComposer}
+                onCancelNewSession={onHideStartComposer}
               />
               <div className="flex-1 overflow-hidden">
-                {activeSession ? (
+                {showStartComposer ? (
+                  <NewSessionComposer
+                    taskTitle={task.title}
+                    taskDescription={task.description}
+                    onStart={(provider, prompt) => onStartSession(provider, prompt)}
+                    onCancel={onHideStartComposer}
+                    isPending={startSessionPending}
+                    error={startSessionError}
+                  />
+                ) : activeSession ? (
                   <SessionView session={activeSession} />
                 ) : (
                   <div className="flex items-center justify-center h-full text-dim text-sm">
@@ -326,14 +352,31 @@ export function TaskDetailInReview({
             <div className="flex-1 flex flex-col overflow-hidden min-h-0">
               <SessionTabs
                 sessions={sessions}
-                activeSessionId={activeSession?.id}
-                onSelect={onSelectSession}
-                onResume={(session) => onStartSession('claude', '', session.id)}
+                activeSessionId={showStartComposer ? undefined : activeSession?.id}
+                onSelect={(session) => {
+                  onHideStartComposer();
+                  onSelectSession(session);
+                }}
+                onResume={(session) => {
+                  onHideStartComposer();
+                  onStartSession('claude', '', session.id);
+                }}
                 onClose={onCloseSession}
-                onNewSession={onShowStartModal}
+                onNewSession={onShowStartComposer}
+                showNewSessionTab={showStartComposer}
+                onCancelNewSession={onHideStartComposer}
               />
               <div className="flex-1 overflow-hidden">
-                {activeSession ? (
+                {showStartComposer ? (
+                  <NewSessionComposer
+                    taskTitle={task.title}
+                    taskDescription={task.description}
+                    onStart={(provider, prompt) => onStartSession(provider, prompt)}
+                    onCancel={onHideStartComposer}
+                    isPending={startSessionPending}
+                    error={startSessionError}
+                  />
+                ) : activeSession ? (
                   <SessionView session={activeSession} />
                 ) : (
                   <div className="flex items-center justify-center h-full text-dim text-sm">
@@ -346,7 +389,7 @@ export function TaskDetailInReview({
         ) : (
           /* Collapsed: thin bar to open sessions */
           <button
-            onClick={() => { setSessionPanelOpen(true); onShowStartModal(); }}
+            onClick={() => { setSessionPanelOpen(true); onShowStartComposer(); }}
             className="flex items-center justify-center gap-1.5 px-4 py-1.5 border-t border-subtle bg-secondary text-xs text-dim hover:text-accent hover:bg-tertiary transition-colors"
           >
             <Plus size={12} />

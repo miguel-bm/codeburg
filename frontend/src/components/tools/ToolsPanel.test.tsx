@@ -55,13 +55,11 @@ describe('ToolsPanel Recipes', () => {
     await waitFor(() => {
       expect(screen.getByText('lint')).toBeInTheDocument();
       expect(screen.getByText('test')).toBeInTheDocument();
+      expect(screen.getByText('makefile')).toBeInTheDocument();
+      expect(screen.getByText('package.json')).toBeInTheDocument();
     });
 
-    const testButton = screen.getByText('test').closest('button');
-    expect(testButton).toBeInTheDocument();
-    if (!testButton) return;
-
-    await user.click(testButton);
+    await user.click(screen.getByLabelText('Run test'));
     expect(onRecipeRun).toHaveBeenCalledWith('npm run test');
   });
 

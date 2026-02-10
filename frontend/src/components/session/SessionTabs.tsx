@@ -1,5 +1,5 @@
 import type { AgentSession, SessionStatus } from '../../api/sessions';
-import { Plus, X } from 'lucide-react';
+import { Plus, Sparkles, X } from 'lucide-react';
 
 interface Props {
   sessions: AgentSession[];
@@ -8,6 +8,8 @@ interface Props {
   onResume?: (session: AgentSession) => void;
   onClose?: (session: AgentSession) => void;
   onNewSession: () => void;
+  showNewSessionTab?: boolean;
+  onCancelNewSession?: () => void;
 }
 
 function getStatusDotClass(status: SessionStatus): string {
@@ -25,7 +27,16 @@ function getStatusDotClass(status: SessionStatus): string {
   }
 }
 
-export function SessionTabs({ sessions, activeSessionId, onSelect, onResume, onClose, onNewSession }: Props) {
+export function SessionTabs({
+  sessions,
+  activeSessionId,
+  onSelect,
+  onResume,
+  onClose,
+  onNewSession,
+  showNewSessionTab = false,
+  onCancelNewSession,
+}: Props) {
   // Sort by createdAt to get stable 1-indexed numbers
   const sorted = [...sessions].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
@@ -77,9 +88,29 @@ export function SessionTabs({ sessions, activeSessionId, onSelect, onResume, onC
           </button>
         );
       })}
+      {showNewSessionTab && (
+        <div className="h-full flex items-center gap-1 px-3 text-xs whitespace-nowrap border-b-2 border-accent text-accent bg-accent/10">
+          <Sparkles size={13} />
+          <span>new session</span>
+          {onCancelNewSession && (
+            <button
+              onClick={onCancelNewSession}
+              className="inline-flex items-center justify-center h-5 w-5 rounded text-dim hover:text-[var(--color-error)] hover:bg-[var(--color-error)]/10 transition-colors"
+              title="Cancel new session"
+              aria-label="Cancel new session"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
+      )}
       <button
         onClick={onNewSession}
-        className="inline-flex items-center justify-center h-8 w-8 mx-1 shrink-0 text-dim hover:text-accent hover:bg-accent/10 rounded-md transition-colors border-b-2 border-transparent"
+        className={`inline-flex items-center justify-center h-8 w-8 mx-1 shrink-0 rounded-md transition-colors border-b-2 ${
+          showNewSessionTab
+            ? 'text-accent bg-accent/10 border-accent'
+            : 'text-dim hover:text-accent hover:bg-accent/10 border-transparent'
+        }`}
         title="New session"
         aria-label="New session"
       >

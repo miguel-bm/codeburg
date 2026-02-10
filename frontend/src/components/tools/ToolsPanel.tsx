@@ -1,5 +1,7 @@
+import { useCallback, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { recipesApi } from '../../api';
+import { Play } from 'lucide-react';
+import { recipesApi, type TaskRecipe } from '../../api';
 import { useTunnels } from '../../hooks/useTunnels';
 
 interface ToolsPanelProps {
@@ -8,10 +10,51 @@ interface ToolsPanelProps {
 }
 
 export function ToolsPanel({ taskId, onRecipeRun }: ToolsPanelProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [recipesPanelPct, setRecipesPanelPct] = useState(58);
+  const draggingRef = useRef(false);
+
+  const onDividerDown = useCallback((e: ReactMouseEvent) => {
+    e.preventDefault();
+    draggingRef.current = true;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!draggingRef.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      if (rect.height <= 0) return;
+      const pct = ((ev.clientY - rect.top) / rect.height) * 100;
+      const clamped = Math.max(30, Math.min(80, pct));
+      setRecipesPanelPct(clamped);
+    };
+
+    const onMouseUp = () => {
+      draggingRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, []);
+
   return (
-    <div className="flex flex-col overflow-y-auto text-xs">
-      <RecipesSection taskId={taskId} onRecipeRun={onRecipeRun} />
-      <TunnelsSection taskId={taskId} />
+    <div ref={containerRef} className="flex h-full min-h-0 flex-col overflow-hidden text-xs">
+      <div style={{ height: `${recipesPanelPct}%` }} className="min-h-0 overflow-hidden">
+        <RecipesSection taskId={taskId} onRecipeRun={onRecipeRun} />
+      </div>
+
+      <div
+        onMouseDown={onDividerDown}
+        className="h-1 shrink-0 cursor-row-resize border-y border-subtle hover:bg-accent/40 transition-colors"
+      />
+
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <TunnelsSection taskId={taskId} />
+      </div>
     </div>
   );
 }
@@ -22,33 +65,80 @@ function RecipesSection({ taskId, onRecipeRun }: { taskId: string; onRecipeRun: 
     queryFn: () => recipesApi.listTaskRecipes(taskId),
   });
 
+  const grouped = useMemo(() => {
+    const groupedMap = new Map<string, TaskRecipe[]>();
+    if (!data?.recipes?.length) return groupedMap;
+
+    for (const recipe of data.recipes) {
+      const current = groupedMap.get(recipe.source) || [];
+      current.push(recipe);
+      groupedMap.set(recipe.source, current);
+    }
+
+    const ordered = new Map<string, TaskRecipe[]>();
+    const sourceOrder = data.sources.length > 0 ? data.sources : [...groupedMap.keys()].sort();
+    for (const source of sourceOrder) {
+      const items = groupedMap.get(source);
+      if (items?.length) {
+        ordered.set(source, items);
+      }
+    }
+    return ordered;
+  }, [data]);
+
   if (isLoading) {
-    return <div className="px-3 py-2 text-dim">Loading recipes...</div>;
+    return (
+      <div className="h-full min-h-0 flex flex-col">
+        <div className="px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-dim border-b border-subtle">
+          Recipes
+        </div>
+        <div className="px-3 py-2 text-dim">Loading recipes...</div>
+      </div>
+    );
   }
 
   if (!data?.recipes?.length) {
     return (
-      <div className="px-3 py-2 border-b border-subtle">
-        <span className="text-xs font-medium uppercase tracking-wider text-dim">Recipes</span>
-        <div className="mt-1 text-dim">No recipes found</div>
+      <div className="h-full min-h-0 flex flex-col">
+        <div className="px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-dim border-b border-subtle">
+          Recipes
+        </div>
+        <div className="px-3 py-2 text-dim">No recipes found</div>
       </div>
     );
   }
 
   return (
-    <div className="border-b border-subtle">
-      <div className="px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-dim">Recipes</div>
-      <div className="px-2 pb-2 flex flex-wrap gap-1">
-        {data.recipes.map((recipe) => (
-          <button
-            key={`${recipe.source}:${recipe.name}:${recipe.command}`}
-            onClick={() => onRecipeRun(recipe.command)}
-            className="px-2 py-0.5 bg-tertiary text-dim rounded-md hover:text-[var(--color-text-primary)] hover:bg-[var(--color-border)] transition-colors"
-            title={recipe.description || recipe.command}
-          >
-            <span>{recipe.name}</span>
-            <span className="ml-1 opacity-70">({recipe.source})</span>
-          </button>
+    <div className="h-full min-h-0 flex flex-col">
+      <div className="px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-dim border-b border-subtle">
+        Recipes
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2 space-y-3">
+        {[...grouped.entries()].map(([source, recipes]) => (
+          <div key={source}>
+            <div className="px-1 pb-1 text-[10px] uppercase tracking-[0.12em] text-dim">{source}</div>
+            <div className="space-y-1">
+              {recipes.map((recipe) => (
+                <div
+                  key={`${recipe.source}:${recipe.name}:${recipe.command}`}
+                  className="flex items-center gap-2 rounded-md border border-subtle bg-secondary px-2 py-1.5"
+                  title={recipe.description || recipe.command}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] text-[var(--color-text-primary)] truncate">{recipe.name}</div>
+                    <div className="font-mono text-[10px] text-dim truncate">{recipe.command}</div>
+                  </div>
+                  <button
+                    onClick={() => onRecipeRun(recipe.command)}
+                    className="h-6 w-6 shrink-0 rounded-md border border-subtle bg-tertiary text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-border)] transition-colors inline-flex items-center justify-center"
+                    aria-label={`Run ${recipe.name}`}
+                  >
+                    <Play size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
     </div>
@@ -62,8 +152,8 @@ function TunnelsSection({ taskId }: { taskId: string }) {
   } = useTunnels(taskId);
 
   return (
-    <div>
-      <div className="px-3 py-1.5 flex items-center justify-between">
+    <div className="h-full min-h-0 flex flex-col">
+      <div className="px-3 py-1.5 flex items-center justify-between border-b border-subtle">
         <span className="text-xs font-medium uppercase tracking-wider text-dim">Tunnels</span>
         {!showCreate && (
           <button
@@ -106,32 +196,34 @@ function TunnelsSection({ taskId }: { taskId: string }) {
         </form>
       )}
 
-      {tunnels.length > 0 && (
-        <div className="px-3 pb-2 space-y-1">
-          {tunnels.map((tunnel) => (
-            <div key={tunnel.id} className="flex items-center gap-2">
-              <span className="font-mono text-accent">:{tunnel.port}</span>
-              <button
-                onClick={() => copyUrl(tunnel.url)}
-                className={`text-dim hover:text-accent truncate ${copied ? 'text-accent' : ''}`}
-                title={tunnel.url}
-              >
-                {copied ? 'Copied' : 'Copy'}
-              </button>
-              <button
-                onClick={() => stopMutation.mutate(tunnel.id)}
-                className="text-dim hover:text-[var(--color-error)]"
-              >
-                Stop
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {tunnels.length > 0 && (
+          <div className="px-3 py-2 space-y-1">
+            {tunnels.map((tunnel) => (
+              <div key={tunnel.id} className="flex items-center gap-2">
+                <span className="font-mono text-accent">:{tunnel.port}</span>
+                <button
+                  onClick={() => copyUrl(tunnel.url)}
+                  className={`text-dim hover:text-accent truncate ${copied ? 'text-accent' : ''}`}
+                  title={tunnel.url}
+                >
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+                <button
+                  onClick={() => stopMutation.mutate(tunnel.id)}
+                  className="text-dim hover:text-[var(--color-error)]"
+                >
+                  Stop
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
-      {tunnels.length === 0 && !showCreate && (
-        <div className="px-3 pb-2 text-dim">No tunnels</div>
-      )}
+        {tunnels.length === 0 && !showCreate && (
+          <div className="px-3 py-2 text-dim">No tunnels</div>
+        )}
+      </div>
     </div>
   );
 }
