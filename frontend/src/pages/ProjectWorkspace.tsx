@@ -1,11 +1,41 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, FileText, Folder, FolderUp, Funnel, Plus, Settings } from 'lucide-react';
+import CodeMirror from '@uiw/react-codemirror';
+import type { Extension } from '@codemirror/state';
+import { oneDark } from '@codemirror/theme-one-dark';
+import { langs } from '@uiw/codemirror-extensions-langs';
+import { Tree, type NodeApi, type NodeRendererProps } from 'react-arborist';
+import {
+  AlertTriangle,
+  Ban,
+  CheckCircle2,
+  Copy,
+  FileText,
+  FilePlus2,
+  Folder,
+  FolderPlus,
+  Funnel,
+  Link2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Save,
+  Settings,
+  Trash2,
+  Wand2,
+  X,
+} from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
 import { OpenInEditorButton } from '../components/common/OpenInEditorButton';
 import { projectsApi } from '../api';
-import type { ProjectSecretFile, ProjectSecretResolveResult, ProjectSecretFileStatus } from '../api';
+import type {
+  ProjectFileContentResponse,
+  ProjectFileEntry,
+  ProjectSecretFile,
+  ProjectSecretResolveResult,
+  ProjectSecretFileStatus,
+} from '../api';
 import { useMobile } from '../hooks/useMobile';
 
 type MobilePanel = 'files' | 'preview' | 'secrets';
@@ -19,12 +49,92 @@ function normalizeSecretRows(rows: ProjectSecretFile[]): ProjectSecretFile[] {
   }));
 }
 
-function parentPath(path: string): string {
-  const trimmed = path.trim().replace(/^\/+|\/+$/g, '');
-  if (!trimmed) return '';
-  const parts = trimmed.split('/');
-  parts.pop();
-  return parts.join('/');
+type FileTreeNodeData = {
+  id: string;
+  name: string;
+  path: string;
+  type: 'file' | 'dir';
+  children?: FileTreeNodeData[];
+};
+
+const languageByExt: Record<string, () => Extension> = {
+  c: () => langs.c(),
+  cpp: () => langs.cpp(),
+  css: () => langs.css(),
+  go: () => langs.go(),
+  h: () => langs.cpp(),
+  html: () => langs.html(),
+  java: () => langs.java(),
+  js: () => langs.js(),
+  jsx: () => langs.jsx(),
+  json: () => langs.json(),
+  md: () => langs.markdown(),
+  py: () => langs.py(),
+  rs: () => langs.rs(),
+  sh: () => langs.sh(),
+  sql: () => langs.sql(),
+  ts: () => langs.ts(),
+  tsx: () => langs.tsx(),
+  xml: () => langs.xml(),
+  yaml: () => langs.yaml(),
+  yml: () => langs.yaml(),
+};
+
+function buildFileTree(entries: ProjectFileEntry[]): FileTreeNodeData[] {
+  const root: FileTreeNodeData[] = [];
+  const byPath = new Map<string, FileTreeNodeData>();
+
+  for (const entry of entries) {
+    const node: FileTreeNodeData = {
+      id: entry.path,
+      name: entry.name,
+      path: entry.path,
+      type: entry.type,
+      children: entry.type === 'dir' ? [] : undefined,
+    };
+    byPath.set(entry.path, node);
+    const parent = entry.path.includes('/') ? entry.path.slice(0, entry.path.lastIndexOf('/')) : '';
+    if (!parent) {
+      root.push(node);
+      continue;
+    }
+    const parentNode = byPath.get(parent);
+    if (parentNode?.children) {
+      parentNode.children.push(node);
+    } else {
+      root.push(node);
+    }
+  }
+
+  const sortNodes = (nodes: FileTreeNodeData[]) => {
+    nodes.sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    for (const node of nodes) {
+      if (node.children?.length) sortNodes(node.children);
+    }
+  };
+
+  sortNodes(root);
+  return root;
+}
+
+function fileExt(path: string): string {
+  const idx = path.lastIndexOf('.');
+  if (idx < 0 || idx === path.length - 1) return '';
+  return path.slice(idx + 1).toLowerCase();
+}
+
+function getLanguageExtension(path: string): Extension[] {
+  const ext = fileExt(path);
+  const factory = languageByExt[ext];
+  return factory ? [factory()] : [];
+}
+
+function fileName(path: string): string {
+  const parts = path.split('/');
+  return parts[parts.length - 1] || path;
 }
 
 export function ProjectWorkspace() {
@@ -33,18 +143,25 @@ export function ProjectWorkspace() {
   const queryClient = useQueryClient();
   const isMobile = useMobile();
 
-  const [currentDir, setCurrentDir] = useState('');
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('files');
+  const [treeSelection, setTreeSelection] = useState<string | null>(null);
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [draftByPath, setDraftByPath] = useState<Record<string, string>>({});
+  const [dirtyByPath, setDirtyByPath] = useState<Record<string, boolean>>({});
+  const treeContainerRef = useRef<HTMLDivElement>(null);
+  const [treeHeight, setTreeHeight] = useState(300);
 
   const [secretRows, setSecretRows] = useState<ProjectSecretFile[]>([]);
   const [secretsDirty, setSecretsDirty] = useState(false);
+  const [selectedSecretIndex, setSelectedSecretIndex] = useState(0);
   const [resolveOverrides, setResolveOverrides] = useState<Record<string, ProjectSecretResolveResult>>({});
   const [secretEditorPath, setSecretEditorPath] = useState<string | null>(null);
   const [secretEditorContent, setSecretEditorContent] = useState('');
   const [secretEditorLoading, setSecretEditorLoading] = useState(false);
   const [secretEditorSaving, setSecretEditorSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
   const bodyRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);
@@ -58,15 +175,15 @@ export function ProjectWorkspace() {
   });
 
   const { data: fileTree, isLoading: filesLoading } = useQuery({
-    queryKey: ['project-files', id, currentDir],
-    queryFn: () => projectsApi.listFiles(id!, { path: currentDir, depth: 1 }),
+    queryKey: ['project-files', id],
+    queryFn: () => projectsApi.listFiles(id!, { depth: 32 }),
     enabled: !!id,
   });
 
-  const { data: fileContent, isLoading: fileLoading } = useQuery({
-    queryKey: ['project-file', id, selectedFile],
-    queryFn: () => projectsApi.readFile(id!, selectedFile!),
-    enabled: !!id && !!selectedFile,
+  const { data: activeFileResponse, isLoading: fileLoading } = useQuery({
+    queryKey: ['project-file', id, activeTab],
+    queryFn: () => projectsApi.readFile(id!, activeTab!),
+    enabled: !!id && !!activeTab,
   });
 
   const { data: secretsData, isLoading: secretsLoading } = useQuery({
@@ -76,10 +193,173 @@ export function ProjectWorkspace() {
   });
 
   useEffect(() => {
+    const el = treeContainerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver((entries) => {
+      const [entry] = entries;
+      if (!entry) return;
+      setTreeHeight(Math.max(220, Math.floor(entry.contentRect.height)));
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!activeTab || !activeFileResponse || activeFileResponse.binary) return;
+    setDraftByPath((prev) => (
+      prev[activeTab] === undefined
+        ? { ...prev, [activeTab]: activeFileResponse.content }
+        : prev
+    ));
+  }, [activeTab, activeFileResponse]);
+
+  const fileEntries = fileTree?.entries ?? [];
+  const fileEntryByPath = useMemo(
+    () => new Map(fileEntries.map((entry) => [entry.path, entry])),
+    [fileEntries],
+  );
+  const treeData = useMemo(() => buildFileTree(fileEntries), [fileEntries]);
+  const activeFileData = activeTab
+    ? queryClient.getQueryData<ProjectFileContentResponse>(['project-file', id, activeTab]) ?? activeFileResponse
+    : undefined;
+  const activeDraft = activeTab
+    ? (draftByPath[activeTab] ?? activeFileData?.content ?? '')
+    : '';
+  const activeDirty = !!(activeTab && dirtyByPath[activeTab]);
+  const selectedEntry = treeSelection ? fileEntryByPath.get(treeSelection) : undefined;
+
+  useEffect(() => {
+    const available = new Set(fileEntries.filter((entry) => entry.type === 'file').map((entry) => entry.path));
+    setOpenTabs((prev) => {
+      const next = prev.filter((path) => available.has(path));
+      if (next.length === prev.length) return prev;
+      if (activeTab && !available.has(activeTab)) {
+        setActiveTab(next[0] ?? null);
+      }
+      return next;
+    });
+  }, [activeTab, fileEntries]);
+
+  const openFileTab = useCallback((path: string) => {
+    setOpenTabs((prev) => (prev.includes(path) ? prev : [...prev, path]));
+    setTreeSelection(path);
+    setActiveTab(path);
+    if (isMobile) setMobilePanel('preview');
+  }, [isMobile]);
+
+  const closeFileTab = useCallback((path: string) => {
+    if (dirtyByPath[path]) {
+      const keep = window.confirm(`Discard unsaved changes in "${path}"?`);
+      if (!keep) return;
+    }
+    setOpenTabs((prev) => {
+      const idx = prev.indexOf(path);
+      const next = prev.filter((item) => item !== path);
+      if (activeTab === path) {
+        setActiveTab(next[idx] ?? next[idx - 1] ?? null);
+      }
+      return next;
+    });
+    setDraftByPath((prev) => {
+      const { [path]: _removed, ...rest } = prev;
+      return rest;
+    });
+    setDirtyByPath((prev) => {
+      const { [path]: _removed, ...rest } = prev;
+      return rest;
+    });
+  }, [activeTab, dirtyByPath]);
+
+  const createEntryMutation = useMutation({
+    mutationFn: (input: { path: string; type: 'file' | 'dir' }) => projectsApi.createFileEntry(id!, input),
+    onSuccess: (entry) => {
+      queryClient.invalidateQueries({ queryKey: ['project-files', id] });
+      if (entry.type === 'file') openFileTab(entry.path);
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  const saveFileMutation = useMutation({
+    mutationFn: (payload: { path: string; content: string }) => projectsApi.writeFile(id!, payload),
+    onSuccess: (saved, payload) => {
+      queryClient.setQueryData(['project-file', id, payload.path], saved);
+      setDirtyByPath((prev) => ({ ...prev, [payload.path]: false }));
+      queryClient.invalidateQueries({ queryKey: ['project-files', id] });
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  const deleteEntryMutation = useMutation({
+    mutationFn: (path: string) => projectsApi.deleteFile(id!, path),
+    onSuccess: (_ignored, deletedPath) => {
+      queryClient.invalidateQueries({ queryKey: ['project-files', id] });
+      setOpenTabs((prev) => prev.filter((path) => path !== deletedPath && !path.startsWith(`${deletedPath}/`)));
+      setDraftByPath((prev) => Object.fromEntries(
+        Object.entries(prev).filter(([path]) => path !== deletedPath && !path.startsWith(`${deletedPath}/`)),
+      ));
+      setDirtyByPath((prev) => Object.fromEntries(
+        Object.entries(prev).filter(([path]) => path !== deletedPath && !path.startsWith(`${deletedPath}/`)),
+      ));
+      if (activeTab && (activeTab === deletedPath || activeTab.startsWith(`${deletedPath}/`))) {
+        setActiveTab(null);
+      }
+      if (treeSelection && (treeSelection === deletedPath || treeSelection.startsWith(`${deletedPath}/`))) {
+        setTreeSelection(null);
+      }
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  const syncDefaultBranchMutation = useMutation({
+    mutationFn: () => projectsApi.syncDefaultBranch(id!),
+    onSuccess: (result) => {
+      setError(null);
+      setSyncNotice(
+        result.updated
+          ? `${result.branch} updated from ${result.remote}`
+          : `${result.branch} is already up to date with ${result.remote}`,
+      );
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+    },
+    onError: (err: Error) => {
+      setSyncNotice(null);
+      setError(err.message);
+    },
+  });
+
+  const saveActiveTab = useCallback(() => {
+    if (!activeTab || !activeFileData || activeFileData.binary || activeFileData.truncated) return;
+    const next = draftByPath[activeTab] ?? activeFileData.content;
+    saveFileMutation.mutate({ path: activeTab, content: next });
+  }, [activeFileData, activeTab, draftByPath, saveFileMutation]);
+
+  useEffect(() => {
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 's') {
+        ev.preventDefault();
+        saveActiveTab();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [saveActiveTab]);
+
+  useEffect(() => {
     if (!secretsData || secretsDirty) return;
     setSecretRows(normalizeSecretRows(secretsData.secretFiles));
+    setSelectedSecretIndex(0);
     setResolveOverrides({});
   }, [secretsData, secretsDirty]);
+
+  useEffect(() => {
+    if (secretRows.length === 0) {
+      if (selectedSecretIndex !== 0) setSelectedSecretIndex(0);
+      return;
+    }
+    if (selectedSecretIndex > secretRows.length - 1) {
+      setSelectedSecretIndex(secretRows.length - 1);
+    }
+  }, [secretRows, selectedSecretIndex]);
 
   const saveSecretsMutation = useMutation({
     mutationFn: (rows: ProjectSecretFile[]) => {
@@ -196,6 +476,62 @@ export function ProjectWorkspace() {
     return map;
   }, [secretsData]);
 
+  const secretDiagnostics = useMemo(() => {
+    return secretRows.map((row) => {
+      const key = row.path.trim();
+      const status = key ? secretStatusByPath.get(key) : undefined;
+      const override = key ? resolveOverrides[key] : undefined;
+      const resolvedSource = override?.resolvedSource ?? status?.resolvedSource;
+      const resolvedKind = override?.resolvedKind ?? status?.resolvedKind;
+      const managedExists = status?.managedExists ?? false;
+      const state: 'ready' | 'missing' | 'disabled' = !row.enabled
+        ? 'disabled'
+        : resolvedSource
+          ? 'ready'
+          : 'missing';
+
+      return {
+        key,
+        status,
+        resolvedSource,
+        resolvedKind,
+        managedExists,
+        state,
+      };
+    });
+  }, [secretRows, secretStatusByPath, resolveOverrides]);
+
+  const enabledSecrets = secretRows.filter((row) => row.enabled).length;
+  const readySecrets = secretDiagnostics.filter((d) => d.state === 'ready').length;
+  const missingSecrets = secretDiagnostics.filter((d) => d.state === 'missing').length;
+  const quickSecretPaths = ['.env', '.env.local', '.dev.vars', '.env.development.local'];
+  const configuredSecretPaths = useMemo(
+    () => new Set(secretRows.map((row) => row.path.trim()).filter(Boolean)),
+    [secretRows],
+  );
+  const selectedSecret = secretRows[selectedSecretIndex];
+  const selectedSecretDiag = secretDiagnostics[selectedSecretIndex];
+
+  const addSecretRow = (path = '') => {
+    let nextIndex = 0;
+    setSecretRows((prev) => {
+      nextIndex = prev.length;
+      return [...prev, { path, mode: 'copy', enabled: true }];
+    });
+    setSelectedSecretIndex(nextIndex);
+    setSecretsDirty(true);
+  };
+
+  const updateSecretAt = (idx: number, patch: Partial<ProjectSecretFile>) => {
+    setSecretRows((prev) => {
+      if (idx < 0 || idx >= prev.length) return prev;
+      const next = [...prev];
+      next[idx] = { ...next[idx], ...patch };
+      return next;
+    });
+    setSecretsDirty(true);
+  };
+
   if (projectLoading) {
     return (
       <Layout>
@@ -212,55 +548,122 @@ export function ProjectWorkspace() {
     );
   }
 
+  const createEntryPrompt = (type: 'file' | 'dir') => {
+    const basePath = selectedEntry
+      ? selectedEntry.type === 'dir'
+        ? `${selectedEntry.path}/`
+        : `${selectedEntry.path.split('/').slice(0, -1).join('/')}${selectedEntry.path.includes('/') ? '/' : ''}`
+      : '';
+    const raw = window.prompt(
+      type === 'file'
+        ? 'New file path (relative to project root):'
+        : 'New folder path (relative to project root):',
+      basePath,
+    );
+    if (!raw) return;
+    const path = raw.trim().replace(/^\/+/, '');
+    if (!path) return;
+    createEntryMutation.mutate({ path, type });
+  };
+
+  const deleteSelectedEntry = () => {
+    if (!selectedEntry) return;
+    const noun = selectedEntry.type === 'dir' ? 'folder' : 'file';
+    const confirmed = window.confirm(`Delete ${noun} "${selectedEntry.path}"? This cannot be undone.`);
+    if (!confirmed) return;
+    deleteEntryMutation.mutate(selectedEntry.path);
+  };
+
+  const renderTreeNode = ({ node, style }: NodeRendererProps<FileTreeNodeData>) => (
+    <div style={style} className="px-1">
+      <button
+        onClick={() => {
+          const path = node.data.path;
+          setTreeSelection(path);
+          if (node.data.type === 'dir') {
+            node.toggle();
+            return;
+          }
+          openFileTab(path);
+        }}
+        className={`w-full px-2 py-1 rounded-md text-xs flex items-center gap-2 text-left transition-colors ${
+          treeSelection === node.data.path
+            ? 'bg-accent/12 text-accent'
+            : 'hover:bg-tertiary'
+        }`}
+        title={node.data.path}
+      >
+        {node.data.type === 'dir' ? (
+          <Folder size={14} className="shrink-0 text-dim" />
+        ) : (
+          <FileText size={14} className="shrink-0 text-dim" />
+        )}
+        <span className="truncate">{node.data.name}</span>
+      </button>
+    </div>
+  );
+
   const filesPanel = (
     <div className="h-full min-h-0 flex flex-col overflow-hidden">
       <div className="px-3 py-2 border-b border-subtle flex items-center justify-between gap-2">
         <span className="text-xs font-medium uppercase tracking-wider text-dim">Files</span>
-        <button
-          onClick={() => setCurrentDir(parentPath(currentDir))}
-          disabled={!currentDir}
-          className="px-2 py-1 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 inline-flex items-center gap-1"
-        >
-          <FolderUp size={12} />
-          Up
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => queryClient.invalidateQueries({ queryKey: ['project-files', id] })}
+            className="px-2 py-1 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors inline-flex items-center gap-1"
+            title="Refresh files"
+          >
+            <RefreshCw size={12} />
+          </button>
+          <button
+            onClick={() => createEntryPrompt('file')}
+            disabled={createEntryMutation.isPending}
+            className="px-2 py-1 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 inline-flex items-center gap-1"
+            title="Create file"
+          >
+            <FilePlus2 size={12} />
+          </button>
+          <button
+            onClick={() => createEntryPrompt('dir')}
+            disabled={createEntryMutation.isPending}
+            className="px-2 py-1 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 inline-flex items-center gap-1"
+            title="Create folder"
+          >
+            <FolderPlus size={12} />
+          </button>
+          <button
+            onClick={deleteSelectedEntry}
+            disabled={!selectedEntry || deleteEntryMutation.isPending}
+            className="px-2 py-1 text-xs bg-tertiary text-[var(--color-error)] rounded-md hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 inline-flex items-center gap-1"
+            title="Delete selected"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
       </div>
-      <div className="px-3 py-1 text-[11px] text-dim border-b border-subtle font-mono truncate">
-        /{currentDir || ''}
-      </div>
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="px-3 py-1 text-[11px] text-dim border-b border-subtle font-mono truncate">/</div>
+      <div ref={treeContainerRef} className="flex-1 min-h-0 overflow-hidden">
         {filesLoading ? (
           <div className="p-3 text-xs text-dim">Loading files...</div>
+        ) : treeData.length === 0 ? (
+          <div className="p-3 text-xs text-dim">No files yet</div>
         ) : (
-          <div className="p-1">
-            {fileTree?.entries.length ? fileTree.entries.map((entry) => (
-              <button
-                key={entry.path}
-                onClick={() => {
-                  if (entry.type === 'dir') {
-                    setCurrentDir(entry.path);
-                    return;
-                  }
-                  setSelectedFile(entry.path);
-                  if (isMobile) setMobilePanel('preview');
-                }}
-                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors ${
-                  selectedFile === entry.path ? 'bg-accent/10 text-accent' : 'hover:bg-tertiary'
-                }`}
-                title={entry.path}
-              >
-                {entry.type === 'dir' ? (
-                  <Folder size={14} className="text-dim shrink-0" />
-                ) : (
-                  <FileText size={14} className="text-dim shrink-0" />
-                )}
-                <span className="truncate text-xs">{entry.name}</span>
-                {entry.type === 'dir' && <ChevronRight size={12} className="ml-auto text-dim shrink-0" />}
-              </button>
-            )) : (
-              <div className="p-3 text-xs text-dim">Empty directory</div>
-            )}
-          </div>
+          <Tree<FileTreeNodeData>
+            data={treeData}
+            width="100%"
+            height={treeHeight}
+            rowHeight={28}
+            indent={18}
+            selection={treeSelection ?? undefined}
+            openByDefault={false}
+            onSelect={(nodes: NodeApi<FileTreeNodeData>[]) => {
+              const node = nodes[0];
+              if (!node) return;
+              setTreeSelection(node.data.path);
+            }}
+          >
+            {renderTreeNode}
+          </Tree>
         )}
       </div>
     </div>
@@ -268,19 +671,75 @@ export function ProjectWorkspace() {
 
   const previewPanel = (
     <div className="h-full min-h-0 flex flex-col overflow-hidden">
-      <div className="px-3 py-2 border-b border-subtle flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wider text-dim">Preview</span>
-        {selectedFile && <span className="text-[11px] font-mono text-dim truncate max-w-[60%]">{selectedFile}</span>}
-      </div>
-      <div className="flex-1 min-h-0 overflow-auto">
-        {!selectedFile ? (
-          <div className="h-full flex items-center justify-center text-dim text-sm">Select a file to preview</div>
-        ) : fileLoading ? (
-          <div className="p-3 text-xs text-dim">Loading file...</div>
-        ) : fileContent?.binary ? (
-          <div className="p-3 text-xs text-dim">Binary file preview is not supported</div>
+      <div className="px-3 py-2 border-b border-subtle flex items-center gap-2 overflow-x-auto">
+        {openTabs.length === 0 ? (
+          <span className="text-xs text-dim uppercase tracking-wider">Editor</span>
         ) : (
-          <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-words">{fileContent?.content || ''}</pre>
+          openTabs.map((path) => (
+            <button
+              key={path}
+              onClick={() => {
+                setActiveTab(path);
+                setTreeSelection(path);
+              }}
+              className={`shrink-0 max-w-[260px] inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs transition-colors ${
+                activeTab === path
+                  ? 'border-accent bg-accent/10 text-accent'
+                  : 'border-subtle bg-primary hover:bg-tertiary text-dim'
+              }`}
+              title={path}
+            >
+              <span className="truncate">{fileName(path)}</span>
+              {dirtyByPath[path] && <span className="text-[10px] text-[var(--color-warning)]">●</span>}
+              <span
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  closeFileTab(path);
+                }}
+                className="inline-flex"
+              >
+                <X size={12} />
+              </span>
+            </button>
+          ))
+        )}
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          {activeTab && <span className="text-[11px] font-mono text-dim truncate max-w-[220px]">{activeTab}</span>}
+          <button
+            onClick={saveActiveTab}
+            disabled={!activeTab || !activeDirty || saveFileMutation.isPending || activeFileData?.binary || activeFileData?.truncated}
+            className="px-2 py-1 text-xs rounded-md bg-accent text-white hover:bg-accent-dim transition-colors disabled:opacity-40 inline-flex items-center gap-1"
+          >
+            <Save size={12} />
+            {saveFileMutation.isPending ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 min-h-0 overflow-hidden">
+        {!activeTab ? (
+          <div className="h-full flex items-center justify-center text-dim text-sm">Select a file to edit</div>
+        ) : fileLoading && !activeFileData ? (
+          <div className="p-3 text-xs text-dim">Loading file...</div>
+        ) : !activeFileData ? (
+          <div className="p-3 text-xs text-dim">File not found</div>
+        ) : activeFileData.binary ? (
+          <div className="p-3 text-xs text-dim">Binary files cannot be edited in the workspace editor.</div>
+        ) : activeFileData.truncated ? (
+          <div className="p-3 text-xs text-dim">File is too large for in-app editing (preview limit: 256 KiB).</div>
+        ) : (
+          <div className="h-full [&_.cm-editor]:h-full [&_.cm-scroller]:font-mono [&_.cm-scroller]:text-xs">
+            <CodeMirror
+              value={activeDraft}
+              height="100%"
+              theme={oneDark}
+              extensions={activeTab ? getLanguageExtension(activeTab) : []}
+              onChange={(value: string) => {
+                if (!activeTab || !activeFileData) return;
+                setDraftByPath((prev) => ({ ...prev, [activeTab]: value }));
+                setDirtyByPath((prev) => ({ ...prev, [activeTab]: value !== activeFileData.content }));
+              }}
+            />
+          </div>
         )}
       </div>
     </div>
@@ -288,126 +747,287 @@ export function ProjectWorkspace() {
 
   const secretsPanel = (
     <div className="h-full min-h-0 flex flex-col overflow-hidden">
-      <div className="px-3 py-2 border-b border-subtle flex items-center justify-between gap-2">
-        <span className="text-xs font-medium uppercase tracking-wider text-dim">Secrets</span>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              setSecretRows((prev) => [...prev, { path: '', mode: 'copy', enabled: true }]);
-              setSecretsDirty(true);
-            }}
-            className="px-2 py-1 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors inline-flex items-center gap-1"
-          >
-            <Plus size={12} />
-            Add
-          </button>
-          <button
-            onClick={() => saveSecretsMutation.mutate(secretRows)}
-            disabled={saveSecretsMutation.isPending || !secretsDirty}
-            className="px-2 py-1 text-xs bg-accent text-white rounded-md hover:bg-accent-dim transition-colors disabled:opacity-40"
-          >
-            {saveSecretsMutation.isPending ? 'Saving...' : 'Save'}
-          </button>
+      <div className="px-3 py-3 border-b border-subtle bg-secondary/60 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs font-medium uppercase tracking-wider text-dim">Secrets</div>
+            <p className="mt-1 text-xs text-dim">
+              Map project secret files, choose how they materialize in task worktrees, and manage a safe source copy.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+              <span className="px-2 py-0.5 rounded-full bg-tertiary text-dim border border-subtle">{enabledSecrets} enabled</span>
+              <span className="px-2 py-0.5 rounded-full bg-[var(--color-success)]/15 text-[var(--color-success)] border border-[var(--color-success)]/25">{readySecrets} ready</span>
+              {missingSecrets > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-[var(--color-warning)]/15 text-[var(--color-warning)] border border-[var(--color-warning)]/25">{missingSecrets} missing</span>
+              )}
+              {secretsDirty && (
+                <span className="px-2 py-0.5 rounded-full bg-accent/15 text-accent border border-accent/30">unsaved changes</span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => addSecretRow('')}
+              className="px-2.5 py-1.5 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors inline-flex items-center gap-1"
+            >
+              <Plus size={12} />
+              Add Mapping
+            </button>
+            <button
+              onClick={() => saveSecretsMutation.mutate(secretRows)}
+              disabled={saveSecretsMutation.isPending || !secretsDirty}
+              className="px-2.5 py-1.5 text-xs bg-accent text-white rounded-md hover:bg-accent-dim transition-colors disabled:opacity-40"
+            >
+              {saveSecretsMutation.isPending ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+        <div>
+          <p className="text-[11px] text-dim uppercase tracking-wider mb-1.5">Quick Add</p>
+          <div className="flex flex-wrap gap-1.5">
+            {quickSecretPaths.map((path) => {
+              const exists = configuredSecretPaths.has(path);
+              return (
+                <button
+                  key={path}
+                  onClick={() => addSecretRow(path)}
+                  disabled={exists}
+                  className={`px-2 py-1 rounded-md text-[11px] font-mono border transition-colors ${
+                    exists
+                      ? 'border-subtle bg-primary text-dim opacity-50 cursor-not-allowed'
+                      : 'border-subtle bg-primary hover:bg-tertiary text-[var(--color-text-secondary)]'
+                  }`}
+                >
+                  {path}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-auto p-2 space-y-2">
+      <div className="flex-1 min-h-0 overflow-hidden">
         {secretsLoading ? (
-          <div className="p-2 text-xs text-dim">Loading secrets...</div>
+          <div className="p-3 text-xs text-dim">Loading secrets...</div>
         ) : secretRows.length === 0 ? (
-          <div className="p-2 text-xs text-dim">No secret mappings yet</div>
-        ) : secretRows.map((row, idx) => {
-          const status = secretStatusByPath.get(row.path.trim());
-          const override = resolveOverrides[row.path.trim()];
-          const resolvedSource = override?.resolvedSource ?? status?.resolvedSource;
-          const resolvedKind = override?.resolvedKind ?? status?.resolvedKind;
-          return (
-            <div key={`${idx}-${row.path}`} className="border border-subtle rounded-md p-2 space-y-2">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={row.enabled}
-                  onChange={(e) => {
-                    const next = [...secretRows];
-                    next[idx] = { ...row, enabled: e.target.checked };
-                    setSecretRows(next);
-                    setSecretsDirty(true);
-                  }}
-                />
-                <input
-                  value={row.path}
-                  onChange={(e) => {
-                    const next = [...secretRows];
-                    next[idx] = { ...row, path: e.target.value };
-                    setSecretRows(next);
-                    setSecretsDirty(true);
-                  }}
-                  placeholder=".env"
-                  className="flex-1 bg-primary border border-subtle rounded-md px-2 py-1 text-xs font-mono focus:outline-none focus:border-[var(--color-text-secondary)]"
-                />
-                <select
-                  value={row.mode}
-                  onChange={(e) => {
-                    const next = [...secretRows];
-                    next[idx] = { ...row, mode: e.target.value as 'copy' | 'symlink' };
-                    setSecretRows(next);
-                    setSecretsDirty(true);
-                  }}
-                  className="bg-primary border border-subtle rounded-md px-2 py-1 text-xs focus:outline-none focus:border-[var(--color-text-secondary)]"
-                >
-                  <option value="copy">copy</option>
-                  <option value="symlink">symlink</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  value={row.sourcePath || ''}
-                  onChange={(e) => {
-                    const next = [...secretRows];
-                    next[idx] = { ...row, sourcePath: e.target.value || undefined };
-                    setSecretRows(next);
-                    setSecretsDirty(true);
-                  }}
-                  placeholder="source path (optional)"
-                  className="flex-1 bg-primary border border-subtle rounded-md px-2 py-1 text-xs font-mono focus:outline-none focus:border-[var(--color-text-secondary)]"
-                />
-                <button
-                  onClick={() => resolveOneSecret(row.path)}
-                  disabled={!row.path.trim()}
-                  className="px-2 py-1 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors disabled:opacity-40"
-                >
-                  Resolve
-                </button>
-                <button
-                  onClick={() => openSecretEditor(row.path)}
-                  disabled={!row.path.trim()}
-                  className="px-2 py-1 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors disabled:opacity-40"
-                >
-                  Edit Source
-                </button>
-                <button
-                  onClick={() => {
-                    const next = secretRows.filter((_, i) => i !== idx);
-                    setSecretRows(next);
-                    setSecretsDirty(true);
-                  }}
-                  className="px-2 py-1 text-xs text-[var(--color-error)] hover:underline"
-                >
-                  Remove
-                </button>
-              </div>
-              <div className="text-[11px] text-dim space-y-1">
-                <div>Managed source: {status?.managedExists ? 'present' : 'missing'}</div>
-                {resolvedSource ? (
-                  <div className="font-mono truncate" title={resolvedSource}>
-                    Resolved ({resolvedKind || 'unknown'}): {resolvedSource}
-                  </div>
-                ) : (
-                  <div>No source resolved. Worktree creation will create an empty file.</div>
-                )}
-              </div>
+          <div className="h-full flex items-center justify-center p-4 bg-secondary/30">
+            <div className="max-w-sm text-center border border-dashed border-subtle rounded-xl p-5 bg-primary">
+              <p className="text-sm">No secret mappings configured yet</p>
+              <p className="text-xs text-dim mt-1">
+                Start with `.env`, `.env.local`, or `.dev.vars`. Missing sources are auto-created as empty files in new worktrees.
+              </p>
+              <button
+                onClick={() => addSecretRow('.env')}
+                className="mt-4 px-3 py-1.5 text-xs bg-accent text-white rounded-md hover:bg-accent-dim transition-colors inline-flex items-center gap-1"
+              >
+                <Plus size={12} />
+                Add First Secret
+              </button>
             </div>
-          );
-        })}
+          </div>
+        ) : (
+          <div className="h-full min-h-0 grid grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)]">
+            <div className="border-b md:border-b-0 md:border-r border-subtle overflow-y-auto p-2 space-y-2 bg-secondary/40">
+              <div className="px-1 text-[11px] uppercase tracking-wider text-dim">Mappings</div>
+              {secretRows.map((row, idx) => {
+                const diag = secretDiagnostics[idx];
+                const isSelected = idx === selectedSecretIndex;
+                const modeIcon = row.mode === 'symlink' ? <Link2 size={12} /> : <Copy size={12} />;
+                const statusIcon = diag?.state === 'ready'
+                  ? <CheckCircle2 size={12} />
+                  : diag?.state === 'disabled'
+                    ? <Ban size={12} />
+                    : <AlertTriangle size={12} />;
+                const statusText = diag?.state === 'ready'
+                  ? 'ready'
+                  : diag?.state === 'disabled'
+                    ? 'disabled'
+                    : 'missing source';
+                const statusClass = diag?.state === 'ready'
+                  ? 'text-[var(--color-success)]'
+                  : diag?.state === 'disabled'
+                    ? 'text-dim'
+                    : 'text-[var(--color-warning)]';
+
+                return (
+                  <button
+                    key={`${idx}-${row.path}`}
+                    onClick={() => setSelectedSecretIndex(idx)}
+                    className={`w-full text-left rounded-lg border px-3 py-2.5 transition-colors ${
+                      isSelected
+                        ? 'border-accent bg-accent/10 shadow-[inset_0_0_0_1px_var(--color-accent)]'
+                        : 'border-subtle bg-primary hover:bg-tertiary'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-xs truncate">{row.path || '(new mapping)'}</span>
+                      <span className={`inline-flex items-center gap-1 text-[10px] ${statusClass} shrink-0`}>
+                        {statusIcon}
+                        {statusText}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 flex items-center gap-2 text-[10px] text-dim">
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-secondary border border-subtle">
+                        {modeIcon}
+                        {row.mode}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded-md bg-secondary border border-subtle">
+                        {row.enabled ? 'enabled' : 'off'}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="min-h-0 overflow-y-auto p-3 space-y-3">
+              {selectedSecret ? (() => {
+                const row = selectedSecret;
+                const diag = selectedSecretDiag;
+                const resolvedSource = diag?.resolvedSource;
+                const resolvedKind = diag?.resolvedKind;
+                const canResolve = row.path.trim().length > 0;
+
+                return (
+                  <>
+                    <div className="rounded-xl border border-subtle bg-secondary/60 p-3 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-medium">Mapping Details</p>
+                          <p className="text-[11px] text-dim mt-0.5">
+                            Destination path is where the file appears inside each worktree.
+                          </p>
+                        </div>
+                        <span className="text-[11px] text-dim">#{selectedSecretIndex + 1}</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                        <label className="space-y-1">
+                          <span className="text-[11px] text-dim uppercase tracking-wider">Destination Path</span>
+                          <input
+                            value={row.path}
+                            onChange={(e) => updateSecretAt(selectedSecretIndex, { path: e.target.value })}
+                            placeholder=".env"
+                            className="w-full bg-primary border border-subtle rounded-md px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-[var(--color-text-secondary)]"
+                          />
+                          <p className="text-[10px] text-dim">Example: `.env`, `.dev.vars`, `config/.secrets.local`</p>
+                        </label>
+
+                        <label className="space-y-1">
+                          <span className="text-[11px] text-dim uppercase tracking-wider">Source Override (Optional)</span>
+                          <input
+                            value={row.sourcePath || ''}
+                            onChange={(e) => updateSecretAt(selectedSecretIndex, { sourcePath: e.target.value || undefined })}
+                            placeholder="config/.env.local"
+                            className="w-full bg-primary border border-subtle rounded-md px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-[var(--color-text-secondary)]"
+                          />
+                          <p className="text-[10px] text-dim">Leave empty to let Codeburg auto-resolve a source.</p>
+                        </label>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] text-dim uppercase tracking-wider mr-1">Materialize As</span>
+                        <button
+                          onClick={() => updateSecretAt(selectedSecretIndex, { mode: 'copy' })}
+                          className={`px-2.5 py-1 text-xs rounded-md border transition-colors inline-flex items-center gap-1 ${
+                            row.mode === 'copy'
+                              ? 'bg-accent/15 border-accent text-accent'
+                              : 'bg-primary border-subtle text-dim hover:text-[var(--color-text-primary)]'
+                          }`}
+                        >
+                          <Copy size={12} />
+                          copy
+                        </button>
+                        <button
+                          onClick={() => updateSecretAt(selectedSecretIndex, { mode: 'symlink' })}
+                          className={`px-2.5 py-1 text-xs rounded-md border transition-colors inline-flex items-center gap-1 ${
+                            row.mode === 'symlink'
+                              ? 'bg-accent/15 border-accent text-accent'
+                              : 'bg-primary border-subtle text-dim hover:text-[var(--color-text-primary)]'
+                          }`}
+                        >
+                          <Link2 size={12} />
+                          symlink
+                        </button>
+                        <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-dim">
+                          <input
+                            type="checkbox"
+                            checked={row.enabled}
+                            onChange={(e) => updateSecretAt(selectedSecretIndex, { enabled: e.target.checked })}
+                          />
+                          enabled
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-subtle bg-primary p-3 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] text-dim uppercase tracking-wider">Resolution Status</span>
+                        <button
+                          onClick={() => resolveOneSecret(row.path)}
+                          disabled={!canResolve}
+                          className="px-2.5 py-1 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 inline-flex items-center gap-1"
+                        >
+                          <Wand2 size={12} />
+                          Resolve
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <div className="rounded-md border border-subtle bg-secondary px-2.5 py-2">
+                          <p className="text-[10px] uppercase tracking-wider text-dim">Managed Source File</p>
+                          <p className={`text-xs mt-1 ${diag?.managedExists ? 'text-[var(--color-success)]' : 'text-[var(--color-warning)]'}`}>
+                            {diag?.managedExists ? 'Present' : 'Missing'}
+                          </p>
+                        </div>
+                        <div className="rounded-md border border-subtle bg-secondary px-2.5 py-2">
+                          <p className="text-[10px] uppercase tracking-wider text-dim">Resolved Input Source</p>
+                          {resolvedSource ? (
+                            <p className="text-xs font-mono mt-1 truncate" title={resolvedSource}>
+                              {resolvedKind ? `[${resolvedKind}] ` : ''}{resolvedSource}
+                            </p>
+                          ) : (
+                            <p className="text-xs mt-1 text-[var(--color-warning)]">Not found</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {!resolvedSource && (
+                        <p className="text-[11px] text-[var(--color-warning)]">
+                          No source was found. New worktrees will still get an empty file so setup can continue.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="rounded-xl border border-subtle bg-secondary/40 p-3 flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => openSecretEditor(row.path)}
+                        disabled={!canResolve}
+                        className="px-2.5 py-1 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 inline-flex items-center gap-1"
+                      >
+                        <Pencil size={12} />
+                        {diag?.managedExists ? 'Edit Managed Source' : 'Create Managed Source'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSecretRows((prev) => prev.filter((_, i) => i !== selectedSecretIndex));
+                          setSecretsDirty(true);
+                        }}
+                        className="ml-auto px-2 py-1 text-xs text-[var(--color-error)] hover:underline inline-flex items-center gap-1"
+                      >
+                        <Trash2 size={12} />
+                        Remove Mapping
+                      </button>
+                    </div>
+                  </>
+                );
+              })() : (
+                <div className="h-full flex items-center justify-center text-xs text-dim">
+                  Select a mapping to edit details.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -422,6 +1042,15 @@ export function ProjectWorkspace() {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <OpenInEditorButton worktreePath={project.path} />
+            <button
+              onClick={() => syncDefaultBranchMutation.mutate()}
+              disabled={syncDefaultBranchMutation.isPending}
+              className="px-2 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 inline-flex items-center gap-1"
+              title={`Fetch and fast-forward ${project.defaultBranch || 'main'} from remote`}
+            >
+              <RefreshCw size={13} className={syncDefaultBranchMutation.isPending ? 'animate-spin' : ''} />
+              <span className="hidden sm:inline">{syncDefaultBranchMutation.isPending ? 'Syncing...' : `Sync ${project.defaultBranch || 'main'}`}</span>
+            </button>
             <button
               onClick={() => navigate(`/?project=${project.id}`)}
               className="px-2 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors inline-flex items-center gap-1"
@@ -443,6 +1072,11 @@ export function ProjectWorkspace() {
         {error && (
           <div className="px-4 py-2 text-xs text-[var(--color-error)] border-b border-subtle">
             {error}
+          </div>
+        )}
+        {syncNotice && !error && (
+          <div className="px-4 py-2 text-xs text-[var(--color-success)] border-b border-subtle">
+            {syncNotice}
           </div>
         )}
 

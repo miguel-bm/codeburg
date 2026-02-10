@@ -38,6 +38,12 @@ type createProjectRequest struct {
 	TeardownScript *string               `json:"teardownScript,omitempty"`
 }
 
+type syncProjectDefaultBranchResponse struct {
+	Branch  string `json:"branch"`
+	Remote  string `json:"remote"`
+	Updated bool   `json:"updated"`
+}
+
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	var req createProjectRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -222,6 +228,55 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, project)
+}
+
+func (s *Server) handleSyncProjectDefaultBranch(w http.ResponseWriter, r *http.Request) {
+	id := urlParam(r, "id")
+
+	project, err := s.db.GetProject(id)
+	if err != nil {
+		writeDBError(w, err, "project")
+		return
+	}
+
+	branch := strings.TrimSpace(project.DefaultBranch)
+	if branch == "" {
+		branch = "main"
+	}
+	remoteRef := "origin/" + branch
+
+	if _, err := runGit(project.Path, "fetch", "--prune"); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to fetch remote: "+err.Error())
+		return
+	}
+
+	if _, err := runGit(project.Path, "rev-parse", "--verify", remoteRef); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("remote tracking branch %q not found", remoteRef))
+		return
+	}
+
+	beforeHash := ""
+	if out, err := runGit(project.Path, "rev-parse", "--verify", branch); err == nil {
+		beforeHash = strings.TrimSpace(out)
+	}
+
+	if _, err := runGit(project.Path, "fetch", ".", fmt.Sprintf("%s:%s", remoteRef, branch)); err != nil {
+		writeError(w, http.StatusConflict, fmt.Sprintf("failed to fast-forward %s to %s: %v", branch, remoteRef, err))
+		return
+	}
+
+	afterOut, err := runGit(project.Path, "rev-parse", "--verify", branch)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to read updated %s revision: %v", branch, err))
+		return
+	}
+	afterHash := strings.TrimSpace(afterOut)
+
+	writeJSON(w, http.StatusOK, syncProjectDefaultBranchResponse{
+		Branch:  branch,
+		Remote:  remoteRef,
+		Updated: beforeHash == "" || beforeHash != afterHash,
+	})
 }
 
 func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {

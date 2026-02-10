@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Check, GitPullRequest, Plus } from 'lucide-react';
 import { TaskHeader } from './TaskHeader';
@@ -37,6 +37,7 @@ export function TaskDetailInReview({
   const [selectedFile, setSelectedFile] = useState<string | undefined>();
   const [warning, setWarning] = useState<string | null>(null);
   const [sessionPanelOpen, setSessionPanelOpen] = useState(false);
+  const showComposer = showStartComposer || sessions.length === 0;
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Draggable split between diff (top) and session panel (bottom)
@@ -118,7 +119,11 @@ export function TaskDetailInReview({
   const activeSessions = sessions.filter(s => s.status === 'running' || s.status === 'waiting_input');
 
   // Auto-open panel when there are active sessions
-  const shouldShowPanel = showStartComposer || sessionPanelOpen || activeSessions.length > 0;
+  const shouldShowPanel = showComposer || sessionPanelOpen || activeSessions.length > 0;
+
+  useEffect(() => {
+    if (sessions.length === 0) setSessionPanelOpen(true);
+  }, [sessions.length]);
 
   if (isMobile) {
     return (
@@ -203,7 +208,7 @@ export function TaskDetailInReview({
             <div className="flex flex-col h-full">
               <SessionTabs
                 sessions={sessions}
-                activeSessionId={showStartComposer ? undefined : activeSession?.id}
+                activeSessionId={showComposer ? undefined : activeSession?.id}
                 onSelect={(session) => {
                   onHideStartComposer();
                   onSelectSession(session);
@@ -217,11 +222,11 @@ export function TaskDetailInReview({
                   setSessionPanelOpen(true);
                   onShowStartComposer();
                 }}
-                showNewSessionTab={showStartComposer}
+                showNewSessionTab={showComposer}
                 onCancelNewSession={onHideStartComposer}
               />
               <div className="flex-1 overflow-hidden">
-                {showStartComposer ? (
+                {showComposer ? (
                   <NewSessionComposer
                     taskTitle={task.title}
                     taskDescription={task.description}
@@ -352,7 +357,7 @@ export function TaskDetailInReview({
             <div className="flex-1 flex flex-col overflow-hidden min-h-0">
               <SessionTabs
                 sessions={sessions}
-                activeSessionId={showStartComposer ? undefined : activeSession?.id}
+                activeSessionId={showComposer ? undefined : activeSession?.id}
                 onSelect={(session) => {
                   onHideStartComposer();
                   onSelectSession(session);
@@ -363,11 +368,11 @@ export function TaskDetailInReview({
                 }}
                 onClose={onCloseSession}
                 onNewSession={onShowStartComposer}
-                showNewSessionTab={showStartComposer}
+                showNewSessionTab={showComposer}
                 onCancelNewSession={onHideStartComposer}
               />
               <div className="flex-1 overflow-hidden">
-                {showStartComposer ? (
+                {showComposer ? (
                   <NewSessionComposer
                     taskTitle={task.title}
                     taskDescription={task.description}

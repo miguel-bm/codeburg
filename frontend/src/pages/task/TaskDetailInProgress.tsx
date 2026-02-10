@@ -88,6 +88,7 @@ export function TaskDetailInProgress({
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('sessions');
   const [warning, setWarning] = useState<string | null>(null);
   const [dirtyConfirm, setDirtyConfirm] = useState<{ staged: number; unstaged: number; untracked: number } | null>(null);
+  const showComposer = showStartComposer || sessions.length === 0;
 
   // Refs for drag containers
   const railRef = useRef<HTMLDivElement>(null);
@@ -264,7 +265,7 @@ export function TaskDetailInProgress({
         {/* Content */}
         <div className="flex-1 overflow-hidden">
           {mobilePanel === 'sessions' ? (
-            showStartComposer ? (
+            showComposer ? (
               <NewSessionComposer
                 taskTitle={task.title}
                 taskDescription={task.description}
@@ -372,7 +373,7 @@ export function TaskDetailInProgress({
           {/* Session tabs */}
           <SessionTabs
             sessions={sessions}
-            activeSessionId={showStartComposer
+            activeSessionId={showComposer
               ? undefined
               : (mainContent.type === 'session' ? activeSession?.id : undefined)}
             onSelect={(session) => {
@@ -386,13 +387,13 @@ export function TaskDetailInProgress({
             }}
             onClose={onCloseSession}
             onNewSession={onShowStartComposer}
-            showNewSessionTab={showStartComposer}
+            showNewSessionTab={showComposer}
             onCancelNewSession={onHideStartComposer}
           />
 
           {/* Main content */}
           <div className="flex-1 overflow-hidden">
-            {showStartComposer || mainContent.type === 'new_session' ? (
+            {showComposer || mainContent.type === 'new_session' ? (
               <NewSessionComposer
                 taskTitle={task.title}
                 taskDescription={task.description}

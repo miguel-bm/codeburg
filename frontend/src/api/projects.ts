@@ -23,6 +23,16 @@ export interface ProjectFileContentResponse {
   content: string;
 }
 
+export interface CreateProjectFileEntryInput {
+  path: string;
+  type: 'file' | 'dir';
+}
+
+export interface WriteProjectFileInput {
+  path: string;
+  content: string;
+}
+
 export interface ProjectSecretFileStatus extends ProjectSecretFile {
   managedPath: string;
   managedExists: boolean;
@@ -52,6 +62,12 @@ export interface ProjectSecretResolveResponse {
   results: ProjectSecretResolveResult[];
 }
 
+export interface ProjectSyncDefaultBranchResponse {
+  branch: string;
+  remote: string;
+  updated: boolean;
+}
+
 export const projectsApi = {
   list: () => api.get<Project[]>('/projects'),
 
@@ -75,9 +91,20 @@ export const projectsApi = {
     return api.get<ProjectFilesResponse>(`/projects/${id}/files${query ? `?${query}` : ''}`);
   },
 
+  createFileEntry: (id: string, input: CreateProjectFileEntryInput) =>
+    api.post<ProjectFileEntry>(`/projects/${id}/files`, input),
+
   readFile: (id: string, path: string) => {
     const search = new URLSearchParams({ path });
     return api.get<ProjectFileContentResponse>(`/projects/${id}/file?${search.toString()}`);
+  },
+
+  writeFile: (id: string, input: WriteProjectFileInput) =>
+    api.put<ProjectFileContentResponse>(`/projects/${id}/file`, input),
+
+  deleteFile: (id: string, path: string) => {
+    const search = new URLSearchParams({ path });
+    return api.delete(`/projects/${id}/file?${search.toString()}`);
   },
 
   getSecrets: (id: string) =>
@@ -96,4 +123,7 @@ export const projectsApi = {
 
   resolveSecrets: (id: string, paths?: string[]) =>
     api.post<ProjectSecretResolveResponse>(`/projects/${id}/secrets/resolve`, { paths }),
+
+  syncDefaultBranch: (id: string) =>
+    api.post<ProjectSyncDefaultBranchResponse>(`/projects/${id}/sync-default-branch`),
 };

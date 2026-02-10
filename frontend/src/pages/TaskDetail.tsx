@@ -51,6 +51,8 @@ export function TaskDetail() {
   }, [id]);
 
   const canOpenSessionComposer = task?.status === TASK_STATUS.IN_PROGRESS || task?.status === TASK_STATUS.IN_REVIEW;
+  const noSessionTabs = canOpenSessionComposer && (sessions?.length ?? 0) === 0;
+  const isSessionComposerVisible = showStartSession || noSessionTabs;
 
   useEffect(() => {
     if (!canOpenSessionComposer) setShowStartSession(false);
@@ -203,7 +205,7 @@ export function TaskDetail() {
   useKeyboardNav({
     keyMap,
     allowInInputs,
-    enabled: !showStartSession && !showHelp,
+    enabled: !isSessionComposerVisible && !showHelp,
   });
 
   if (taskLoading) {

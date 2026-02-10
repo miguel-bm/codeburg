@@ -106,11 +106,7 @@ export function SessionTabs({
       )}
       <button
         onClick={onNewSession}
-        className={`inline-flex items-center justify-center h-8 w-8 mx-1 shrink-0 rounded-md transition-colors border-b-2 ${
-          showNewSessionTab
-            ? 'text-accent bg-accent/10 border-accent'
-            : 'text-dim hover:text-accent hover:bg-accent/10 border-transparent'
-        }`}
+        className="inline-flex items-center justify-center h-8 w-8 mx-1 shrink-0 rounded-md transition-colors border-b-2 border-transparent text-dim hover:text-accent hover:bg-accent/10"
         title="New session"
         aria-label="New session"
       >

@@ -20,6 +20,7 @@ import (
 
 const (
 	maxProjectFilePreviewBytes = 256 * 1024
+	maxProjectFileWriteBytes   = 1024 * 1024
 	maxSecretContentBytes      = 1024 * 1024
 )
 
@@ -29,6 +30,16 @@ type projectFileEntry struct {
 	Type    string    `json:"type"` // "file" | "dir"
 	Size    int64     `json:"size"`
 	ModTime time.Time `json:"modTime"`
+}
+
+type createProjectFileEntryRequest struct {
+	Path string `json:"path"`
+	Type string `json:"type"` // "file" | "dir"
+}
+
+type writeProjectFileRequest struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
 }
 
 func (s *Server) handleListProjectFiles(w http.ResponseWriter, r *http.Request) {
@@ -48,8 +59,8 @@ func (s *Server) handleListProjectFiles(w http.ResponseWriter, r *http.Request) 
 	depth := 1
 	if rawDepth := strings.TrimSpace(r.URL.Query().Get("depth")); rawDepth != "" {
 		n, err := strconv.Atoi(rawDepth)
-		if err != nil || n < 1 || n > 8 {
-			writeError(w, http.StatusBadRequest, "depth must be between 1 and 8")
+		if err != nil || n < 1 || n > 32 {
+			writeError(w, http.StatusBadRequest, "depth must be between 1 and 32")
 			return
 		}
 		depth = n
@@ -152,6 +163,211 @@ func (s *Server) handleReadProjectFile(w http.ResponseWriter, r *http.Request) {
 		"truncated": truncated,
 		"content":   content,
 	})
+}
+
+func (s *Server) handleCreateProjectFileEntry(w http.ResponseWriter, r *http.Request) {
+	projectID := urlParam(r, "id")
+	project, err := s.db.GetProject(projectID)
+	if err != nil {
+		writeDBError(w, err, "project")
+		return
+	}
+
+	var req createProjectFileEntryRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	relPath, err := normalizeRelativePath(req.Path, false)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if isProtectedProjectPath(relPath) {
+		writeError(w, http.StatusBadRequest, "path is protected")
+		return
+	}
+
+	entryType := strings.TrimSpace(strings.ToLower(req.Type))
+	if entryType == "" {
+		entryType = "file"
+	}
+	if entryType != "file" && entryType != "dir" {
+		writeError(w, http.StatusBadRequest, "type must be \"file\" or \"dir\"")
+		return
+	}
+
+	absPath, err := safeJoin(project.Path, relPath)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if _, err := os.Stat(absPath); err == nil {
+		writeError(w, http.StatusConflict, "path already exists")
+		return
+	} else if !errors.Is(err, os.ErrNotExist) {
+		writeError(w, http.StatusInternalServerError, "failed to stat path")
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create parent directory")
+		return
+	}
+
+	if entryType == "dir" {
+		if err := os.MkdirAll(absPath, 0755); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create directory")
+			return
+		}
+	} else {
+		f, err := os.OpenFile(absPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create file")
+			return
+		}
+		if err := f.Close(); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create file")
+			return
+		}
+	}
+
+	info, err := os.Stat(absPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to stat created entry")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"name":    filepath.Base(relPath),
+		"path":    filepath.ToSlash(relPath),
+		"type":    entryType,
+		"size":    info.Size(),
+		"modTime": info.ModTime(),
+	})
+}
+
+func (s *Server) handlePutProjectFile(w http.ResponseWriter, r *http.Request) {
+	projectID := urlParam(r, "id")
+	project, err := s.db.GetProject(projectID)
+	if err != nil {
+		writeDBError(w, err, "project")
+		return
+	}
+
+	var req writeProjectFileRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	relPath, err := normalizeRelativePath(req.Path, false)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if isProtectedProjectPath(relPath) {
+		writeError(w, http.StatusBadRequest, "path is protected")
+		return
+	}
+	if len(req.Content) > maxProjectFileWriteBytes {
+		writeError(w, http.StatusBadRequest, "content exceeds 1 MiB limit")
+		return
+	}
+
+	absPath, err := safeJoin(project.Path, relPath)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	fileMode := os.FileMode(0644)
+	if info, err := os.Stat(absPath); err == nil {
+		if info.IsDir() {
+			writeError(w, http.StatusBadRequest, "path is a directory")
+			return
+		}
+		fileMode = info.Mode().Perm()
+	} else if !errors.Is(err, os.ErrNotExist) {
+		writeError(w, http.StatusInternalServerError, "failed to stat file")
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create parent directory")
+		return
+	}
+
+	if err := os.WriteFile(absPath, []byte(req.Content), fileMode); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to write file")
+		return
+	}
+
+	info, err := os.Stat(absPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to stat file")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"path":      filepath.ToSlash(relPath),
+		"size":      info.Size(),
+		"modTime":   info.ModTime(),
+		"binary":    false,
+		"truncated": false,
+		"content":   req.Content,
+	})
+}
+
+func (s *Server) handleDeleteProjectFile(w http.ResponseWriter, r *http.Request) {
+	projectID := urlParam(r, "id")
+	project, err := s.db.GetProject(projectID)
+	if err != nil {
+		writeDBError(w, err, "project")
+		return
+	}
+
+	relPath, err := normalizeRelativePath(r.URL.Query().Get("path"), false)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if isProtectedProjectPath(relPath) {
+		writeError(w, http.StatusBadRequest, "path is protected")
+		return
+	}
+
+	absPath, err := safeJoin(project.Path, relPath)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	info, err := os.Stat(absPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeError(w, http.StatusNotFound, "path not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to stat path")
+		return
+	}
+
+	if info.IsDir() {
+		if err := os.RemoveAll(absPath); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to delete directory")
+			return
+		}
+	} else {
+		if err := os.Remove(absPath); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to delete file")
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type patchProjectSecretsRequest struct {
@@ -494,6 +710,11 @@ func normalizeSecretFileConfig(cfg db.SecretFileConfig) (db.SecretFileConfig, er
 	}, nil
 }
 
+func isProtectedProjectPath(relPath string) bool {
+	slashPath := filepath.ToSlash(relPath)
+	return slashPath == ".git" || strings.HasPrefix(slashPath, ".git/")
+}
+
 func normalizeRelativePath(raw string, allowEmpty bool) (string, error) {
 	p := strings.TrimSpace(raw)
 	if p == "" {
@@ -567,6 +788,9 @@ func walkProjectFiles(absDir, relDir string, depth int, out *[]projectFileEntry)
 	})
 
 	for _, entry := range entries {
+		if entry.Name() == ".git" {
+			continue
+		}
 		relChild := entry.Name()
 		if relDir != "" {
 			relChild = filepath.Join(relDir, entry.Name())

@@ -21,9 +21,11 @@ export type { PortSuggestion, PortSuggestionStatus, ScanPortsResult, ExistingTun
 export type { TunnelInfo } from './tunnels';
 export type { GitStatus, GitFileStatus, GitDiff, GitCommitResult, GitStashEntry } from './git';
 export type {
+  CreateProjectFileEntryInput,
   ProjectFileEntry,
   ProjectFilesResponse,
   ProjectFileContentResponse,
+  WriteProjectFileInput,
   ProjectSecretsResponse,
   ProjectSecretFileStatus,
   ProjectSecretContentResponse,
