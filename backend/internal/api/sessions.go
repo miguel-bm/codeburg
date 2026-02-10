@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,12 +14,12 @@ import (
 	"time"
 
 	"github.com/miguel-bm/codeburg/internal/db"
-	"github.com/miguel-bm/codeburg/internal/tmux"
+	"github.com/miguel-bm/codeburg/internal/ptyruntime"
 )
 
 // SessionManager manages active agent sessions
 type SessionManager struct {
-	tmux     *tmux.Manager
+	runtime  *ptyruntime.Manager
 	sessions map[string]*Session // sessionID -> running session
 	mu       sync.RWMutex
 }
@@ -26,13 +27,12 @@ type SessionManager struct {
 // NewSessionManager creates a new session manager
 func NewSessionManager() *SessionManager {
 	return &SessionManager{
-		tmux:     tmux.NewManager(),
+		runtime:  ptyruntime.NewManager(),
 		sessions: make(map[string]*Session),
 	}
 }
 
-// getOrRestore looks up a session in the in-memory map, falling back to the DB.
-// If the DB session has a live tmux window, it is restored to the in-memory map.
+// getOrRestore looks up a session in memory, falling back to DB if runtime is alive.
 func (sm *SessionManager) getOrRestore(sessionID string, database *db.DB) *Session {
 	// Fast path: check in-memory map
 	sm.mu.RLock()
@@ -48,25 +48,15 @@ func (sm *SessionManager) getOrRestore(sessionID string, database *db.DB) *Sessi
 		return nil
 	}
 
-	if dbSession.TmuxWindow == nil {
-		return nil
-	}
-
-	if !sm.tmux.WindowExists(*dbSession.TmuxWindow) {
+	if !sm.runtime.Exists(sessionID) {
 		return nil
 	}
 
 	// Restore to in-memory map
-	pane := ""
-	if dbSession.TmuxPane != nil {
-		pane = *dbSession.TmuxPane
-	}
 	restored := &Session{
-		ID:         dbSession.ID,
-		Provider:   dbSession.Provider,
-		Status:     dbSession.Status,
-		TmuxWindow: *dbSession.TmuxWindow,
-		TmuxPane:   pane,
+		ID:       dbSession.ID,
+		Provider: dbSession.Provider,
+		Status:   dbSession.Status,
 	}
 	sm.mu.Lock()
 	sm.sessions[dbSession.ID] = restored
@@ -77,7 +67,7 @@ func (sm *SessionManager) getOrRestore(sessionID string, database *db.DB) *Sessi
 }
 
 // Reconcile restores in-memory session state from the database on startup.
-// Sessions with live tmux windows are restored; stale sessions are marked completed.
+// PTY runtimes are in-process and don't survive restart, so active sessions are marked completed.
 func (sm *SessionManager) Reconcile(database *db.DB) {
 	sessions, err := database.ListActiveSessions()
 	if err != nil {
@@ -85,52 +75,24 @@ func (sm *SessionManager) Reconcile(database *db.DB) {
 		return
 	}
 
-	var restored, cleaned int
+	var cleaned int
 	for _, s := range sessions {
-		if s.TmuxWindow == nil {
-			// No tmux window recorded — mark completed
-			completedStatus := db.SessionStatusCompleted
-			database.UpdateSession(s.ID, db.UpdateSessionInput{Status: &completedStatus})
-			cleaned++
-			continue
-		}
-
-		if sm.tmux.WindowExists(*s.TmuxWindow) {
-			// Tmux window still alive — restore to in-memory map
-			pane := ""
-			if s.TmuxPane != nil {
-				pane = *s.TmuxPane
-			}
-			execSession := &Session{
-				ID:         s.ID,
-				Provider:   s.Provider,
-				Status:     s.Status,
-				TmuxWindow: *s.TmuxWindow,
-				TmuxPane:   pane,
-			}
-			sm.mu.Lock()
-			sm.sessions[s.ID] = execSession
-			sm.mu.Unlock()
-			slog.Info("session restored", "session_id", s.ID, "provider", s.Provider, "tmux_window", *s.TmuxWindow)
-			restored++
-		} else {
-			// Tmux window gone — mark completed
-			completedStatus := db.SessionStatusCompleted
-			database.UpdateSession(s.ID, db.UpdateSessionInput{Status: &completedStatus})
-			slog.Info("stale session cleaned up", "session_id", s.ID, "provider", s.Provider)
-			cleaned++
-		}
+		completedStatus := db.SessionStatusCompleted
+		_, _ = database.UpdateSession(s.ID, db.UpdateSessionInput{Status: &completedStatus})
+		removeHookToken(s.ID)
+		removeNotifyScript(s.ID)
+		cleaned++
 	}
 
-	slog.Info("session reconciliation complete", "restored", restored, "cleaned", cleaned)
+	slog.Info("session reconciliation complete", "restored", 0, "cleaned", cleaned)
 }
 
 // StartSessionRequest contains the request body for starting a session
 type StartSessionRequest struct {
 	Provider        string `json:"provider"`        // "claude", "codex", "terminal" (default: "claude")
-	Prompt          string `json:"prompt"`           // Initial prompt (claude/codex sessions)
-	Model           string `json:"model"`            // Optional model override
-	ResumeSessionID string `json:"resumeSessionId"`  // Codeburg session ID to resume (claude only)
+	Prompt          string `json:"prompt"`          // Initial prompt (claude/codex sessions)
+	Model           string `json:"model"`           // Optional model override
+	ResumeSessionID string `json:"resumeSessionId"` // Codeburg session ID to resume (claude only)
 }
 
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
@@ -196,7 +158,7 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 }
 
 // startSessionInternal creates and starts a session for the given task.
-// It handles tmux window creation, hook setup, and command injection.
+// It handles hook setup and process launch in the PTY runtime.
 func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*db.AgentSession, error) {
 	provider := req.Provider
 
@@ -212,40 +174,19 @@ func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*
 		workDir = *task.WorktreePath
 	}
 
-	// Check tmux availability
-	if !s.sessions.tmux.Available() {
-		return nil, fmt.Errorf("tmux not available")
-	}
-
-	// Ensure tmux session exists
-	if err := s.sessions.tmux.EnsureSession(); err != nil {
-		return nil, fmt.Errorf("failed to ensure tmux session: %w", err)
-	}
-
-	// Create tmux window
-	windowName := fmt.Sprintf("%s-%d", provider, time.Now().Unix())
-	windowInfo, err := s.sessions.tmux.CreateWindow(windowName, workDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create terminal window: %w", err)
-	}
-
-	// Create database session (all sessions are terminal type now)
+	// Create database session (terminal transport)
 	dbSession, err := s.db.CreateSession(db.CreateSessionInput{
 		TaskID:      task.ID,
 		Provider:    provider,
 		SessionType: "terminal",
-		TmuxWindow:  &windowInfo.Window,
-		TmuxPane:    &windowInfo.Pane,
 	})
 	if err != nil {
-		s.sessions.tmux.DestroyWindow(windowInfo.Window)
 		return nil, fmt.Errorf("failed to create session record")
 	}
 
 	// Generate a scoped JWT token for hook callbacks
 	hookToken, err := s.auth.GenerateHookToken(dbSession.ID)
 	if err != nil {
-		s.sessions.tmux.DestroyWindow(windowInfo.Window)
 		s.db.DeleteSession(dbSession.ID)
 		return nil, fmt.Errorf("failed to generate hook token")
 	}
@@ -263,8 +204,7 @@ func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*
 		apiURL = "http://localhost:8080"
 	}
 
-	target := windowInfo.Target
-
+	var notifyScript string
 	switch provider {
 	case "claude":
 		// Write Claude Code hooks config to workDir
@@ -272,80 +212,59 @@ func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*
 			slog.Warn("failed to write Claude hooks", "session_id", dbSession.ID, "error", err)
 		}
 
-		// Build claude command
-		var cmd string
-		if req.ResumeSessionID != "" {
-			// Resuming a previous session
-			oldSession, err := s.db.GetSession(req.ResumeSessionID)
-			if err == nil && oldSession.ProviderSessionID != nil && *oldSession.ProviderSessionID != "" {
-				cmd = fmt.Sprintf("claude --dangerously-skip-permissions --resume %s", *oldSession.ProviderSessionID)
-				slog.Info("resuming claude session", "session_id", dbSession.ID, "provider_session_id", *oldSession.ProviderSessionID)
-			} else {
-				cmd = "claude --dangerously-skip-permissions --continue"
-				slog.Info("resuming claude session with --continue", "session_id", dbSession.ID)
-			}
-		} else if req.Prompt != "" {
-			cmd = fmt.Sprintf("claude --dangerously-skip-permissions %q", req.Prompt)
-			if req.Model != "" {
-				cmd = fmt.Sprintf("claude --dangerously-skip-permissions --model %s %q", req.Model, req.Prompt)
-			}
-		} else {
-			cmd = "claude --dangerously-skip-permissions"
-			if req.Model != "" {
-				cmd = fmt.Sprintf("claude --dangerously-skip-permissions --model %s", req.Model)
-			}
-		}
-		if err := s.sessions.tmux.SendKeys(target, cmd, true); err != nil {
-			slog.Error("failed to inject claude command", "session_id", dbSession.ID, "error", err)
-		}
-
 	case "codex":
 		// Write codex notify script (outside worktree to avoid git noise)
-		notifyScript, err := writeCodexNotifyScript(dbSession.ID, tokenPath, apiURL)
+		notifyScript, err = writeCodexNotifyScript(dbSession.ID, tokenPath, apiURL)
 		if err != nil {
 			slog.Warn("failed to write codex notify script", "session_id", dbSession.ID, "error", err)
 		}
+	}
 
-		// Inject codex command using -c to set notify via config override
-		notifyFlag := fmt.Sprintf(`-c 'notify=["%s"]'`, notifyScript)
-		var cmd string
-		if req.Prompt != "" {
-			cmd = fmt.Sprintf("codex --full-auto %s %q", notifyFlag, req.Prompt)
-			if req.Model != "" {
-				cmd = fmt.Sprintf("codex --full-auto --model %s %s %q", req.Model, notifyFlag, req.Prompt)
-			}
+	var resumeProviderSessionID string
+	if req.Provider == "claude" && req.ResumeSessionID != "" {
+		oldSession, err := s.db.GetSession(req.ResumeSessionID)
+		if err == nil && oldSession.ProviderSessionID != nil && *oldSession.ProviderSessionID != "" {
+			resumeProviderSessionID = *oldSession.ProviderSessionID
+			slog.Info("resuming claude session", "session_id", dbSession.ID, "provider_session_id", resumeProviderSessionID)
 		} else {
-			cmd = fmt.Sprintf("codex --full-auto %s", notifyFlag)
-			if req.Model != "" {
-				cmd = fmt.Sprintf("codex --full-auto --model %s %s", req.Model, notifyFlag)
-			}
+			slog.Info("resuming claude session with --continue", "session_id", dbSession.ID)
 		}
-		if err := s.sessions.tmux.SendKeys(target, cmd, true); err != nil {
-			slog.Error("failed to inject codex command", "session_id", dbSession.ID, "error", err)
-		}
+	}
 
-	case "terminal":
-		// Inject command if provided (e.g. justfile recipe execution)
-		if req.Prompt != "" {
-			if err := s.sessions.tmux.SendKeys(target, req.Prompt, true); err != nil {
-				slog.Error("failed to inject terminal command", "session_id", dbSession.ID, "error", err)
-			}
-		}
+	command, args := buildSessionCommand(req, notifyScript, resumeProviderSessionID)
+	startErr := s.sessions.runtime.Start(dbSession.ID, ptyruntime.StartOptions{
+		WorkDir: workDir,
+		Command: command,
+		Args:    args,
+		OnExit: func(result ptyruntime.ExitResult) {
+			s.handleRuntimeExit(task.ID, result)
+		},
+	})
+	if startErr != nil {
+		removeHookToken(dbSession.ID)
+		removeNotifyScript(dbSession.ID)
+		s.db.DeleteSession(dbSession.ID)
+		return nil, fmt.Errorf("failed to start runtime process: %w", startErr)
 	}
 
 	// Update status to running
 	runningStatus := db.SessionStatusRunning
-	s.db.UpdateSession(dbSession.ID, db.UpdateSessionInput{
+	if _, err := s.db.UpdateSession(dbSession.ID, db.UpdateSessionInput{
 		Status: &runningStatus,
-	})
+	}); err != nil {
+		_ = s.sessions.runtime.Stop(dbSession.ID)
+		removeHookToken(dbSession.ID)
+		removeNotifyScript(dbSession.ID)
+		_ = s.db.DeleteSession(dbSession.ID)
+		return nil, fmt.Errorf("failed to update session status: %w", err)
+	}
 
 	// Store in-memory session
 	execSession := &Session{
-		ID:         dbSession.ID,
-		Provider:   provider,
-		Status:     db.SessionStatusRunning,
-		TmuxWindow: windowInfo.Window,
-		TmuxPane:   windowInfo.Pane,
+		ID:       dbSession.ID,
+		Provider: provider,
+		Status:   db.SessionStatusRunning,
+		WorkDir:  workDir,
 	}
 	s.sessions.mu.Lock()
 	s.sessions.sessions[dbSession.ID] = execSession
@@ -411,9 +330,8 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// All sessions use tmux for message delivery
-	target := fmt.Sprintf("%s:%s.%s", tmux.SessionName, execSession.TmuxWindow, execSession.TmuxPane)
-	if err := s.sessions.tmux.SendKeys(target, req.Content, true); err != nil {
+	// Deliver message to runtime process
+	if err := s.sessions.runtime.Write(id, []byte(req.Content+"\n")); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to send message: "+err.Error())
 		return
 	}
@@ -442,25 +360,22 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Update status
+	completedStatus := db.SessionStatusCompleted
+	s.db.UpdateSession(id, db.UpdateSessionInput{
+		Status: &completedStatus,
+	})
+
 	// Try to get from in-memory map (with DB fallback)
 	execSession := s.sessions.getOrRestore(id, s.db)
 	if execSession != nil {
 		s.sessions.mu.Lock()
 		delete(s.sessions.sessions, id)
 		s.sessions.mu.Unlock()
-		s.sessions.tmux.DestroyWindow(execSession.TmuxWindow)
-	} else if dbSession.TmuxWindow != nil {
-		// Best-effort cleanup: try killing tmux window from DB record
-		if err := s.sessions.tmux.DestroyWindow(*dbSession.TmuxWindow); err != nil {
-			slog.Debug("best-effort tmux window cleanup failed", "session_id", id, "tmux_window", *dbSession.TmuxWindow, "error", err)
-		}
 	}
-
-	// Update status
-	completedStatus := db.SessionStatusCompleted
-	s.db.UpdateSession(id, db.UpdateSessionInput{
-		Status: &completedStatus,
-	})
+	if err := s.sessions.runtime.Stop(id); err != nil && !errors.Is(err, ptyruntime.ErrSessionNotFound) {
+		slog.Debug("runtime stop failed", "session_id", id, "error", err)
+	}
 
 	// Clean up token and script files
 	removeHookToken(id)
@@ -486,17 +401,19 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Stop if still active (destroy tmux window, clean up in-memory state)
+	// Mark completed before stopping to avoid race with exit callback status.
+	completedStatus := db.SessionStatusCompleted
+	_, _ = s.db.UpdateSession(id, db.UpdateSessionInput{Status: &completedStatus})
+
+	// Stop if still active
 	execSession := s.sessions.getOrRestore(id, s.db)
 	if execSession != nil {
 		s.sessions.mu.Lock()
 		delete(s.sessions.sessions, id)
 		s.sessions.mu.Unlock()
-		s.sessions.tmux.DestroyWindow(execSession.TmuxWindow)
-	} else if dbSession.TmuxWindow != nil {
-		if err := s.sessions.tmux.DestroyWindow(*dbSession.TmuxWindow); err != nil {
-			slog.Debug("best-effort tmux window cleanup failed", "session_id", id, "error", err)
-		}
+	}
+	if err := s.sessions.runtime.Stop(id); err != nil && !errors.Is(err, ptyruntime.ErrSessionNotFound) {
+		slog.Debug("runtime stop failed", "session_id", id, "error", err)
 	}
 
 	// Clean up token and script files
@@ -540,7 +457,7 @@ func (sm *SessionManager) setSessionRunning(sessionID string, database *db.DB, w
 }
 
 // StartCleanupLoop runs a background goroutine that detects zombie sessions
-// (sessions in-memory whose tmux windows have disappeared) and marks them completed.
+// (sessions in-memory whose runtime process has disappeared) and marks them completed.
 func (sm *SessionManager) StartCleanupLoop(database *db.DB, wsHub *WSHub) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -563,8 +480,8 @@ func (sm *SessionManager) StartCleanupLoop(database *db.DB, wsHub *WSHub) {
 				continue
 			}
 
-			if !sm.tmux.WindowExists(session.TmuxWindow) {
-				// Window gone — clean up
+			if !sm.runtime.Exists(id) {
+				// Process gone — clean up
 				sm.mu.Lock()
 				delete(sm.sessions, id)
 				sm.mu.Unlock()
@@ -590,6 +507,94 @@ func (sm *SessionManager) StartCleanupLoop(database *db.DB, wsHub *WSHub) {
 
 		slog.Debug("cleanup tick", "checked", len(ids), "cleaned", cleaned)
 	}
+}
+
+func buildSessionCommand(req StartSessionRequest, notifyScript, resumeProviderSessionID string) (string, []string) {
+	switch req.Provider {
+	case "claude":
+		args := []string{"--dangerously-skip-permissions"}
+		if req.Model != "" {
+			args = append(args, "--model", req.Model)
+		}
+		if req.ResumeSessionID != "" {
+			if resumeProviderSessionID != "" {
+				args = append(args, "--resume", resumeProviderSessionID)
+			} else {
+				args = append(args, "--continue")
+			}
+		}
+		if req.Prompt != "" {
+			args = append(args, req.Prompt)
+		}
+		return "claude", args
+
+	case "codex":
+		args := []string{"--full-auto"}
+		if req.Model != "" {
+			args = append(args, "--model", req.Model)
+		}
+		if notifyScript != "" {
+			args = append(args, "-c", fmt.Sprintf(`notify=["%s"]`, notifyScript))
+		}
+		if req.Prompt != "" {
+			args = append(args, req.Prompt)
+		}
+		return "codex", args
+
+	default: // terminal
+		shell := os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/bash"
+		}
+		if req.Prompt != "" {
+			return shell, []string{"-lc", req.Prompt}
+		}
+		return shell, []string{"-i"}
+	}
+}
+
+func (s *Server) handleRuntimeExit(taskID string, result ptyruntime.ExitResult) {
+	status := db.SessionStatusCompleted
+	if result.ExitCode != 0 {
+		status = db.SessionStatusError
+	}
+	existing, err := s.db.GetSession(result.SessionID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			s.sessions.mu.Lock()
+			delete(s.sessions.sessions, result.SessionID)
+			s.sessions.mu.Unlock()
+			return
+		}
+		slog.Warn("failed to load session on runtime exit", "session_id", result.SessionID, "error", err)
+	}
+	if existing != nil && existing.Status == db.SessionStatusCompleted {
+		status = db.SessionStatusCompleted
+	}
+
+	if _, err := s.db.UpdateSession(result.SessionID, db.UpdateSessionInput{Status: &status}); err != nil {
+		slog.Warn("failed to update session status on runtime exit", "session_id", result.SessionID, "error", err)
+	}
+
+	s.sessions.mu.Lock()
+	delete(s.sessions.sessions, result.SessionID)
+	s.sessions.mu.Unlock()
+
+	removeHookToken(result.SessionID)
+	removeNotifyScript(result.SessionID)
+
+	s.wsHub.BroadcastToSession(result.SessionID, "status_changed", map[string]string{
+		"status": string(status),
+	})
+	s.wsHub.BroadcastToTask(taskID, "session_status_changed", map[string]string{
+		"sessionId": result.SessionID,
+		"status":    string(status),
+	})
+	s.wsHub.BroadcastGlobal("sidebar_update", map[string]string{
+		"taskId":    taskID,
+		"sessionId": result.SessionID,
+		"status":    string(status),
+	})
 }
 
 // writeHookToken writes a scoped token to ~/.codeburg/tokens/{sessionID} and returns the path.

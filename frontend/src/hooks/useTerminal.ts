@@ -37,7 +37,6 @@ const MAX_RETRIES = 5;
 const RETRY_DELAYS = [1000, 2000, 4000, 8000, 16000];
 
 interface UseTerminalOptions {
-  sessionId?: string;
   sessionStatus?: string;
   debug?: boolean;
   onDebugEvent?: (message: string) => void;
@@ -59,7 +58,7 @@ export interface UseTerminalReturn {
 
 export function useTerminal(
   containerRef: React.RefObject<HTMLDivElement | null>,
-  target: string,
+  sessionId: string,
   options?: UseTerminalOptions,
 ): UseTerminalReturn {
   const termRef = useRef<Terminal | null>(null);
@@ -90,12 +89,8 @@ export function useTerminal(
   // Build the WebSocket URL (stable across reconnects)
   const wsUrl = useCallback(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    let url = `${protocol}//${window.location.host}/ws/terminal?target=${encodeURIComponent(target)}`;
-    if (options?.sessionId) {
-      url += `&session=${encodeURIComponent(options.sessionId)}`;
-    }
-    return url;
-  }, [target, options?.sessionId]);
+    return `${protocol}//${window.location.host}/ws/terminal?session=${encodeURIComponent(sessionId)}`;
+  }, [sessionId]);
 
   // Connect (or reconnect) the WebSocket to an existing Terminal
   const connectWS = useCallback((term: Terminal) => {
@@ -328,7 +323,7 @@ export function useTerminal(
       term.dispose();
       termRef.current = null;
     };
-  }, [target, options?.sessionId, containerRef, connectWS, settings.fontSize, settings.scrollback, settings.cursorStyle, settings.cursorBlink, settings.webLinks, settings.webgl]);
+  }, [sessionId, containerRef, connectWS, settings.fontSize, settings.scrollback, settings.cursorStyle, settings.cursorBlink, settings.webLinks, settings.webgl]);
 
   // Re-fit on container resize
   useEffect(() => {

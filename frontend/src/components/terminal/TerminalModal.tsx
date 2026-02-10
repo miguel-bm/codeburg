@@ -5,11 +5,12 @@ import { TerminalToolbar } from './TerminalToolbar';
 import { TerminalContextMenu } from './TerminalContextMenu';
 
 interface TerminalModalProps {
-  target: string; // tmux target (e.g., "codeburg:@1.%1")
+  sessionId: string;
+  title?: string;
   onClose: () => void;
 }
 
-export function TerminalModal({ target, onClose }: TerminalModalProps) {
+export function TerminalModal({ sessionId, title, onClose }: TerminalModalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const debugEnabled = useMemo(() => {
     try {
@@ -23,7 +24,7 @@ export function TerminalModal({ target, onClose }: TerminalModalProps) {
   const pushDebug = (message: string) => {
     setDebugEvents((prev) => [message, ...prev].slice(0, 6));
   };
-  const { sendInput, actions } = useTerminal(terminalRef, target, { debug: debugEnabled, onDebugEvent: pushDebug });
+  const { sendInput, actions } = useTerminal(terminalRef, sessionId, { debug: debugEnabled, onDebugEvent: pushDebug });
   const isMobile = useMobile();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
@@ -44,7 +45,7 @@ export function TerminalModal({ target, onClose }: TerminalModalProps) {
       <div className="flex items-center justify-between px-4 py-2 border-b border-subtle bg-secondary">
         <div className="flex items-center gap-4">
           <span className="text-sm font-medium">Terminal</span>
-          <span className="text-xs text-dim font-mono">{target}</span>
+          <span className="text-xs text-dim font-mono">{title || sessionId}</span>
         </div>
         <div className="flex items-center gap-4">
           <span className="text-xs text-dim">Ctrl+Esc to close</span>

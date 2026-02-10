@@ -5,12 +5,11 @@ import { TerminalToolbar } from '../terminal/TerminalToolbar';
 import { TerminalContextMenu } from '../terminal/TerminalContextMenu';
 
 interface TerminalViewProps {
-  target: string; // tmux target (e.g., "codeburg:@1.%1")
-  sessionId?: string; // Codeburg session ID for activity tracking
+  sessionId: string;
   sessionStatus?: string; // Current session status (for retry suppression)
 }
 
-export function TerminalView({ target, sessionId, sessionStatus }: TerminalViewProps) {
+export function TerminalView({ sessionId, sessionStatus }: TerminalViewProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const debugEnabled = useMemo(() => {
     try {
@@ -24,7 +23,7 @@ export function TerminalView({ target, sessionId, sessionStatus }: TerminalViewP
   const pushDebug = (message: string) => {
     setDebugEvents((prev) => [message, ...prev].slice(0, 6));
   };
-  const { sendInput, actions } = useTerminal(terminalRef, target, { sessionId, sessionStatus, debug: debugEnabled, onDebugEvent: pushDebug });
+  const { sendInput, actions } = useTerminal(terminalRef, sessionId, { sessionStatus, debug: debugEnabled, onDebugEvent: pushDebug });
   const isMobile = useMobile();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 

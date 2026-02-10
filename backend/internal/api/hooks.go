@@ -2,11 +2,13 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/miguel-bm/codeburg/internal/db"
+	"github.com/miguel-bm/codeburg/internal/ptyruntime"
 )
 
 // HookPayload represents the JSON data from a Claude Code hook or Codex notify callback.
@@ -108,6 +110,9 @@ func (s *Server) handleSessionHook(w http.ResponseWriter, r *http.Request) {
 		s.sessions.mu.Lock()
 		delete(s.sessions.sessions, sessionID)
 		s.sessions.mu.Unlock()
+		if err := s.sessions.runtime.Stop(sessionID); err != nil && !errors.Is(err, ptyruntime.ErrSessionNotFound) {
+			slog.Debug("runtime stop failed on hook completion", "session_id", sessionID, "error", err)
+		}
 		removeHookToken(sessionID)
 		removeNotifyScript(sessionID)
 	}

@@ -13,8 +13,7 @@ type Session struct {
 	ProviderSessionID string
 	Provider          string
 	Status            db.SessionStatus
-	TmuxWindow        string
-	TmuxPane          string
+	WorkDir           string
 	LastActivityAt    time.Time
 	mu                sync.Mutex
 }

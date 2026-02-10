@@ -6,18 +6,6 @@ interface SessionViewProps {
 }
 
 export function SessionView({ session }: SessionViewProps) {
-  const tmuxTarget = session.tmuxWindow
-    ? `codeburg:${session.tmuxWindow}${session.tmuxPane ? '.' + session.tmuxPane : ''}`
-    : undefined;
-
-  if (!tmuxTarget) {
-    return (
-      <div className="flex items-center justify-center h-full text-dim">
-          No terminal target
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col h-full">
       {/* Status Bar */}
@@ -36,7 +24,7 @@ export function SessionView({ session }: SessionViewProps) {
 
       {/* Terminal */}
       <div className="flex-1 overflow-hidden">
-        <TerminalView target={tmuxTarget} sessionId={session.id} sessionStatus={session.status} />
+        <TerminalView sessionId={session.id} sessionStatus={session.status} />
       </div>
     </div>
   );

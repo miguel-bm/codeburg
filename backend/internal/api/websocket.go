@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -27,11 +26,11 @@ type WSMessage struct {
 
 // WSClient represents a WebSocket client connection
 type WSClient struct {
-	hub     *WSHub
-	conn    *websocket.Conn
-	send    chan []byte
-	subs    map[string]bool // Subscribed channels (e.g., "session:123")
-	mu      sync.Mutex
+	hub  *WSHub
+	conn *websocket.Conn
+	send chan []byte
+	subs map[string]bool // Subscribed channels (e.g., "session:123")
+	mu   sync.Mutex
 }
 
 // WSHub manages all WebSocket connections
@@ -339,9 +338,7 @@ func (s *Server) handleWSMessage(sessionID string, content string) {
 		return
 	}
 
-	// All sessions use tmux for message delivery
-	target := fmt.Sprintf("%s:%s.%s", "codeburg", execSession.TmuxWindow, execSession.TmuxPane)
-	if err := s.sessions.tmux.SendKeys(target, content, true); err != nil {
+	if err := s.sessions.runtime.Write(sessionID, []byte(content+"\n")); err != nil {
 		slog.Error("failed to send websocket message to session", "session_id", sessionID, "error", err)
 		s.wsHub.BroadcastToSession(sessionID, "error", map[string]string{
 			"message": "Failed to deliver message: " + err.Error(),
