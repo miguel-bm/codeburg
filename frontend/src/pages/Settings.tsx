@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { startRegistration } from '@simplewebauthn/browser';
-import { ChevronLeft, AlertCircle, CheckCircle2, Fingerprint, Trash2, Pencil, Volume2, Bell, Terminal, Code2, Lock, Send, Keyboard, Search, X, LogOut } from 'lucide-react';
+import { ChevronLeft, AlertCircle, CheckCircle2, Fingerprint, Trash2, Pencil, Volume2, Bell, Terminal, Code2, Lock, Send, Keyboard, Search, X, LogOut, ArrowUp, ArrowDown } from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
 import { authApi, preferencesApi } from '../api';
 import type { EditorType } from '../api';
@@ -47,6 +47,7 @@ export function Settings() {
   const logout = useAuthStore((s) => s.logout);
   const [search, setSearch] = useState('');
   const [activeSectionId, setActiveSectionId] = useState('notifications');
+  const [searchInputUnlocked, setSearchInputUnlocked] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const sections = useMemo<SettingsSection[]>(() => ([
@@ -133,18 +134,6 @@ export function Settings() {
     });
   }, [sections, normalizedSearch]);
 
-  const activeSection = filteredSections.find((section) => section.id === activeSectionId)
-    ?? filteredSections[0]
-    ?? null;
-  const activeSectionIndex = filteredSections.findIndex((section) => section.id === activeSection?.id);
-  const sectionSelectOptions = useMemo<SelectOption<string>[]>(() => (
-    filteredSections.map((section) => ({
-      value: section.id,
-      label: section.title,
-      description: SETTINGS_GROUP_LABELS[section.group],
-    }))
-  ), [filteredSections]);
-
   const groupedSections = useMemo(() => (
     SETTINGS_GROUP_ORDER
       .map((group) => ({
@@ -155,17 +144,35 @@ export function Settings() {
       .filter((group) => group.items.length > 0)
   ), [filteredSections]);
 
+  const orderedFilteredSections = useMemo(
+    () => groupedSections.flatMap((group) => group.items),
+    [groupedSections],
+  );
+
+  const activeSection = orderedFilteredSections.find((section) => section.id === activeSectionId)
+    ?? orderedFilteredSections[0]
+    ?? null;
+  const activeSectionIndex = orderedFilteredSections.findIndex((section) => section.id === activeSection?.id);
+  const sectionSelectOptions = useMemo<SelectOption<string>[]>(() => (
+    orderedFilteredSections.map((section) => ({
+      value: section.id,
+      label: section.title,
+      description: SETTINGS_GROUP_LABELS[section.group],
+    }))
+  ), [orderedFilteredSections]);
+
   useEffect(() => {
     const handleKeydown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
         e.preventDefault();
+        setSearchInputUnlocked(true);
         searchInputRef.current?.focus();
         searchInputRef.current?.select();
         return;
       }
 
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-      if (filteredSections.length === 0) return;
+      if (orderedFilteredSections.length === 0) return;
 
       const target = e.target as HTMLElement | null;
       const tagName = target?.tagName.toLowerCase();
@@ -182,14 +189,14 @@ export function Settings() {
       e.preventDefault();
       const currentIndex = activeSectionIndex >= 0 ? activeSectionIndex : 0;
       const nextIndex = e.key === 'ArrowDown'
-        ? (currentIndex + 1) % filteredSections.length
-        : (currentIndex - 1 + filteredSections.length) % filteredSections.length;
-      setActiveSectionId(filteredSections[nextIndex].id);
+        ? (currentIndex + 1) % orderedFilteredSections.length
+        : (currentIndex - 1 + orderedFilteredSections.length) % orderedFilteredSections.length;
+      setActiveSectionId(orderedFilteredSections[nextIndex].id);
     };
 
     window.addEventListener('keydown', handleKeydown);
     return () => window.removeEventListener('keydown', handleKeydown);
-  }, [filteredSections, activeSectionIndex]);
+  }, [orderedFilteredSections, activeSectionIndex]);
 
   return (
     <Layout>
@@ -217,42 +224,55 @@ export function Settings() {
                 className="border border-subtle rounded-2xl bg-secondary overflow-hidden md:sticky md:top-4"
                 style={{ boxShadow: '0 10px 30px oklch(0.08 0 0 / 0.25)' }}
               >
-                <div
-                  className="px-4 py-3 border-b border-subtle"
-                  style={{ backgroundImage: 'linear-gradient(180deg, color-mix(in oklab, var(--color-bg-elevated) 88%, transparent), transparent)' }}
-                >
+                <div className="px-4 py-3 border-b border-subtle">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-[11px] uppercase tracking-[0.08em] text-dim">All Settings</p>
-                    <p className="text-xs text-dim">{filteredSections.length}</p>
+                    <p className="text-xs font-medium text-[var(--color-text-primary)]">All settings</p>
+                    <p className="text-xs text-[var(--color-text-secondary)]">{orderedFilteredSections.length}</p>
                   </div>
                   <div className="relative">
-                    <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim" />
+                    <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-text-secondary)]" />
                     <input
                       ref={searchInputRef}
                       id="settings-search"
                       type="text"
+                      name="q_settings_filter"
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
+                      onFocus={() => {
+                        if (!searchInputUnlocked) {
+                          setSearchInputUnlocked(true);
+                        }
+                      }}
                       placeholder="Search settings"
+                      readOnly={!searchInputUnlocked}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      inputMode="search"
+                      data-form-type="other"
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      data-bwignore="true"
                       className="w-full pl-8 pr-9 py-2 rounded-xl border border-subtle bg-primary text-sm text-[var(--color-text-primary)] focus:outline-none focus:border-accent transition-colors"
                     />
                     {search && (
                       <button
                         onClick={() => setSearch('')}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-dim hover:text-[var(--color-text-primary)]"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
                         aria-label="Clear search"
                       >
                         <X size={14} />
                       </button>
                     )}
                   </div>
-                  <p className="text-[10px] text-dim mt-2">
-                    <kbd className="px-1 py-0.5 rounded border border-subtle bg-secondary">Ctrl/Cmd+F</kbd>
+                  <p className="text-[10px] text-[var(--color-text-secondary)] mt-2 flex items-center gap-1.5 flex-wrap">
+                    <kbd className="px-1 py-0.5 rounded border border-subtle bg-secondary text-[var(--color-text-primary)]">Ctrl/Cmd+F</kbd>
                     {' '}search
                     {' \u00b7 '}
-                    <kbd className="px-1 py-0.5 rounded border border-subtle bg-secondary">\u2191</kbd>
+                    <kbd className="px-1 py-0.5 rounded border border-subtle bg-secondary text-[var(--color-text-primary)] inline-flex items-center"><ArrowUp size={11} /></kbd>
                     {' '}
-                    <kbd className="px-1 py-0.5 rounded border border-subtle bg-secondary">\u2193</kbd>
+                    <kbd className="px-1 py-0.5 rounded border border-subtle bg-secondary text-[var(--color-text-primary)] inline-flex items-center"><ArrowDown size={11} /></kbd>
                     {' '}navigate
                   </p>
                 </div>
@@ -262,9 +282,9 @@ export function Settings() {
                     <p className="text-sm text-dim px-1 py-2">No sections match your search.</p>
                   ) : (
                     <div>
-                      <p className="text-[11px] uppercase tracking-[0.08em] text-dim mb-2 px-1">Section</p>
+                      <p className="text-xs text-[var(--color-text-primary)] mb-2 px-1">Section</p>
                       <Select
-                        value={activeSection?.id ?? filteredSections[0].id}
+                        value={activeSection?.id ?? orderedFilteredSections[0].id}
                         onChange={setActiveSectionId}
                         options={sectionSelectOptions}
                         className="[&>button]:rounded-xl [&>button]:py-2.5"
@@ -275,11 +295,11 @@ export function Settings() {
 
                 <nav className="hidden md:block p-2 max-h-[calc(100vh-14rem)] overflow-y-auto">
                   {groupedSections.length === 0 ? (
-                    <p className="text-sm text-dim px-2 py-3">No sections match your search.</p>
+                    <p className="text-sm text-[var(--color-text-secondary)] px-2 py-3">No sections match your search.</p>
                   ) : (
                     groupedSections.map((group) => (
                       <div key={group.group} className="mb-2.5 last:mb-0">
-                        <p className="px-2 py-1 text-[10px] uppercase tracking-[0.1em] text-dim">
+                        <p className="px-2 py-1 text-[11px] text-[var(--color-text-secondary)]">
                           {group.label}
                         </p>
                         <div className="space-y-1">
@@ -299,16 +319,16 @@ export function Settings() {
                                   className={`mt-0.5 flex h-7 w-7 items-center justify-center rounded-[10px] border transition-colors ${
                                     activeSection?.id === section.id
                                       ? 'border-accent/50 bg-accent/20 text-accent'
-                                      : 'border-subtle bg-primary text-dim group-hover:text-[var(--color-text-primary)]'
+                                      : 'border-subtle bg-primary text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-primary)]'
                                   }`}
                                 >
                                   {section.icon}
                                 </span>
                                 <div className="min-w-0">
-                                  <p className={`text-sm leading-tight ${activeSection?.id === section.id ? 'text-[var(--color-text-primary)]' : 'text-dim group-hover:text-[var(--color-text-primary)]'}`}>
+                                  <p className={`text-sm leading-tight ${activeSection?.id === section.id ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-primary)]'}`}>
                                     {section.title}
                                   </p>
-                                  <p className="text-xs text-dim mt-1 line-clamp-2">{section.description}</p>
+                                  <p className="text-xs text-[var(--color-text-secondary)] mt-1 line-clamp-2">{section.description}</p>
                                 </div>
                               </div>
                             </button>
@@ -326,7 +346,7 @@ export function Settings() {
                     <div className="px-1 md:px-0">
                       <div className="inline-flex items-center gap-2 rounded-full px-2.5 py-1 border border-subtle bg-secondary">
                         <span className="text-accent">{activeSection.icon}</span>
-                        <span className="text-xs text-dim uppercase tracking-[0.08em]">{SETTINGS_GROUP_LABELS[activeSection.group]}</span>
+                        <span className="text-xs text-[var(--color-text-secondary)]">{SETTINGS_GROUP_LABELS[activeSection.group]}</span>
                       </div>
                       <h2 className="text-sm font-semibold text-[var(--color-text-primary)] mt-2">{activeSection.title}</h2>
                       <p className="text-xs text-dim mt-0.5">{activeSection.description}</p>

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Check } from 'lucide-react';
 
 export interface SelectOption<T extends string = string> {
@@ -25,22 +26,78 @@ export function Select<T extends string = string>({
   const [open, setOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties | null>(null);
 
   const selectedOption = options.find((o) => o.value === value);
   const selectedIndex = options.findIndex((o) => o.value === value);
+
+  const updateDropdownPosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 8;
+    const gap = 6;
+    const availableBelow = window.innerHeight - rect.bottom - viewportPadding - gap;
+    const availableAbove = rect.top - viewportPadding - gap;
+    const openAbove = availableBelow < 180 && availableAbove > availableBelow;
+
+    const width = Math.min(rect.width, window.innerWidth - viewportPadding * 2);
+    const left = Math.min(
+      Math.max(rect.left, viewportPadding),
+      window.innerWidth - width - viewportPadding,
+    );
+
+    const maxHeight = Math.max(
+      140,
+      Math.min(320, openAbove ? availableAbove : availableBelow),
+    );
+    const top = openAbove
+      ? Math.max(viewportPadding, rect.top - gap - maxHeight)
+      : Math.min(window.innerHeight - viewportPadding - maxHeight, rect.bottom + gap);
+
+    setDropdownStyle({
+      position: 'fixed',
+      top,
+      left,
+      width,
+      maxHeight,
+      zIndex: 1000,
+    });
+  }, []);
 
   // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (containerRef.current?.contains(target) || listRef.current?.contains(target)) {
+        return;
+      }
+      if (containerRef.current) {
         setOpen(false);
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
+
+  // Keep portal dropdown aligned with trigger while open
+  useEffect(() => {
+    if (!open) return;
+
+    updateDropdownPosition();
+    const handleReposition = () => updateDropdownPosition();
+
+    window.addEventListener('resize', handleReposition);
+    window.addEventListener('scroll', handleReposition, true);
+    return () => {
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
+    };
+  }, [open, updateDropdownPosition]);
 
   // Reset focused index when opening
   useEffect(() => {
@@ -103,6 +160,7 @@ export function Select<T extends string = string>({
     <div ref={containerRef} className={`relative ${className}`}>
       {/* Trigger */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         onKeyDown={handleKeyDown}
@@ -129,17 +187,18 @@ export function Select<T extends string = string>({
       </button>
 
       {/* Dropdown */}
-      {open && (
+      {open && dropdownStyle && createPortal(
         <div
           ref={listRef}
           role="listbox"
           aria-activedescendant={focusedIndex >= 0 ? `select-opt-${focusedIndex}` : undefined}
           className="
-            absolute z-50 mt-1 w-full
+            z-[1000]
             rounded-md border border-subtle bg-elevated
             shadow-lg shadow-black/30
             py-1 max-h-60 overflow-y-auto
           "
+          style={dropdownStyle}
         >
           {options.map((opt, i) => {
             const isSelected = opt.value === value;
@@ -175,7 +234,8 @@ export function Select<T extends string = string>({
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
