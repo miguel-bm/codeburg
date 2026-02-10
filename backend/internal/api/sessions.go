@@ -56,6 +56,7 @@ func (sm *SessionManager) getOrRestore(sessionID string, database *db.DB) *Sessi
 	// Restore to in-memory map
 	restored := &Session{
 		ID:       dbSession.ID,
+		TaskID:   dbSession.TaskID,
 		Provider: dbSession.Provider,
 		Status:   dbSession.Status,
 	}
@@ -242,6 +243,9 @@ func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*
 		WorkDir: workDir,
 		Command: command,
 		Args:    args,
+		OnOutput: func(sessionID string, chunk []byte) {
+			s.portSuggest.IngestOutput(task.ID, sessionID, chunk)
+		},
 		OnExit: func(result ptyruntime.ExitResult) {
 			s.handleRuntimeExit(task.ID, result)
 		},
@@ -268,6 +272,7 @@ func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*
 	// Store in-memory session
 	execSession := &Session{
 		ID:       dbSession.ID,
+		TaskID:   task.ID,
 		Provider: provider,
 		Status:   db.SessionStatusRunning,
 		WorkDir:  workDir,
@@ -414,6 +419,7 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 	// Clean up token and script files
 	removeHookToken(id)
 	removeNotifyScript(id)
+	s.portSuggest.ForgetSession(id)
 
 	// Broadcast to WebSocket
 	s.wsHub.BroadcastToSession(id, "session_stopped", nil)
@@ -453,6 +459,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	// Clean up token and script files
 	removeHookToken(id)
 	removeNotifyScript(id)
+	s.portSuggest.ForgetSession(id)
 
 	// Remove session log file
 	removeSessionLog(id)
@@ -616,6 +623,7 @@ func (s *Server) handleRuntimeExit(taskID string, result ptyruntime.ExitResult) 
 
 	removeHookToken(result.SessionID)
 	removeNotifyScript(result.SessionID)
+	s.portSuggest.ForgetSession(result.SessionID)
 
 	s.wsHub.BroadcastToSession(result.SessionID, "status_changed", map[string]string{
 		"status": string(status),

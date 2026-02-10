@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/miguel-bm/codeburg/internal/db"
 	"github.com/miguel-bm/codeburg/internal/gitclone"
+	"github.com/miguel-bm/codeburg/internal/portsuggest"
 	"github.com/miguel-bm/codeburg/internal/tunnel"
 	"github.com/miguel-bm/codeburg/internal/worktree"
 )
@@ -62,6 +64,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 		wsHub:       wsHub,
 		sessions:    NewSessionManager(),
 		tunnels:     tunnel.NewManager(),
+		portSuggest: portsuggest.NewManager(nil),
 		gitclone:    gitclone.Config{BaseDir: filepath.Join(tmpDir, "repos")},
 		authLimiter: newLoginRateLimiter(5, 1*time.Minute),
 	}
@@ -310,6 +313,20 @@ func createTestGitRepo(t *testing.T) string {
 	}
 
 	return dir
+}
+
+type fakePortScanner struct {
+	ports []int
+	err   error
+}
+
+func (f *fakePortScanner) ListListeningPorts(_ context.Context) ([]int, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make([]int, len(f.ports))
+	copy(out, f.ports)
+	return out, nil
 }
 
 func TestCreateProject(t *testing.T) {
@@ -920,6 +937,87 @@ func TestListTunnels_Empty(t *testing.T) {
 	decodeResponse(t, resp, &tunnels)
 	if len(tunnels) != 0 {
 		t.Errorf("expected 0 tunnels, got %d", len(tunnels))
+	}
+}
+
+func TestListTaskPortSuggestions_Empty(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "p", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Ports Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	resp := env.get("/api/tasks/" + task.ID + "/port-suggestions")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	var body struct {
+		Suggestions []map[string]interface{} `json:"suggestions"`
+	}
+	decodeResponse(t, resp, &body)
+	if len(body.Suggestions) != 0 {
+		t.Errorf("expected 0 suggestions, got %d", len(body.Suggestions))
+	}
+}
+
+func TestScanTaskPorts_WithFakeScanner(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+	env.server.portSuggest = portsuggest.NewManager(&fakePortScanner{ports: []int{5173, 5432}})
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "p", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Ports Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	scanResp := env.post("/api/tasks/"+task.ID+"/ports/scan", map[string]interface{}{})
+	if scanResp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", scanResp.Code, scanResp.Body.String())
+	}
+
+	resp := env.get("/api/tasks/" + task.ID + "/port-suggestions")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	var body struct {
+		Suggestions []struct {
+			Port    int      `json:"port"`
+			Status  string   `json:"status"`
+			Sources []string `json:"sources"`
+		} `json:"suggestions"`
+	}
+	decodeResponse(t, resp, &body)
+
+	if len(body.Suggestions) != 2 {
+		t.Fatalf("expected 2 suggestions, got %d", len(body.Suggestions))
+	}
+	for _, suggestion := range body.Suggestions {
+		if suggestion.Status != "suggested" {
+			t.Errorf("expected status suggested, got %q", suggestion.Status)
+		}
+		if len(suggestion.Sources) == 0 || suggestion.Sources[0] != "scan" {
+			t.Errorf("expected scan source, got %#v", suggestion.Sources)
+		}
 	}
 }
 

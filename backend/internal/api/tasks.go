@@ -263,6 +263,7 @@ func (s *Server) autoCreateWorktree(task *db.Task, input *db.UpdateTaskInput) (w
 
 	result, err := s.worktree.Create(worktree.CreateOptions{
 		ProjectPath:  project.Path,
+		ProjectID:    project.ID,
 		ProjectName:  project.Name,
 		TaskID:       task.ID,
 		TaskTitle:    task.Title,
@@ -270,6 +271,7 @@ func (s *Server) autoCreateWorktree(task *db.Task, input *db.UpdateTaskInput) (w
 		BaseBranch:   project.DefaultBranch,
 		AdoptBranch:  adoptBranch,
 		SymlinkPaths: project.SymlinkPaths,
+		SecretFiles:  mapSecretFiles(project.SecretFiles),
 		SetupScript:  ptrToString(project.SetupScript),
 	})
 	if err != nil {

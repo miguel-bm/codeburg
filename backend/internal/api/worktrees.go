@@ -45,10 +45,12 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 	// Create worktree
 	result, err := s.worktree.Create(worktree.CreateOptions{
 		ProjectPath:  project.Path,
+		ProjectID:    project.ID,
 		ProjectName:  project.Name,
 		TaskID:       task.ID,
 		BaseBranch:   project.DefaultBranch,
 		SymlinkPaths: project.SymlinkPaths,
+		SecretFiles:  mapSecretFiles(project.SecretFiles),
 		SetupScript:  ptrToString(project.SetupScript),
 	})
 	if err != nil {

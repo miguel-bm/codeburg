@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ChevronDown, ChevronUp, X, Settings, ChevronRight, Pin, GitPullRequest, GitBranch } from 'lucide-react';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import { ChevronDown, ChevronUp, X, Settings, ChevronRight, Pin, GitPullRequest, GitBranch, Funnel } from 'lucide-react';
 import { sidebarApi, tasksApi, preferencesApi, invalidateTaskQueries, TASK_STATUS } from '../../api';
 import type { SidebarProject, SidebarTask, SidebarSession, SidebarData, UpdateTaskResponse } from '../../api';
 import { useWebSocket } from '../../hooks/useWebSocket';
@@ -36,11 +36,14 @@ function countWaiting(data: SidebarData | undefined): number {
 
 export function Sidebar({ onClose, width }: SidebarProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [showCreateProject, setShowCreateProject] = useState(false);
 
   const activeProjectId = searchParams.get('project') || undefined;
+  const projectPageMatch = location.pathname.match(/^\/projects\/([^/]+)(?:\/|$)/);
+  const activeProjectPageId = projectPageMatch?.[1];
 
   const { data: sidebar, isLoading } = useQuery({
     queryKey: ['sidebar'],
@@ -136,13 +139,7 @@ export function Sidebar({ onClose, width }: SidebarProps) {
         const item = focusableItems[sidebarIndex];
         if (!item) return;
         if (item.type === 'project') {
-          // Toggle project filter
-          if (activeProjectId === item.id) {
-            sessionStorage.removeItem('codeburg:active-project');
-            navigate('/');
-          } else {
-            navigate(`/?project=${item.id}`);
-          }
+          navigate(`/projects/${item.id}`);
         } else {
           navigate(`/tasks/${item.id}`);
         }
@@ -152,6 +149,11 @@ export function Sidebar({ onClose, width }: SidebarProps) {
   });
 
   const handleProjectClick = (projectId: string) => {
+    navigate(`/projects/${projectId}`);
+    onClose?.();
+  };
+
+  const handleProjectFilterClick = (projectId: string) => {
     navigate(`/?project=${projectId}`);
     onClose?.();
   };
@@ -232,8 +234,10 @@ export function Sidebar({ onClose, width }: SidebarProps) {
               <SidebarProjectNode
                 key={project.id}
                 project={project}
-                isActive={activeProjectId === project.id}
+                isActive={activeProjectPageId === project.id}
+                isFiltered={location.pathname === '/' && activeProjectId === project.id}
                 onProjectClick={handleProjectClick}
+                onProjectFilterClick={handleProjectFilterClick}
                 onClose={onClose}
                 collapseSignal={collapseSignal}
                 forceCollapsed={allCollapsed}
@@ -275,7 +279,9 @@ export function Sidebar({ onClose, width }: SidebarProps) {
 interface SidebarProjectNodeProps {
   project: SidebarProject;
   isActive: boolean;
+  isFiltered: boolean;
   onProjectClick: (id: string) => void;
+  onProjectFilterClick: (id: string) => void;
   onClose?: () => void;
   collapseSignal: number;
   forceCollapsed: boolean;
@@ -284,7 +290,7 @@ interface SidebarProjectNodeProps {
   focusedTaskId?: string;
 }
 
-function SidebarProjectNode({ project, isActive, onProjectClick, onClose, collapseSignal, forceCollapsed, onCollapseToggle, keyboardFocused, focusedTaskId }: SidebarProjectNodeProps) {
+function SidebarProjectNode({ project, isActive, isFiltered, onProjectClick, onProjectFilterClick, onClose, collapseSignal, forceCollapsed, onCollapseToggle, keyboardFocused, focusedTaskId }: SidebarProjectNodeProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(() => {
@@ -359,6 +365,17 @@ function SidebarProjectNode({ project, isActive, onProjectClick, onClose, collap
           title={project.pinned ? 'unpin project' : 'pin project'}
         >
           <Pin size={12} />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onProjectFilterClick(project.id); }}
+          className={`flex-shrink-0 transition-colors ${
+            isFiltered
+              ? 'text-accent hover:text-[var(--color-text-primary)]'
+              : 'text-transparent group-hover:text-dim hover:!text-accent'
+          }`}
+          title={isFiltered ? 'project filter active' : 'filter dashboard by project'}
+        >
+          <Funnel size={12} />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.id}/settings`); onClose?.(); }}

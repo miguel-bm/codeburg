@@ -21,6 +21,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/miguel-bm/codeburg/internal/db"
 	"github.com/miguel-bm/codeburg/internal/gitclone"
+	"github.com/miguel-bm/codeburg/internal/portsuggest"
 	"github.com/miguel-bm/codeburg/internal/telegram"
 	"github.com/miguel-bm/codeburg/internal/tunnel"
 	"github.com/miguel-bm/codeburg/internal/worktree"
@@ -68,6 +69,7 @@ type Server struct {
 	wsHub             *WSHub
 	sessions          *SessionManager
 	tunnels           *tunnel.Manager
+	portSuggest       *portsuggest.Manager
 	gitclone          gitclone.Config
 	authLimiter       *loginRateLimiter
 	diffStatsCache    sync.Map // taskID -> diffStatsCacheEntry
@@ -90,6 +92,7 @@ func NewServer(database *db.DB) *Server {
 		wsHub:       wsHub,
 		sessions:    NewSessionManager(),
 		tunnels:     tunnel.NewManager(),
+		portSuggest: portsuggest.NewManager(nil),
 		gitclone:    gitclone.DefaultConfig(),
 		authLimiter: newLoginRateLimiter(5, 1*time.Minute),
 		challenges:  newChallengeStore(),
@@ -193,6 +196,13 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/projects/{id}", s.handleGetProject)
 		r.Patch("/api/projects/{id}", s.handleUpdateProject)
 		r.Delete("/api/projects/{id}", s.handleDeleteProject)
+		r.Get("/api/projects/{id}/files", s.handleListProjectFiles)
+		r.Get("/api/projects/{id}/file", s.handleReadProjectFile)
+		r.Get("/api/projects/{id}/secrets", s.handleGetProjectSecrets)
+		r.Patch("/api/projects/{id}/secrets", s.handlePatchProjectSecrets)
+		r.Get("/api/projects/{id}/secrets/content", s.handleGetProjectSecretContent)
+		r.Put("/api/projects/{id}/secrets/content", s.handlePutProjectSecretContent)
+		r.Post("/api/projects/{id}/secrets/resolve", s.handleResolveProjectSecrets)
 
 		// Branches
 		r.Get("/api/projects/{id}/branches", s.handleListBranches)
@@ -246,6 +256,8 @@ func (s *Server) setupRoutes() {
 		// Tunnels
 		r.Get("/api/tasks/{id}/tunnels", s.handleListTunnels)
 		r.Post("/api/tasks/{id}/tunnels", s.handleCreateTunnel)
+		r.Get("/api/tasks/{id}/port-suggestions", s.handleListTaskPortSuggestions)
+		r.Post("/api/tasks/{id}/ports/scan", s.handleScanTaskPorts)
 		r.Delete("/api/tunnels/{id}", s.handleStopTunnel)
 
 		// Telegram bot management

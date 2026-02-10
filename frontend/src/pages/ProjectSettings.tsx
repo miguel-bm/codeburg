@@ -41,7 +41,7 @@ export function ProjectSettings() {
         <header className="bg-secondary border-b border-subtle px-6 py-4">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => navigate('/')}
+              onClick={() => navigate(`/projects/${project.id}`)}
               className="text-dim hover:text-[var(--color-text-primary)] transition-colors text-sm inline-flex items-center gap-1"
             >
               <ChevronLeft size={16} />

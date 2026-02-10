@@ -24,17 +24,18 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 
 // createProjectRequest extends db.CreateProjectInput with an optional GitHub URL.
 type createProjectRequest struct {
-	Name           string   `json:"name"`
-	Path           string   `json:"path"`
-	GitHubURL      string   `json:"githubUrl"`
-	CreateRepo     bool     `json:"createRepo"`
-	Description    string   `json:"description"`
-	Private        bool     `json:"private"`
-	GitOrigin      *string  `json:"gitOrigin,omitempty"`
-	DefaultBranch  *string  `json:"defaultBranch,omitempty"`
-	SymlinkPaths   []string `json:"symlinkPaths,omitempty"`
-	SetupScript    *string  `json:"setupScript,omitempty"`
-	TeardownScript *string  `json:"teardownScript,omitempty"`
+	Name           string                `json:"name"`
+	Path           string                `json:"path"`
+	GitHubURL      string                `json:"githubUrl"`
+	CreateRepo     bool                  `json:"createRepo"`
+	Description    string                `json:"description"`
+	Private        bool                  `json:"private"`
+	GitOrigin      *string               `json:"gitOrigin,omitempty"`
+	DefaultBranch  *string               `json:"defaultBranch,omitempty"`
+	SymlinkPaths   []string              `json:"symlinkPaths,omitempty"`
+	SecretFiles    []db.SecretFileConfig `json:"secretFiles,omitempty"`
+	SetupScript    *string               `json:"setupScript,omitempty"`
+	TeardownScript *string               `json:"teardownScript,omitempty"`
 }
 
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
@@ -78,6 +79,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 			GitOrigin:      &result.HTTPSURL,
 			DefaultBranch:  &result.DefaultBranch,
 			SymlinkPaths:   req.SymlinkPaths,
+			SecretFiles:    req.SecretFiles,
 			SetupScript:    req.SetupScript,
 			TeardownScript: req.TeardownScript,
 		}
@@ -114,6 +116,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 			GitOrigin:      &normalized,
 			DefaultBranch:  &result.DefaultBranch,
 			SymlinkPaths:   req.SymlinkPaths,
+			SecretFiles:    req.SecretFiles,
 			SetupScript:    req.SetupScript,
 			TeardownScript: req.TeardownScript,
 		}
@@ -159,6 +162,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 			GitOrigin:      req.GitOrigin,
 			DefaultBranch:  req.DefaultBranch,
 			SymlinkPaths:   req.SymlinkPaths,
+			SecretFiles:    req.SecretFiles,
 			SetupScript:    req.SetupScript,
 			TeardownScript: req.TeardownScript,
 		}

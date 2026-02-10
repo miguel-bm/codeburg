@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"errors"
 	"regexp"
 	"testing"
 )
@@ -93,5 +94,48 @@ func TestTunnelInfo(t *testing.T) {
 	}
 	if info.URL != "https://test.trycloudflare.com" {
 		t.Errorf("expected URL, got %q", info.URL)
+	}
+}
+
+func TestFindByPort(t *testing.T) {
+	mgr := NewManager()
+	mgr.tunnels["t-1"] = &Tunnel{
+		ID:     "t-1",
+		TaskID: "task-1",
+		Port:   3000,
+		URL:    "https://a.trycloudflare.com",
+	}
+	mgr.ports[3000] = "t-1"
+
+	info := mgr.FindByPort(3000)
+	if info == nil {
+		t.Fatal("expected tunnel info for port 3000")
+	}
+	if info.ID != "t-1" {
+		t.Fatalf("expected tunnel id t-1, got %q", info.ID)
+	}
+}
+
+func TestCreate_PortConflict(t *testing.T) {
+	mgr := NewManager()
+	mgr.tunnels["existing"] = &Tunnel{
+		ID:     "existing",
+		TaskID: "task-other",
+		Port:   5173,
+		URL:    "https://existing.trycloudflare.com",
+	}
+	mgr.ports[5173] = "existing"
+
+	_, err := mgr.Create("new", "task-1", 5173)
+	if err == nil {
+		t.Fatal("expected conflict error")
+	}
+
+	var conflict *PortConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("expected PortConflictError, got %T", err)
+	}
+	if conflict.Existing.ID != "existing" {
+		t.Fatalf("expected existing tunnel id, got %q", conflict.Existing.ID)
 	}
 }

@@ -10,6 +10,7 @@ import (
 // Session represents a running agent session in memory (all sessions are terminal-based).
 type Session struct {
 	ID                string
+	TaskID            string
 	ProviderSessionID string
 	Provider          string
 	Status            db.SessionStatus

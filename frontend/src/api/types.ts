@@ -22,6 +22,13 @@ export interface ProjectWorkflow {
   reviewToDone?: ReviewToDoneConfig;
 }
 
+export interface ProjectSecretFile {
+  path: string;
+  mode: 'copy' | 'symlink';
+  sourcePath?: string;
+  enabled: boolean;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -29,6 +36,7 @@ export interface Project {
   gitOrigin?: string;
   defaultBranch: string;
   symlinkPaths?: string[];
+  secretFiles?: ProjectSecretFile[];
   setupScript?: string;
   teardownScript?: string;
   workflow?: ProjectWorkflow;
@@ -46,6 +54,7 @@ export interface CreateProjectInput {
   gitOrigin?: string;
   defaultBranch?: string;
   symlinkPaths?: string[];
+  secretFiles?: ProjectSecretFile[];
   setupScript?: string;
   teardownScript?: string;
 }
@@ -56,6 +65,7 @@ export interface UpdateProjectInput {
   gitOrigin?: string;
   defaultBranch?: string;
   symlinkPaths?: string[];
+  secretFiles?: ProjectSecretFile[];
   setupScript?: string;
   teardownScript?: string;
   workflow?: ProjectWorkflow;

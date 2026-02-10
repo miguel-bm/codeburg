@@ -236,4 +236,11 @@ var migrations = []migration{
 			ALTER TABLE tasks ADD COLUMN priority TEXT;
 		`,
 	},
+	{
+		version: 11,
+		sql: `
+			-- Add project-level secret file configuration
+			ALTER TABLE projects ADD COLUMN secret_files TEXT;
+		`,
+	},
 }

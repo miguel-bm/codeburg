@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef, useCallback, forwardRef } from 'r
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { GitBranch, Pin, GitPullRequest } from 'lucide-react';
+import { GitBranch, Pin, GitPullRequest, Funnel, X } from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
 import { tasksApi, projectsApi, sessionsApi, invalidateTaskQueries } from '../api';
 import type { Task, TaskStatus, UpdateTaskResponse } from '../api';
@@ -150,6 +150,8 @@ export function Dashboard() {
   const getProjectName = (projectId: string): string => {
     return projects?.find((p) => p.id === projectId)?.name ?? 'unknown';
   };
+
+  const activeProjectName = selectedProjectId ? getProjectName(selectedProjectId) : null;
 
   const hasProjects = projects && projects.length > 0;
 
@@ -461,6 +463,28 @@ export function Dashboard() {
             className="ml-4 hover:text-[var(--color-text-primary)] transition-colors"
           >
             Dismiss
+          </button>
+        </div>
+      )}
+
+      {selectedProjectId && (
+        <div className="px-4 py-2 border-b border-subtle bg-secondary flex items-center justify-between">
+          <div className="inline-flex items-center gap-2 text-xs text-dim">
+            <Funnel size={12} />
+            <span>
+              Dashboard filter: <span className="text-[var(--color-text-primary)]">{activeProjectName}</span>
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              sessionStorage.removeItem(SESSION_KEY);
+              navigate('/');
+            }}
+            className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors"
+            title="Clear project filter"
+          >
+            <X size={12} />
+            Clear
           </button>
         </div>
       )}

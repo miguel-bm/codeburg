@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -43,6 +44,14 @@ func (s *Server) handleCreateTunnel(w http.ResponseWriter, r *http.Request) {
 
 	t, err := s.tunnels.Create(id, taskID, input.Port)
 	if err != nil {
+		var conflict *tunnel.PortConflictError
+		if errors.As(err, &conflict) {
+			writeJSON(w, http.StatusConflict, map[string]interface{}{
+				"error":          conflict.Error(),
+				"existingTunnel": conflict.Existing,
+			})
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

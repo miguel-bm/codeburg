@@ -5,6 +5,7 @@ export { tasksApi, invalidateTaskQueries } from './tasks';
 export { sessionsApi } from './sessions';
 export { justfileApi } from './justfile';
 export { recipesApi } from './recipes';
+export { portsApi } from './ports';
 export { tunnelsApi } from './tunnels';
 export { sidebarApi } from './sidebar';
 export { preferencesApi } from './preferences';
@@ -16,5 +17,16 @@ export * from './types';
 export type { AgentSession, SessionStatus, SessionProvider, StartSessionInput } from './sessions';
 export type { Recipe, JustfileInfo, RunResult } from './justfile';
 export type { TaskRecipe, TaskRecipesInfo } from './recipes';
+export type { PortSuggestion, PortSuggestionStatus, ScanPortsResult, ExistingTunnelRef } from './ports';
 export type { TunnelInfo } from './tunnels';
 export type { GitStatus, GitFileStatus, GitDiff, GitCommitResult, GitStashEntry } from './git';
+export type {
+  ProjectFileEntry,
+  ProjectFilesResponse,
+  ProjectFileContentResponse,
+  ProjectSecretsResponse,
+  ProjectSecretFileStatus,
+  ProjectSecretContentResponse,
+  ProjectSecretResolveResult,
+  ProjectSecretResolveResponse,
+} from './projects';

@@ -3,6 +3,7 @@ package worktree
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -42,6 +43,8 @@ func NewManager(config Config) *Manager {
 type CreateOptions struct {
 	// ProjectPath is the path to the main git repository
 	ProjectPath string
+	// ProjectID is the stable project identifier used for managed secret files
+	ProjectID string
 	// ProjectName is the name of the project (for organizing worktrees)
 	ProjectName string
 	// TaskID is the task identifier
@@ -59,6 +62,8 @@ type CreateOptions struct {
 	SymlinkPaths []string
 	// SetupScript is a command to run after worktree creation
 	SetupScript string
+	// SecretFiles are secret file mappings to materialize into the worktree
+	SecretFiles []SecretFile
 }
 
 // CreateResult holds the result of creating a worktree
@@ -70,6 +75,14 @@ type CreateResult struct {
 	// Warnings contains non-fatal issues encountered during creation
 	// (e.g. failed to fetch or fast-forward base branch)
 	Warnings []string
+}
+
+// SecretFile defines how a secret file should be materialized in a worktree.
+type SecretFile struct {
+	Path       string
+	Mode       string // "copy" | "symlink"
+	SourcePath string
+	Enabled    bool
 }
 
 // Create creates a new git worktree for a task
@@ -162,6 +175,60 @@ func (m *Manager) Create(opts CreateOptions) (*CreateResult, error) {
 
 		if err := m.createSymlink(srcPath, dstPath); err != nil {
 			slog.Warn("failed to create symlink", "dst", dstPath, "src", srcPath, "error", err)
+		}
+	}
+
+	// Materialize configured secret files (copy/symlink).
+	for _, sf := range opts.SecretFiles {
+		if !sf.Enabled {
+			continue
+		}
+
+		relPath, err := cleanRelativePath(sf.Path)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("invalid secret path %q: %v", sf.Path, err))
+			continue
+		}
+
+		mode := sf.Mode
+		if mode == "" {
+			mode = "copy"
+		}
+		if mode != "copy" && mode != "symlink" {
+			warnings = append(warnings, fmt.Sprintf("invalid secret mode %q for %s", sf.Mode, relPath))
+			continue
+		}
+
+		sourcePath, _, err := m.ResolveSecretSource(opts.ProjectPath, opts.ProjectID, SecretFile{
+			Path:       relPath,
+			Mode:       mode,
+			SourcePath: sf.SourcePath,
+			Enabled:    true,
+		})
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("failed to resolve source for %s: %v", relPath, err))
+			continue
+		}
+
+		dstPath := filepath.Join(worktreePath, relPath)
+		if sourcePath == "" {
+			if err := writeEmptyFile(dstPath); err != nil {
+				warnings = append(warnings, fmt.Sprintf("failed to create empty %s: %v", relPath, err))
+			} else {
+				warnings = append(warnings, fmt.Sprintf("no source found for %s; created empty file", relPath))
+			}
+			continue
+		}
+
+		if mode == "symlink" {
+			if err := m.createSymlink(sourcePath, dstPath); err != nil {
+				warnings = append(warnings, fmt.Sprintf("failed to symlink %s: %v", relPath, err))
+			}
+			continue
+		}
+
+		if err := copyFile(sourcePath, dstPath); err != nil {
+			warnings = append(warnings, fmt.Sprintf("failed to copy %s: %v", relPath, err))
 		}
 	}
 
@@ -412,6 +479,164 @@ func (m *Manager) deleteBranch(repoPath, branchName string) error {
 	cmd.Dir = repoPath
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("delete branch: %s: %w", string(output), err)
+	}
+	return nil
+}
+
+// ManagedSecretPath returns ~/.codeburg/projects/{projectID}/secrets/{relPath}.
+func (m *Manager) ManagedSecretPath(projectID, relPath string) (string, error) {
+	if projectID == "" {
+		return "", fmt.Errorf("project id is required")
+	}
+	cleanRel, err := cleanRelativePath(relPath)
+	if err != nil {
+		return "", err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("get home dir: %w", err)
+	}
+	return filepath.Join(home, ".codeburg", "projects", projectID, "secrets", cleanRel), nil
+}
+
+// ResolveSecretSource finds the best available source path for a configured secret.
+// Returns (sourcePath, sourceKind, nil). sourcePath is empty when no source is found.
+func (m *Manager) ResolveSecretSource(projectPath, projectID string, sf SecretFile) (string, string, error) {
+	relPath, err := cleanRelativePath(sf.Path)
+	if err != nil {
+		return "", "", err
+	}
+
+	// 1. Managed source file.
+	if projectID != "" {
+		managedPath, err := m.ManagedSecretPath(projectID, relPath)
+		if err == nil && fileExists(managedPath) {
+			return managedPath, "managed", nil
+		}
+	}
+
+	// 2. Explicit sourcePath in project root.
+	if strings.TrimSpace(sf.SourcePath) != "" {
+		sourceRel, err := cleanRelativePath(sf.SourcePath)
+		if err != nil {
+			return "", "", fmt.Errorf("invalid sourcePath for %s: %w", relPath, err)
+		}
+		source := filepath.Join(projectPath, sourceRel)
+		if fileExists(source) {
+			return source, "sourcePath", nil
+		}
+	}
+
+	// 3. Exact destination path in project root.
+	exact := filepath.Join(projectPath, relPath)
+	if fileExists(exact) {
+		return exact, "projectPath", nil
+	}
+
+	// 4. Heuristics.
+	for _, candidate := range secretHeuristicCandidates(relPath) {
+		source := filepath.Join(projectPath, candidate)
+		if fileExists(source) {
+			return source, "heuristic", nil
+		}
+	}
+
+	return "", "", nil
+}
+
+func cleanRelativePath(p string) (string, error) {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	if filepath.IsAbs(p) {
+		return "", fmt.Errorf("absolute paths are not allowed")
+	}
+	clean := filepath.Clean(p)
+	if clean == "." || clean == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("path traversal is not allowed")
+	}
+	return clean, nil
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func secretHeuristicCandidates(relPath string) []string {
+	candidates := []string{
+		relPath + ".local",
+		relPath + ".development.local",
+		relPath + ".dev",
+		relPath + ".example",
+		relPath + ".sample",
+		".env.local",
+		".dev.vars",
+	}
+	seen := make(map[string]struct{}, len(candidates))
+	out := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		clean, err := cleanRelativePath(c)
+		if err != nil {
+			continue
+		}
+		if _, ok := seen[clean]; ok {
+			continue
+		}
+		seen[clean] = struct{}{}
+		out = append(out, clean)
+	}
+	return out
+}
+
+func writeEmptyFile(dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return fmt.Errorf("create parent directory: %w", err)
+	}
+	if info, err := os.Lstat(dst); err == nil {
+		if info.IsDir() {
+			if err := os.RemoveAll(dst); err != nil {
+				return fmt.Errorf("remove existing directory: %w", err)
+			}
+		} else if err := os.Remove(dst); err != nil {
+			return fmt.Errorf("remove existing file: %w", err)
+		}
+	}
+	return os.WriteFile(dst, []byte{}, 0600)
+}
+
+func copyFile(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return fmt.Errorf("create parent directory: %w", err)
+	}
+	if info, err := os.Lstat(dst); err == nil {
+		if info.IsDir() {
+			if err := os.RemoveAll(dst); err != nil {
+				return fmt.Errorf("remove existing directory: %w", err)
+			}
+		} else if err := os.Remove(dst); err != nil {
+			return fmt.Errorf("remove existing file: %w", err)
+		}
+	}
+
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open source: %w", err)
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+	if err != nil {
+		return fmt.Errorf("open destination: %w", err)
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return fmt.Errorf("copy: %w", err)
 	}
 	return nil
 }

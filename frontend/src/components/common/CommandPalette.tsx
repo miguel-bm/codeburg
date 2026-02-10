@@ -62,6 +62,14 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
         label: p.name,
         detail: p.path,
         icon: '/',
+        onSelect: () => { navigate(`/projects/${p.id}`); onClose(); },
+      });
+      items.push({
+        id: `project-filter-${p.id}`,
+        type: 'action',
+        label: `Filter Dashboard: ${p.name}`,
+        detail: 'Show only this project on the board',
+        icon: '=',
         onSelect: () => { navigate(`/?project=${p.id}`); onClose(); },
       });
     }

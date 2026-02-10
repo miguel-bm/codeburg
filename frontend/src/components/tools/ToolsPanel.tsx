@@ -147,22 +147,36 @@ function RecipesSection({ taskId, onRecipeRun }: { taskId: string; onRecipeRun: 
 
 function TunnelsSection({ taskId }: { taskId: string }) {
   const {
-    tunnels, port, setPort, showCreate, setShowCreate,
-    createMutation, stopMutation, copied, copyUrl, handleCreate,
+    tunnels, suggestions, suggestionsLoading,
+    port, setPort, showCreate, setShowCreate,
+    createMutation, stopMutation, scanMutation, copied, copyUrl, handleCreate,
   } = useTunnels(taskId);
+
+  const openTunnel = (url: string) => {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
 
   return (
     <div className="h-full min-h-0 flex flex-col">
       <div className="px-3 py-1.5 flex items-center justify-between border-b border-subtle">
         <span className="text-xs font-medium uppercase tracking-wider text-dim">Tunnels</span>
-        {!showCreate && (
+        <div className="flex items-center gap-3">
           <button
-            onClick={() => setShowCreate(true)}
-            className="text-accent hover:underline"
+            onClick={() => scanMutation.mutate()}
+            disabled={scanMutation.isPending}
+            className="text-dim hover:text-[var(--color-text-primary)] disabled:opacity-50"
           >
-            + New
+            {scanMutation.isPending ? 'Scanning...' : 'Scan ports'}
           </button>
-        )}
+          {!showCreate && (
+            <button
+              onClick={() => setShowCreate(true)}
+              className="text-accent hover:underline"
+            >
+              + New
+            </button>
+          )}
+        </div>
       </div>
 
       {showCreate && (
@@ -197,6 +211,63 @@ function TunnelsSection({ taskId }: { taskId: string }) {
       )}
 
       <div className="flex-1 min-h-0 overflow-y-auto">
+        {scanMutation.error && (
+          <div className="px-3 pt-2 text-[10px] text-[var(--color-error)]">
+            {scanMutation.error.message}
+          </div>
+        )}
+
+        {suggestionsLoading && (
+          <div className="px-3 pt-2 text-dim">Loading suggestions...</div>
+        )}
+
+        {suggestions.length > 0 && (
+          <div className="px-3 pt-2 pb-1 border-b border-subtle">
+            <div className="mb-1 text-[10px] uppercase tracking-[0.12em] text-dim">Suggested Ports</div>
+            <div className="space-y-1">
+              {suggestions.map((suggestion) => (
+                <div key={suggestion.port} className="flex items-center gap-2">
+                  <span className="font-mono text-accent">:{suggestion.port}</span>
+                  <span className="text-[10px] text-dim">
+                    {suggestion.sources.join(' + ')}
+                  </span>
+                  {suggestion.status === 'suggested' ? (
+                    <button
+                      onClick={() => createMutation.mutate(suggestion.port)}
+                      disabled={createMutation.isPending}
+                      className="text-accent hover:underline disabled:opacity-50"
+                    >
+                      Create
+                    </button>
+                  ) : suggestion.existingTunnel ? (
+                    <>
+                      <button
+                        onClick={() => openTunnel(suggestion.existingTunnel!.url)}
+                        className="text-dim hover:text-accent"
+                      >
+                        Open
+                      </button>
+                      <button
+                        onClick={() => copyUrl(suggestion.existingTunnel!.url)}
+                        className={`text-dim hover:text-accent ${copied ? 'text-accent' : ''}`}
+                      >
+                        {copied ? 'Copied' : 'Copy'}
+                      </button>
+                      {suggestion.status === 'already_tunneled_other_task' && suggestion.existingTunnel.taskTitle && (
+                        <span className="text-[10px] text-dim truncate">
+                          in {suggestion.existingTunnel.taskTitle}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-[10px] text-dim">Already tunneled</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {tunnels.length > 0 && (
           <div className="px-3 py-2 space-y-1">
             {tunnels.map((tunnel) => (
@@ -220,7 +291,7 @@ function TunnelsSection({ taskId }: { taskId: string }) {
           </div>
         )}
 
-        {tunnels.length === 0 && !showCreate && (
+        {tunnels.length === 0 && suggestions.length === 0 && !showCreate && (
           <div className="px-3 py-2 text-dim">No tunnels</div>
         )}
       </div>

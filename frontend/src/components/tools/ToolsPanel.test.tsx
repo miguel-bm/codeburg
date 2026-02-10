@@ -13,12 +13,15 @@ vi.mock('../../api', () => ({
 vi.mock('../../hooks/useTunnels', () => ({
   useTunnels: vi.fn(() => ({
     tunnels: [],
+    suggestions: [],
+    suggestionsLoading: false,
     port: '',
     setPort: vi.fn(),
     showCreate: false,
     setShowCreate: vi.fn(),
     createMutation: { isPending: false, mutate: vi.fn() },
     stopMutation: { mutate: vi.fn() },
+    scanMutation: { isPending: false, mutate: vi.fn(), error: null },
     copied: false,
     copyUrl: vi.fn(),
     handleCreate: vi.fn(),

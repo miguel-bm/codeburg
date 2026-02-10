@@ -11,19 +11,20 @@ import (
 
 // Tunnel represents an active cloudflared tunnel
 type Tunnel struct {
-	ID       string
-	TaskID   string
-	Port     int
-	URL      string
-	Cmd      *exec.Cmd
-	Cancel   context.CancelFunc
-	mu       sync.Mutex
-	stopped  bool
+	ID      string
+	TaskID  string
+	Port    int
+	URL     string
+	Cmd     *exec.Cmd
+	Cancel  context.CancelFunc
+	mu      sync.Mutex
+	stopped bool
 }
 
 // Manager manages cloudflared tunnels
 type Manager struct {
 	tunnels map[string]*Tunnel
+	ports   map[int]string // port -> tunnel ID
 	mu      sync.RWMutex
 }
 
@@ -31,7 +32,18 @@ type Manager struct {
 func NewManager() *Manager {
 	return &Manager{
 		tunnels: make(map[string]*Tunnel),
+		ports:   make(map[int]string),
 	}
+}
+
+// PortConflictError indicates the requested port is already tunneled.
+type PortConflictError struct {
+	Port     int
+	Existing TunnelInfo
+}
+
+func (e *PortConflictError) Error() string {
+	return fmt.Sprintf("port %d already tunneled", e.Port)
 }
 
 // Available checks if cloudflared is installed
@@ -48,6 +60,15 @@ func (m *Manager) Create(id, taskID string, port int) (*Tunnel, error) {
 	// Check if tunnel already exists for this ID
 	if existing, ok := m.tunnels[id]; ok {
 		return existing, nil
+	}
+	if existingID, ok := m.ports[port]; ok {
+		if existingTunnel, exists := m.tunnels[existingID]; exists {
+			return nil, &PortConflictError{
+				Port:     port,
+				Existing: existingTunnel.Info(),
+			}
+		}
+		delete(m.ports, port)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -111,11 +132,13 @@ func (m *Manager) Create(id, taskID string, port int) (*Tunnel, error) {
 	}
 
 	m.tunnels[id] = tunnel
+	m.ports[port] = id
 
 	// Monitor tunnel and clean up on exit
 	go func() {
 		cmd.Wait()
 		m.mu.Lock()
+		delete(m.ports, port)
 		delete(m.tunnels, id)
 		m.mu.Unlock()
 	}()
@@ -164,6 +187,7 @@ func (m *Manager) Stop(id string) error {
 		m.mu.Unlock()
 		return nil
 	}
+	delete(m.ports, tunnel.Port)
 	delete(m.tunnels, id)
 	m.mu.Unlock()
 
@@ -191,6 +215,7 @@ func (m *Manager) StopAll() {
 		tunnels = append(tunnels, t)
 	}
 	m.tunnels = make(map[string]*Tunnel)
+	m.ports = make(map[int]string)
 	m.mu.Unlock()
 
 	for _, t := range tunnels {
@@ -204,6 +229,23 @@ func (m *Manager) StopAll() {
 		}
 		t.mu.Unlock()
 	}
+}
+
+// FindByPort returns a copy of tunnel info for the given port, if present.
+func (m *Manager) FindByPort(port int) *TunnelInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	id, ok := m.ports[port]
+	if !ok {
+		return nil
+	}
+	t, exists := m.tunnels[id]
+	if !exists {
+		return nil
+	}
+	info := t.Info()
+	return &info
 }
 
 // TunnelInfo is a serializable representation of a tunnel

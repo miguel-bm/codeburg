@@ -102,7 +102,7 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
       <div className="flex items-center justify-between gap-4 px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">
           <button
-            onClick={() => navigate(project ? `/?project=${project.id}` : '/')}
+            onClick={() => navigate(project ? `/projects/${project.id}` : '/')}
             className="text-dim hover:text-[var(--color-text-primary)] transition-colors shrink-0 text-sm"
           >
             {project?.name || 'back'}

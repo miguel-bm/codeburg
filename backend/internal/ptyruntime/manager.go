@@ -19,13 +19,14 @@ var (
 
 // StartOptions configures a runtime PTY process.
 type StartOptions struct {
-	WorkDir string
-	Command string
-	Args    []string
-	Env     []string
-	Cols    uint16
-	Rows    uint16
-	OnExit  func(ExitResult)
+	WorkDir  string
+	Command  string
+	Args     []string
+	Env      []string
+	Cols     uint16
+	Rows     uint16
+	OnExit   func(ExitResult)
+	OnOutput func(sessionID string, chunk []byte)
 }
 
 // ExitResult describes process termination.
@@ -55,10 +56,11 @@ func NewManager() *Manager {
 }
 
 type runtimeSession struct {
-	id     string
-	cmd    *exec.Cmd
-	ptmx   *os.File
-	onExit func(ExitResult)
+	id       string
+	cmd      *exec.Cmd
+	ptmx     *os.File
+	onExit   func(ExitResult)
+	onOutput func(sessionID string, chunk []byte)
 
 	mu         sync.Mutex
 	closed     bool
@@ -116,11 +118,12 @@ func (m *Manager) Start(sessionID string, opt StartOptions) error {
 	}
 
 	rs := &runtimeSession{
-		id:     sessionID,
-		cmd:    cmd,
-		ptmx:   ptmx,
-		onExit: opt.OnExit,
-		subs:   make(map[uint64]chan OutputEvent),
+		id:       sessionID,
+		cmd:      cmd,
+		ptmx:     ptmx,
+		onExit:   opt.OnExit,
+		onOutput: opt.OnOutput,
+		subs:     make(map[uint64]chan OutputEvent),
 	}
 	m.sessions[sessionID] = rs
 	m.mu.Unlock()
@@ -135,7 +138,12 @@ func (m *Manager) readLoop(rs *runtimeSession) {
 	for {
 		n, err := rs.ptmx.Read(buf)
 		if n > 0 {
-			rs.appendOutput(buf[:n])
+			chunk := make([]byte, n)
+			copy(chunk, buf[:n])
+			rs.appendOutput(chunk)
+			if rs.onOutput != nil {
+				rs.onOutput(rs.id, chunk)
+			}
 		}
 		if err != nil {
 			if err != io.EOF {
