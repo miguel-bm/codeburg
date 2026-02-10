@@ -66,7 +66,7 @@ export function ProjectSettings() {
   );
 }
 
-const THEME_OPTIONS: SelectOption<ThemePreference>[] = [
+const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; description: string }> = [
   { value: 'system', label: 'System', description: 'Follow your OS appearance setting' },
   { value: 'dark', label: 'Dark', description: 'Always use dark mode' },
   { value: 'light', label: 'Light', description: 'Always use light mode' },
@@ -75,6 +75,7 @@ const THEME_OPTIONS: SelectOption<ThemePreference>[] = [
 function AppearanceSection() {
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>(() => getThemePreference());
   const resolvedTheme = getResolvedTheme(themePreference);
+  const activeThemeOption = THEME_OPTIONS.find((option) => option.value === themePreference);
 
   useEffect(() => (
     subscribeToThemeChange(({ preference }) => {
@@ -100,13 +101,29 @@ function AppearanceSection() {
             label="Theme"
             description={`Current mode: ${resolvedTheme}`}
           />
-          <Select
-            value={themePreference}
-            onChange={handleThemeChange}
-            options={THEME_OPTIONS}
-            className="min-w-[210px]"
-          />
+          <div role="radiogroup" aria-label="Theme mode" className="inline-flex rounded-lg border border-subtle bg-primary p-1">
+            {THEME_OPTIONS.map((option) => {
+              const active = option.value === themePreference;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => handleThemeChange(option.value)}
+                  className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
+                    active
+                      ? 'bg-accent/15 border-accent/55 text-accent'
+                      : 'bg-transparent border-transparent text-dim hover:text-[var(--color-text-primary)]'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
         </FieldRow>
+        <p className="text-xs text-dim mt-3">{activeThemeOption?.description}</p>
       </SectionBody>
     </SectionCard>
   );

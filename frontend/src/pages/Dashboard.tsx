@@ -705,20 +705,29 @@ function NewTaskPlaceholder({ focused, selected, showOnHover, onClick }: NewTask
   }, [focused]);
 
   const visible = !!focused || !!selected;
+  const containerClass = showOnHover
+    ? visible
+      ? 'max-h-16 opacity-100 translate-y-0 mt-2'
+      : 'max-h-0 opacity-0 -translate-y-1 mt-0 pointer-events-none group-hover:max-h-16 group-hover:opacity-100 group-hover:translate-y-0 group-hover:mt-2 group-hover:pointer-events-auto'
+    : visible
+      ? 'max-h-16 opacity-100 translate-y-0 mt-2'
+      : 'max-h-0 opacity-0 -translate-y-1 mt-0 pointer-events-none';
 
   return (
-    <button
-      ref={ref}
-      type="button"
-      onClick={onClick}
-      className={`${showOnHover && !visible ? 'hidden group-hover:block' : 'block'} w-full p-3 border rounded-md text-center text-sm cursor-pointer transition-colors focus-visible:outline-none ${
-        focused
-          ? 'border-accent text-accent bg-[var(--color-accent-glow)]'
-          : 'border-subtle text-dim bg-tertiary hover:border-[var(--color-text-dim)] hover:text-[var(--color-text-primary)] hover:bg-secondary'
-      }`}
-    >
-      + New task
-    </button>
+    <div className={`overflow-hidden transition-all duration-150 ease-out ${containerClass}`}>
+      <button
+        ref={ref}
+        type="button"
+        onClick={onClick}
+        className={`w-full p-3 border rounded-md text-center text-sm cursor-pointer transition-colors focus-visible:outline-none ${
+          focused
+            ? 'border-accent text-accent bg-[var(--color-accent-glow)]'
+            : 'border-subtle text-dim bg-tertiary hover:border-[var(--color-text-dim)] hover:text-[var(--color-text-primary)] hover:bg-secondary'
+        }`}
+      >
+        + New task
+      </button>
+    </div>
   );
 }
 
