@@ -46,7 +46,7 @@
 /* Base styles */
 :root {
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.5;
   font-weight: 400;
   -webkit-font-smoothing: antialiased;

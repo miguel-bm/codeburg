@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import CodeMirror, { EditorView } from '@uiw/react-codemirror';
 import type { Extension } from '@codemirror/state';
+import { oneDark } from '@codemirror/theme-one-dark';
 import { langs } from '@uiw/codemirror-extensions-langs';
 import { Tree, type NodeApi, type NodeRendererProps } from 'react-arborist';
 import {
@@ -159,45 +160,18 @@ function filterFileTree(nodes: FileTreeNodeData[], query: string): FileTreeNodeD
   return nodes.map(visit).filter((node): node is FileTreeNodeData => node !== null);
 }
 
-const editorChromeDark = EditorView.theme({
+const oneDarkProSurface = EditorView.theme({
   '&': {
-    backgroundColor: '#0f1116',
+    backgroundColor: '#1f232a',
+  },
+  '.cm-scroller': {
+    backgroundColor: '#1f232a',
   },
   '.cm-gutters': {
-    backgroundColor: '#0c0f14',
-    color: '#727b87',
-    borderRight: '1px solid #232832',
-  },
-  '.cm-activeLine': {
-    backgroundColor: 'rgba(93, 124, 255, 0.14)',
-  },
-  '.cm-activeLineGutter': {
-    backgroundColor: 'transparent',
-  },
-  '.cm-content': {
-    caretColor: '#8aa4ff',
+    backgroundColor: '#1b1f26',
+    borderRight: '1px solid #2b313c',
   },
 }, { dark: true });
-
-const editorChromeLight = EditorView.theme({
-  '&': {
-    backgroundColor: '#fbfcff',
-  },
-  '.cm-gutters': {
-    backgroundColor: '#f1f4f9',
-    color: '#5d6774',
-    borderRight: '1px solid #d9dee8',
-  },
-  '.cm-activeLine': {
-    backgroundColor: 'rgba(59, 94, 255, 0.1)',
-  },
-  '.cm-activeLineGutter': {
-    backgroundColor: 'transparent',
-  },
-  '.cm-content': {
-    caretColor: '#3452d1',
-  },
-}, { dark: false });
 
 export function ProjectWorkspace() {
   const { id } = useParams<{ id: string }>();
@@ -309,9 +283,13 @@ export function ProjectWorkspace() {
     return [
       ...languageExtensions,
       EditorView.lineWrapping,
-      editorTheme === 'dark' ? editorChromeDark : editorChromeLight,
+      ...(editorTheme === 'dark' ? [oneDarkProSurface] : []),
     ];
   }, [activeTab, editorTheme]);
+  const editorSurfaceStyle = useMemo(
+    () => ({ backgroundColor: editorTheme === 'dark' ? '#1f232a' : '#ffffff' }),
+    [editorTheme],
+  );
   const activeDraft = activeTab
     ? (draftByPath[activeTab] ?? activeFileData?.content ?? '')
     : '';
@@ -843,12 +821,15 @@ export function ProjectWorkspace() {
         ) : activeFileData.truncated ? (
           <div className="p-3 text-xs text-dim">File is too large for in-app editing (preview limit: 256 KiB).</div>
         ) : (
-          <div className="h-full min-h-0 overflow-y-scroll overflow-x-auto [&_.cm-editor]:min-h-full [&_.cm-scroller]:font-mono [&_.cm-scroller]:text-xs">
+          <div
+            style={editorSurfaceStyle}
+            className="h-full min-h-0 overflow-y-scroll overflow-x-auto [&_.cm-editor]:min-h-full [&_.cm-editor]:bg-transparent [&_.cm-scroller]:font-mono [&_.cm-scroller]:text-xs"
+          >
             <CodeMirror
               value={activeDraft}
               height="auto"
               minHeight="100%"
-              theme={editorTheme}
+              theme={editorTheme === 'dark' ? oneDark : 'light'}
               extensions={editorExtensions}
               onChange={(value: string) => {
                 if (!activeTab || !activeFileData) return;
