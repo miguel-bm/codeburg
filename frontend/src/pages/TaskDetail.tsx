@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/layout/Layout';
@@ -61,6 +61,17 @@ export function TaskDetail() {
     }
   }, [sessionFromUrl, sessions, id, activeSession]);
 
+  const selectSession = useCallback((session: AgentSession | null) => {
+    setActiveSession(session);
+    const next = new URLSearchParams(searchParams);
+    if (session) {
+      next.set('session', session.id);
+    } else {
+      next.delete('session');
+    }
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   // Initial default: pick the first session once if none selected
   useEffect(() => {
     if (didInitSession) return;
@@ -74,7 +85,7 @@ export function TaskDetail() {
     );
     selectSession(sorted[0]);
     setDidInitSession(true);
-  }, [didInitSession, sessions, activeSession, sessionFromUrl]);
+  }, [didInitSession, sessions, activeSession, sessionFromUrl, selectSession]);
 
   // Keep activeSession in sync with polling data
   useEffect(() => {
@@ -89,24 +100,13 @@ export function TaskDetail() {
     }
   }, [sessions, activeSession]);
 
-  const selectSession = (session: AgentSession | null) => {
-    setActiveSession(session);
-    const next = new URLSearchParams(searchParams);
-    if (session) {
-      next.set('session', session.id);
-    } else {
-      next.delete('session');
-    }
-    setSearchParams(next, { replace: true });
-  };
-
   const orderedSessions = useMemo(() => {
     return [...(sessions || [])].sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
     );
   }, [sessions]);
 
-  const cycleSession = (offset: 1 | -1) => {
+  const cycleSession = useCallback((offset: 1 | -1) => {
     if (orderedSessions.length === 0) return;
     if (orderedSessions.length === 1) {
       selectSession(orderedSessions[0]);
@@ -120,7 +120,7 @@ export function TaskDetail() {
     const baseIndex = currentIndex === -1 ? 0 : currentIndex;
     const nextIndex = (baseIndex + offset + orderedSessions.length) % orderedSessions.length;
     selectSession(orderedSessions[nextIndex]);
-  };
+  }, [activeSession, orderedSessions, selectSession]);
 
   const startSessionMutation = useMutation({
     mutationFn: ({ provider, prompt, resumeSessionId }: { provider: SessionProvider; prompt: string; resumeSessionId?: string }) =>
@@ -169,17 +169,31 @@ export function TaskDetail() {
     '?': () => setShowHelp(true),
   };
 
+  const nextBindings = Array.from(new Set([
+    sessionShortcuts.nextSession,
+    'Alt+Shift+ArrowRight',
+  ].filter(Boolean)));
+  const prevBindings = Array.from(new Set([
+    sessionShortcuts.prevSession,
+    'Alt+Shift+ArrowLeft',
+  ].filter(Boolean)));
+
   if (orderedSessions.length > 0) {
-    if (sessionShortcuts.nextSession) {
-      keyMap[sessionShortcuts.nextSession] = () => cycleSession(1);
+    for (const binding of nextBindings) {
+      if (!keyMap[binding]) keyMap[binding] = () => cycleSession(1);
     }
-    if (sessionShortcuts.prevSession && sessionShortcuts.prevSession !== sessionShortcuts.nextSession) {
-      keyMap[sessionShortcuts.prevSession] = () => cycleSession(-1);
+    for (const binding of prevBindings) {
+      if (!keyMap[binding]) keyMap[binding] = () => cycleSession(-1);
     }
   }
 
+  const allowInInputs = orderedSessions.length > 0
+    ? Array.from(new Set([...nextBindings, ...prevBindings]))
+    : [];
+
   useKeyboardNav({
     keyMap,
+    allowInInputs,
     enabled: !showStartSession && !showHelp,
   });
 

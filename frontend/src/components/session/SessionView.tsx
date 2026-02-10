@@ -5,18 +5,13 @@ import type { AgentSession, SessionStatus } from '../../api/sessions';
 
 interface SessionViewProps {
   session: AgentSession;
+  showOpenInNewTab?: boolean;
 }
 
-export function SessionView({ session }: SessionViewProps) {
+export function SessionView({ session, showOpenInNewTab = true }: SessionViewProps) {
   const openSessionHref = useMemo(() => {
-    if (typeof window === 'undefined') {
-      return `?session=${encodeURIComponent(session.id)}`;
-    }
-    const params = new URLSearchParams(window.location.search);
-    params.set('session', session.id);
-    const query = params.toString();
-    return `${window.location.pathname}${query ? `?${query}` : ''}`;
-  }, [session.id]);
+    return `/tasks/${session.taskId}/session/${session.id}`;
+  }, [session.id, session.taskId]);
 
   return (
     <div className="flex flex-col h-full">
@@ -30,16 +25,18 @@ export function SessionView({ session }: SessionViewProps) {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <a
-            href={openSessionHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center h-7 w-7 rounded-md text-dim hover:text-accent hover:bg-accent/10 transition-colors"
-            title="Open this session in a new browser tab"
-            aria-label="Open this session in a new browser tab"
-          >
-            <ExternalLink size={14} />
-          </a>
+          {showOpenInNewTab && (
+            <a
+              href={openSessionHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center h-7 w-7 rounded-md text-dim hover:text-accent hover:bg-accent/10 transition-colors"
+              title="Open this session in a new browser tab"
+              aria-label="Open this session in a new browser tab"
+            >
+              <ExternalLink size={14} />
+            </a>
+          )}
           {session.lastActivityAt && (
             <ActivityIndicator lastActivityAt={session.lastActivityAt} />
           )}

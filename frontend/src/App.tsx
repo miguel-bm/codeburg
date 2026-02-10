@@ -8,6 +8,7 @@ import { TaskDetail } from './pages/TaskDetail';
 import { TaskCreate } from './pages/task/TaskCreate';
 import { ProjectSettings } from './pages/ProjectSettings';
 import { Settings } from './pages/Settings';
+import { SessionPopout } from './pages/SessionPopout';
 import { CommandPalette, useCommandPalette } from './components/common/CommandPalette';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useNotifications } from './hooks/useNotifications';
@@ -43,7 +44,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function AppShell() {
+function MainAppShell() {
   useNotifications();
   const { open: paletteOpen, setOpen: setPaletteOpen } = useCommandPalette();
 
@@ -59,6 +60,15 @@ function AppShell() {
       </Routes>
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
     </>
+  );
+}
+
+function AppShell() {
+  return (
+    <Routes>
+      <Route path="/tasks/:id/session/:sessionId" element={<SessionPopout />} />
+      <Route path="/*" element={<MainAppShell />} />
+    </Routes>
   );
 }
 

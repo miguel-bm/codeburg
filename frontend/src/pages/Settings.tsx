@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { startRegistration } from '@simplewebauthn/browser';
-import { ChevronLeft, AlertCircle, CheckCircle2, Fingerprint, Trash2, Pencil, Volume2, Bell, Terminal, Code2, Lock, Send, Keyboard } from 'lucide-react';
+import { ChevronLeft, AlertCircle, CheckCircle2, Fingerprint, Trash2, Pencil, Volume2, Bell, Terminal, Code2, Lock, Send, Keyboard, Search } from 'lucide-react';
 import { Layout } from '../components/layout/Layout';
 import { authApi, preferencesApi } from '../api';
 import type { EditorType } from '../api';
@@ -22,6 +22,88 @@ import { SectionCard, SectionHeader, SectionBody, FieldRow, FieldLabel, Toggle }
 export function Settings() {
   const navigate = useNavigate();
   const logout = useAuthStore((s) => s.logout);
+  const [search, setSearch] = useState('');
+  const [activeSectionId, setActiveSectionId] = useState('notifications');
+
+  const sections = useMemo(() => ([
+    {
+      id: 'notifications',
+      title: 'Notifications',
+      description: 'Alerts when an agent needs attention',
+      keywords: ['sound', 'alerts', 'audio'],
+      icon: <Bell size={15} />,
+      content: <NotificationSection />,
+    },
+    {
+      id: 'keyboard',
+      title: 'Keyboard',
+      description: 'Session tab switching shortcuts and layout defaults',
+      keywords: ['shortcuts', 'layout', 'bindings'],
+      icon: <Keyboard size={15} />,
+      content: <KeyboardShortcutsSection />,
+    },
+    {
+      id: 'terminal',
+      title: 'Terminal',
+      description: 'Appearance and behavior for terminal sessions',
+      keywords: ['cursor', 'font', 'scrollback', 'webgl'],
+      icon: <Terminal size={15} />,
+      content: <TerminalSettingsSection />,
+    },
+    {
+      id: 'editor',
+      title: 'Editor',
+      description: 'Open task worktrees in your editor',
+      keywords: ['vscode', 'cursor', 'ssh'],
+      icon: <Code2 size={15} />,
+      content: <EditorSection />,
+    },
+    {
+      id: 'passkeys',
+      title: 'Passkeys',
+      description: 'Passwordless sign-in with biometrics or security keys',
+      keywords: ['security', 'webauthn', 'biometrics'],
+      icon: <Fingerprint size={15} />,
+      content: <PasskeySection />,
+    },
+    {
+      id: 'telegram',
+      title: 'Telegram',
+      description: 'Auto-login when opening Codeburg from Telegram',
+      keywords: ['bot', 'token', 'notifications', 'chat'],
+      icon: <Send size={15} />,
+      content: <TelegramSection />,
+    },
+    {
+      id: 'password',
+      title: 'Password',
+      description: 'Manage your account password',
+      keywords: ['security', 'credentials', 'account'],
+      icon: <Lock size={15} />,
+      content: <PasswordSection />,
+    },
+    {
+      id: 'danger',
+      title: 'Log out',
+      description: 'End your current session',
+      keywords: ['logout', 'session', 'account'],
+      icon: <Lock size={15} />,
+      content: <DangerZone onLogout={logout} />,
+    },
+  ]), [logout]);
+
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredSections = useMemo(() => {
+    if (!normalizedSearch) return sections;
+    return sections.filter((section) => {
+      const haystack = `${section.title} ${section.description} ${section.keywords.join(' ')}`.toLowerCase();
+      return haystack.includes(normalizedSearch);
+    });
+  }, [sections, normalizedSearch]);
+
+  const activeSection = filteredSections.find((section) => section.id === activeSectionId)
+    ?? filteredSections[0]
+    ?? null;
 
   return (
     <Layout>
@@ -43,15 +125,92 @@ export function Settings() {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
-            <NotificationSection />
-            <KeyboardShortcutsSection />
-            <TerminalSettingsSection />
-            <EditorSection />
-            <PasskeySection />
-            <TelegramSection />
-            <PasswordSection />
-            <DangerZone onLogout={logout} />
+          <div className="max-w-6xl mx-auto w-full px-4 sm:px-6 py-5 md:py-6">
+            <div className="grid grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)] gap-4 md:gap-6 items-start">
+              <aside className="border border-subtle rounded-md bg-secondary overflow-hidden md:sticky md:top-4">
+                <div className="px-4 py-3 border-b border-subtle">
+                  <label htmlFor="settings-search" className="text-xs text-dim block mb-2">
+                    Search settings
+                  </label>
+                  <div className="relative">
+                    <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim" />
+                    <input
+                      id="settings-search"
+                      type="text"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Filter sections..."
+                      className="w-full pl-8 pr-3 py-2 rounded-md border border-subtle bg-primary text-sm text-[var(--color-text-primary)] focus:outline-none focus:border-accent"
+                    />
+                  </div>
+                </div>
+
+                <div className="px-4 py-3 md:hidden border-b border-subtle">
+                  <label htmlFor="settings-section-picker" className="text-xs text-dim block mb-2">
+                    Section
+                  </label>
+                  <select
+                    id="settings-section-picker"
+                    value={activeSection?.id ?? ''}
+                    onChange={(e) => setActiveSectionId(e.target.value)}
+                    className="w-full bg-primary border border-subtle rounded-md text-sm px-2.5 py-2 focus:outline-none focus:border-accent"
+                    disabled={filteredSections.length === 0}
+                  >
+                    {filteredSections.map((section) => (
+                      <option key={section.id} value={section.id}>{section.title}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <nav className="hidden md:block p-2 max-h-[calc(100vh-14rem)] overflow-y-auto">
+                  {filteredSections.length === 0 ? (
+                    <p className="text-sm text-dim px-2 py-3">No sections match your search.</p>
+                  ) : (
+                    filteredSections.map((section) => (
+                      <button
+                        key={section.id}
+                        onClick={() => setActiveSectionId(section.id)}
+                        className={`w-full text-left px-3 py-2.5 rounded-md transition-colors ${
+                          activeSection?.id === section.id
+                            ? 'bg-accent/15 border border-accent/50'
+                            : 'border border-transparent hover:bg-primary'
+                        }`}
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <span className={`${activeSection?.id === section.id ? 'text-accent' : 'text-dim'} mt-0.5`}>
+                            {section.icon}
+                          </span>
+                          <div className="min-w-0">
+                            <p className={`text-sm ${activeSection?.id === section.id ? 'text-[var(--color-text-primary)]' : 'text-dim'}`}>
+                              {section.title}
+                            </p>
+                            <p className="text-xs text-dim mt-0.5 line-clamp-2">{section.description}</p>
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </nav>
+              </aside>
+
+              <section className="min-w-0">
+                {activeSection ? (
+                  <div className="space-y-4">
+                    <div className="md:hidden px-1">
+                      <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">{activeSection.title}</h2>
+                      <p className="text-xs text-dim mt-0.5">{activeSection.description}</p>
+                    </div>
+                    {activeSection.content}
+                  </div>
+                ) : (
+                  <SectionCard>
+                    <SectionBody>
+                      <p className="text-sm text-dim">No settings sections match your search.</p>
+                    </SectionBody>
+                  </SectionCard>
+                )}
+              </section>
+            </div>
           </div>
         </div>
       </div>
@@ -627,7 +786,9 @@ function PasskeySection() {
     mutationFn: async () => {
       const resp = await authApi.passkeyRegisterBegin();
       // go-webauthn wraps in { publicKey: {...} }, @simplewebauthn expects the inner object
-      const optionsJSON = (resp as any).publicKey ?? resp;
+      type RegistrationOptions = Parameters<typeof startRegistration>[0]['optionsJSON'];
+      const maybeWrapped = resp as RegistrationOptions | { publicKey: RegistrationOptions };
+      const optionsJSON = 'publicKey' in maybeWrapped ? maybeWrapped.publicKey : maybeWrapped;
       const credential = await startRegistration({ optionsJSON });
       return authApi.passkeyRegisterFinish(credential);
     },

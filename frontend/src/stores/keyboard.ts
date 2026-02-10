@@ -55,8 +55,8 @@ export function getLayoutDefaults(layout: SessionShortcutLayout): Pick<SessionSh
   const resolved = resolveLayout(layout);
   if (resolved === 'es') {
     return {
-      nextSession: 'Ctrl+.',
-      prevSession: 'Ctrl+,',
+      nextSession: 'Alt+Shift+ArrowRight',
+      prevSession: 'Alt+Shift+ArrowLeft',
     };
   }
   return {

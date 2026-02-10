@@ -7,28 +7,38 @@ interface KeyMap {
 interface Options {
   keyMap: KeyMap;
   enabled?: boolean;
+  allowInInputs?: string[];
 }
 
-export function useKeyboardNav({ keyMap, enabled = true }: Options): void {
+export function useKeyboardNav({ keyMap, enabled = true, allowInInputs = [] }: Options): void {
   const keyMapRef = useRef(keyMap);
-  keyMapRef.current = keyMap;
+  const allowInInputsRef = useRef<Set<string>>(new Set(allowInInputs));
+
+  useEffect(() => {
+    keyMapRef.current = keyMap;
+  }, [keyMap]);
+
+  useEffect(() => {
+    allowInInputsRef.current = new Set(allowInInputs);
+  }, [allowInInputs]);
 
   useEffect(() => {
     if (!enabled) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Allow Escape through always, but skip other keys when in inputs
-      const tag = (document.activeElement?.tagName ?? '').toUpperCase();
-      if (e.key !== 'Escape' && (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT')) {
-        return;
-      }
-
       const composite =
         (e.ctrlKey ? 'Ctrl+' : '') +
         (e.metaKey ? 'Meta+' : '') +
         (e.altKey ? 'Alt+' : '') +
         (e.shiftKey ? 'Shift+' : '') +
         e.key;
+
+      // Allow Escape through always, but skip other keys when in inputs
+      const tag = (document.activeElement?.tagName ?? '').toUpperCase();
+      const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      if (e.key !== 'Escape' && inInput && !allowInInputsRef.current.has(composite)) {
+        return;
+      }
 
       const handler = keyMapRef.current[composite];
       if (handler) {

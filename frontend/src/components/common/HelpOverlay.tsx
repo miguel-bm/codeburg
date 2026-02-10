@@ -59,7 +59,7 @@ const taskDetailShortcuts: ShortcutSection[] = [
     shortcuts: [
       { key: 's', action: 'start session' },
       { key: 'Ctrl+] / Ctrl+[', action: 'next / previous session tab (configurable)' },
-      { key: 'Ctrl+. / Ctrl+,', action: 'default on Spanish layout' },
+      { key: 'Alt+Shift+→ / Alt+Shift+←', action: 'always available for tab switching' },
       { key: '?', action: 'toggle help' },
     ],
   },
