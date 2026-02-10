@@ -199,7 +199,7 @@ export function TaskDetailInReview({
                   onShowStartComposer();
                 }}
                 showNewSessionTab={showComposer}
-                onCancelNewSession={onHideStartComposer}
+                onCancelNewSession={showStartComposer ? onHideStartComposer : undefined}
               />
               <div className="flex-1 overflow-hidden">
                 {showComposer ? (
@@ -298,7 +298,7 @@ export function TaskDetailInReview({
                 onClose={onCloseSession}
                 onNewSession={onShowStartComposer}
                 showNewSessionTab={showComposer}
-                onCancelNewSession={onHideStartComposer}
+                onCancelNewSession={showStartComposer ? onHideStartComposer : undefined}
               />
               <div className="flex-1 overflow-hidden">
                 {showComposer ? (

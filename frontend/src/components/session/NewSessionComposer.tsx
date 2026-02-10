@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { MessageSquareText, Play, SquareTerminal, X } from 'lucide-react';
+import { CornerDownLeft, MessageSquareText, Play, X } from 'lucide-react';
 import type { SessionProvider } from '../../api/sessions';
 import claudeLogo from '../../assets/claude-logo.svg';
 import openaiLogo from '../../assets/openai-logo.svg';
@@ -65,11 +65,12 @@ function ProviderLogo({ provider }: { provider: SessionProvider }) {
   }
 
   return (
-    <SquareTerminal
-      size={18}
-      className="text-[var(--color-bg-primary)]"
+    <span
       aria-hidden="true"
-    />
+      className="font-mono text-lg leading-none text-[var(--color-text-primary)]"
+    >
+      {'>'}
+    </span>
   );
 }
 
@@ -107,14 +108,32 @@ export function NewSessionComposer({
       ? `Starts ${provider} with the prompt below.`
       : `Starts ${provider} interactively with no initial prompt.`;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const startSession = () => {
     if (provider === 'terminal') {
       onStart('terminal', '');
       return;
     }
-
     onStart(provider, includePrompt ? prompt.trim() : '');
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    startSession();
+  };
+
+  const handleProviderSelect = (id: SessionProvider) => {
+    if (id === 'terminal') {
+      if (!isPending) onStart('terminal', '');
+      return;
+    }
+    setProvider(id);
+  };
+
+  const handlePromptKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (!isPending) startSession();
+    }
   };
 
   return (
@@ -156,7 +175,7 @@ export function NewSessionComposer({
                 <button
                   key={option.id}
                   type="button"
-                  onClick={() => setProvider(option.id)}
+                  onClick={() => handleProviderSelect(option.id)}
                   className={`rounded-xl border p-2.5 text-left transition-all sm:p-3 ${
                     selected
                       ? 'border-accent bg-accent/10 shadow-accent'
@@ -164,7 +183,7 @@ export function NewSessionComposer({
                   }`}
                 >
                   <div className="flex flex-col items-center gap-2 text-center sm:flex-row sm:items-start sm:gap-3 sm:text-left">
-                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-subtle bg-primary sm:h-10 sm:w-10">
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-subtle bg-white sm:h-10 sm:w-10">
                       <ProviderLogo provider={option.id} />
                     </span>
                     <span className="min-w-0 space-y-0.5">
@@ -185,7 +204,7 @@ export function NewSessionComposer({
           </div>
         </section>
 
-        <section className="mt-5 flex-1 rounded-xl border border-subtle bg-secondary p-3 sm:mt-6 sm:p-4">
+        <section className="mt-5 flex flex-1 flex-col rounded-xl border border-subtle bg-secondary p-3 sm:mt-6 sm:p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div className="inline-flex items-center gap-2 text-sm font-medium">
               <MessageSquareText size={15} className="text-accent" />
@@ -207,9 +226,10 @@ export function NewSessionComposer({
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={handlePromptKeyDown}
               rows={12}
               autoFocus={!isMobile}
-              className="block w-full min-h-44 max-h-[52vh] resize-y rounded-lg border border-subtle bg-primary px-3 py-2 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-text-secondary)] focus:outline-none sm:min-h-56"
+              className="block h-full w-full min-h-44 flex-1 resize-y rounded-lg border border-subtle bg-primary px-3 py-2 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-text-secondary)] focus:outline-none sm:min-h-56"
               placeholder="Describe what the session should do..."
             />
           ) : (
@@ -237,6 +257,10 @@ export function NewSessionComposer({
             >
               <Play size={12} />
               {isPending ? 'Starting...' : 'Start Session'}
+              <span className="inline-flex items-center gap-1 rounded border border-white/20 bg-white/10 px-1.5 py-0.5 text-[10px]">
+                <CornerDownLeft size={10} />
+                Enter
+              </span>
             </button>
           </div>
         </div>

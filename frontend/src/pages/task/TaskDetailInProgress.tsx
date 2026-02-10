@@ -388,7 +388,7 @@ export function TaskDetailInProgress({
             onClose={onCloseSession}
             onNewSession={onShowStartComposer}
             showNewSessionTab={showComposer}
-            onCancelNewSession={onHideStartComposer}
+            onCancelNewSession={showStartComposer ? onHideStartComposer : undefined}
           />
 
           {/* Main content */}
