@@ -1,3 +1,5 @@
+import type { SessionProvider, SessionStatus } from './sessions';
+
 export interface BacklogToProgressConfig {
   action: 'auto_claude' | 'auto_codex' | 'ask' | 'nothing';
   defaultModel?: string;
@@ -178,8 +180,8 @@ export interface SidebarTask {
 
 export interface SidebarSession {
   id: string;
-  provider: string;
-  status: string;
+  provider: SessionProvider;
+  status: SessionStatus;
   number: number;
 }
 

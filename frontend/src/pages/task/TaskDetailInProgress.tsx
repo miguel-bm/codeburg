@@ -225,7 +225,7 @@ export function TaskDetailInProgress({
         {dirtyModal}
 
         {/* Panel selector + session selector */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-subtle bg-secondary">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-subtle bg-primary">
           <select
             value={mobilePanel}
             onChange={(e) => setMobilePanel(e.target.value as MobilePanel)}
@@ -418,7 +418,7 @@ export function TaskDetailInProgress({
               )
             ) : (
               <div className="flex flex-col h-full">
-                <div className="flex items-center justify-between px-4 py-2 border-b border-subtle bg-secondary">
+                <div className="flex items-center justify-between px-4 py-2 border-b border-subtle bg-primary">
                   <span className="text-xs font-mono text-dim">
                     {mainContent.file || 'full branch diff'}
                     {mainContent.base

@@ -264,7 +264,7 @@ export function GitPanel({
 
       <div className={`${scrollable ? 'flex-1 min-h-0 overflow-y-auto' : ''}`}>
         {(status.ahead > 0 || status.behind > 0) && (
-          <div className="px-3 py-2 border-b border-subtle bg-secondary">
+          <div className="px-3 py-2 border-b border-subtle bg-primary">
             <div className="flex items-center gap-2 text-dim text-[11px]">
               <span className="uppercase tracking-wide">Sync</span>
               <span>

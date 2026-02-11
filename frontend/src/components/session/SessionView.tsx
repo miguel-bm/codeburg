@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { TerminalView } from './TerminalView';
 import type { AgentSession, SessionStatus } from '../../api/sessions';
+import { getSessionStatusMeta } from '../../lib/sessionStatus';
 
 interface SessionViewProps {
   session: AgentSession;
@@ -16,7 +17,7 @@ export function SessionView({ session, showOpenInNewTab = true }: SessionViewPro
   return (
     <div className="flex flex-col h-full">
       {/* Status Bar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-subtle bg-secondary">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-subtle bg-primary">
         <div className="flex items-center gap-3">
           <StatusIndicator status={session.status} />
           <span className="text-xs text-dim">{session.provider}</span>
@@ -56,40 +57,12 @@ interface StatusIndicatorProps {
 }
 
 function StatusIndicator({ status }: StatusIndicatorProps) {
-  const getStatusColor = () => {
-    switch (status) {
-      case 'running':
-        return 'bg-accent animate-pulse';
-      case 'waiting_input':
-        return 'bg-[var(--color-status-in-progress)]';
-      case 'completed':
-        return 'bg-[var(--color-status-done)]';
-      case 'error':
-        return 'bg-[var(--color-error)]';
-      default:
-        return 'bg-[var(--color-text-dim)]';
-    }
-  };
-
-  const getStatusText = () => {
-    switch (status) {
-      case 'running':
-        return 'Running';
-      case 'waiting_input':
-        return 'Waiting';
-      case 'completed':
-        return 'Done';
-      case 'error':
-        return 'Error';
-      default:
-        return 'Idle';
-    }
-  };
+  const { dotClass, label } = getSessionStatusMeta(status);
 
   return (
     <div className="flex items-center gap-2">
-      <div className={`w-2 h-2 rounded-full ${getStatusColor()}`} />
-      <span className="text-xs text-dim">{getStatusText()}</span>
+      <div className={`w-2 h-2 rounded-full ${dotClass}`} />
+      <span className="text-xs text-dim">{label}</span>
     </div>
   );
 }

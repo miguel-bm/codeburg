@@ -1,8 +1,6 @@
-import { useEffect, useRef, useCallback } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { sidebarApi } from '../api';
+import { useEffect, useMemo, useRef } from 'react';
 import type { SidebarData } from '../api';
-import { useWebSocket } from './useWebSocket';
+import { useSidebarData } from './useSidebarData';
 import { playNotificationSound } from '../lib/notificationSound';
 
 // Draw a count badge on the favicon
@@ -50,79 +48,74 @@ function setFaviconBadge(count: number) {
   }
 }
 
-function countWaitingInput(data: SidebarData | undefined): number {
-  if (!data?.projects) return 0;
-  let count = 0;
+function getWaitingSessionIds(data: SidebarData | undefined): Set<string> {
+  const ids = new Set<string>();
+  if (!data?.projects) return ids;
   for (const project of data.projects) {
     for (const task of project.tasks) {
       for (const session of task.sessions) {
-        if (session.status === 'waiting_input') count++;
+        if (session.status === 'waiting_input') {
+          ids.add(session.id);
+        }
       }
     }
   }
-  return count;
+  return ids;
 }
 
 export function useNotifications() {
-  const queryClient = useQueryClient();
-  const prevCountRef = useRef(0);
-  const permissionRef = useRef(Notification.permission);
+  const prevWaitingIdsRef = useRef<Set<string> | null>(null);
 
-  // Reuse the sidebar query (same queryKey so it shares cache)
-  const { data: sidebar } = useQuery({
-    queryKey: ['sidebar'],
-    queryFn: sidebarApi.get,
-    refetchInterval: 10000,
-  });
-
-  // Listen for real-time updates
-  useWebSocket({
-    onMessage: useCallback((data: unknown) => {
-      const msg = data as { type?: string };
-      if (msg.type === 'sidebar_update') {
-        queryClient.invalidateQueries({ queryKey: ['sidebar'] });
-      }
-    }, [queryClient]),
-  });
+  // Reuse the shared sidebar query (same queryKey so cache and polling are centralized)
+  const { data: sidebar } = useSidebarData();
+  const waitingSessionIds = useMemo(() => getWaitingSessionIds(sidebar), [sidebar]);
+  const waitingCount = waitingSessionIds.size;
 
   // Request permission on mount
   useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().then((p) => {
-        permissionRef.current = p;
-      });
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission === 'default') {
+      void Notification.requestPermission();
     }
   }, []);
 
   // React to waiting count changes
   useEffect(() => {
-    const count = countWaitingInput(sidebar);
-
     // Update favicon badge
-    setFaviconBadge(count);
+    setFaviconBadge(waitingCount);
 
     // Update document title
-    if (count > 0) {
+    if (waitingCount > 0) {
       const baseTitle = document.title.replace(/^\[\d+\] /, '');
-      document.title = `[${count}] ${baseTitle}`;
+      document.title = `[${waitingCount}] ${baseTitle}`;
     } else {
       document.title = document.title.replace(/^\[\d+\] /, '');
     }
 
-    // Fire browser notification + sound for new waiting sessions
-    if (count > prevCountRef.current && prevCountRef.current >= 0) {
-      const delta = count - prevCountRef.current;
+    const previous = prevWaitingIdsRef.current;
+    let newWaitingCount = 0;
+    if (previous) {
+      for (const id of waitingSessionIds) {
+        if (!previous.has(id)) {
+          newWaitingCount++;
+        }
+      }
+    }
+
+    // Fire browser notification + sound only for newly-entered waiting sessions.
+    // Skip alerts on initial load by requiring previous state to exist.
+    if (previous && newWaitingCount > 0) {
       playNotificationSound();
-      if ('Notification' in window && Notification.permission === 'granted') {
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
         new Notification('Codeburg', {
-          body: `${delta} agent${delta > 1 ? 's' : ''} waiting for input`,
+          body: `${newWaitingCount} agent${newWaitingCount > 1 ? 's' : ''} waiting for input`,
           tag: 'codeburg-waiting',
         });
       }
     }
 
-    prevCountRef.current = count;
-  }, [sidebar]);
+    prevWaitingIdsRef.current = waitingSessionIds;
+  }, [waitingCount, waitingSessionIds]);
 
-  return countWaitingInput(sidebar);
+  return waitingCount;
 }

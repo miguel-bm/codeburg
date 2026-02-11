@@ -124,7 +124,7 @@ function RecipesSection({ taskId, onRecipeRun }: { taskId: string; onRecipeRun: 
               {recipes.map((recipe) => (
                 <div
                   key={`${recipe.source}:${recipe.name}:${recipe.command}`}
-                  className="flex items-center gap-2 rounded-md border border-subtle bg-secondary px-2 py-1.5"
+                  className="flex items-center gap-2 rounded-md border border-subtle bg-primary px-2 py-1.5"
                   title={recipe.description || recipe.command}
                 >
                   <div className="min-w-0 flex-1">

@@ -33,7 +33,7 @@ export function TaskGitMetaBar({
   }
 
   return (
-    <div className={className || 'flex items-center gap-3 px-4 py-1.5 border-b border-subtle bg-secondary text-xs'}>
+    <div className={className || 'flex items-center gap-3 px-4 py-1.5 border-b border-subtle bg-primary text-xs'}>
       {task.branch && <span className="font-mono text-dim">{task.branch}</span>}
       {task.diffStats && (
         <span>

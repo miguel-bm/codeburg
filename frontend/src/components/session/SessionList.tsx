@@ -1,5 +1,6 @@
 import { Terminal } from 'lucide-react';
 import type { AgentSession, SessionStatus } from '../../api/sessions';
+import { getSessionStatusMeta } from '../../lib/sessionStatus';
 
 interface SessionListProps {
   sessions: AgentSession[];
@@ -63,24 +64,11 @@ interface SessionStatusBadgeProps {
 }
 
 function SessionStatusBadge({ status }: SessionStatusBadgeProps) {
-  const getStatusStyle = () => {
-    switch (status) {
-      case 'running':
-        return 'status-in-progress';
-      case 'waiting_input':
-        return 'status-in-review';
-      case 'completed':
-        return 'status-done';
-      case 'error':
-        return 'text-[var(--color-error)]';
-      default:
-        return 'text-dim';
-    }
-  };
+  const { label, textClass } = getSessionStatusMeta(status);
 
   return (
-    <span className={`text-xs rounded-full px-2 py-0.5 ${getStatusStyle()}`}>
-      {status.replace('_', ' ')}
+    <span className={`text-xs rounded-full px-2 py-0.5 ${textClass}`}>
+      {label}
     </span>
   );
 }

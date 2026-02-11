@@ -156,7 +156,7 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
     <>
       {/* Expandable detail panel */}
       {expandable && expanded && (
-        <div className="bg-secondary px-4 py-3 space-y-3 shrink-0">
+        <div className="bg-primary px-4 py-3 space-y-3 shrink-0">
           {/* Editable title */}
           <div>
             <span className="text-[10px] font-medium uppercase tracking-wider text-dim">Title</span>

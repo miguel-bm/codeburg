@@ -14,6 +14,7 @@ import { Layout } from './components/layout/Layout';
 import { CommandPalette, useCommandPalette } from './components/common/CommandPalette';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useNotifications } from './hooks/useNotifications';
+import { useSidebarRealtimeUpdates } from './hooks/useSidebarData';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -47,6 +48,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 }
 
 function MainAppShell() {
+  useSidebarRealtimeUpdates();
   useNotifications();
   const { open: paletteOpen, setOpen: setPaletteOpen } = useCommandPalette();
 

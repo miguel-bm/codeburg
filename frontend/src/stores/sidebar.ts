@@ -20,17 +20,23 @@ const DEFAULTS: SidebarPersisted = {
   width: 288,
 };
 
+function normalizeMode(mode: unknown): SidebarMode {
+  if (typeof mode !== 'string') return DEFAULTS.mode;
+  if (mode.startsWith('expanded')) return 'expanded';
+  if (mode.startsWith('collapsed')) return 'collapsed';
+  return DEFAULTS.mode;
+}
+
 function load(): SidebarPersisted {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw);
-      // Migrate old 4-mode values to 2-mode
-      if (typeof parsed.mode === 'string') {
-        if (parsed.mode.startsWith('expanded')) parsed.mode = 'expanded';
-        else if (parsed.mode.startsWith('collapsed')) parsed.mode = 'collapsed';
-      }
-      return { ...DEFAULTS, ...parsed };
+      const parsed = JSON.parse(raw) as { mode?: unknown; width?: unknown };
+      const mode = normalizeMode(parsed.mode);
+      const width = typeof parsed.width === 'number'
+        ? clampWidth(parsed.width)
+        : DEFAULTS.width;
+      return { mode, width };
     }
   } catch {
     // ignore

@@ -1,15 +1,16 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { ChevronDown, ChevronUp, X, Settings, ChevronRight, Pin, PanelLeftClose, PanelLeftOpen, GitPullRequest, GitBranch, Funnel, FolderOpen } from 'lucide-react';
-import { sidebarApi, tasksApi, preferencesApi, invalidateTaskQueries, TASK_STATUS } from '../../api';
+import { tasksApi, preferencesApi, invalidateTaskQueries, TASK_STATUS } from '../../api';
 import type { SidebarProject, SidebarTask, SidebarSession, SidebarData, UpdateTaskResponse } from '../../api';
-import { useWebSocket } from '../../hooks/useWebSocket';
+import { useSidebarData } from '../../hooks/useSidebarData';
 import { useKeyboardNav } from '../../hooks/useKeyboardNav';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import { useSidebarFocusStore } from '../../stores/sidebarFocus';
 import { useSidebarStore, selectIsExpanded } from '../../stores/sidebar';
 import { CreateProjectModal } from '../common/CreateProjectModal';
+import { getSessionStatusMeta } from '../../lib/sessionStatus';
 
 interface FocusableItem {
   type: 'project' | 'task';
@@ -40,7 +41,6 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const queryClient = useQueryClient();
   const [showCreateProject, setShowCreateProject] = useState(false);
 
   const isExpanded = useSidebarStore(selectIsExpanded);
@@ -50,21 +50,7 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   const projectPageMatch = location.pathname.match(/^\/projects\/([^/]+)(?:\/|$)/);
   const activeProjectPageId = projectPageMatch?.[1];
 
-  const { data: sidebar, isLoading } = useQuery({
-    queryKey: ['sidebar'],
-    queryFn: sidebarApi.get,
-    refetchInterval: 10000,
-  });
-
-  // Listen for sidebar_update WebSocket messages
-  useWebSocket({
-    onMessage: useCallback((data: unknown) => {
-      const msg = data as { type?: string };
-      if (msg.type === 'sidebar_update') {
-        queryClient.invalidateQueries({ queryKey: ['sidebar'] });
-      }
-    }, [queryClient]),
-  });
+  const { data: sidebar, isLoading } = useSidebarData();
 
   const waitingCount = countWaiting(sidebar);
 
@@ -813,15 +799,9 @@ function SidebarSessionNode({ session, taskId, onClose }: SidebarSessionNodeProp
 
 // --- Status Dot ---
 
-function StatusDot({ status }: { status: string }) {
-  if (status === 'running') {
-    return <span className="w-1.5 h-1.5 rounded-full bg-accent flex-shrink-0" />;
-  }
-  if (status === 'waiting_input') {
-    return <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-warning)] flex-shrink-0 animate-pulse" />;
-  }
-  // idle
-  return <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-dim)] flex-shrink-0" />;
+function StatusDot({ status }: { status: SidebarSession['status'] }) {
+  const { dotClass } = getSessionStatusMeta(status);
+  return <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass}`} />;
 }
 
 // --- Status Icon (shown before each task name) ---

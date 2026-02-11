@@ -1,5 +1,6 @@
 import type { AgentSession, SessionStatus } from '../../api/sessions';
 import { Plus, Sparkles, X } from 'lucide-react';
+import { getSessionStatusMeta } from '../../lib/sessionStatus';
 
 interface Props {
   sessions: AgentSession[];
@@ -13,18 +14,7 @@ interface Props {
 }
 
 function getStatusDotClass(status: SessionStatus): string {
-  switch (status) {
-    case 'running':
-      return 'bg-accent animate-pulse';
-    case 'waiting_input':
-      return 'bg-[var(--color-status-in-progress)]';
-    case 'completed':
-      return 'bg-[var(--color-status-done)]';
-    case 'error':
-      return 'bg-[var(--color-error)]';
-    default:
-      return 'bg-[var(--color-text-dim)]';
-  }
+  return getSessionStatusMeta(status).dotClass;
 }
 
 export function SessionTabs({
@@ -43,7 +33,7 @@ export function SessionTabs({
   );
 
   return (
-    <div className="h-10 flex items-center border-b border-subtle bg-secondary overflow-x-auto">
+    <div className="h-10 flex items-center border-b border-subtle bg-primary overflow-x-auto">
       {sorted.map((session, i) => {
         const isActive = session.id === activeSessionId;
         const canResume = onResume && session.provider === 'claude' && session.status === 'completed';

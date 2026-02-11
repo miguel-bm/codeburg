@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef, useCallback, forwardRef } from 'r
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { GitBranch, Pin, GitPullRequest, Funnel, X, Plus, Inbox, Play, Eye, CheckCircle2, Clock, Calendar } from 'lucide-react';
+import { GitBranch, Pin, GitPullRequest, Funnel, X, Plus, Inbox, Play, Eye, CheckCircle2, Clock, Calendar, LayoutGrid, List as ListIcon, Search } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
 import { tasksApi, projectsApi, sessionsApi, invalidateTaskQueries } from '../api';
@@ -62,16 +62,58 @@ interface DashboardProps {
   panelOpen?: boolean;
 }
 
+type DashboardView = 'kanban' | 'list';
+
+const DASHBOARD_VIEW_PARAM = 'view';
+const DASHBOARD_STATUS_PARAM = 'status';
+const DASHBOARD_PRIORITY_PARAM = 'priority';
+const DASHBOARD_TYPE_PARAM = 'type';
+const DASHBOARD_LABEL_PARAM = 'label';
+const DASHBOARD_PINNED_PARAM = 'pinned';
+const DASHBOARD_HAS_PR_PARAM = 'has_pr';
+const DASHBOARD_HAS_BRANCH_PARAM = 'has_branch';
+const DASHBOARD_QUERY_PARAM = 'q';
+
+function parseDashboardView(value: string | null): DashboardView {
+  return value === 'list' ? 'list' : 'kanban';
+}
+
+function parseCsvParam(value: string | null): string[] {
+  if (!value) return [];
+  return value
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
 export function Dashboard({ panelOpen = false }: DashboardProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedProjectId = searchParams.get('project') || undefined;
+  const view = parseDashboardView(searchParams.get(DASHBOARD_VIEW_PARAM));
+  const statusFilter = useMemo(() => {
+    const allowed = new Set(COLUMNS.map((column) => column.id));
+    return new Set(
+      parseCsvParam(searchParams.get(DASHBOARD_STATUS_PARAM))
+        .filter((status): status is TaskStatus => allowed.has(status as TaskStatus)),
+    );
+  }, [searchParams]);
+  const priorityFilter = searchParams.get(DASHBOARD_PRIORITY_PARAM) || '';
+  const typeFilter = searchParams.get(DASHBOARD_TYPE_PARAM) || '';
+  const labelFilter = searchParams.get(DASHBOARD_LABEL_PARAM) || '';
+  const searchFilter = searchParams.get(DASHBOARD_QUERY_PARAM) || '';
+  const pinnedOnly = searchParams.get(DASHBOARD_PINNED_PARAM) === '1';
+  const hasPrOnly = searchParams.get(DASHBOARD_HAS_PR_PARAM) === '1';
+  const hasBranchOnly = searchParams.get(DASHBOARD_HAS_BRANCH_PARAM) === '1';
+  const hasStatusFilter = statusFilter.size > 0;
 
   // Restore project filter from sessionStorage on mount
   useEffect(() => {
     if (!searchParams.get('project')) {
       const stored = sessionStorage.getItem(SESSION_KEY);
       if (stored) {
-        setSearchParams({ project: stored }, { replace: true });
+        const next = new URLSearchParams(searchParams);
+        next.set('project', stored);
+        setSearchParams(next, { replace: true });
       }
     }
     // Only run on mount
@@ -86,6 +128,30 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
       sessionStorage.removeItem(SESSION_KEY);
     }
   }, [selectedProjectId]);
+  const updateDashboardParams = useCallback((updates: Record<string, string | null>) => {
+    const next = new URLSearchParams(searchParams);
+    for (const [key, value] of Object.entries(updates)) {
+      if (!value) next.delete(key);
+      else next.set(key, value);
+    }
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  const clearDashboardFilters = useCallback(() => {
+    sessionStorage.removeItem(SESSION_KEY);
+    const next = new URLSearchParams(searchParams);
+    next.delete('project');
+    next.delete(DASHBOARD_STATUS_PARAM);
+    next.delete(DASHBOARD_PRIORITY_PARAM);
+    next.delete(DASHBOARD_TYPE_PARAM);
+    next.delete(DASHBOARD_LABEL_PARAM);
+    next.delete(DASHBOARD_PINNED_PARAM);
+    next.delete(DASHBOARD_HAS_PR_PARAM);
+    next.delete(DASHBOARD_HAS_BRANCH_PARAM);
+    next.delete(DASHBOARD_QUERY_PARAM);
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [activeColumnIndex, setActiveColumnIndex] = useState(0);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
@@ -146,59 +212,330 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     },
   });
 
+  const projectNamesById = useMemo(
+    () => new Map((projects ?? []).map((project) => [project.id, project.name])),
+    [projects],
+  );
+
+  const getProjectName = useCallback(
+    (projectId: string): string => projectNamesById.get(projectId) ?? 'unknown',
+    [projectNamesById],
+  );
+
+  const availablePriorities = useMemo(() => {
+    const priorities = new Set<string>();
+    for (const task of tasks ?? []) {
+      if (task.priority) priorities.add(task.priority);
+    }
+    const order: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+    return Array.from(priorities).sort((a, b) => {
+      const aRank = order[a] ?? Number.MAX_SAFE_INTEGER;
+      const bRank = order[b] ?? Number.MAX_SAFE_INTEGER;
+      if (aRank !== bRank) return aRank - bRank;
+      return a.localeCompare(b);
+    });
+  }, [tasks]);
+
+  const availableTaskTypes = useMemo(() => {
+    const taskTypes = new Set<string>();
+    for (const task of tasks ?? []) {
+      if (task.taskType) taskTypes.add(task.taskType);
+    }
+    return Array.from(taskTypes).sort((a, b) => a.localeCompare(b));
+  }, [tasks]);
+
+  const availableLabels = useMemo(() => {
+    const labelMap = new Map<string, { id: string; name: string }>();
+    for (const task of tasks ?? []) {
+      for (const label of task.labels) {
+        if (!labelMap.has(label.id)) {
+          labelMap.set(label.id, { id: label.id, name: label.name });
+        }
+      }
+    }
+    return Array.from(labelMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [tasks]);
+
+  const normalizedSearchFilter = searchFilter.trim().toLowerCase();
+  const filteredTasks = useMemo(() => {
+    return (tasks ?? []).filter((task) => {
+      if (hasStatusFilter && !statusFilter.has(task.status)) return false;
+      if (priorityFilter && (task.priority ?? '') !== priorityFilter) return false;
+      if (typeFilter && task.taskType !== typeFilter) return false;
+      if (labelFilter && !task.labels.some((label) => label.id === labelFilter)) return false;
+      if (pinnedOnly && !task.pinned) return false;
+      if (hasPrOnly && !task.prUrl) return false;
+      if (hasBranchOnly && !task.branch) return false;
+      if (!normalizedSearchFilter) return true;
+      const projectName = getProjectName(task.projectId);
+      const haystack = [
+        task.title,
+        task.description ?? '',
+        task.branch ?? '',
+        projectName,
+        ...(task.labels ?? []).map((label) => label.name),
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(normalizedSearchFilter);
+    });
+  }, [
+    tasks,
+    hasStatusFilter,
+    statusFilter,
+    priorityFilter,
+    typeFilter,
+    labelFilter,
+    pinnedOnly,
+    hasPrOnly,
+    hasBranchOnly,
+    normalizedSearchFilter,
+    getProjectName,
+  ]);
+
   const tasksByStatus = useMemo(() => {
     const map = new Map<TaskStatus, Task[]>();
     for (const col of COLUMNS) {
       map.set(col.id, []);
     }
-    for (const t of tasks ?? []) {
-      const list = map.get(t.status);
-      if (list) list.push(t);
+    for (const task of filteredTasks) {
+      const list = map.get(task.status);
+      if (list) list.push(task);
     }
     return map;
-  }, [tasks]);
+  }, [filteredTasks]);
 
-  const getTasksByStatus = (status: TaskStatus): Task[] => {
-    return tasksByStatus.get(status) ?? [];
-  };
-
-  const getProjectName = (projectId: string): string => {
-    return projects?.find((p) => p.id === projectId)?.name ?? 'unknown';
-  };
-
-  const activeProjectName = selectedProjectId ? getProjectName(selectedProjectId) : null;
-
-  useSetHeader(
-    <div className="flex items-center justify-between w-full">
-      {selectedProjectId ? (
-        <>
-          <div className="inline-flex items-center gap-2 text-xs text-dim">
-            <Funnel size={12} />
-            <span>
-              Filtering: <span className="text-[var(--color-text-primary)]">{activeProjectName}</span>
-            </span>
-          </div>
-          <Button
-            variant="ghost"
-            size="xs"
-            icon={<X size={12} />}
-            onClick={() => {
-              sessionStorage.removeItem(SESSION_KEY);
-              navigate('/');
-            }}
-            title="Clear project filter"
-          >
-            Clear
-          </Button>
-        </>
-      ) : (
-        <span className="text-sm text-dim">Dashboard</span>
-      )}
-    </div>,
-    `dashboard-${selectedProjectId ?? 'none'}`,
+  const getTasksByStatus = useCallback(
+    (status: TaskStatus): Task[] => tasksByStatus.get(status) ?? [],
+    [tasksByStatus],
   );
 
-  const hasProjects = projects && projects.length > 0;
+  const listTasks = useMemo(() => {
+    const statusRank = new Map(COLUMNS.map((column, idx) => [column.id, idx]));
+    return [...filteredTasks].sort((a, b) => {
+      const pinnedDelta = Number(b.pinned) - Number(a.pinned);
+      if (pinnedDelta !== 0) return pinnedDelta;
+      const rankDelta = (statusRank.get(a.status) ?? 0) - (statusRank.get(b.status) ?? 0);
+      if (rankDelta !== 0) return rankDelta;
+      if (a.position !== b.position) return a.position - b.position;
+      return a.title.localeCompare(b.title);
+    });
+  }, [filteredTasks]);
+
+  const activeProjectName = selectedProjectId ? getProjectName(selectedProjectId) : null;
+  const activeFilterCount = Number(!!selectedProjectId)
+    + Number(hasStatusFilter)
+    + Number(!!priorityFilter)
+    + Number(!!typeFilter)
+    + Number(!!labelFilter)
+    + Number(pinnedOnly)
+    + Number(hasPrOnly)
+    + Number(hasBranchOnly)
+    + Number(!!normalizedSearchFilter);
+  const hasAdvancedFilters = hasStatusFilter || !!priorityFilter || !!typeFilter || !!labelFilter
+    || pinnedOnly || hasPrOnly || hasBranchOnly || !!normalizedSearchFilter;
+
+  const setView = useCallback(
+    (nextView: DashboardView) => {
+      updateDashboardParams({ [DASHBOARD_VIEW_PARAM]: nextView === 'kanban' ? null : nextView });
+    },
+    [updateDashboardParams],
+  );
+
+  const toggleStatusFilter = useCallback((status: TaskStatus) => {
+    const next = new Set(statusFilter);
+    if (next.has(status)) next.delete(status);
+    else next.add(status);
+    const ordered = COLUMNS.map((column) => column.id).filter((columnId) => next.has(columnId));
+    updateDashboardParams({
+      [DASHBOARD_STATUS_PARAM]: ordered.length === 0 || ordered.length === COLUMNS.length
+        ? null
+        : ordered.join(','),
+    });
+  }, [statusFilter, updateDashboardParams]);
+
+  useSetHeader(
+    <div className="w-full overflow-x-auto">
+      <div className="inline-flex items-center gap-2 min-w-max py-1">
+        <div className="inline-flex items-center rounded-lg border border-subtle bg-[var(--color-card)] p-0.5">
+          <button
+            type="button"
+            onClick={() => setView('kanban')}
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-all duration-150 ${
+              view === 'kanban'
+                ? 'bg-accent/15 text-accent'
+                : 'text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
+            }`}
+            title="Kanban view"
+          >
+            <LayoutGrid size={12} />
+            Kanban
+          </button>
+          <button
+            type="button"
+            onClick={() => setView('list')}
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-all duration-150 ${
+              view === 'list'
+                ? 'bg-accent/15 text-accent'
+                : 'text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
+            }`}
+            title="List view"
+          >
+            <ListIcon size={12} />
+            List
+          </button>
+        </div>
+
+        <div className="inline-flex items-center gap-1.5 rounded-lg border border-subtle bg-[var(--color-card)] px-2 py-1">
+          <Funnel size={12} className="text-dim" />
+          <span className="text-[11px] text-dim">Project</span>
+          <select
+            value={selectedProjectId ?? ''}
+            onChange={(e) => {
+              const nextProjectId = e.target.value || null;
+              if (!nextProjectId) sessionStorage.removeItem(SESSION_KEY);
+              updateDashboardParams({ project: nextProjectId });
+            }}
+            className="bg-transparent text-[11px] text-[var(--color-text-primary)] border-none focus:outline-none"
+            title="Project scope"
+          >
+            <option value="">All projects</option>
+            {(projects ?? []).map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="inline-flex items-center gap-1 rounded-lg border border-subtle bg-[var(--color-card)] p-0.5">
+          {COLUMNS.map((column) => {
+            const active = !hasStatusFilter || statusFilter.has(column.id);
+            return (
+              <button
+                key={column.id}
+                type="button"
+                onClick={() => toggleStatusFilter(column.id)}
+                className={`px-2 py-1 rounded-md text-[11px] font-medium transition-all duration-150 ${
+                  active
+                    ? `${column.color} bg-[var(--color-accent-glow)]`
+                    : 'text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
+                }`}
+              >
+                {column.title}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="inline-flex items-center gap-1.5 rounded-lg border border-subtle bg-[var(--color-card)] px-2 py-1">
+          <span className="text-[11px] text-dim">Priority</span>
+          <select
+            value={priorityFilter}
+            onChange={(e) => updateDashboardParams({ [DASHBOARD_PRIORITY_PARAM]: e.target.value || null })}
+            className="bg-transparent text-[11px] text-[var(--color-text-primary)] border-none focus:outline-none"
+            title="Priority filter"
+          >
+            <option value="">All</option>
+            {availablePriorities.map((priority) => (
+              <option key={priority} value={priority}>
+                {priority}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="inline-flex items-center gap-1.5 rounded-lg border border-subtle bg-[var(--color-card)] px-2 py-1">
+          <span className="text-[11px] text-dim">Type</span>
+          <select
+            value={typeFilter}
+            onChange={(e) => updateDashboardParams({ [DASHBOARD_TYPE_PARAM]: e.target.value || null })}
+            className="bg-transparent text-[11px] text-[var(--color-text-primary)] border-none focus:outline-none"
+            title="Task type filter"
+          >
+            <option value="">All</option>
+            {availableTaskTypes.map((taskType) => (
+              <option key={taskType} value={taskType}>
+                {taskType}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="inline-flex items-center gap-1.5 rounded-lg border border-subtle bg-[var(--color-card)] px-2 py-1">
+          <span className="text-[11px] text-dim">Label</span>
+          <select
+            value={labelFilter}
+            onChange={(e) => updateDashboardParams({ [DASHBOARD_LABEL_PARAM]: e.target.value || null })}
+            className="max-w-[110px] bg-transparent text-[11px] text-[var(--color-text-primary)] border-none focus:outline-none"
+            title="Label filter"
+          >
+            <option value="">All</option>
+            {availableLabels.map((label) => (
+              <option key={label.id} value={label.id}>
+                {label.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <FilterToggleChip
+          active={pinnedOnly}
+          onClick={() => updateDashboardParams({ [DASHBOARD_PINNED_PARAM]: pinnedOnly ? null : '1' })}
+        >
+          Pinned
+        </FilterToggleChip>
+        <FilterToggleChip
+          active={hasPrOnly}
+          onClick={() => updateDashboardParams({ [DASHBOARD_HAS_PR_PARAM]: hasPrOnly ? null : '1' })}
+        >
+          Has PR
+        </FilterToggleChip>
+        <FilterToggleChip
+          active={hasBranchOnly}
+          onClick={() => updateDashboardParams({ [DASHBOARD_HAS_BRANCH_PARAM]: hasBranchOnly ? null : '1' })}
+        >
+          Has branch
+        </FilterToggleChip>
+
+        <label className="relative inline-flex items-center">
+          <Search size={12} className="absolute left-2 text-dim pointer-events-none" />
+          <input
+            value={searchFilter}
+            onChange={(e) => updateDashboardParams({ [DASHBOARD_QUERY_PARAM]: e.target.value || null })}
+            placeholder="Search title, branch, label..."
+            className="h-7 w-[220px] rounded-lg border border-subtle bg-[var(--color-card)] pl-7 pr-2 text-[11px] text-[var(--color-text-primary)] placeholder:text-dim focus:outline-none focus:border-accent transition-colors"
+          />
+        </label>
+
+        {activeProjectName && (
+          <div className="inline-flex items-center gap-1 rounded-md bg-[var(--color-accent-glow)] px-2 py-1 text-[11px] text-accent">
+            {activeProjectName}
+          </div>
+        )}
+
+        {activeFilterCount > 0 && (
+          <>
+            <div className="inline-flex items-center px-2 py-1 rounded-md text-[11px] text-dim">
+              {activeFilterCount} active
+            </div>
+            <Button
+              variant="ghost"
+              size="xs"
+              icon={<X size={12} />}
+              onClick={clearDashboardFilters}
+              title="Clear all filters"
+            >
+              Clear
+            </Button>
+          </>
+        )}
+      </div>
+    </div>,
+    `dashboard-${view}-${selectedProjectId ?? 'none'}-${Array.from(statusFilter).sort().join('.')}-${priorityFilter}-${typeFilter}-${labelFilter}-${pinnedOnly}-${hasPrOnly}-${hasBranchOnly}-${searchFilter}-${(projects ?? []).length}-${availablePriorities.join('.')}-${availableTaskTypes.join('.')}-${availableLabels.map((label) => label.id).join('.')}`,
+  );
+
+  const hasProjects = (projects?.length ?? 0) > 0;
 
   const navigateToCreate = useCallback((status?: TaskStatus) => {
     const params = new URLSearchParams();
@@ -219,14 +556,38 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     return col[focus.card] ?? null;
   }, [focus, getColumnTasks]);
 
-  // Auto-select first task on initial load or when project filter changes
-  const prevProjectId = useRef(selectedProjectId);
+  // Auto-select first task on initial load or when filters change
+  const focusSelectionKey = useMemo(
+    () => [
+      selectedProjectId ?? '',
+      Array.from(statusFilter).sort().join(','),
+      priorityFilter,
+      typeFilter,
+      labelFilter,
+      pinnedOnly ? '1' : '0',
+      hasPrOnly ? '1' : '0',
+      hasBranchOnly ? '1' : '0',
+      normalizedSearchFilter,
+    ].join('|'),
+    [
+      selectedProjectId,
+      statusFilter,
+      priorityFilter,
+      typeFilter,
+      labelFilter,
+      pinnedOnly,
+      hasPrOnly,
+      hasBranchOnly,
+      normalizedSearchFilter,
+    ],
+  );
+  const prevFocusSelectionKey = useRef(focusSelectionKey);
   const hasInitialized = useRef(false);
   useEffect(() => {
     if (!tasks) return;
-    const projectChanged = prevProjectId.current !== selectedProjectId;
-    prevProjectId.current = selectedProjectId;
-    if (hasInitialized.current && !projectChanged) return;
+    const filtersChanged = prevFocusSelectionKey.current !== focusSelectionKey;
+    prevFocusSelectionKey.current = focusSelectionKey;
+    if (hasInitialized.current && !filtersChanged) return;
     hasInitialized.current = true;
     for (let col = 0; col < COLUMNS.length; col++) {
       const colTasks = tasksByStatus.get(COLUMNS[col].id) ?? [];
@@ -236,7 +597,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
       }
     }
     setFocus({ col: 0, card: 0 });
-  }, [selectedProjectId, tasks, tasksByStatus]);
+  }, [focusSelectionKey, tasks, tasksByStatus]);
 
   const STATUS_ORDER: TaskStatus[] = COLUMNS.map((c) => c.id);
 
@@ -387,7 +748,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
       },
       Escape: () => setFocus(null),
       // Reorder/move shortcuts only when panel is closed
-      ...(!panelOpen ? {
+      ...(!panelOpen && !hasAdvancedFilters ? {
         'Shift+ArrowLeft': moveColumnLeft,
         'Shift+ArrowRight': moveColumnRight,
         'Shift+H': moveColumnLeft,
@@ -410,7 +771,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
       '4': () => setFocus({ col: 3, card: 0 }),
       '?': () => setShowHelp(true),
     },
-    enabled: !showCreateProject && !showHelp && !contextMenu && !drag && !sidebarFocused,
+    enabled: view === 'kanban' && !showCreateProject && !showHelp && !contextMenu && !drag && !sidebarFocused,
   });
 
   // Sync mobile tab to focus column
@@ -420,10 +781,17 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     }
   }, [focus, isMobile]);
 
+  useEffect(() => {
+    if (view === 'list') {
+      setContextMenu(null);
+      setDrag(null);
+    }
+  }, [view]);
+
   // --- Custom drag-and-drop (desktop only) ---
 
   const handleMouseDown = useCallback((e: React.MouseEvent, task: Task, colIdx: number, cardIdx: number) => {
-    if (isMobile || e.button !== 0) return;
+    if (view !== 'kanban' || hasAdvancedFilters || isMobile || e.button !== 0) return;
     const cardEl = cardRefs.current.get(task.id);
     if (!cardEl) return;
     const rect = cardEl.getBoundingClientRect();
@@ -443,7 +811,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
       cardOffsetX: e.clientX - rect.left,
       cardOffsetY: e.clientY - rect.top,
     });
-  }, [isMobile]);
+  }, [view, hasAdvancedFilters, isMobile]);
 
   // Calculate target column and position from mouse position
   const calcDropTarget = useCallback((mouseX: number, mouseY: number): { col: number; position: number } => {
@@ -488,7 +856,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   }, [getColumnTasks, drag]);
 
   useEffect(() => {
-    if (!drag) return;
+    if (!drag || view !== 'kanban' || hasAdvancedFilters) return;
 
     const onMouseMove = (e: MouseEvent) => {
       const { col, position } = calcDropTarget(e.clientX, e.clientY);
@@ -538,10 +906,13 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
     };
-  }, [drag, calcDropTarget, tasks, navigate, getColumnTasks, updateTaskMutation]);
+  }, [drag, view, hasAdvancedFilters, calcDropTarget, tasks, navigate, getColumnTasks, updateTaskMutation]);
 
   // Is dragging (mouse has moved enough)?
-  const isDragging = drag && Math.hypot(drag.mouseX - drag.initialMouseX, drag.mouseY - drag.initialMouseY) >= 5;
+  const isDragging = view === 'kanban'
+    && !hasAdvancedFilters
+    && drag
+    && Math.hypot(drag.mouseX - drag.initialMouseX, drag.mouseY - drag.initialMouseY) >= 5;
 
   return (
     <>
@@ -560,144 +931,164 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         </div>
       )}
 
-      {/* Kanban Board */}
-      {isMobile ? (
-        // Mobile: Tabbed columns with swipe navigation
-        <div className="flex flex-col h-full">
-          {/* Tab Navigation */}
-          <div className="flex overflow-x-auto">
-            {COLUMNS.map((column, index) => {
-              const TabIcon = COLUMN_ICONS[column.id];
-              return (
-                <button
-                  key={column.id}
-                  onClick={() => setActiveColumnIndex(index)}
-                  className={`flex-1 min-w-0 px-3 py-2 text-xs font-medium transition-colors inline-flex items-center justify-center gap-1 ${
-                    activeColumnIndex === index
-                      ? `${column.color} border-b-2 border-accent`
-                      : 'text-dim hover:text-[var(--color-text-primary)]'
-                  }`}
-                >
-                  <TabIcon size={12} />
-                  {column.title}
-                  <span className="ml-0.5 text-dim">
-                    {getTasksByStatus(column.id).length}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Swipeable Content */}
-          <div
-            className="flex-1 overflow-y-auto p-2"
-            {...swipeHandlers}
-          >
-            {tasksLoading ? (
-              <div className="text-center text-dim py-8 text-sm">Loading...</div>
-            ) : (
-              <div className="space-y-3">
-                {getTasksByStatus(COLUMNS[activeColumnIndex].id).map((task, cardIdx) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    projectName={!selectedProjectId ? getProjectName(task.projectId) : undefined}
-                    isMobile
-                    onLongPress={(x, y) => setContextMenu({ taskId: task.id, x, y })}
-                    focused={focus?.col === activeColumnIndex && focus?.card === cardIdx}
-                  />
-                ))}
-                <NewTaskPlaceholder
-                  focused={focus?.col === activeColumnIndex && focus?.card === getTasksByStatus(COLUMNS[activeColumnIndex].id).length}
-                  onClick={() => { if (hasProjects) navigateToCreate(COLUMNS[activeColumnIndex].id); }}
-                />
-              </div>
-            )}
-          </div>
-        </div>
+      {view === 'list' ? (
+        <TaskListView
+          tasks={listTasks}
+          loading={tasksLoading}
+          selectedProjectId={selectedProjectId}
+          getProjectName={getProjectName}
+          onOpenTask={(taskId) => navigate(`/tasks/${taskId}`)}
+          canCreateTask={hasProjects}
+          onCreateTask={() => {
+            if (hasProjects) navigateToCreate();
+          }}
+        />
       ) : (
-        // Desktop: Horizontal scrolling kanban with custom DnD
-        <div className="px-3 py-3 h-full overflow-x-auto">
-          <div className="flex gap-2 h-full min-w-[1200px]">
-            {COLUMNS.map((column, colIdx) => {
-              const colTasks = getTasksByStatus(column.id);
-              const ColIcon = COLUMN_ICONS[column.id];
-              return (
-                <Card
-                  key={column.id}
-                  padding="none"
-                  className={`group flex-1 min-w-0 flex flex-col transition-all duration-150 ${
-                    focus?.col === colIdx
-                      ? '!border-accent'
-                      : ''
-                  } ${isDragging && drag?.targetCol === colIdx ? 'drag-target-col' : ''}`}
-                >
-                  <div ref={(el) => { columnRefs.current[colIdx] = el; }} className="flex flex-col h-full">
-                  {/* Column Header */}
-                  <div className="px-4 py-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className={`text-xs font-medium uppercase tracking-wider ${column.color} flex items-center gap-1.5`}>
-                        <ColIcon size={14} className="text-dim" />
-                        {column.title}
-                      </h3>
-                      <Badge variant="count">{colTasks.length}</Badge>
-                    </div>
-                  </div>
+        <>
+          {hasAdvancedFilters && (
+            <div className="px-4 py-1.5 text-[11px] text-dim border-b border-subtle bg-[var(--color-card)]/40">
+              Advanced filters are active. Drag reorder and shift-move shortcuts are temporarily disabled.
+            </div>
+          )}
+          {isMobile ? (
+            // Mobile: Tabbed columns with swipe navigation
+            <div className="flex flex-col h-full">
+              {/* Tab Navigation */}
+              <div className="flex overflow-x-auto">
+                {COLUMNS.map((column, index) => {
+                  const TabIcon = COLUMN_ICONS[column.id];
+                  return (
+                    <button
+                      key={column.id}
+                      onClick={() => setActiveColumnIndex(index)}
+                      className={`flex-1 min-w-0 px-3 py-2 text-xs font-medium transition-colors inline-flex items-center justify-center gap-1 ${
+                        activeColumnIndex === index
+                          ? `${column.color} border-b-2 border-accent`
+                          : 'text-dim hover:text-[var(--color-text-primary)]'
+                      }`}
+                    >
+                      <TabIcon size={12} />
+                      {column.title}
+                      <span className="ml-0.5 text-dim">
+                        {getTasksByStatus(column.id).length}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
 
-                  {/* Tasks */}
-                  <div className="flex-1 p-2 space-y-1 overflow-y-auto">
-                    {tasksLoading ? (
-                      <div className="text-center text-dim py-4 text-sm">
-                        Loading...
-                      </div>
-                    ) : (
-                      <>
-                        {colTasks.map((task, cardIdx) => {
-                          const isGhost = !!(isDragging && drag?.taskId === task.id);
-                          // Show placeholder before this card if it's the drop target.
-                          // Suppress when hovering at the original position: calcDropTarget skips
-                          // the ghost, so "original spot" = targetPosition === sourceCard + 1 in the same column.
-                          const isReturnToOrigin = drag?.sourceCol === colIdx && drag?.sourceCard !== undefined && cardIdx === drag.sourceCard + 1;
-                          const showDropPlaceholder = isDragging && drag?.targetCol === colIdx && drag?.targetPosition === cardIdx && drag?.taskId !== task.id && !isReturnToOrigin;
-                          return (
-                            <div key={task.id}>
-                              {showDropPlaceholder && (
+              {/* Swipeable Content */}
+              <div
+                className="flex-1 overflow-y-auto p-2"
+                {...swipeHandlers}
+              >
+                {tasksLoading ? (
+                  <div className="text-center text-dim py-8 text-sm">Loading...</div>
+                ) : (
+                  <div className="space-y-3">
+                    {getTasksByStatus(COLUMNS[activeColumnIndex].id).map((task, cardIdx) => (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        projectName={!selectedProjectId ? getProjectName(task.projectId) : undefined}
+                        isMobile
+                        onLongPress={(x, y) => setContextMenu({ taskId: task.id, x, y })}
+                        focused={focus?.col === activeColumnIndex && focus?.card === cardIdx}
+                      />
+                    ))}
+                    <NewTaskPlaceholder
+                      focused={focus?.col === activeColumnIndex && focus?.card === getTasksByStatus(COLUMNS[activeColumnIndex].id).length}
+                      onClick={() => { if (hasProjects) navigateToCreate(COLUMNS[activeColumnIndex].id); }}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            // Desktop: Horizontal scrolling kanban with custom DnD
+            <div className="px-3 py-3 h-full overflow-x-auto">
+              <div className="flex gap-2 h-full min-w-[1200px]">
+                {COLUMNS.map((column, colIdx) => {
+                  const colTasks = getTasksByStatus(column.id);
+                  const ColIcon = COLUMN_ICONS[column.id];
+                  return (
+                    <Card
+                      key={column.id}
+                      padding="none"
+                      className={`group flex-1 min-w-0 flex flex-col transition-all duration-150 ${
+                        focus?.col === colIdx
+                          ? '!border-accent'
+                          : ''
+                      } ${isDragging && drag?.targetCol === colIdx ? 'drag-target-col' : ''}`}
+                    >
+                      <div ref={(el) => { columnRefs.current[colIdx] = el; }} className="flex flex-col h-full">
+                        {/* Column Header */}
+                        <div className="px-4 py-3">
+                          <div className="flex items-center justify-between">
+                            <h3 className={`text-xs font-medium uppercase tracking-wider ${column.color} flex items-center gap-1.5`}>
+                              <ColIcon size={14} className="text-dim" />
+                              {column.title}
+                            </h3>
+                            <Badge variant="count">{colTasks.length}</Badge>
+                          </div>
+                        </div>
+
+                        {/* Tasks */}
+                        <div className="flex-1 p-2 space-y-1 overflow-y-auto">
+                          {tasksLoading ? (
+                            <div className="text-center text-dim py-4 text-sm">
+                              Loading...
+                            </div>
+                          ) : (
+                            <>
+                              {colTasks.map((task, cardIdx) => {
+                                const isGhost = !!(isDragging && drag?.taskId === task.id);
+                                // Show placeholder before this card if it's the drop target.
+                                // Suppress when hovering at the original position: calcDropTarget skips
+                                // the ghost, so "original spot" = targetPosition === sourceCard + 1 in the same column.
+                                const isReturnToOrigin = drag?.sourceCol === colIdx && drag?.sourceCard !== undefined && cardIdx === drag.sourceCard + 1;
+                                const showDropPlaceholder = isDragging && drag?.targetCol === colIdx && drag?.targetPosition === cardIdx && drag?.taskId !== task.id && !isReturnToOrigin;
+                                return (
+                                  <div key={task.id}>
+                                    {showDropPlaceholder && (
+                                      <DropPlaceholder height={drag!.cardHeight} />
+                                    )}
+                                    <TaskCard
+                                      ref={(el) => {
+                                        if (el) cardRefs.current.set(task.id, el);
+                                        else cardRefs.current.delete(task.id);
+                                      }}
+                                      task={task}
+                                      projectName={!selectedProjectId ? getProjectName(task.projectId) : undefined}
+                                      focused={!!(focus?.col === colIdx && focus?.card === cardIdx)}
+                                      ghost={isGhost}
+                                      onMouseDown={(e) => handleMouseDown(e, task, colIdx, cardIdx)}
+                                    />
+                                  </div>
+                                );
+                              })}
+                              {/* Drop placeholder at end of column (suppress if ghost is the last card) */}
+                              {isDragging && drag?.targetCol === colIdx && drag?.targetPosition >= colTasks.length
+                                && !(drag?.sourceCol === colIdx && drag?.sourceCard === colTasks.length - 1) && (
                                 <DropPlaceholder height={drag!.cardHeight} />
                               )}
-                              <TaskCard
-                                ref={(el) => {
-                                  if (el) cardRefs.current.set(task.id, el);
-                                  else cardRefs.current.delete(task.id);
-                                }}
-                                task={task}
-                                projectName={!selectedProjectId ? getProjectName(task.projectId) : undefined}
-                                focused={!!(focus?.col === colIdx && focus?.card === cardIdx)}
-                                ghost={isGhost}
-                                onMouseDown={(e) => handleMouseDown(e, task, colIdx, cardIdx)}
+                              <NewTaskPlaceholder
+                                focused={focus?.col === colIdx && focus?.card === colTasks.length}
+                                selected={focus?.col === colIdx}
+                                showOnHover
+                                onClick={() => { if (hasProjects) navigateToCreate(column.id); }}
                               />
-                            </div>
-                          );
-                        })}
-                        {/* Drop placeholder at end of column (suppress if ghost is the last card) */}
-                        {isDragging && drag?.targetCol === colIdx && drag?.targetPosition >= colTasks.length
-                          && !(drag?.sourceCol === colIdx && drag?.sourceCard === colTasks.length - 1) && (
-                          <DropPlaceholder height={drag!.cardHeight} />
-                        )}
-                        <NewTaskPlaceholder
-                          focused={focus?.col === colIdx && focus?.card === colTasks.length}
-                          selected={focus?.col === colIdx}
-                          showOnHover
-                          onClick={() => { if (hasProjects) navigateToCreate(column.id); }}
-                        />
-                      </>
-                    )}
-                  </div>
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-        </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Drag overlay (portal) */}
@@ -763,6 +1154,157 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         <HelpOverlay page="dashboard" onClose={() => setShowHelp(false)} />
       )}
     </>
+  );
+}
+
+interface FilterToggleChipProps {
+  active: boolean;
+  onClick: () => void;
+  children: string;
+}
+
+function FilterToggleChip({ active, onClick, children }: FilterToggleChipProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center rounded-md px-2 py-1 text-[11px] font-medium transition-all duration-150 ${
+        active
+          ? 'bg-[var(--color-accent-glow)] text-accent border border-accent/30'
+          : 'bg-[var(--color-card)] border border-subtle text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+interface TaskListViewProps {
+  tasks: Task[];
+  loading: boolean;
+  selectedProjectId?: string;
+  getProjectName: (projectId: string) => string;
+  onOpenTask: (taskId: string) => void;
+  canCreateTask: boolean;
+  onCreateTask: () => void;
+}
+
+function TaskListView({
+  tasks,
+  loading,
+  selectedProjectId,
+  getProjectName,
+  onOpenTask,
+  canCreateTask,
+  onCreateTask,
+}: TaskListViewProps) {
+  const isMobile = useMobile();
+
+  if (loading) {
+    return (
+      <div className="h-full flex items-center justify-center text-sm text-dim">Loading...</div>
+    );
+  }
+
+  return (
+    <div className="px-3 py-3 h-full overflow-y-auto">
+      <Card padding="none" className="h-full min-h-0 flex flex-col">
+        <div className="px-3 py-2 border-b border-subtle text-[11px] text-dim flex items-center justify-between">
+          <span>{tasks.length} tasks</span>
+          <Button variant="ghost" size="xs" icon={<Plus size={12} />} onClick={onCreateTask} disabled={!canCreateTask}>
+            New task
+          </Button>
+        </div>
+        {tasks.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center text-sm text-dim">
+            No tasks match the current filters.
+          </div>
+        ) : isMobile ? (
+          <div className="flex-1 overflow-y-auto p-2 space-y-2">
+            {tasks.map((task) => {
+              const statusMeta = COLUMNS.find((column) => column.id === task.status);
+              const statusLabel = statusMeta?.title ?? task.status;
+              const statusColor = statusMeta?.color ?? 'text-dim';
+              const touchedAt = task.completedAt ?? task.startedAt ?? task.createdAt;
+              return (
+                <button
+                  key={task.id}
+                  type="button"
+                  onClick={() => onOpenTask(task.id)}
+                  className="w-full rounded-lg border border-subtle bg-[var(--color-card)] px-3 py-2 text-left hover:bg-tertiary transition-colors"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm text-[var(--color-text-primary)] truncate flex items-center gap-1.5">
+                      {task.pinned && <Pin size={11} className="text-[var(--color-warning)]" />}
+                      <span className="truncate">{task.title}</span>
+                    </div>
+                    <span className={`text-[11px] font-medium shrink-0 ${statusColor}`}>{statusLabel}</span>
+                  </div>
+                  <div className="mt-1 text-[11px] text-dim flex items-center justify-between gap-2">
+                    <span className="truncate">{selectedProjectId ? 'Current project' : getProjectName(task.projectId)}</span>
+                    <span>{relativeTime(touchedAt)}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex-1 overflow-auto">
+            <div className="grid grid-cols-[minmax(260px,2fr)_minmax(120px,1fr)_minmax(100px,0.8fr)_minmax(100px,0.8fr)_minmax(90px,0.7fr)] px-3 py-2 text-[10px] uppercase tracking-wide text-dim border-b border-subtle sticky top-0 bg-[var(--color-card)]/95 backdrop-blur">
+              <span>Task</span>
+              <span>Project</span>
+              <span>Status</span>
+              <span>Priority</span>
+              <span>Updated</span>
+            </div>
+            <div>
+              {tasks.map((task) => {
+                const statusMeta = COLUMNS.find((column) => column.id === task.status);
+                const statusLabel = statusMeta?.title ?? task.status;
+                const statusColor = statusMeta?.color ?? 'text-dim';
+                const touchedAt = task.completedAt ?? task.startedAt ?? task.createdAt;
+                return (
+                  <button
+                    key={task.id}
+                    type="button"
+                    onClick={() => onOpenTask(task.id)}
+                    className="w-full grid grid-cols-[minmax(260px,2fr)_minmax(120px,1fr)_minmax(100px,0.8fr)_minmax(100px,0.8fr)_minmax(90px,0.7fr)] items-center gap-2 px-3 py-2.5 text-left border-b border-subtle/70 hover:bg-tertiary transition-colors"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm text-[var(--color-text-primary)] flex items-center gap-1.5">
+                        {task.pinned && <Pin size={11} className="text-[var(--color-warning)]" />}
+                        <span className="truncate">{task.title}</span>
+                      </div>
+                      {task.labels.length > 0 && (
+                        <div className="mt-1 flex items-center gap-1">
+                          {task.labels.slice(0, 2).map((label) => (
+                            <span
+                              key={label.id}
+                              className="text-[9px] px-1.5 py-px rounded-full font-medium leading-tight"
+                              style={{
+                                backgroundColor: `${label.color}22`,
+                                color: label.color,
+                              }}
+                            >
+                              {label.name}
+                            </span>
+                          ))}
+                          {task.labels.length > 2 && <span className="text-[9px] text-dim">+{task.labels.length - 2}</span>}
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-xs text-dim truncate">{selectedProjectId ? 'Current' : getProjectName(task.projectId)}</span>
+                    <span className={`text-xs font-medium ${statusColor}`}>{statusLabel}</span>
+                    <span className="text-xs text-dim">{task.priority ? (PRIORITY_LABELS[task.priority] || task.priority) : '-'}</span>
+                    <span className="text-xs text-dim">{relativeTime(touchedAt)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </Card>
+    </div>
   );
 }
 

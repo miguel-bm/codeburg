@@ -163,7 +163,7 @@ export function TaskDetailInReview({
         />
 
         {/* Mobile: tab between diff and sessions */}
-        <div className="flex items-center border-b border-subtle bg-secondary">
+        <div className="flex items-center border-b border-subtle bg-primary">
           <button
             onClick={() => setSessionPanelOpen(false)}
             className={`px-4 py-2 text-xs transition-colors ${!sessionPanelOpen ? 'text-accent border-b-2 border-accent' : 'text-dim'}`}
@@ -329,7 +329,7 @@ export function TaskDetailInReview({
           /* Collapsed: thin bar to open sessions */
           <button
             onClick={() => { setSessionPanelOpen(true); onShowStartComposer(); }}
-            className="flex items-center justify-center gap-1.5 px-4 py-1.5 border-t border-subtle bg-secondary text-xs text-dim hover:text-accent hover:bg-tertiary transition-colors"
+            className="flex items-center justify-center gap-1.5 px-4 py-1.5 border-t border-subtle bg-primary text-xs text-dim hover:text-accent hover:bg-tertiary transition-colors"
           >
             <Plus size={12} />
             Session
