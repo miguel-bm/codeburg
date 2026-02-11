@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { Terminal } from 'lucide-react';
 import { sessionsApi } from '../api';
 import { SessionView } from '../components/session';
 import type { SessionStatus } from '../api';
@@ -96,7 +97,8 @@ export function SessionPopout() {
 
   if (isError || !session || (id && session.taskId !== id)) {
     return (
-      <div className="h-screen bg-primary flex items-center justify-center text-dim text-sm">
+      <div className="h-screen bg-primary flex items-center justify-center text-dim text-sm flex-col gap-2">
+        <Terminal size={36} className="text-dim" />
         Session not found
       </div>
     );

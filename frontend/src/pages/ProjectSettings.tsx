@@ -1,19 +1,23 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ArrowRight, CheckCircle2, Settings, Zap, SunMoon } from 'lucide-react';
-import { Layout } from '../components/layout/Layout';
+import { AlertTriangle, ChevronLeft, ArrowRight, CheckCircle2, Maximize2, Minimize2, Settings, X, Zap, SunMoon } from 'lucide-react';
+import { useSetHeader } from '../components/layout/Header';
 import { projectsApi } from '../api';
+import { usePanelStore } from '../stores/panel';
 import type { Project, ProjectWorkflow, BacklogToProgressConfig, ProgressToReviewConfig, ReviewToDoneConfig } from '../api';
 import { getResolvedTheme, getThemePreference, setThemePreference, subscribeToThemeChange } from '../lib/theme';
 import type { ThemePreference } from '../lib/theme';
 import { SectionCard, SectionHeader, SectionBody, FieldRow, FieldLabel, Toggle } from '../components/ui/settings';
+import { Button } from '../components/ui/Button';
+import { IconButton } from '../components/ui/IconButton';
 import { Select } from '../components/ui/Select';
 import type { SelectOption } from '../components/ui/Select';
 
 export function ProjectSettings() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { size, toggleSize } = usePanelStore();
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', id],
@@ -21,48 +25,63 @@ export function ProjectSettings() {
     enabled: !!id,
   });
 
+  useSetHeader(
+    project ? (
+      <div className="flex items-center justify-between w-full">
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<ChevronLeft size={16} />}
+            onClick={() => navigate(`/projects/${project.id}`)}
+          >
+            Back
+          </Button>
+          <div className="w-px h-4 bg-[var(--color-border)]" />
+          <h1 className="text-sm font-semibold tracking-wide">{project.name} / Settings</h1>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <IconButton
+            icon={size === 'half' ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+            onClick={toggleSize}
+            tooltip={size === 'half' ? 'Expand panel' : 'Collapse panel'}
+          />
+          <IconButton
+            icon={<X size={14} />}
+            onClick={() => navigate('/')}
+            tooltip="Close panel"
+          />
+        </div>
+      </div>
+    ) : null,
+    `project-settings-${id ?? 'none'}-${project?.name ?? ''}-${size}`,
+  );
+
   if (isLoading) {
     return (
-      <Layout>
-        <div className="p-6 text-dim">Loading...</div>
-      </Layout>
+      <div className="p-6 text-dim">Loading...</div>
     );
   }
 
   if (!project) {
     return (
-      <Layout>
-        <div className="p-6 text-dim">Project not found</div>
-      </Layout>
+      <div className="p-6 text-dim flex items-center gap-2">
+        <AlertTriangle size={16} className="text-dim" />
+        Project not found
+      </div>
     );
   }
 
   return (
-    <Layout>
-      <div className="flex flex-col h-full">
-        <header className="bg-secondary border-b border-subtle px-6 py-4">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate(`/projects/${project.id}`)}
-              className="text-dim hover:text-[var(--color-text-primary)] transition-colors text-sm inline-flex items-center gap-1"
-            >
-              <ChevronLeft size={16} />
-              Back
-            </button>
-            <div className="w-px h-4 bg-[var(--color-border)]" />
-            <h1 className="text-sm font-semibold tracking-wide">{project.name} / Settings</h1>
-          </div>
-        </header>
-
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
-            <GeneralSection project={project} />
-            <AppearanceSection />
-            <WorkflowSection project={project} />
-          </div>
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
+          <GeneralSection project={project} />
+          <AppearanceSection />
+          <WorkflowSection project={project} />
         </div>
       </div>
-    </Layout>
+    </div>
   );
 }
 
@@ -216,13 +235,15 @@ function GeneralSection({ project }: { project: Project }) {
             Settings saved
           </div>
         )}
-        <button
+        <Button
+          variant="primary"
+          size="md"
           onClick={() => updateMutation.mutate()}
           disabled={updateMutation.isPending || !dirty}
-          className="px-5 py-2 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
+          loading={updateMutation.isPending}
         >
-          {updateMutation.isPending ? 'Saving...' : 'Save'}
-        </button>
+          Save
+        </Button>
       </SectionBody>
     </SectionCard>
   );
@@ -452,13 +473,15 @@ function WorkflowSection({ project }: { project: Project }) {
             Workflow saved
           </div>
         )}
-        <button
+        <Button
+          variant="primary"
+          size="md"
           onClick={() => updateMutation.mutate()}
           disabled={updateMutation.isPending || !dirty}
-          className="px-5 py-2 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
+          loading={updateMutation.isPending}
         >
-          {updateMutation.isPending ? 'Saving...' : 'Save Workflow'}
-        </button>
+          Save Workflow
+        </Button>
       </SectionBody>
     </SectionCard>
   );

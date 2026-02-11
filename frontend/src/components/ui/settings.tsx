@@ -2,7 +2,7 @@
 
 export function SectionCard({ children }: { children: React.ReactNode }) {
   return (
-    <section className="border border-subtle rounded-md bg-secondary overflow-hidden">
+    <section className="card-surface overflow-hidden">
       {children}
     </section>
   );

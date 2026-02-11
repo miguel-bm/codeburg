@@ -1,5 +1,6 @@
 import { GitPullRequest } from 'lucide-react';
 import type { Task, GitStatus } from '../../api';
+import { Button } from '../../components/ui/Button';
 
 interface TaskGitMetaBarProps {
   task: Task;
@@ -61,14 +62,16 @@ export function TaskGitMetaBar({
         </a>
       ) : (
         onCreatePr && (
-          <button
+          <Button
+            variant="primary"
+            size="xs"
+            icon={<GitPullRequest size={12} />}
             onClick={onCreatePr}
             disabled={createPrPending}
-            className="px-2 py-1 bg-accent text-white rounded text-xs hover:bg-accent-dim transition-colors disabled:opacity-50 inline-flex items-center gap-1"
+            loading={createPrPending}
           >
-            <GitPullRequest size={12} />
             {createPrPending ? createPrPendingLabel : createPrLabel}
-          </button>
+          </Button>
         )
       )}
     </div>

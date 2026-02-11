@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Layout } from '../components/layout/Layout';
+import { ClipboardList } from 'lucide-react';
 import { tasksApi, projectsApi, sessionsApi, TASK_STATUS } from '../api';
 import type { AgentSession, SessionProvider } from '../api';
 import { useKeyboardNav } from '../hooks/useKeyboardNav';
@@ -210,21 +210,18 @@ export function TaskDetail() {
 
   if (taskLoading) {
     return (
-      <Layout>
-        <div className="flex items-center justify-center h-full text-dim">
-          Loading...
-        </div>
-      </Layout>
+      <div className="flex items-center justify-center h-full text-dim">
+        Loading...
+      </div>
     );
   }
 
   if (!task) {
     return (
-      <Layout>
-        <div className="flex items-center justify-center h-full text-dim">
-          Task not found
-        </div>
-      </Layout>
+      <div className="flex items-center justify-center h-full text-dim flex-col gap-2">
+        <ClipboardList size={36} className="text-dim" />
+        Task not found
+      </div>
     );
   }
 
@@ -278,13 +275,13 @@ export function TaskDetail() {
   };
 
   return (
-    <Layout>
+    <>
       {renderView()}
 
       {/* Help Overlay */}
       {showHelp && (
         <HelpOverlay page="taskDetail" onClose={() => setShowHelp(false)} />
       )}
-    </Layout>
+    </>
   );
 }

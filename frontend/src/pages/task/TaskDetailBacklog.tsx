@@ -7,6 +7,11 @@ import { relativeTime } from './TaskHeader';
 import { tasksApi, invalidateTaskQueries, labelsApi } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { Task, Project } from '../../api/types';
+import { Card } from '../../components/ui/Card';
+import { Badge } from '../../components/ui/Badge';
+import { Button } from '../../components/ui/Button';
+import { IconButton } from '../../components/ui/IconButton';
+import { Modal } from '../../components/ui/Modal';
 
 interface Props {
   task: Task;
@@ -48,13 +53,12 @@ function CopyButton({ text }: { text: string }) {
     setTimeout(() => setCopied(false), 1500);
   };
   return (
-    <button
+    <IconButton
+      icon={copied ? <Check size={12} /> : <Copy size={12} />}
       onClick={handleCopy}
-      className="text-dim hover:text-[var(--color-text-primary)] transition-colors p-0.5"
-      title="Copy"
-    >
-      {copied ? <Check size={12} /> : <Copy size={12} />}
-    </button>
+      tooltip="Copy"
+      size="xs"
+    />
   );
 }
 
@@ -129,25 +133,23 @@ export function TaskDetailBacklog({ task, project }: Props) {
         project={project}
         expandable={false}
         actions={
-          <button
+          <Button
+            variant="primary"
+            size="md"
+            icon={<Play size={14} />}
             onClick={handleStartWorking}
             disabled={updateTask.isPending}
-            className="px-4 py-1.5 bg-accent text-white font-medium text-sm rounded-md hover:bg-accent-dim transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+            loading={updateTask.isPending}
           >
-            <Play size={14} />
             {updateTask.isPending ? 'Starting...' : 'Start Working'}
-          </button>
+          </Button>
         }
       />
 
       {/* Mobile: compact properties bar */}
       <div className="sm:hidden flex items-center gap-2 px-4 py-2 bg-secondary border-b border-subtle overflow-x-auto">
-        <span className="text-xs bg-[var(--color-status-backlog)]/15 text-[var(--color-status-backlog)] rounded-full px-2 py-0.5 shrink-0">
-          backlog
-        </span>
-        <span className="text-xs bg-tertiary rounded-full px-2 py-0.5 shrink-0 capitalize">
-          {task.taskType}
-        </span>
+        <Badge variant="status" status="backlog" className="shrink-0">backlog</Badge>
+        <Badge color="gray" className="shrink-0 capitalize">{task.taskType}</Badge>
         {priorityInfo && (
           <span className="text-xs rounded-full px-2 py-0.5 shrink-0" style={{ color: priorityInfo.color }}>
             {priorityInfo.label}
@@ -217,18 +219,20 @@ export function TaskDetailBacklog({ task, project }: Props) {
                     autoFocus
                   />
                   <div className="flex justify-end gap-2 mt-2">
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="xs"
                       onClick={(e) => { e.stopPropagation(); setDescValue(task.description || ''); setEditingDesc(false); }}
-                      className="text-xs text-dim hover:text-[var(--color-text-primary)] px-2.5 py-1 rounded border border-subtle transition-colors"
                     >
                       Cancel
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="xs"
                       onClick={(e) => { e.stopPropagation(); handleDescSave(); }}
-                      className="text-xs text-white bg-accent hover:bg-accent-dim px-2.5 py-1 rounded transition-colors"
                     >
                       Save
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ) : (
@@ -257,7 +261,8 @@ export function TaskDetailBacklog({ task, project }: Props) {
           </div>
 
           {/* Desktop: Properties sidebar */}
-          <div className="hidden sm:block w-72 border-l border-subtle p-4 space-y-4 shrink-0">
+          <div className="hidden sm:block w-72 shrink-0 p-3">
+            <Card padding="sm" className="space-y-4">
             <PropertiesSidebar
               task={task}
               project={project}
@@ -270,6 +275,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
               isPending={updateTask.isPending}
               onShowLabelPicker={() => setShowLabelPicker(true)}
             />
+            </Card>
           </div>
         </div>
       </div>
@@ -284,31 +290,33 @@ export function TaskDetailBacklog({ task, project }: Props) {
       )}
 
       {/* Delete confirmation modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-primary border border-subtle rounded-lg shadow-xl p-6 max-w-sm mx-4">
-            <h3 className="text-sm font-semibold mb-2">Delete task</h3>
-            <p className="text-xs text-dim mb-4">
-              Delete <strong className="text-[var(--color-text-primary)]">{task.title}</strong>? This cannot be undone.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => deleteTask.mutate()}
-                disabled={deleteTask.isPending}
-                className="px-3 py-1.5 bg-[var(--color-error)] text-white rounded-md text-xs hover:opacity-90 transition-colors disabled:opacity-50"
-              >
-                {deleteTask.isPending ? 'Deleting...' : 'Delete'}
-              </button>
-            </div>
+      <Modal
+        open={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        title="Delete task"
+        size="sm"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setShowDeleteConfirm(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => deleteTask.mutate()}
+              loading={deleteTask.isPending}
+            >
+              {deleteTask.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
           </div>
+        }
+      >
+        <div className="px-5 py-3">
+          <p className="text-xs text-dim">
+            Delete <strong className="text-[var(--color-text-primary)]">{task.title}</strong>? This cannot be undone.
+          </p>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }
@@ -338,9 +346,7 @@ function PropertiesSidebar({
 
       {/* Status */}
       <PropertyRow label="Status">
-        <span className="text-xs bg-[var(--color-status-backlog)]/15 text-[var(--color-status-backlog)] rounded-full px-2 py-0.5">
-          backlog
-        </span>
+        <Badge variant="status" status="backlog">backlog</Badge>
       </PropertyRow>
 
       {/* Task Type */}
@@ -436,13 +442,12 @@ function PropertiesSidebar({
               {label.name}
             </span>
           ))}
-          <button
+          <IconButton
+            icon={<Plus size={12} />}
             onClick={onShowLabelPicker}
-            className="text-dim hover:text-accent transition-colors p-0.5"
-            title="Add label"
-          >
-            <Plus size={12} />
-          </button>
+            tooltip="Add label"
+            size="xs"
+          />
         </div>
       </PropertyRow>
 
@@ -450,26 +455,31 @@ function PropertiesSidebar({
       <div className="border-t border-subtle my-3" />
 
       {/* Start Working */}
-      <button
+      <Button
+        variant="primary"
+        size="md"
+        icon={<Play size={14} />}
         onClick={onStartWorking}
         disabled={isPending}
-        className="w-full px-4 py-2.5 bg-accent text-white font-medium text-sm rounded-lg hover:bg-accent-dim transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+        loading={isPending}
+        className="w-full justify-center"
       >
-        <Play size={14} />
         {isPending ? 'Starting...' : 'Start Working'}
-      </button>
+      </Button>
       <p className="text-[10px] text-dim text-center uppercase tracking-wider">
         Creates worktree &amp; branch
       </p>
 
       {/* Delete */}
-      <button
+      <Button
+        variant="danger"
+        size="xs"
+        icon={<Trash2 size={11} />}
         onClick={onDelete}
-        className="w-full text-xs text-dim hover:text-[var(--color-error)] py-1 transition-colors inline-flex items-center justify-center gap-1"
+        className="w-full justify-center"
       >
-        <Trash2 size={11} />
         Delete task
-      </button>
+      </Button>
     </>
   );
 }
@@ -530,13 +540,12 @@ function MobileDetails({
               {label.name}
             </span>
           ))}
-          <button
+          <IconButton
+            icon={<Plus size={14} />}
             onClick={onShowLabelPicker}
-            className="text-dim hover:text-accent transition-colors p-0.5"
-            title="Add label"
-          >
-            <Plus size={14} />
-          </button>
+            tooltip="Add label"
+            size="xs"
+          />
         </div>
       </div>
 
@@ -570,35 +579,39 @@ function MobileDetails({
 
       {/* Actions */}
       <div className="flex items-center gap-3 px-1">
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
+          icon={<Pin size={11} />}
           onClick={onTogglePin}
           disabled={isPending}
-          className={`text-xs px-2 py-1 rounded transition-colors disabled:opacity-50 inline-flex items-center gap-1 ${
-            task.pinned ? 'text-accent' : 'text-dim hover:text-accent'
-          }`}
+          className={task.pinned ? 'text-accent' : ''}
         >
-          <Pin size={11} />
           {task.pinned ? 'Unpin' : 'Pin'}
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="danger"
+          size="xs"
+          icon={<Trash2 size={11} />}
           onClick={onDelete}
-          className="text-xs text-dim hover:text-[var(--color-error)] px-2 py-1 rounded transition-colors inline-flex items-center gap-1"
         >
-          <Trash2 size={11} />
           Delete
-        </button>
+        </Button>
       </div>
 
       {/* Start working CTA */}
       <div>
-        <button
+        <Button
+          variant="primary"
+          size="md"
+          icon={<Play size={14} />}
           onClick={onStartWorking}
           disabled={isPending}
-          className="w-full px-4 py-3 bg-accent text-white font-medium text-sm rounded-lg hover:bg-accent-dim transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+          loading={isPending}
+          className="w-full justify-center h-11"
         >
-          <Play size={14} />
           {isPending ? 'Starting...' : 'Start Working'}
-        </button>
+        </Button>
         <p className="text-[10px] text-dim text-center mt-1.5 uppercase tracking-wider">
           Creates worktree &amp; branch
         </p>
@@ -665,106 +678,101 @@ function LabelPickerModal({ task, projectId, onClose }: LabelPickerModalProps) {
   }, [showCreate]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="bg-elevated border border-subtle rounded-lg shadow-xl w-full max-w-xs mx-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-3 py-2 border-b border-subtle">
-          <span className="text-xs font-medium">Labels</span>
-          <button onClick={onClose} className="text-dim hover:text-[var(--color-text-primary)] transition-colors">
-            <X size={14} />
-          </button>
-        </div>
-
-        <div className="p-2 space-y-1 max-h-60 overflow-y-auto">
-          {projectLabels?.map(label => {
-            const isAssigned = assignedIds.has(label.id);
-            return (
-              <div key={label.id} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded hover:bg-tertiary">
-                <button
-                  onClick={() => isAssigned ? unassignLabel.mutate(label.id) : assignLabel.mutate(label.id)}
-                  className="flex items-center gap-2 min-w-0 flex-1"
-                >
-                  <span
-                    className="w-3 h-3 rounded-full shrink-0 border-2"
-                    style={{
-                      backgroundColor: isAssigned ? label.color : 'transparent',
-                      borderColor: label.color,
-                    }}
-                  />
-                  <span className="text-xs truncate">{label.name}</span>
-                </button>
-                <button
-                  onClick={() => deleteLabel.mutate(label.id)}
-                  className="text-dim hover:text-[var(--color-error)] transition-colors shrink-0"
-                  title="Delete label"
-                >
-                  <X size={10} />
-                </button>
-              </div>
-            );
-          })}
-
-          {!projectLabels?.length && !showCreate && (
-            <p className="text-xs text-dim text-center py-2">No labels yet</p>
-          )}
-        </div>
-
-        {/* Create new label */}
-        {showCreate ? (
-          <div className="border-t border-subtle p-2 space-y-2">
-            <input
-              ref={inputRef}
-              type="text"
-              value={newLabelName}
-              onChange={(e) => setNewLabelName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newLabelName.trim()) {
-                  createLabel.mutate({ name: newLabelName.trim(), color: newLabelColor });
-                }
-                if (e.key === 'Escape') setShowCreate(false);
-              }}
-              placeholder="Label name"
-              className="w-full px-2 py-1 text-xs border border-subtle bg-primary rounded focus:outline-none focus:border-accent"
-            />
-            <div className="flex items-center gap-1">
-              {DEFAULT_LABEL_COLORS.map(color => (
-                <button
-                  key={color}
-                  onClick={() => setNewLabelColor(color)}
-                  className={`w-5 h-5 rounded-full transition-transform ${newLabelColor === color ? 'ring-2 ring-accent ring-offset-1 ring-offset-[var(--color-bg-primary)] scale-110' : ''}`}
-                  style={{ backgroundColor: color }}
+    <Modal open={true} onClose={onClose} title="Labels" size="sm">
+      <div className="p-2 space-y-1 max-h-60 overflow-y-auto">
+        {projectLabels?.map(label => {
+          const isAssigned = assignedIds.has(label.id);
+          return (
+            <div key={label.id} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded hover:bg-tertiary">
+              <button
+                onClick={() => isAssigned ? unassignLabel.mutate(label.id) : assignLabel.mutate(label.id)}
+                className="flex items-center gap-2 min-w-0 flex-1"
+              >
+                <span
+                  className="w-3 h-3 rounded-full shrink-0 border-2"
+                  style={{
+                    backgroundColor: isAssigned ? label.color : 'transparent',
+                    borderColor: label.color,
+                  }}
                 />
-              ))}
-            </div>
-            <div className="flex gap-1.5">
-              <button
-                onClick={() => setShowCreate(false)}
-                className="flex-1 text-xs text-dim py-1 rounded border border-subtle hover:bg-tertiary transition-colors"
-              >
-                Cancel
+                <span className="text-xs truncate">{label.name}</span>
               </button>
-              <button
-                onClick={() => newLabelName.trim() && createLabel.mutate({ name: newLabelName.trim(), color: newLabelColor })}
-                disabled={!newLabelName.trim() || createLabel.isPending}
-                className="flex-1 text-xs text-white bg-accent py-1 rounded hover:bg-accent-dim transition-colors disabled:opacity-50"
-              >
-                Create
-              </button>
+              <IconButton
+                icon={<X size={10} />}
+                onClick={() => deleteLabel.mutate(label.id)}
+                tooltip="Delete label"
+                size="xs"
+                className="text-dim hover:text-[var(--color-error)]"
+              />
             </div>
-          </div>
-        ) : (
-          <div className="border-t border-subtle p-2">
-            <button
-              onClick={() => setShowCreate(true)}
-              className="w-full text-xs text-dim hover:text-accent py-1 flex items-center justify-center gap-1 transition-colors"
-            >
-              <Plus size={12} /> New label
-            </button>
-          </div>
+          );
+        })}
+
+        {!projectLabels?.length && !showCreate && (
+          <p className="text-xs text-dim text-center py-2">No labels yet</p>
         )}
       </div>
-    </div>
+
+      {/* Create new label */}
+      {showCreate ? (
+        <div className="border-t border-subtle p-2 space-y-2">
+          <input
+            ref={inputRef}
+            type="text"
+            value={newLabelName}
+            onChange={(e) => setNewLabelName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newLabelName.trim()) {
+                createLabel.mutate({ name: newLabelName.trim(), color: newLabelColor });
+              }
+              if (e.key === 'Escape') setShowCreate(false);
+            }}
+            placeholder="Label name"
+            className="w-full px-2 py-1 text-xs border border-subtle bg-primary rounded focus:outline-none focus:border-accent"
+          />
+          <div className="flex items-center gap-1">
+            {DEFAULT_LABEL_COLORS.map(color => (
+              <button
+                key={color}
+                onClick={() => setNewLabelColor(color)}
+                className={`w-5 h-5 rounded-full transition-transform ${newLabelColor === color ? 'ring-2 ring-accent ring-offset-1 ring-offset-[var(--color-bg-primary)] scale-110' : ''}`}
+                style={{ backgroundColor: color }}
+              />
+            ))}
+          </div>
+          <div className="flex gap-1.5">
+            <Button
+              variant="secondary"
+              size="xs"
+              onClick={() => setShowCreate(false)}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="xs"
+              onClick={() => newLabelName.trim() && createLabel.mutate({ name: newLabelName.trim(), color: newLabelColor })}
+              disabled={!newLabelName.trim() || createLabel.isPending}
+              className="flex-1"
+            >
+              Create
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="border-t border-subtle p-2">
+          <Button
+            variant="ghost"
+            size="xs"
+            icon={<Plus size={12} />}
+            onClick={() => setShowCreate(true)}
+            className="w-full justify-center"
+          >
+            New label
+          </Button>
+        </div>
+      )}
+    </Modal>
   );
 }

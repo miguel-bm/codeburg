@@ -1,11 +1,15 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, X, ChevronDown, GitBranch } from 'lucide-react';
+import { Plus, X, ChevronDown, GitBranch, Maximize2, Minimize2 } from 'lucide-react';
 import { tasksApi, invalidateTaskQueries, projectsApi, labelsApi } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { TaskStatus, Label } from '../../api/types';
-import { Layout } from '../../components/layout/Layout';
+import { usePanelStore } from '../../stores/panel';
+import { Card } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
+import { IconButton } from '../../components/ui/IconButton';
+import { Modal } from '../../components/ui/Modal';
 
 function slugify(title: string): string {
   return title.toLowerCase()
@@ -39,6 +43,7 @@ export function TaskCreate() {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const titleRef = useRef<HTMLInputElement>(null);
+  const { size, toggleSize } = usePanelStore();
 
   const defaultProjectId = searchParams.get('project') || undefined;
   const defaultStatus = (searchParams.get('status') as TaskStatus) || TASK_STATUS.BACKLOG;
@@ -107,8 +112,7 @@ export function TaskCreate() {
   const selectedProject = projects?.find(p => p.id === projectId);
 
   return (
-    <Layout>
-      <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full">
         {/* Header */}
         <header className="bg-secondary border-b border-subtle shrink-0">
           <div className="flex items-center justify-between gap-4 px-4 py-3">
@@ -123,19 +127,30 @@ export function TaskCreate() {
               <h1 className="text-sm font-medium text-dim">New task</h1>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={handleDiscard}
-                className="px-3 py-1.5 text-sm text-dim hover:text-[var(--color-text-primary)] transition-colors"
-              >
+              <Button variant="ghost" size="sm" onClick={handleDiscard}>
                 Discard
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => createMutation.mutate()}
                 disabled={!canCreate}
-                className="px-4 py-1.5 bg-accent text-white font-medium text-sm rounded-md hover:bg-accent-dim transition-colors disabled:opacity-50"
+                loading={createMutation.isPending}
               >
                 {createMutation.isPending ? 'Creating...' : 'Create'}
-              </button>
+              </Button>
+              <IconButton
+                icon={size === 'half' ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+                onClick={toggleSize}
+                tooltip={size === 'half' ? 'Expand panel' : 'Collapse panel'}
+                size="xs"
+              />
+              <IconButton
+                icon={<X size={14} />}
+                onClick={() => navigate('/')}
+                tooltip="Close panel"
+                size="xs"
+              />
             </div>
           </div>
         </header>
@@ -221,7 +236,8 @@ export function TaskCreate() {
             </div>
 
             {/* Desktop: Properties sidebar */}
-            <div className="hidden sm:block w-72 border-l border-subtle p-4 space-y-4 shrink-0">
+            <div className="hidden sm:block w-72 shrink-0 p-3">
+              <Card padding="sm" className="space-y-4">
               <CreatePropertiesSidebar
                 projects={projects || []}
                 projectId={projectId}
@@ -241,6 +257,7 @@ export function TaskCreate() {
                 canCreate={canCreate}
                 isPending={createMutation.isPending}
               />
+              </Card>
             </div>
           </div>
         </div>
@@ -261,7 +278,6 @@ export function TaskCreate() {
           />
         )}
       </div>
-    </Layout>
   );
 }
 
@@ -368,13 +384,12 @@ function CreatePropertiesSidebar({
               </button>
             </span>
           ))}
-          <button
+          <IconButton
+            icon={<Plus size={12} />}
             onClick={onShowLabelPicker}
-            className="text-dim hover:text-accent transition-colors p-0.5"
-            title="Add label"
-          >
-            <Plus size={12} />
-          </button>
+            tooltip="Add label"
+            size="xs"
+          />
         </div>
       </PropertyRow>
 
@@ -382,21 +397,26 @@ function CreatePropertiesSidebar({
       <div className="border-t border-subtle my-3" />
 
       {/* Create */}
-      <button
+      <Button
+        variant="primary"
+        size="md"
         onClick={onCreate}
         disabled={!canCreate}
-        className="w-full px-4 py-2.5 bg-accent text-white font-medium text-sm rounded-lg hover:bg-accent-dim transition-colors disabled:opacity-50"
+        loading={isPending}
+        className="w-full justify-center"
       >
         {isPending ? 'Creating...' : 'Create Task'}
-      </button>
+      </Button>
 
       {/* Discard */}
-      <button
+      <Button
+        variant="ghost"
+        size="xs"
         onClick={onDiscard}
-        className="w-full text-xs text-dim hover:text-[var(--color-text-primary)] py-1 transition-colors"
+        className="w-full justify-center"
       >
         Discard
-      </button>
+      </Button>
     </>
   );
 }
@@ -481,31 +501,35 @@ function MobileCreateProperties({
               </button>
             </span>
           ))}
-          <button
+          <IconButton
+            icon={<Plus size={14} />}
             onClick={onShowLabelPicker}
-            className="text-dim hover:text-accent transition-colors p-0.5"
-            title="Add label"
-          >
-            <Plus size={14} />
-          </button>
+            tooltip="Add label"
+            size="xs"
+          />
         </div>
       </div>
 
       {/* Actions */}
       <div className="space-y-2">
-        <button
+        <Button
+          variant="primary"
+          size="md"
           onClick={onCreate}
           disabled={!canCreate}
-          className="w-full px-4 py-3 bg-accent text-white font-medium text-sm rounded-lg hover:bg-accent-dim transition-colors disabled:opacity-50"
+          loading={isPending}
+          className="w-full justify-center h-11"
         >
           {isPending ? 'Creating...' : 'Create Task'}
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
+          size="xs"
           onClick={onDiscard}
-          className="w-full text-xs text-dim hover:text-[var(--color-text-primary)] py-1 transition-colors"
+          className="w-full justify-center"
         >
           Discard
-        </button>
+        </Button>
       </div>
     </>
   );
@@ -678,105 +702,100 @@ function CreateLabelPicker({ projectId, assignedLabels, onToggleLabel, onClose }
   }, [showCreate]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="bg-elevated border border-subtle rounded-lg shadow-xl w-full max-w-xs mx-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-3 py-2 border-b border-subtle">
-          <span className="text-xs font-medium">Labels</span>
-          <button onClick={onClose} className="text-dim hover:text-[var(--color-text-primary)] transition-colors">
-            <X size={14} />
-          </button>
-        </div>
-
-        <div className="p-2 space-y-1 max-h-60 overflow-y-auto">
-          {projectLabels?.map(label => {
-            const isAssigned = assignedIds.has(label.id);
-            return (
-              <div key={label.id} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded hover:bg-tertiary">
-                <button
-                  onClick={() => onToggleLabel(label, isAssigned)}
-                  className="flex items-center gap-2 min-w-0 flex-1"
-                >
-                  <span
-                    className="w-3 h-3 rounded-full shrink-0 border-2"
-                    style={{
-                      backgroundColor: isAssigned ? label.color : 'transparent',
-                      borderColor: label.color,
-                    }}
-                  />
-                  <span className="text-xs truncate">{label.name}</span>
-                </button>
-                <button
-                  onClick={() => deleteLabel.mutate(label.id)}
-                  className="text-dim hover:text-[var(--color-error)] transition-colors shrink-0"
-                  title="Delete label"
-                >
-                  <X size={10} />
-                </button>
-              </div>
-            );
-          })}
-
-          {!projectLabels?.length && !showCreate && (
-            <p className="text-xs text-dim text-center py-2">No labels yet</p>
-          )}
-        </div>
-
-        {showCreate ? (
-          <div className="border-t border-subtle p-2 space-y-2">
-            <input
-              ref={inputRef}
-              type="text"
-              value={newLabelName}
-              onChange={(e) => setNewLabelName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newLabelName.trim()) {
-                  createLabel.mutate({ name: newLabelName.trim(), color: newLabelColor });
-                }
-                if (e.key === 'Escape') setShowCreate(false);
-              }}
-              placeholder="Label name"
-              className="w-full px-2 py-1 text-xs border border-subtle bg-primary rounded focus:outline-none focus:border-accent"
-            />
-            <div className="flex items-center gap-1">
-              {DEFAULT_LABEL_COLORS.map(color => (
-                <button
-                  key={color}
-                  onClick={() => setNewLabelColor(color)}
-                  className={`w-5 h-5 rounded-full transition-transform ${newLabelColor === color ? 'ring-2 ring-accent ring-offset-1 ring-offset-[var(--color-bg-primary)] scale-110' : ''}`}
-                  style={{ backgroundColor: color }}
+    <Modal open={true} onClose={onClose} title="Labels" size="sm">
+      <div className="p-2 space-y-1 max-h-60 overflow-y-auto">
+        {projectLabels?.map(label => {
+          const isAssigned = assignedIds.has(label.id);
+          return (
+            <div key={label.id} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded hover:bg-tertiary">
+              <button
+                onClick={() => onToggleLabel(label, isAssigned)}
+                className="flex items-center gap-2 min-w-0 flex-1"
+              >
+                <span
+                  className="w-3 h-3 rounded-full shrink-0 border-2"
+                  style={{
+                    backgroundColor: isAssigned ? label.color : 'transparent',
+                    borderColor: label.color,
+                  }}
                 />
-              ))}
-            </div>
-            <div className="flex gap-1.5">
-              <button
-                onClick={() => setShowCreate(false)}
-                className="flex-1 text-xs text-dim py-1 rounded border border-subtle hover:bg-tertiary transition-colors"
-              >
-                Cancel
+                <span className="text-xs truncate">{label.name}</span>
               </button>
-              <button
-                onClick={() => newLabelName.trim() && createLabel.mutate({ name: newLabelName.trim(), color: newLabelColor })}
-                disabled={!newLabelName.trim() || createLabel.isPending}
-                className="flex-1 text-xs text-white bg-accent py-1 rounded hover:bg-accent-dim transition-colors disabled:opacity-50"
-              >
-                Create
-              </button>
+              <IconButton
+                icon={<X size={10} />}
+                onClick={() => deleteLabel.mutate(label.id)}
+                tooltip="Delete label"
+                size="xs"
+                className="text-dim hover:text-[var(--color-error)]"
+              />
             </div>
-          </div>
-        ) : (
-          <div className="border-t border-subtle p-2">
-            <button
-              onClick={() => setShowCreate(true)}
-              className="w-full text-xs text-dim hover:text-accent py-1 flex items-center justify-center gap-1 transition-colors"
-            >
-              <Plus size={12} /> New label
-            </button>
-          </div>
+          );
+        })}
+
+        {!projectLabels?.length && !showCreate && (
+          <p className="text-xs text-dim text-center py-2">No labels yet</p>
         )}
       </div>
-    </div>
+
+      {showCreate ? (
+        <div className="border-t border-subtle p-2 space-y-2">
+          <input
+            ref={inputRef}
+            type="text"
+            value={newLabelName}
+            onChange={(e) => setNewLabelName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newLabelName.trim()) {
+                createLabel.mutate({ name: newLabelName.trim(), color: newLabelColor });
+              }
+              if (e.key === 'Escape') setShowCreate(false);
+            }}
+            placeholder="Label name"
+            className="w-full px-2 py-1 text-xs border border-subtle bg-primary rounded focus:outline-none focus:border-accent"
+          />
+          <div className="flex items-center gap-1">
+            {DEFAULT_LABEL_COLORS.map(color => (
+              <button
+                key={color}
+                onClick={() => setNewLabelColor(color)}
+                className={`w-5 h-5 rounded-full transition-transform ${newLabelColor === color ? 'ring-2 ring-accent ring-offset-1 ring-offset-[var(--color-bg-primary)] scale-110' : ''}`}
+                style={{ backgroundColor: color }}
+              />
+            ))}
+          </div>
+          <div className="flex gap-1.5">
+            <Button
+              variant="secondary"
+              size="xs"
+              onClick={() => setShowCreate(false)}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="xs"
+              onClick={() => newLabelName.trim() && createLabel.mutate({ name: newLabelName.trim(), color: newLabelColor })}
+              disabled={!newLabelName.trim() || createLabel.isPending}
+              className="flex-1"
+            >
+              Create
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="border-t border-subtle p-2">
+          <Button
+            variant="ghost"
+            size="xs"
+            icon={<Plus size={12} />}
+            onClick={() => setShowCreate(true)}
+            className="w-full justify-center"
+          >
+            New label
+          </Button>
+        </div>
+      )}
+    </Modal>
   );
 }

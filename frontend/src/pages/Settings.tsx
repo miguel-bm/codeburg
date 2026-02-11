@@ -2,8 +2,8 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { startRegistration } from '@simplewebauthn/browser';
-import { ChevronLeft, AlertCircle, CheckCircle2, Fingerprint, Trash2, Pencil, Volume2, Bell, Terminal, Code2, Lock, Send, Keyboard, Search, X, LogOut, ArrowUp, ArrowDown, SunMoon } from 'lucide-react';
-import { Layout } from '../components/layout/Layout';
+import { ChevronLeft, AlertCircle, CheckCircle2, Fingerprint, KeyRound, Trash2, Pencil, Volume2, Bell, Terminal, Code2, Lock, Send, Keyboard, Search, X, LogOut, ArrowUp, ArrowDown, SunMoon } from 'lucide-react';
+import { useSetHeader } from '../components/layout/Header';
 import { authApi, preferencesApi } from '../api';
 import type { EditorType } from '../api';
 import { useAuthStore } from '../stores/auth';
@@ -20,6 +20,8 @@ import { isNotificationSoundEnabled, setNotificationSoundEnabled, playNotificati
 import { getResolvedTheme, getThemePreference, setThemePreference, subscribeToThemeChange } from '../lib/theme';
 import type { ThemePreference } from '../lib/theme';
 import { SectionCard, SectionHeader, SectionBody, FieldRow, FieldLabel, Toggle } from '../components/ui/settings';
+import { Button } from '../components/ui/Button';
+import { Card } from '../components/ui/Card';
 import { Select } from '../components/ui/Select';
 import type { SelectOption } from '../components/ui/Select';
 
@@ -51,6 +53,22 @@ export function Settings() {
   const [activeSectionId, setActiveSectionId] = useState('notifications');
   const [searchInputUnlocked, setSearchInputUnlocked] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useSetHeader(
+    <div className="flex items-center gap-3">
+      <Button
+        variant="ghost"
+        size="sm"
+        icon={<ChevronLeft size={16} />}
+        onClick={() => navigate('/')}
+      >
+        Back
+      </Button>
+      <div className="w-px h-4 bg-[var(--color-border)]" />
+      <h1 className="text-sm font-semibold tracking-wide">Settings</h1>
+    </div>,
+    'settings',
+  );
 
   const sections = useMemo<SettingsSection[]>(() => ([
     {
@@ -210,31 +228,11 @@ export function Settings() {
   }, [orderedFilteredSections, activeSectionIndex]);
 
   return (
-    <Layout>
-      <div className="flex flex-col h-full">
-        {/* Header */}
-        <header className="bg-secondary border-b border-subtle px-6 py-4">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate('/')}
-              className="text-dim hover:text-[var(--color-text-primary)] transition-colors text-sm inline-flex items-center gap-1"
-            >
-              <ChevronLeft size={16} />
-              Back
-            </button>
-            <div className="w-px h-4 bg-[var(--color-border)]" />
-            <h1 className="text-sm font-semibold tracking-wide">Settings</h1>
-          </div>
-        </header>
-
-        {/* Content */}
+    <div className="flex flex-col h-full">
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-6xl mx-auto w-full px-4 sm:px-6 py-5 md:py-6">
             <div className="grid grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)] gap-4 md:gap-6 items-start">
-              <aside
-                className="border border-subtle rounded-2xl bg-secondary overflow-hidden md:sticky md:top-4"
-                style={{ boxShadow: '0 10px 30px oklch(0.08 0 0 / 0.25)' }}
-              >
+              <Card padding="none" variant="elevated" className="overflow-hidden md:sticky md:top-4">
                 <div className="px-4 py-3 border-b border-subtle">
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-xs font-medium text-[var(--color-text-primary)]">All settings</p>
@@ -349,7 +347,7 @@ export function Settings() {
                     ))
                   )}
                 </nav>
-              </aside>
+              </Card>
 
               <section className="min-w-0">
                 {activeSection ? (
@@ -376,7 +374,6 @@ export function Settings() {
           </div>
         </div>
       </div>
-    </Layout>
   );
 }
 
@@ -863,13 +860,15 @@ function EditorSection() {
             </p>
           </div>
 
-          <button
+          <Button
+            variant="primary"
+            size="md"
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending}
-            className="px-5 py-2 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
+            loading={saveMutation.isPending}
           >
-            {saveMutation.isPending ? 'Saving...' : 'Save'}
-          </button>
+            Save
+          </Button>
         </div>
       </SectionBody>
     </SectionCard>
@@ -981,13 +980,15 @@ function PasswordSection() {
           </div>
 
           <div className="pt-1">
-            <button
+            <Button
+              variant="primary"
+              size="md"
               type="submit"
               disabled={mutation.isPending}
-              className="px-5 py-2 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
+              loading={mutation.isPending}
             >
-              {mutation.isPending ? 'Changing...' : 'Update password'}
-            </button>
+              Update password
+            </Button>
           </div>
         </form>
       </SectionBody>
@@ -1092,7 +1093,10 @@ function PasskeySection() {
         {isLoading ? (
           <p className="text-sm text-dim">Loading...</p>
         ) : passkeys.length === 0 ? (
-          <p className="text-sm text-dim">No passkeys registered. Add one to enable passwordless login.</p>
+          <div className="flex flex-col items-center gap-2 py-4 text-dim text-center">
+            <KeyRound size={32} className="text-dim" />
+            <p className="text-sm">No passkeys registered. Add one to enable passwordless login.</p>
+          </div>
         ) : (
           <div className="space-y-0">
             {passkeys.map((pk) => (
@@ -1270,13 +1274,15 @@ function TelegramSection() {
             </p>
           </div>
 
-          <button
+          <Button
+            variant="primary"
+            size="md"
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending}
-            className="px-5 py-2 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
+            loading={saveMutation.isPending}
           >
-            {saveMutation.isPending ? 'Saving...' : 'Save'}
-          </button>
+            Save
+          </Button>
         </div>
       </SectionBody>
     </SectionCard>
@@ -1287,18 +1293,19 @@ function TelegramSection() {
 
 function DangerZone({ onLogout }: { onLogout: () => void }) {
   return (
-    <section className="border border-[var(--color-error)]/25 rounded-md overflow-hidden">
+    <section className="card-surface overflow-hidden border-[var(--color-error)]/25">
       <div className="px-5 py-4 flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Log out</h2>
           <p className="text-xs text-dim mt-0.5">End your current session</p>
         </div>
-        <button
+        <Button
+          variant="danger"
+          size="md"
           onClick={onLogout}
-          className="px-4 py-1.5 border border-[var(--color-error)]/40 text-[var(--color-error)] rounded-md text-sm hover:bg-[var(--color-error)]/10 transition-colors"
         >
           Log out
-        </button>
+        </Button>
       </div>
     </section>
   );

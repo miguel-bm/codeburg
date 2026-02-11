@@ -1,10 +1,16 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Pin, Trash2 } from 'lucide-react';
+import { ChevronDown, Maximize2, Minimize2, Pin, Trash2, X } from 'lucide-react';
+import { useSetHeader } from '../../components/layout/Header';
 import { tasksApi, invalidateTaskQueries } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { Task, Project } from '../../api/types';
+import { usePanelStore } from '../../stores/panel';
+import { Badge } from '../../components/ui/Badge';
+import { Button } from '../../components/ui/Button';
+import { IconButton } from '../../components/ui/IconButton';
+import { Modal } from '../../components/ui/Modal';
 
 interface TaskHeaderProps {
   task: Task;
@@ -44,6 +50,7 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
+  const { size, toggleSize } = usePanelStore();
 
   // Editing state
   const [editingTitle, setEditingTitle] = useState(false);
@@ -96,47 +103,60 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
     updateTask.mutate({ pinned: !task.pinned });
   };
 
-  return (
-    <header className="bg-secondary border-b border-subtle shrink-0">
-      {/* Compact bar — always visible */}
-      <div className="flex items-center justify-between gap-4 px-4 py-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <button
-            onClick={() => navigate(project ? `/projects/${project.id}` : '/')}
-            className="text-dim hover:text-[var(--color-text-primary)] transition-colors shrink-0 text-sm"
-          >
-            {project?.name || 'back'}
-          </button>
-          <span className="text-dim shrink-0">/</span>
-          <h1 className="text-sm font-medium truncate">{task.title}</h1>
-          <span className={`text-xs shrink-0 rounded-full px-2 py-0.5 font-medium ${statusColors[task.status] || 'text-dim'}`}>
-            {statusLabels[task.status] || task.status}
+  // Push the compact bar into the HeaderContext
+  useSetHeader(
+    <div className="flex items-center justify-between gap-4 w-full">
+      <div className="flex items-center gap-3 min-w-0">
+        <button
+          onClick={() => navigate(project ? `/projects/${project.id}` : '/')}
+          className="text-dim hover:text-[var(--color-text-primary)] transition-colors shrink-0 text-sm"
+        >
+          {project?.name || 'back'}
+        </button>
+        <span className="text-dim shrink-0">/</span>
+        <h1 className="text-sm font-medium truncate">{task.title}</h1>
+        <Badge variant="status" status={task.status as 'backlog' | 'in_progress' | 'in_review' | 'done'} className="shrink-0">
+          {statusLabels[task.status] || task.status}
+        </Badge>
+        {task.branch && (
+          <span className="text-xs text-dim font-mono shrink-0 hidden sm:inline">
+            {task.branch}
           </span>
-          {task.branch && (
-            <span className="text-xs text-dim font-mono shrink-0 hidden sm:inline">
-              {task.branch}
-            </span>
-          )}
-          {expandable && (
-            <button
-              onClick={() => setExpanded(!expanded)}
-              className="text-dim hover:text-[var(--color-text-primary)] transition-colors shrink-0"
-              title={expanded ? 'collapse details' : 'expand details'}
-            >
-              <ChevronDown size={14} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
-            </button>
-          )}
-        </div>
-        {actions && (
-          <div className="flex items-center gap-2 shrink-0">
-            {actions}
-          </div>
+        )}
+        {expandable && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-dim hover:text-[var(--color-text-primary)] transition-colors shrink-0"
+            title={expanded ? 'collapse details' : 'expand details'}
+          >
+            <ChevronDown size={14} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          </button>
         )}
       </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {actions}
+        <IconButton
+          icon={size === 'half' ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+          onClick={toggleSize}
+          tooltip={size === 'half' ? 'Expand panel' : 'Collapse panel'}
+          size="xs"
+        />
+        <IconButton
+          icon={<X size={14} />}
+          onClick={() => navigate('/')}
+          tooltip="Close panel"
+          size="xs"
+        />
+      </div>
+    </div>,
+    `task-header-${task.id}-${task.status}-${task.title}-${project?.name ?? ''}-${expanded}-${size}`,
+  );
 
+  return (
+    <>
       {/* Expandable detail panel */}
       {expandable && expanded && (
-        <div className="border-t border-subtle px-4 py-3 space-y-3">
+        <div className="border-b border-subtle bg-secondary px-4 py-3 space-y-3 shrink-0">
           {/* Editable title */}
           <div>
             <span className="text-[10px] font-medium uppercase tracking-wider text-dim">Title</span>
@@ -190,18 +210,20 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
                   autoFocus
                 />
                 <div className="flex justify-end gap-2 mt-1.5">
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="xs"
                     onClick={() => { setDescValue(task.description || ''); setEditingDesc(false); }}
-                    className="text-[10px] text-dim hover:text-[var(--color-text-primary)] px-2 py-1 rounded border border-subtle transition-colors"
                   >
                     Cancel
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="xs"
                     onClick={handleDescSave}
-                    className="text-[10px] text-white bg-accent hover:bg-accent-dim px-2 py-1 rounded transition-colors"
                   >
                     Save
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : (
@@ -245,55 +267,57 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
               <span className="font-mono" title={task.id}>{task.id.slice(0, 10)}</span>
             </div>
             <div className="flex items-center gap-2">
-              <button
+              <Button
+                variant="ghost"
+                size="xs"
+                icon={<Pin size={11} />}
                 onClick={handleTogglePin}
                 disabled={updateTask.isPending}
-                className={`text-xs px-1.5 py-0.5 rounded transition-colors disabled:opacity-50 inline-flex items-center gap-1 ${
-                  task.pinned ? 'text-accent' : 'text-dim hover:text-accent'
-                }`}
-                title={task.pinned ? 'Unpin' : 'Pin'}
+                className={task.pinned ? 'text-accent' : ''}
               >
-                <Pin size={11} />
                 {task.pinned ? 'Unpin' : 'Pin'}
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="danger"
+                size="xs"
+                icon={<Trash2 size={11} />}
                 onClick={() => setShowDeleteConfirm(true)}
-                className="text-xs text-dim hover:text-[var(--color-error)] px-1.5 py-0.5 rounded transition-colors inline-flex items-center gap-1"
               >
-                <Trash2 size={11} />
                 Delete
-              </button>
+              </Button>
             </div>
           </div>
         </div>
       )}
 
       {/* Delete confirmation modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-primary border border-subtle rounded-lg shadow-xl p-6 max-w-sm mx-4">
-            <h3 className="text-sm font-semibold mb-2">Delete task</h3>
-            <p className="text-xs text-dim mb-4">
-              Delete <strong className="text-[var(--color-text-primary)]">{task.title}</strong>? This cannot be undone.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => deleteTask.mutate()}
-                disabled={deleteTask.isPending}
-                className="px-3 py-1.5 bg-[var(--color-error)] text-white rounded-md text-xs hover:opacity-90 transition-colors disabled:opacity-50"
-              >
-                {deleteTask.isPending ? 'Deleting...' : 'Delete'}
-              </button>
-            </div>
+      <Modal
+        open={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        title="Delete task"
+        size="sm"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setShowDeleteConfirm(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => deleteTask.mutate()}
+              loading={deleteTask.isPending}
+            >
+              {deleteTask.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
           </div>
+        }
+      >
+        <div className="px-5 py-3">
+          <p className="text-xs text-dim">
+            Delete <strong className="text-[var(--color-text-primary)]">{task.title}</strong>? This cannot be undone.
+          </p>
         </div>
-      )}
-    </header>
+      </Modal>
+    </>
   );
 }

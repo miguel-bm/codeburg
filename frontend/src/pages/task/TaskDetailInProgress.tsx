@@ -10,6 +10,8 @@ import { TASK_STATUS } from '../../api';
 import type { Task, Project, AgentSession, SessionProvider, UpdateTaskResponse } from '../../api';
 import { OpenInEditorButton } from '../../components/common/OpenInEditorButton';
 import { useMobile } from '../../hooks/useMobile';
+import { Button } from '../../components/ui/Button';
+import { Modal } from '../../components/ui/Modal';
 
 type MainContent =
   | { type: 'session' }
@@ -167,34 +169,36 @@ export function TaskDetailInProgress({
     </div>
   );
 
-  const dirtyModal = dirtyConfirm && (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-primary border border-subtle rounded-lg shadow-xl p-6 max-w-sm mx-4">
-        <h3 className="text-sm font-semibold mb-2">Uncommitted changes</h3>
+  const dirtyModal = (
+    <Modal
+      open={!!dirtyConfirm}
+      onClose={() => setDirtyConfirm(null)}
+      title="Uncommitted changes"
+      size="sm"
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" size="sm" onClick={() => setDirtyConfirm(null)}>
+            Cancel
+          </Button>
+          <Button variant="primary" size="sm" onClick={doMoveToReview}>
+            Move anyway
+          </Button>
+        </div>
+      }
+    >
+      <div className="px-5 py-3">
         <p className="text-xs text-dim mb-3">
           This worktree has uncommitted changes that will not be included in the review:
         </p>
-        <ul className="text-xs text-dim mb-4 space-y-1">
-          {dirtyConfirm.staged > 0 && <li>{dirtyConfirm.staged} staged file{dirtyConfirm.staged !== 1 ? 's' : ''}</li>}
-          {dirtyConfirm.unstaged > 0 && <li>{dirtyConfirm.unstaged} unstaged file{dirtyConfirm.unstaged !== 1 ? 's' : ''}</li>}
-          {dirtyConfirm.untracked > 0 && <li>{dirtyConfirm.untracked} untracked file{dirtyConfirm.untracked !== 1 ? 's' : ''}</li>}
-        </ul>
-        <div className="flex justify-end gap-2">
-          <button
-            onClick={() => setDirtyConfirm(null)}
-            className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={doMoveToReview}
-            className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors"
-          >
-            Move anyway
-          </button>
-        </div>
+        {dirtyConfirm && (
+          <ul className="text-xs text-dim space-y-1">
+            {dirtyConfirm.staged > 0 && <li>{dirtyConfirm.staged} staged file{dirtyConfirm.staged !== 1 ? 's' : ''}</li>}
+            {dirtyConfirm.unstaged > 0 && <li>{dirtyConfirm.unstaged} unstaged file{dirtyConfirm.unstaged !== 1 ? 's' : ''}</li>}
+            {dirtyConfirm.untracked > 0 && <li>{dirtyConfirm.untracked} untracked file{dirtyConfirm.untracked !== 1 ? 's' : ''}</li>}
+          </ul>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 
   if (isMobile) {
@@ -206,13 +210,14 @@ export function TaskDetailInProgress({
           actions={
             <>
               {task.worktreePath && <OpenInEditorButton worktreePath={task.worktreePath} />}
-              <button
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={handleMoveToReview}
                 disabled={updateTask.isPending}
-                className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors disabled:opacity-50"
               >
                 review
-              </button>
+              </Button>
             </>
           }
         />
@@ -321,13 +326,14 @@ export function TaskDetailInProgress({
         actions={
           <>
             {task.worktreePath && <OpenInEditorButton worktreePath={task.worktreePath} />}
-            <button
+            <Button
+              variant="primary"
+              size="sm"
               onClick={handleMoveToReview}
               disabled={updateTask.isPending}
-              className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors disabled:opacity-50"
             >
               Review
-            </button>
+            </Button>
           </>
         }
       />

@@ -41,6 +41,25 @@
   /* Fonts - system font for UI, mono for code */
   --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
   --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+
+  /* Canvas - uniform background */
+  --color-canvas: oklch(0.16 0.004 265);
+  /* Sidebar - slightly differentiated from canvas */
+  --color-sidebar: oklch(0.16 0.004 265);
+  /* Card surfaces - floating elements */
+  --color-card: oklch(0.20 0.005 265);
+  --color-card-hover: oklch(0.22 0.005 265);
+  /* Inset - recessed areas within cards */
+  --color-inset: oklch(0.14 0.004 265);
+  /* Card border - theme-aware */
+  --color-card-border: oklch(0.26 0.004 265 / 0.5);
+  /* Shadows */
+  --shadow-card: 0 1px 3px oklch(0 0 0 / 0.12), 0 1px 2px oklch(0 0 0 / 0.06);
+  --shadow-card-hover: 0 4px 12px oklch(0 0 0 / 0.15), 0 2px 4px oklch(0 0 0 / 0.08);
+  --shadow-panel: -8px 0 30px oklch(0 0 0 / 0.20);
+  /* Scrollbar */
+  --color-scrollbar: oklch(0.4 0 0 / 0.3);
+  --color-scrollbar-hover: oklch(0.5 0 0 / 0.5);
 }
 
 /* Base styles */
@@ -79,6 +98,17 @@ body {
   --color-status-in-review: oklch(0.55 0.16 300);
   --color-status-done: oklch(0.55 0.17 155);
   --color-success: oklch(0.55 0.17 155);
+  --color-canvas: oklch(0.95 0.003 265);
+  --color-sidebar: oklch(0.93 0.005 265);
+  --color-card: oklch(0.99 0.002 265);
+  --color-card-hover: oklch(0.97 0.003 265);
+  --color-inset: oklch(0.93 0.003 265);
+  --color-card-border: oklch(0.82 0.003 265 / 0.35);
+  --shadow-card: 0 1px 3px oklch(0 0 0 / 0.06), 0 1px 2px oklch(0 0 0 / 0.03);
+  --shadow-card-hover: 0 4px 12px oklch(0 0 0 / 0.08), 0 2px 4px oklch(0 0 0 / 0.04);
+  --shadow-panel: -8px 0 30px oklch(0 0 0 / 0.10);
+  --color-scrollbar: oklch(0.5 0 0 / 0.2);
+  --color-scrollbar-hover: oklch(0.4 0 0 / 0.35);
 }
 
 @media (prefers-color-scheme: light) {
@@ -100,6 +130,17 @@ body {
     --color-status-in-review: oklch(0.55 0.16 300);
     --color-status-done: oklch(0.55 0.17 155);
     --color-success: oklch(0.55 0.17 155);
+    --color-canvas: oklch(0.95 0.003 265);
+    --color-sidebar: oklch(0.93 0.005 265);
+    --color-card: oklch(0.99 0.002 265);
+    --color-card-hover: oklch(0.97 0.003 265);
+    --color-inset: oklch(0.93 0.003 265);
+    --color-card-border: oklch(0.82 0.003 265 / 0.35);
+    --shadow-card: 0 1px 3px oklch(0 0 0 / 0.06), 0 1px 2px oklch(0 0 0 / 0.03);
+    --shadow-card-hover: 0 4px 12px oklch(0 0 0 / 0.08), 0 2px 4px oklch(0 0 0 / 0.04);
+    --shadow-panel: -8px 0 30px oklch(0 0 0 / 0.10);
+    --color-scrollbar: oklch(0.5 0 0 / 0.2);
+    --color-scrollbar-hover: oklch(0.4 0 0 / 0.35);
   }
 }
 
@@ -114,12 +155,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: oklch(0.4 0 0 / 0.3);
+  background: var(--color-scrollbar);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: oklch(0.5 0 0 / 0.5);
+  background: var(--color-scrollbar-hover);
 }
 
 /* Selection */
@@ -238,6 +279,46 @@ button:disabled,
   color: var(--color-status-done);
 }
 
+@utility bg-canvas {
+  background-color: var(--color-canvas);
+}
+
+@utility bg-sidebar {
+  background-color: var(--color-sidebar);
+}
+
+@utility bg-card {
+  background-color: var(--color-card);
+}
+
+@utility bg-card-hover {
+  background-color: var(--color-card-hover);
+}
+
+@utility bg-inset {
+  background-color: var(--color-inset);
+}
+
+@utility shadow-card {
+  box-shadow: var(--shadow-card);
+}
+
+@utility shadow-card-hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+@utility shadow-panel {
+  box-shadow: var(--shadow-panel);
+}
+
+/* Compound utility for floating card surfaces */
+@utility card-surface {
+  background-color: var(--color-card);
+  border-radius: 0.75rem;
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--color-card-border);
+}
+
 /* Drop target pulsing placeholder */
 @keyframes drop-target-pulse {
   0%, 100% { opacity: 0.3; }
@@ -258,10 +339,41 @@ button:disabled,
   animation: cursor-blink 1s step-end infinite;
 }
 
+/* Card hover lift transition */
+.card-hover-lift {
+  transition: box-shadow 0.15s ease-out, transform 0.15s ease-out;
+}
+.card-hover-lift:hover {
+  transform: translateY(-1px);
+}
+
+/* Fade-in animation for modals and overlays */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fadeIn {
+  animation: fadeIn 0.15s ease-out;
+}
+
+/* Subtle scale-in for modal content */
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+.animate-scaleIn {
+  animation: scaleIn 0.15s ease-out;
+}
+
 /* Respect reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .animate-drop-pulse,
-  .animate-blink {
+  .animate-blink,
+  .animate-fadeIn,
+  .animate-scaleIn {
     animation: none;
+  }
+  .card-hover-lift:hover {
+    transform: none;
   }
 }

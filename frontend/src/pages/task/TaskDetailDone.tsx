@@ -6,6 +6,8 @@ import { BaseDiffExplorer } from '../../components/git';
 import { tasksApi, invalidateTaskQueries } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { Task, Project } from '../../api/types';
+import { Card } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
 
 interface Props {
   task: Task;
@@ -31,14 +33,15 @@ export function TaskDetailDone({ task, project }: Props) {
         task={task}
         project={project}
         actions={
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<RotateCcw size={12} />}
             onClick={handleReopen}
             disabled={updateTask.isPending}
-            className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
           >
-            <RotateCcw size={12} />
             Reopen
-          </button>
+          </Button>
         }
       />
 
@@ -50,9 +53,9 @@ export function TaskDetailDone({ task, project }: Props) {
           {task.worktreePath && (
             <div>
               <h3 className="text-xs font-medium uppercase tracking-wider text-dim mb-2">Changes</h3>
-              <div className="border border-subtle rounded-lg overflow-hidden h-[28rem] md:h-[34rem]">
+              <Card padding="none" className="overflow-hidden h-[28rem] md:h-[34rem]">
                 <BaseDiffExplorer taskId={task.id} />
-              </div>
+              </Card>
             </div>
           )}
         </div>

@@ -3,13 +3,14 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from './stores/auth';
 import { Login } from './pages/Login';
-import { Dashboard } from './pages/Dashboard';
+import { DashboardWithPanels } from './pages/DashboardWithPanels';
 import { TaskDetail } from './pages/TaskDetail';
 import { TaskCreate } from './pages/task/TaskCreate';
 import { ProjectSettings } from './pages/ProjectSettings';
 import { ProjectWorkspace } from './pages/ProjectWorkspace';
 import { Settings } from './pages/Settings';
 import { SessionPopout } from './pages/SessionPopout';
+import { Layout } from './components/layout/Layout';
 import { CommandPalette, useCommandPalette } from './components/common/CommandPalette';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useNotifications } from './hooks/useNotifications';
@@ -52,12 +53,13 @@ function MainAppShell() {
   return (
     <>
       <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/tasks/new" element={<TaskCreate />} />
-        <Route path="/tasks/:id" element={<TaskDetail />} />
-        <Route path="/projects/:id" element={<ProjectWorkspace />} />
-        <Route path="/projects/:id/settings" element={<ProjectSettings />} />
-        <Route path="/settings" element={<Settings />} />
+        <Route path="/" element={<Layout><DashboardWithPanels /></Layout>}>
+          <Route path="tasks/new" element={<TaskCreate />} />
+          <Route path="tasks/:id" element={<TaskDetail />} />
+          <Route path="projects/:id" element={<ProjectWorkspace />} />
+          <Route path="projects/:id/settings" element={<ProjectSettings />} />
+        </Route>
+        <Route path="/settings" element={<Layout><Settings /></Layout>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}

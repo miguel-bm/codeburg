@@ -2,8 +2,9 @@ import { useState, useMemo, useEffect, useRef, useCallback, forwardRef } from 'r
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { GitBranch, Pin, GitPullRequest, Funnel, X } from 'lucide-react';
-import { Layout } from '../components/layout/Layout';
+import { GitBranch, Pin, GitPullRequest, Funnel, X, Plus, Inbox, Play, Eye, CheckCircle2 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { useSetHeader } from '../components/layout/Header';
 import { tasksApi, projectsApi, sessionsApi, invalidateTaskQueries } from '../api';
 import type { Task, TaskStatus, UpdateTaskResponse } from '../api';
 import { TASK_STATUS } from '../api';
@@ -14,6 +15,16 @@ import { useKeyboardNav } from '../hooks/useKeyboardNav';
 import { HelpOverlay } from '../components/common/HelpOverlay';
 import { CreateProjectModal } from '../components/common/CreateProjectModal';
 import { useSidebarFocusStore } from '../stores/sidebarFocus';
+import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
+
+const COLUMN_ICONS: Record<string, LucideIcon> = {
+  [TASK_STATUS.BACKLOG]: Inbox,
+  [TASK_STATUS.IN_PROGRESS]: Play,
+  [TASK_STATUS.IN_REVIEW]: Eye,
+  [TASK_STATUS.DONE]: CheckCircle2,
+};
 
 const COLUMNS: { id: TaskStatus; title: string; color: string }[] = [
   { id: TASK_STATUS.BACKLOG, title: 'Backlog', color: 'status-backlog' },
@@ -47,7 +58,11 @@ interface DragState {
 
 const SESSION_KEY = 'codeburg:active-project';
 
-export function Dashboard() {
+interface DashboardProps {
+  panelOpen?: boolean;
+}
+
+export function Dashboard({ panelOpen = false }: DashboardProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedProjectId = searchParams.get('project') || undefined;
 
@@ -152,6 +167,32 @@ export function Dashboard() {
   };
 
   const activeProjectName = selectedProjectId ? getProjectName(selectedProjectId) : null;
+
+  useSetHeader(
+    selectedProjectId ? (
+      <div className="flex items-center justify-between w-full">
+        <div className="inline-flex items-center gap-2 text-xs text-dim">
+          <Funnel size={12} />
+          <span>
+            Dashboard filter: <span className="text-[var(--color-text-primary)]">{activeProjectName}</span>
+          </span>
+        </div>
+        <Button
+          variant="ghost"
+          size="xs"
+          icon={<X size={12} />}
+          onClick={() => {
+            sessionStorage.removeItem(SESSION_KEY);
+            navigate('/');
+          }}
+          title="Clear project filter"
+        >
+          Clear
+        </Button>
+      </div>
+    ) : null,
+    `dashboard-${selectedProjectId ?? 'none'}`,
+  );
 
   const hasProjects = projects && projects.length > 0;
 
@@ -319,7 +360,7 @@ export function Dashboard() {
       '4': () => setFocus({ col: 3, card: 0 }),
       '?': () => setShowHelp(true),
     },
-    enabled: !showCreateProject && !showHelp && !contextMenu && !drag && !sidebarFocused,
+    enabled: !panelOpen && !showCreateProject && !showHelp && !contextMenu && !drag && !sidebarFocused,
   });
 
   // Sync mobile tab to focus column
@@ -453,39 +494,19 @@ export function Dashboard() {
   const isDragging = drag && Math.hypot(drag.mouseX - drag.initialMouseX, drag.mouseY - drag.initialMouseY) >= 5;
 
   return (
-    <Layout>
+    <>
       {/* Warning Banner */}
       {warning && (
         <div className="flex items-center justify-between px-4 py-2 bg-[var(--color-warning,#b8860b)]/10 border-b border-[var(--color-warning,#b8860b)]/30 text-[var(--color-warning,#b8860b)] text-xs">
           <span>{warning}</span>
-          <button
+          <Button
+            variant="ghost"
+            size="xs"
             onClick={() => setWarning(null)}
-            className="ml-4 hover:text-[var(--color-text-primary)] transition-colors"
+            className="ml-4"
           >
             Dismiss
-          </button>
-        </div>
-      )}
-
-      {selectedProjectId && (
-        <div className="px-4 py-2 border-b border-subtle bg-secondary flex items-center justify-between">
-          <div className="inline-flex items-center gap-2 text-xs text-dim">
-            <Funnel size={12} />
-            <span>
-              Dashboard filter: <span className="text-[var(--color-text-primary)]">{activeProjectName}</span>
-            </span>
-          </div>
-          <button
-            onClick={() => {
-              sessionStorage.removeItem(SESSION_KEY);
-              navigate('/');
-            }}
-            className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors"
-            title="Clear project filter"
-          >
-            <X size={12} />
-            Clear
-          </button>
+          </Button>
         </div>
       )}
 
@@ -495,22 +516,26 @@ export function Dashboard() {
         <div className="flex flex-col h-full">
           {/* Tab Navigation */}
           <div className="flex border-b border-subtle bg-secondary overflow-x-auto">
-            {COLUMNS.map((column, index) => (
-              <button
-                key={column.id}
-                onClick={() => setActiveColumnIndex(index)}
-                className={`flex-1 min-w-0 px-3 py-2 text-xs font-medium transition-colors ${
-                  activeColumnIndex === index
-                    ? `${column.color} border-b-2 border-accent`
-                    : 'text-dim hover:text-[var(--color-text-primary)]'
-                }`}
-              >
-                {column.title}
-                <span className="ml-1 text-dim">
-                  {getTasksByStatus(column.id).length}
-                </span>
-              </button>
-            ))}
+            {COLUMNS.map((column, index) => {
+              const TabIcon = COLUMN_ICONS[column.id];
+              return (
+                <button
+                  key={column.id}
+                  onClick={() => setActiveColumnIndex(index)}
+                  className={`flex-1 min-w-0 px-3 py-2 text-xs font-medium transition-colors inline-flex items-center justify-center gap-1 ${
+                    activeColumnIndex === index
+                      ? `${column.color} border-b-2 border-accent`
+                      : 'text-dim hover:text-[var(--color-text-primary)]'
+                  }`}
+                >
+                  <TabIcon size={12} />
+                  {column.title}
+                  <span className="ml-0.5 text-dim">
+                    {getTasksByStatus(column.id).length}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           {/* Swipeable Content */}
@@ -546,25 +571,26 @@ export function Dashboard() {
           <div className="flex gap-2 h-full min-w-[1200px]">
             {COLUMNS.map((column, colIdx) => {
               const colTasks = getTasksByStatus(column.id);
+              const ColIcon = COLUMN_ICONS[column.id];
               return (
-                <div
+                <Card
                   key={column.id}
-                  ref={(el) => { columnRefs.current[colIdx] = el; }}
-                  className={`group flex-1 min-w-0 flex flex-col bg-secondary rounded-lg border transition-colors ${
+                  padding="none"
+                  className={`group flex-1 min-w-0 flex flex-col transition-colors ${
                     focus?.col === colIdx
-                      ? 'border-accent'
-                      : 'border-subtle'
+                      ? '!border-accent'
+                      : ''
                   }`}
                 >
+                  <div ref={(el) => { columnRefs.current[colIdx] = el; }} className="flex flex-col h-full">
                   {/* Column Header */}
                   <div className="px-4 py-3 border-b border-subtle">
                     <div className="flex items-center justify-between">
-                      <h3 className={`text-xs font-medium uppercase tracking-wider ${column.color}`}>
+                      <h3 className={`text-xs font-medium uppercase tracking-wider ${column.color} flex items-center gap-1.5`}>
+                        <ColIcon size={14} className="text-dim" />
                         {column.title}
                       </h3>
-                      <span className="text-xs text-dim">
-                        {colTasks.length}
-                      </span>
+                      <Badge variant="count">{colTasks.length}</Badge>
                     </div>
                   </div>
 
@@ -611,7 +637,8 @@ export function Dashboard() {
                       </>
                     )}
                   </div>
-                </div>
+                  </div>
+                </Card>
               );
             })}
           </div>
@@ -675,7 +702,7 @@ export function Dashboard() {
       {showHelp && (
         <HelpOverlay page="dashboard" onClose={() => setShowHelp(false)} />
       )}
-    </Layout>
+    </>
   );
 }
 
@@ -715,18 +742,20 @@ function NewTaskPlaceholder({ focused, selected, showOnHover, onClick }: NewTask
 
   return (
     <div className={`overflow-hidden transition-all duration-150 ease-out ${containerClass}`}>
-      <button
+      <Button
         ref={ref}
-        type="button"
+        variant="ghost"
+        size="sm"
+        icon={<Plus size={12} />}
         onClick={onClick}
-        className={`w-full p-3 border rounded-md text-center text-sm cursor-pointer transition-colors focus-visible:outline-none ${
+        className={`w-full justify-center py-3 h-auto border rounded-md ${
           focused
-            ? 'border-accent text-accent bg-[var(--color-accent-glow)]'
-            : 'border-subtle text-dim bg-tertiary hover:border-[var(--color-text-dim)] hover:text-[var(--color-text-primary)] hover:bg-secondary'
+            ? 'border-accent !text-accent !bg-[var(--color-accent-glow)]'
+            : 'border-subtle !bg-tertiary hover:border-[var(--color-text-dim)] hover:!bg-secondary'
         }`}
       >
-        + New task
-      </button>
+        New task
+      </Button>
     </div>
   );
 }
@@ -785,7 +814,7 @@ const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
       id={`task-${task.id}`}
       {...(isMobile ? longPressHandlers : {})}
       onMouseDown={!isMobile ? onMouseDown : undefined}
-      className={`bg-primary p-3 rounded-md border transition-all cursor-pointer select-none ${
+      className={`bg-inset rounded-lg border p-2 transition-all cursor-pointer select-none ${
         isMobile ? 'select-none' : ''
       } ${ghost ? 'opacity-20' : ''} ${focused ? 'border-accent bg-[var(--color-accent-glow)]' : 'border-subtle hover:border-[var(--color-text-dim)]'}`}
     >
@@ -907,23 +936,27 @@ function TaskContextMenu({ x, y, currentStatus, onClose, onStatusChange }: TaskC
         <div className="px-3 py-2 text-xs font-medium uppercase tracking-wider text-dim border-b border-subtle">
           Move to
         </div>
-        {COLUMNS.map((column) => (
-          <button
-            key={column.id}
-            onClick={() => onStatusChange(column.id)}
-            disabled={column.id === currentStatus}
-            className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-              column.id === currentStatus
-                ? 'text-dim cursor-not-allowed'
-                : `${column.color} hover:bg-tertiary`
-            }`}
-          >
-            {column.title}
-            {column.id === currentStatus && (
-              <span className="ml-2 text-xs">(current)</span>
-            )}
-          </button>
-        ))}
+        {COLUMNS.map((column) => {
+          const MenuIcon = COLUMN_ICONS[column.id];
+          return (
+            <button
+              key={column.id}
+              onClick={() => onStatusChange(column.id)}
+              disabled={column.id === currentStatus}
+              className={`w-full px-3 py-2 text-left text-sm transition-colors flex items-center gap-2 ${
+                column.id === currentStatus
+                  ? 'text-dim cursor-not-allowed'
+                  : `${column.color} hover:bg-tertiary`
+              }`}
+            >
+              <MenuIcon size={14} />
+              {column.title}
+              {column.id === currentStatus && (
+                <span className="ml-1 text-xs">(current)</span>
+              )}
+            </button>
+          );
+        })}
       </div>
     </>
   );
@@ -958,7 +991,7 @@ function WorkflowPromptModal({ taskId, onClose }: WorkflowPromptModalProps) {
   });
 
   return (
-    <div className="fixed inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+    <div className="fixed inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
       <div className="bg-elevated border border-subtle rounded-xl shadow-lg w-full max-w-md">
         <div className="px-4 py-3 border-b border-subtle">
           <h2 className="text-sm font-medium">Start Agent Session</h2>
@@ -998,19 +1031,24 @@ function WorkflowPromptModal({ taskId, onClose }: WorkflowPromptModalProps) {
             />
           </div>
           <div className="flex gap-2 pt-2">
-            <button
+            <Button
+              variant="secondary"
+              size="md"
               onClick={onClose}
-              className="flex-1 py-2 px-4 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-sm hover:bg-[var(--color-border)] transition-colors"
+              className="flex-1"
             >
               Skip
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
               onClick={() => startMutation.mutate()}
               disabled={startMutation.isPending}
-              className="flex-1 py-2 px-4 bg-accent text-white rounded-md font-medium text-sm hover:bg-accent-dim transition-colors disabled:opacity-50"
+              loading={startMutation.isPending}
+              className="flex-1"
             >
               {startMutation.isPending ? 'Starting...' : 'Start'}
-            </button>
+            </Button>
           </div>
         </div>
       </div>

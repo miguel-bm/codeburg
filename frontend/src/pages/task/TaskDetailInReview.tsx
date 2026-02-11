@@ -10,6 +10,7 @@ import { TASK_STATUS } from '../../api';
 import type { Task, Project, AgentSession, SessionProvider, UpdateTaskResponse } from '../../api';
 import { OpenInEditorButton } from '../../components/common/OpenInEditorButton';
 import { useMobile } from '../../hooks/useMobile';
+import { Button } from '../../components/ui/Button';
 
 interface Props {
   task: Task;
@@ -124,22 +125,24 @@ export function TaskDetailInReview({
           actions={
             <>
               {task.worktreePath && <OpenInEditorButton worktreePath={task.worktreePath} />}
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<ArrowLeft size={12} />}
                 onClick={handleBackToProgress}
                 disabled={updateTask.isPending}
-                className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors disabled:opacity-50 inline-flex items-center gap-1"
               >
-                <ArrowLeft size={12} />
                 Back to WIP
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Check size={12} />}
                 onClick={handleMarkDone}
                 disabled={updateTask.isPending}
-                className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors disabled:opacity-50 inline-flex items-center gap-1"
               >
-                <Check size={12} />
                 Done
-              </button>
+              </Button>
             </>
           }
         />
@@ -235,22 +238,24 @@ export function TaskDetailInReview({
         actions={
           <>
             {task.worktreePath && <OpenInEditorButton worktreePath={task.worktreePath} />}
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<ArrowLeft size={12} />}
               onClick={handleBackToProgress}
               disabled={updateTask.isPending}
-              className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors disabled:opacity-50 inline-flex items-center gap-1"
             >
-              <ArrowLeft size={12} />
               Back to WIP
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Check size={12} />}
               onClick={handleMarkDone}
               disabled={updateTask.isPending}
-              className="px-3 py-1.5 bg-accent text-white rounded-md font-medium text-xs hover:bg-accent-dim transition-colors disabled:opacity-50 inline-flex items-center gap-1"
             >
-              <Check size={12} />
               Done
-            </button>
+            </Button>
           </>
         }
       />

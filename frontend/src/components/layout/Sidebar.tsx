@@ -1,13 +1,14 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { ChevronDown, ChevronUp, X, Settings, ChevronRight, Pin, GitPullRequest, GitBranch, Funnel } from 'lucide-react';
+import { ChevronDown, ChevronUp, X, Settings, ChevronRight, Pin, PinOff, PanelLeftClose, PanelLeftOpen, GitPullRequest, GitBranch, Funnel, FolderOpen } from 'lucide-react';
 import { sidebarApi, tasksApi, preferencesApi, invalidateTaskQueries, TASK_STATUS } from '../../api';
 import type { SidebarProject, SidebarTask, SidebarSession, SidebarData, UpdateTaskResponse } from '../../api';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useKeyboardNav } from '../../hooks/useKeyboardNav';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import { useSidebarFocusStore } from '../../stores/sidebarFocus';
+import { useSidebarStore, selectIsExpanded, selectIsPinned } from '../../stores/sidebar';
 import { CreateProjectModal } from '../common/CreateProjectModal';
 
 interface FocusableItem {
@@ -19,6 +20,7 @@ interface FocusableItem {
 interface SidebarProps {
   onClose?: () => void;
   width?: number;
+  collapsed?: boolean;
 }
 
 function countWaiting(data: SidebarData | undefined): number {
@@ -34,12 +36,17 @@ function countWaiting(data: SidebarData | undefined): number {
   return n;
 }
 
-export function Sidebar({ onClose, width }: SidebarProps) {
+export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [showCreateProject, setShowCreateProject] = useState(false);
+
+  const isExpanded = useSidebarStore(selectIsExpanded);
+  const isPinned = useSidebarStore(selectIsPinned);
+  const togglePin = useSidebarStore((s) => s.togglePin);
+  const toggleExpanded = useSidebarStore((s) => s.toggleExpanded);
 
   const activeProjectId = searchParams.get('project') || undefined;
   const projectPageMatch = location.pathname.match(/^\/projects\/([^/]+)(?:\/|$)/);
@@ -171,9 +178,97 @@ export function Sidebar({ onClose, width }: SidebarProps) {
 
   const sidebarStyle = width ? { width } : undefined;
 
+  // --- Collapsed mode ---
+  if (collapsed) {
+    return (
+      <aside
+        className={`bg-sidebar border-r border-[var(--color-border)]/20 flex flex-col h-full`}
+        style={sidebarStyle}
+      >
+        {/* Header: just "C" logo */}
+        <div className="p-2 border-b border-subtle flex items-center justify-center">
+          <button
+            onClick={handleHomeClick}
+            className="w-8 h-8 rounded-md bg-tertiary hover:bg-[var(--color-border)] text-sm font-bold text-accent transition-colors flex items-center justify-center"
+            title="Codeburg"
+          >
+            C
+          </button>
+        </div>
+
+        {/* Project icons */}
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto py-2">
+          {isLoading ? (
+            <div className="flex flex-col items-center gap-2 p-2">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="w-8 h-8 rounded-full bg-tertiary animate-pulse" />
+              ))}
+            </div>
+          ) : !sidebar?.projects?.length ? (
+            <div className="p-2 text-center">
+              <span className="text-dim text-xs">--</span>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-1">
+              {sidebar.projects.map((project) => {
+                const isActive = activeProjectPageId === project.id;
+                const firstLetter = project.name.charAt(0).toUpperCase();
+                return (
+                  <button
+                    key={project.id}
+                    data-sidebar-project={project.id}
+                    onClick={() => handleProjectClick(project.id)}
+                    className={`w-8 h-8 rounded-full text-xs font-medium flex items-center justify-center transition-colors flex-shrink-0 ${
+                      isActive
+                        ? 'bg-accent/20 text-accent'
+                        : 'bg-tertiary text-[var(--color-text-secondary)] hover:bg-[var(--color-border)] hover:text-[var(--color-text-primary)]'
+                    }`}
+                    title={project.name}
+                  >
+                    {firstLetter}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Footer: pin + expand + settings */}
+        <div className="p-2 border-t border-subtle flex flex-col items-center gap-1">
+          <button
+            onClick={togglePin}
+            className="p-1.5 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
+            title={isPinned ? 'unpin sidebar' : 'pin sidebar'}
+          >
+            {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+          </button>
+          <button
+            onClick={toggleExpanded}
+            className="p-1.5 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
+            title={isExpanded ? 'collapse sidebar' : 'expand sidebar'}
+          >
+            {isExpanded ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
+          </button>
+          <button
+            onClick={handleSettingsClick}
+            className="p-1.5 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
+            title="settings"
+          >
+            <Settings size={14} />
+          </button>
+        </div>
+
+        {showCreateProject && (
+          <CreateProjectModal onClose={() => setShowCreateProject(false)} />
+        )}
+      </aside>
+    );
+  }
+
+  // --- Expanded mode ---
   return (
     <aside
-      className={`bg-secondary flex flex-col h-full ${width ? '' : 'w-72'}`}
+      className={`bg-sidebar border-r border-[var(--color-border)]/20 flex flex-col h-full ${width ? '' : 'w-72'}`}
       style={sidebarStyle}
     >
       {/* Header */}
@@ -224,7 +319,8 @@ export function Sidebar({ onClose, width }: SidebarProps) {
             ))}
           </div>
         ) : !sidebar?.projects?.length ? (
-          <div className="px-4 py-6 text-sm text-dim text-center">
+          <div className="px-4 py-8 text-sm text-dim text-center flex flex-col items-center gap-2">
+            <FolderOpen size={32} className="text-dim" />
             No projects yet
           </div>
         ) : (
@@ -259,8 +355,22 @@ export function Sidebar({ onClose, width }: SidebarProps) {
           + Project
         </button>
         <button
+          onClick={togglePin}
+          className="px-2 py-2 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
+          title={isPinned ? 'unpin sidebar' : 'pin sidebar'}
+        >
+          {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+        </button>
+        <button
+          onClick={toggleExpanded}
+          className="px-2 py-2 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
+          title={isExpanded ? 'collapse sidebar' : 'expand sidebar'}
+        >
+          {isExpanded ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
+        </button>
+        <button
           onClick={handleSettingsClick}
-          className="px-3 py-2 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
+          className="px-2 py-2 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
           title="settings"
         >
           <Settings size={16} />

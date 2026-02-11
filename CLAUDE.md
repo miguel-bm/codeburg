@@ -334,11 +334,18 @@ All sessions are terminal-based, rendered via xterm.js connected to tmux windows
 
 ### Design System
 
-- Modern professional macOS app aesthetic
-- Dark mode primary with light mode support
+- **Arc-inspired Soft UI** — uniform canvas background with floating cards
+- Both dark and light themes as first-class citizens
+- Canvas background for sidebar, header, and page base
+- Cards float on canvas with subtle shadows (not hard borders)
 - Compact, dense, well-organized, straightforward
 - System fonts for UI, monospace for code
-- Subtle rounded corners, clean shadows
+- Rounded corners (xl for cards, md for buttons/inputs)
+- Professional blue accent color
+- Sidebar: expandable/collapsible, pinnable/hoverable (4 modes via Zustand store)
+- Task/project views as right-side panels over dashboard canvas
+- Shared UI components: Card, Button, IconButton, Badge, Breadcrumb, Modal, Divider
+- Extensive use of lucide-react icons throughout
 
 ## Current Status
 

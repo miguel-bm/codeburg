@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Play } from 'lucide-react';
+import { Play, FileCode, Globe } from 'lucide-react';
 import { recipesApi, type TaskRecipe } from '../../api';
 import { useTunnels } from '../../hooks/useTunnels';
 
@@ -103,7 +103,10 @@ function RecipesSection({ taskId, onRecipeRun }: { taskId: string; onRecipeRun: 
         <div className="px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-dim border-b border-subtle">
           Recipes
         </div>
-        <div className="px-3 py-2 text-dim">No recipes found</div>
+        <div className="px-3 py-4 text-dim flex flex-col items-center gap-1.5 text-center">
+          <FileCode size={28} className="text-dim" />
+          <span>No recipes found</span>
+        </div>
       </div>
     );
   }
@@ -292,7 +295,10 @@ function TunnelsSection({ taskId }: { taskId: string }) {
         )}
 
         {tunnels.length === 0 && suggestions.length === 0 && !showCreate && (
-          <div className="px-3 py-2 text-dim">No tunnels</div>
+          <div className="px-3 py-4 text-dim flex flex-col items-center gap-1.5 text-center">
+            <Globe size={28} className="text-dim" />
+            <span>No tunnels</span>
+          </div>
         )}
       </div>
     </div>

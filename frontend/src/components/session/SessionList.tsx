@@ -1,3 +1,4 @@
+import { Terminal } from 'lucide-react';
 import type { AgentSession, SessionStatus } from '../../api/sessions';
 
 interface SessionListProps {
@@ -10,7 +11,8 @@ interface SessionListProps {
 export function SessionList({ sessions, activeSessionId, onSelect, onResume }: SessionListProps) {
   if (sessions.length === 0) {
     return (
-      <div className="p-4 text-center text-sm text-dim">
+      <div className="p-6 text-center text-sm text-dim flex flex-col items-center gap-2">
+        <Terminal size={32} className="text-dim" />
         No sessions
       </div>
     );

@@ -14,9 +14,12 @@ import {
   FileText,
   FilePlus2,
   Folder,
+  FolderOpen,
   FolderPlus,
   Funnel,
   Link2,
+  Maximize2,
+  Minimize2,
   Pencil,
   Plus,
   RefreshCw,
@@ -27,8 +30,11 @@ import {
   Wand2,
   X,
 } from 'lucide-react';
-import { Layout } from '../components/layout/Layout';
+import { useSetHeader } from '../components/layout/Header';
 import { OpenInEditorButton } from '../components/common/OpenInEditorButton';
+import { Button } from '../components/ui/Button';
+import { IconButton } from '../components/ui/IconButton';
+import { Modal } from '../components/ui/Modal';
 import { projectsApi } from '../api';
 import { getResolvedTheme, subscribeToThemeChange } from '../lib/theme';
 import type {
@@ -39,6 +45,7 @@ import type {
   ProjectSecretFileStatus,
 } from '../api';
 import { useMobile } from '../hooks/useMobile';
+import { usePanelStore } from '../stores/panel';
 
 type MobilePanel = 'files' | 'preview' | 'secrets';
 
@@ -213,6 +220,7 @@ export function ProjectWorkspace() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isMobile = useMobile();
+  const { size, toggleSize } = usePanelStore();
 
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('files');
   const [treeSelection, setTreeSelection] = useState<string | null>(null);
@@ -635,19 +643,70 @@ export function ProjectWorkspace() {
     setSecretsDirty(true);
   };
 
+  useSetHeader(
+    project ? (
+      <div className="flex items-center justify-between w-full">
+        <div className="min-w-0">
+          <h1 className="text-sm font-semibold truncate">{project.name}</h1>
+          <p className="text-[11px] text-dim font-mono truncate">{project.path}</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <OpenInEditorButton worktreePath={project.path} />
+          <Button
+            variant="secondary"
+            size="xs"
+            icon={<RefreshCw size={13} className={syncDefaultBranchMutation.isPending ? 'animate-spin' : ''} />}
+            onClick={() => syncDefaultBranchMutation.mutate()}
+            disabled={syncDefaultBranchMutation.isPending}
+            title={`Fetch and fast-forward ${project.defaultBranch || 'main'} from remote`}
+          >
+            <span className="hidden sm:inline">{syncDefaultBranchMutation.isPending ? 'Syncing...' : `Sync ${project.defaultBranch || 'main'}`}</span>
+          </Button>
+          <Button
+            variant="secondary"
+            size="xs"
+            icon={<Funnel size={13} />}
+            onClick={() => navigate(`/?project=${project.id}`)}
+            title="Filter dashboard by this project"
+          >
+            <span className="hidden sm:inline">Filter</span>
+          </Button>
+          <Button
+            variant="secondary"
+            size="xs"
+            icon={<Settings size={13} />}
+            onClick={() => navigate(`/projects/${project.id}/settings`)}
+          >
+            <span className="hidden sm:inline">Settings</span>
+          </Button>
+          <IconButton
+            icon={size === 'half' ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+            onClick={toggleSize}
+            tooltip={size === 'half' ? 'Expand panel' : 'Collapse panel'}
+          />
+          <IconButton
+            icon={<X size={14} />}
+            onClick={() => navigate('/')}
+            tooltip="Close panel"
+          />
+        </div>
+      </div>
+    ) : null,
+    `project-workspace-${id ?? 'none'}-${project?.name ?? ''}-${syncDefaultBranchMutation.isPending}-${size}`,
+  );
+
   if (projectLoading) {
     return (
-      <Layout>
-        <div className="h-full flex items-center justify-center text-dim">Loading...</div>
-      </Layout>
+      <div className="h-full flex items-center justify-center text-dim">Loading...</div>
     );
   }
 
   if (!project || !id) {
     return (
-      <Layout>
-        <div className="h-full flex items-center justify-center text-dim">Project not found</div>
-      </Layout>
+      <div className="h-full flex items-center justify-center text-dim flex-col gap-2">
+        <AlertTriangle size={32} className="text-dim" />
+        Project not found
+      </div>
     );
   }
 
@@ -707,41 +766,38 @@ export function ProjectWorkspace() {
   );
 
   const filesPanel = (
-    <div className="h-full min-h-0 flex flex-col overflow-hidden">
+    <div className="h-full min-h-0 flex flex-col overflow-hidden bg-card">
       <div className="px-3 py-2 border-b border-subtle flex items-center justify-between gap-2">
         <span className="text-xs font-medium uppercase tracking-wider text-dim">Files</span>
         <div className="flex items-center gap-1">
-          <button
+          <IconButton
+            icon={<RefreshCw size={12} />}
+            size="xs"
             onClick={() => queryClient.invalidateQueries({ queryKey: ['project-files', id] })}
-            className="px-2 py-1 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors inline-flex items-center gap-1"
-            title="Refresh files"
-          >
-            <RefreshCw size={12} />
-          </button>
-          <button
+            tooltip="Refresh files"
+          />
+          <IconButton
+            icon={<FilePlus2 size={12} />}
+            size="xs"
             onClick={() => createEntryPrompt('file')}
             disabled={createEntryMutation.isPending}
-            className="px-2 py-1 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 inline-flex items-center gap-1"
-            title="Create file"
-          >
-            <FilePlus2 size={12} />
-          </button>
-          <button
+            tooltip="Create file"
+          />
+          <IconButton
+            icon={<FolderPlus size={12} />}
+            size="xs"
             onClick={() => createEntryPrompt('dir')}
             disabled={createEntryMutation.isPending}
-            className="px-2 py-1 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 inline-flex items-center gap-1"
-            title="Create folder"
-          >
-            <FolderPlus size={12} />
-          </button>
-          <button
+            tooltip="Create folder"
+          />
+          <IconButton
+            icon={<Trash2 size={12} />}
+            size="xs"
             onClick={deleteSelectedEntry}
             disabled={!selectedEntry || deleteEntryMutation.isPending}
-            className="px-2 py-1 text-xs bg-tertiary text-[var(--color-error)] rounded-md hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 inline-flex items-center gap-1"
-            title="Delete selected"
-          >
-            <Trash2 size={12} />
-          </button>
+            tooltip="Delete selected"
+            className="text-[var(--color-error)] hover:text-[var(--color-error)]"
+          />
         </div>
       </div>
       <div className="px-3 py-1 text-[11px] text-dim border-b border-subtle font-mono truncate">/</div>
@@ -755,13 +811,13 @@ export function ProjectWorkspace() {
             className="w-full bg-primary border border-subtle rounded-md pl-7 pr-8 py-1.5 text-xs focus:outline-none focus:border-[var(--color-text-secondary)]"
           />
           {fileSearch && (
-            <button
+            <IconButton
+              icon={<X size={12} />}
+              size="xs"
               onClick={() => setFileSearch('')}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary transition-colors"
-              title="Clear search"
-            >
-              <X size={12} />
-            </button>
+              tooltip="Clear search"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2"
+            />
           )}
         </div>
       </div>
@@ -769,9 +825,15 @@ export function ProjectWorkspace() {
         {filesLoading ? (
           <div className="p-3 text-xs text-dim">Loading files...</div>
         ) : treeData.length === 0 ? (
-          <div className="p-3 text-xs text-dim">No files yet</div>
+          <div className="p-4 text-xs text-dim flex flex-col items-center gap-2 text-center">
+            <FolderOpen size={32} className="text-dim" />
+            No files yet
+          </div>
         ) : filteredTreeData.length === 0 ? (
-          <div className="p-3 text-xs text-dim">No files match "{fileSearch.trim()}".</div>
+          <div className="p-4 text-xs text-dim flex flex-col items-center gap-2 text-center">
+            <Search size={28} className="text-dim" />
+            No files match &ldquo;{fileSearch.trim()}&rdquo;
+          </div>
         ) : (
           <Tree<FileTreeNodeData>
             data={filteredTreeData}
@@ -795,7 +857,7 @@ export function ProjectWorkspace() {
   );
 
   const previewPanel = (
-    <div className="h-full min-h-0 flex flex-col overflow-hidden">
+    <div className="h-full min-h-0 flex flex-col overflow-hidden bg-card">
       <div className="h-10 border-b border-subtle bg-secondary flex items-center">
         <div className="h-full min-w-0 flex-1 flex items-center overflow-x-auto">
           {openTabs.length === 0 ? (
@@ -834,23 +896,31 @@ export function ProjectWorkspace() {
         </div>
         <div className="h-full px-3 border-l border-subtle flex items-center gap-2 shrink-0 bg-secondary/80">
           {activeTab && <span className="text-[11px] font-mono text-dim truncate max-w-[220px]">{activeTab}</span>}
-          <button
+          <Button
+            variant="primary"
+            size="xs"
+            icon={<Save size={12} />}
             onClick={saveActiveTab}
             disabled={!activeTab || !activeDirty || saveFileMutation.isPending || activeFileData?.binary || activeFileData?.truncated}
-            className="px-2 py-1 text-xs rounded-md bg-accent text-white hover:bg-accent-dim transition-colors disabled:opacity-40 inline-flex items-center gap-1"
+            loading={saveFileMutation.isPending}
           >
-            <Save size={12} />
-            {saveFileMutation.isPending ? 'Saving...' : 'Save'}
-          </button>
+            Save
+          </Button>
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-hidden">
         {!activeTab ? (
-          <div className="h-full flex items-center justify-center text-dim text-sm">Select a file to edit</div>
+          <div className="h-full flex items-center justify-center text-dim text-sm flex-col gap-2">
+            <FileText size={36} className="text-dim" />
+            Select a file to edit
+          </div>
         ) : fileLoading && !activeFileData ? (
           <div className="p-3 text-xs text-dim">Loading file...</div>
         ) : !activeFileData ? (
-          <div className="p-3 text-xs text-dim">File not found</div>
+          <div className="p-4 text-xs text-dim flex flex-col items-center gap-2 text-center">
+            <AlertTriangle size={28} className="text-dim" />
+            File not found
+          </div>
         ) : activeFileData.binary ? (
           <div className="p-3 text-xs text-dim">Binary files cannot be edited in the workspace editor.</div>
         ) : activeFileData.truncated ? (
@@ -879,7 +949,7 @@ export function ProjectWorkspace() {
   );
 
   const secretsPanel = (
-    <div className="h-full min-h-0 flex flex-col overflow-hidden">
+    <div className="h-full min-h-0 flex flex-col overflow-hidden bg-card">
       <div className="px-3 py-3 border-b border-subtle bg-secondary/60 space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -899,20 +969,23 @@ export function ProjectWorkspace() {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button
+            <Button
+              variant="secondary"
+              size="xs"
+              icon={<Plus size={12} />}
               onClick={() => addSecretRow('')}
-              className="px-2.5 py-1.5 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors inline-flex items-center gap-1"
             >
-              <Plus size={12} />
               Add Mapping
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
+              size="xs"
               onClick={() => saveSecretsMutation.mutate(secretRows)}
               disabled={saveSecretsMutation.isPending || !secretsDirty}
-              className="px-2.5 py-1.5 text-xs bg-accent text-white rounded-md hover:bg-accent-dim transition-colors disabled:opacity-40"
+              loading={saveSecretsMutation.isPending}
             >
-              {saveSecretsMutation.isPending ? 'Saving...' : 'Save'}
-            </button>
+              Save
+            </Button>
           </div>
         </div>
         <div>
@@ -948,13 +1021,15 @@ export function ProjectWorkspace() {
               <p className="text-xs text-dim mt-1">
                 Start with `.env`, `.env.local`, or `.dev.vars`. Missing sources are auto-created as empty files in new worktrees.
               </p>
-              <button
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Plus size={12} />}
                 onClick={() => addSecretRow('.env')}
-                className="mt-4 px-3 py-1.5 text-xs bg-accent text-white rounded-md hover:bg-accent-dim transition-colors inline-flex items-center gap-1"
+                className="mt-4"
               >
-                <Plus size={12} />
                 Add First Secret
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
@@ -1095,14 +1170,15 @@ export function ProjectWorkspace() {
                     <div className="rounded-xl border border-subtle bg-primary p-3 space-y-2">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-[11px] text-dim uppercase tracking-wider">Resolution Status</span>
-                        <button
+                        <Button
+                          variant="secondary"
+                          size="xs"
+                          icon={<Wand2 size={12} />}
                           onClick={() => resolveOneSecret(row.path)}
                           disabled={!canResolve}
-                          className="px-2.5 py-1 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 inline-flex items-center gap-1"
                         >
-                          <Wand2 size={12} />
                           Resolve
-                        </button>
+                        </Button>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -1132,24 +1208,27 @@ export function ProjectWorkspace() {
                     </div>
 
                     <div className="rounded-xl border border-subtle bg-secondary/40 p-3 flex flex-wrap items-center gap-2">
-                      <button
+                      <Button
+                        variant="secondary"
+                        size="xs"
+                        icon={<Pencil size={12} />}
                         onClick={() => openSecretEditor(row.path)}
                         disabled={!canResolve}
-                        className="px-2.5 py-1 text-xs bg-tertiary text-[var(--color-text-secondary)] rounded-md hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 inline-flex items-center gap-1"
                       >
-                        <Pencil size={12} />
                         {diag?.managedExists ? 'Edit Managed Source' : 'Create Managed Source'}
-                      </button>
-                      <button
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="xs"
+                        icon={<Trash2 size={12} />}
                         onClick={() => {
                           setSecretRows((prev) => prev.filter((_, i) => i !== selectedSecretIndex));
                           setSecretsDirty(true);
                         }}
-                        className="ml-auto px-2 py-1 text-xs text-[var(--color-error)] hover:underline inline-flex items-center gap-1"
+                        className="ml-auto"
                       >
-                        <Trash2 size={12} />
                         Remove Mapping
-                      </button>
+                      </Button>
                     </div>
                   </>
                 );
@@ -1166,42 +1245,8 @@ export function ProjectWorkspace() {
   );
 
   return (
-    <Layout>
-      <div className="flex flex-col h-full">
-        <header className="px-4 py-3 border-b border-subtle bg-secondary flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-sm font-semibold truncate">{project.name}</h1>
-            <p className="text-[11px] text-dim font-mono truncate">{project.path}</p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <OpenInEditorButton worktreePath={project.path} />
-            <button
-              onClick={() => syncDefaultBranchMutation.mutate()}
-              disabled={syncDefaultBranchMutation.isPending}
-              className="px-2 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors disabled:opacity-40 inline-flex items-center gap-1"
-              title={`Fetch and fast-forward ${project.defaultBranch || 'main'} from remote`}
-            >
-              <RefreshCw size={13} className={syncDefaultBranchMutation.isPending ? 'animate-spin' : ''} />
-              <span className="hidden sm:inline">{syncDefaultBranchMutation.isPending ? 'Syncing...' : `Sync ${project.defaultBranch || 'main'}`}</span>
-            </button>
-            <button
-              onClick={() => navigate(`/?project=${project.id}`)}
-              className="px-2 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors inline-flex items-center gap-1"
-              title="Filter dashboard by this project"
-            >
-              <Funnel size={13} />
-              <span className="hidden sm:inline">Filter</span>
-            </button>
-            <button
-              onClick={() => navigate(`/projects/${project.id}/settings`)}
-              className="px-2 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors inline-flex items-center gap-1"
-            >
-              <Settings size={13} />
-              <span className="hidden sm:inline">Settings</span>
-            </button>
-          </div>
-        </header>
-
+    <>
+    <div className="flex flex-col h-full">
         {error && (
           <div className="px-4 py-2 text-xs text-[var(--color-error)] border-b border-subtle">
             {error}
@@ -1255,43 +1300,48 @@ export function ProjectWorkspace() {
         )}
       </div>
 
-      {secretEditorPath && (
-        <div className="fixed inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-elevated border border-subtle rounded-xl shadow-lg w-full max-w-3xl max-h-[85vh] flex flex-col">
-            <div className="px-4 py-3 border-b border-subtle">
-              <h3 className="text-sm font-medium">Managed Secret Source</h3>
-              <p className="text-[11px] text-dim font-mono mt-1">{secretEditorPath}</p>
-            </div>
-            <div className="p-4 flex-1 min-h-0 overflow-auto">
-              {secretEditorLoading ? (
-                <div className="text-xs text-dim">Loading...</div>
-              ) : (
-                <textarea
-                  value={secretEditorContent}
-                  onChange={(e) => setSecretEditorContent(e.target.value)}
-                  rows={18}
-                  className="w-full bg-primary border border-subtle rounded-md px-3 py-2 text-xs font-mono focus:outline-none focus:border-[var(--color-text-secondary)]"
-                />
-              )}
-            </div>
-            <div className="px-4 py-3 border-t border-subtle flex justify-end gap-2">
-              <button
-                onClick={() => setSecretEditorPath(null)}
-                className="px-3 py-1.5 bg-tertiary text-[var(--color-text-secondary)] rounded-md text-xs hover:bg-[var(--color-border)] transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveSecretContent}
-                disabled={secretEditorSaving || secretEditorLoading}
-                className="px-3 py-1.5 bg-accent text-white rounded-md text-xs hover:bg-accent-dim transition-colors disabled:opacity-50"
-              >
-                {secretEditorSaving ? 'Saving...' : 'Save'}
-              </button>
-            </div>
+      <Modal
+        open={!!secretEditorPath}
+        onClose={() => setSecretEditorPath(null)}
+        title="Managed Secret Source"
+        size="lg"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setSecretEditorPath(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={saveSecretContent}
+              disabled={secretEditorSaving || secretEditorLoading}
+              loading={secretEditorSaving}
+            >
+              Save
+            </Button>
           </div>
+        }
+      >
+        <div className="px-5 py-4">
+          {secretEditorPath && (
+            <p className="text-[11px] text-dim font-mono mb-3">{secretEditorPath}</p>
+          )}
+          {secretEditorLoading ? (
+            <div className="text-xs text-dim">Loading...</div>
+          ) : (
+            <textarea
+              value={secretEditorContent}
+              onChange={(e) => setSecretEditorContent(e.target.value)}
+              rows={18}
+              className="w-full bg-primary border border-subtle rounded-md px-3 py-2 text-xs font-mono focus:outline-none focus:border-[var(--color-text-secondary)]"
+            />
+          )}
         </div>
-      )}
-    </Layout>
+      </Modal>
+    </>
   );
 }
