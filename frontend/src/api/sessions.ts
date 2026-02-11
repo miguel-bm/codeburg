@@ -5,7 +5,8 @@ export type SessionProvider = 'claude' | 'codex' | 'terminal';
 
 export interface AgentSession {
   id: string;
-  taskId: string;
+  taskId?: string;
+  projectId: string;
   provider: SessionProvider;
   sessionType: string;
   providerSessionId?: string;

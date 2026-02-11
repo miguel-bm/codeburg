@@ -417,3 +417,38 @@ button:disabled,
     transition: none;
   }
 }
+
+/* cmdk command palette styles */
+.cmdk-list {
+  transition: height 150ms ease;
+}
+
+.cmdk-group [cmdk-group-heading] {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-dim);
+  padding: 8px 12px 4px;
+  user-select: none;
+}
+
+.cmdk-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition: background-color 100ms ease;
+}
+
+.cmdk-item[data-selected=true] {
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+[cmdk-input] {
+  caret-color: var(--color-accent);
+}

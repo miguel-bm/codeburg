@@ -1,5 +1,4 @@
 import { useState, useEffect, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, GitBranch, Maximize2, Minimize2, Pin, Trash2, X } from 'lucide-react';
 import { useSetHeader } from '../../components/layout/Header';
@@ -54,10 +53,9 @@ export function relativeTime(dateStr: string): string {
 }
 
 export function TaskHeader({ task, project, actions, expandable = true }: TaskHeaderProps) {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
-  const { isExpanded, toggleExpanded, navigateToPanel } = usePanelNavigation();
+  const { isExpanded, toggleExpanded, navigateToPanel, closePanel } = usePanelNavigation();
 
   // Editing state
   const [editingTitle, setEditingTitle] = useState(false);
@@ -84,7 +82,7 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
     mutationFn: () => tasksApi.delete(task.id),
     onSuccess: () => {
       invalidateTaskQueries(queryClient, task.id);
-      navigate('/');
+      closePanel();
     },
   });
 
@@ -144,7 +142,7 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
         />
         <IconButton
           icon={<X size={14} />}
-          onClick={() => navigate('/')}
+          onClick={() => closePanel()}
           tooltip="Close panel"
           size="xs"
         />

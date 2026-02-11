@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
+import { usePanelNavigation } from '../hooks/usePanelNavigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ClipboardList } from 'lucide-react';
 import { tasksApi, projectsApi, sessionsApi, TASK_STATUS } from '../api';
@@ -14,7 +15,7 @@ import { TaskDetailDone } from './task/TaskDetailDone';
 
 export function TaskDetail() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const { closePanel } = usePanelNavigation();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [activeSession, setActiveSession] = useState<AgentSession | null>(null);
@@ -173,7 +174,7 @@ export function TaskDetail() {
   };
 
   const keyMap: Record<string, () => void> = {
-    Escape: () => navigate('/'),
+    Escape: () => closePanel(),
     '?': () => setShowHelp(true),
   };
   if (canOpenSessionComposer) {
@@ -235,16 +236,6 @@ export function TaskDetail() {
           <TaskDetailInProgress
             task={task}
             project={project}
-            sessions={sessions || []}
-            activeSession={activeSession}
-            onSelectSession={selectSession}
-            onStartSession={handleStartSession}
-            onCloseSession={handleCloseSession}
-            onShowStartComposer={() => setShowStartSession(true)}
-            onHideStartComposer={() => setShowStartSession(false)}
-            showStartComposer={showStartSession}
-            startSessionPending={startSessionMutation.isPending}
-            startSessionError={startSessionMutation.error?.message}
           />
         );
 

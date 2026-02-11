@@ -212,7 +212,15 @@ func (s *Server) dispatchWorkflow(oldTask, newTask *db.Task, resp *updateTaskRes
 				provider = "codex"
 			}
 			prompt := buildPromptFromTemplate(cfg.PromptTemplate, newTask.Title, ptrToString(newTask.Description))
-			session, err := s.startSessionInternal(newTask, StartSessionRequest{
+			workDir := project.Path
+			if newTask.WorktreePath != nil && *newTask.WorktreePath != "" {
+				workDir = *newTask.WorktreePath
+			}
+			session, err := s.startSessionInternal(startSessionParams{
+				ProjectID: newTask.ProjectID,
+				TaskID:    newTask.ID,
+				WorkDir:   workDir,
+			}, StartSessionRequest{
 				Provider: provider,
 				Prompt:   prompt,
 				Model:    cfg.DefaultModel,

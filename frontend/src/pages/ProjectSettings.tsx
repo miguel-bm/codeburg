@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Archive, ArrowRight, CheckCircle2, Eye, EyeOff, Maximize2, Minimize2, Settings, Trash2, X, Zap } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
@@ -27,8 +27,7 @@ const PROJECT_SETTINGS_GROUP_LABELS: Record<ProjectSettingsGroup, string> = {
 
 export function ProjectSettings() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const { isExpanded, toggleExpanded } = usePanelNavigation();
+  const { isExpanded, toggleExpanded, closePanel } = usePanelNavigation();
   const isMobile = useMobile();
 
   const { data: project, isLoading } = useQuery({
@@ -52,7 +51,7 @@ export function ProjectSettings() {
           />
           <IconButton
             icon={<X size={14} />}
-            onClick={() => navigate('/')}
+            onClick={() => closePanel()}
             tooltip="Close panel"
           />
         </div>
@@ -118,7 +117,7 @@ export function ProjectSettings() {
       navTitle="Project settings"
       searchPlaceholder="Search project settings"
       emptyMessage="No project settings sections match your search."
-      forceCompact={isMobile || size === 'half'}
+      forceCompact={isMobile}
       compactBreakpoint={980}
     />
   );
@@ -466,7 +465,7 @@ function WorkflowSection({ project }: { project: Project }) {
 /* ─── Danger Section ─────────────────────────────────────────────────── */
 
 function DangerSection({ project }: { project: Project }) {
-  const navigate = useNavigate();
+  const { closePanel } = usePanelNavigation();
   const queryClient = useQueryClient();
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -485,7 +484,7 @@ function DangerSection({ project }: { project: Project }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['sidebar'] });
-      navigate('/');
+      closePanel();
     },
   });
 
@@ -494,7 +493,7 @@ function DangerSection({ project }: { project: Project }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['sidebar'] });
-      navigate('/');
+      closePanel();
     },
   });
 

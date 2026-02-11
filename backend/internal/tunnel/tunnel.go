@@ -11,14 +11,15 @@ import (
 
 // Tunnel represents an active cloudflared tunnel
 type Tunnel struct {
-	ID      string
-	TaskID  string
-	Port    int
-	URL     string
-	Cmd     *exec.Cmd
-	Cancel  context.CancelFunc
-	mu      sync.Mutex
-	stopped bool
+	ID        string
+	TaskID    string
+	ProjectID string
+	Port      int
+	URL       string
+	Cmd       *exec.Cmd
+	Cancel    context.CancelFunc
+	mu        sync.Mutex
+	stopped   bool
 }
 
 // Manager manages cloudflared tunnels
@@ -53,7 +54,7 @@ func (m *Manager) Available() bool {
 }
 
 // Create starts a new cloudflared tunnel
-func (m *Manager) Create(id, taskID string, port int) (*Tunnel, error) {
+func (m *Manager) Create(id, taskID string, port int, projectID ...string) (*Tunnel, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -88,12 +89,18 @@ func (m *Manager) Create(id, taskID string, port int) (*Tunnel, error) {
 		return nil, fmt.Errorf("start cloudflared: %w", err)
 	}
 
+	projID := ""
+	if len(projectID) > 0 {
+		projID = projectID[0]
+	}
+
 	tunnel := &Tunnel{
-		ID:     id,
-		TaskID: taskID,
-		Port:   port,
-		Cmd:    cmd,
-		Cancel: cancel,
+		ID:        id,
+		TaskID:    taskID,
+		ProjectID: projID,
+		Port:      port,
+		Cmd:       cmd,
+		Cancel:    cancel,
 	}
 
 	// Parse URL from cloudflared output
@@ -248,20 +255,36 @@ func (m *Manager) FindByPort(port int) *TunnelInfo {
 	return &info
 }
 
+// ListForProject returns all tunnels for a specific project (no task)
+func (m *Manager) ListForProject(projectID string) []*Tunnel {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var tunnels []*Tunnel
+	for _, t := range m.tunnels {
+		if t.ProjectID == projectID && t.TaskID == "" {
+			tunnels = append(tunnels, t)
+		}
+	}
+	return tunnels
+}
+
 // TunnelInfo is a serializable representation of a tunnel
 type TunnelInfo struct {
-	ID     string `json:"id"`
-	TaskID string `json:"taskId"`
-	Port   int    `json:"port"`
-	URL    string `json:"url"`
+	ID        string `json:"id"`
+	TaskID    string `json:"taskId,omitempty"`
+	ProjectID string `json:"projectId,omitempty"`
+	Port      int    `json:"port"`
+	URL       string `json:"url"`
 }
 
 // Info returns the serializable info for a tunnel
 func (t *Tunnel) Info() TunnelInfo {
 	return TunnelInfo{
-		ID:     t.ID,
-		TaskID: t.TaskID,
-		Port:   t.Port,
-		URL:    t.URL,
+		ID:        t.ID,
+		TaskID:    t.TaskID,
+		ProjectID: t.ProjectID,
+		Port:      t.Port,
+		URL:       t.URL,
 	}
 }

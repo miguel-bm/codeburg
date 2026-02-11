@@ -1,30 +1,72 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { Command } from 'cmdk';
+import { AnimatePresence, motion } from 'motion/react';
+import {
+  Search,
+  FolderGit2,
+  Circle,
+  CircleDot,
+  CircleCheck,
+  CircleDashed,
+  Terminal,
+  Bot,
+  LayoutDashboard,
+  Plus,
+  Settings,
+  Filter,
+} from 'lucide-react';
 import { sidebarApi, projectsApi, TASK_STATUS } from '../../api';
+import type { TaskStatus, SidebarSession } from '../../api';
 import { usePanelNavigation } from '../../hooks/usePanelNavigation';
-
-interface CommandItem {
-  id: string;
-  type: 'project' | 'task' | 'session' | 'action';
-  label: string;
-  detail?: string;
-  icon: string;
-  onSelect: () => void;
-}
 
 interface CommandPaletteProps {
   onClose: () => void;
 }
 
+function taskStatusIcon(status: TaskStatus) {
+  switch (status) {
+    case TASK_STATUS.BACKLOG:
+      return <Circle className="w-4 h-4 status-backlog" />;
+    case TASK_STATUS.IN_PROGRESS:
+      return <CircleDot className="w-4 h-4 status-in-progress" />;
+    case TASK_STATUS.IN_REVIEW:
+      return <CircleDashed className="w-4 h-4 status-in-review" />;
+    case TASK_STATUS.DONE:
+      return <CircleCheck className="w-4 h-4 status-done" />;
+    default:
+      return <Circle className="w-4 h-4 text-dim" />;
+  }
+}
+
+function sessionIcon(session: SidebarSession) {
+  const Icon = session.provider === 'terminal' ? Terminal : Bot;
+  if (session.status === 'waiting_input') {
+    return (
+      <span className="relative">
+        <Icon className="w-4 h-4 text-[var(--color-warning)]" />
+        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-[var(--color-warning)] rounded-full animate-pulse" />
+      </span>
+    );
+  }
+  return <Icon className="w-4 h-4 text-dim" />;
+}
+
+function TypeBadge({ type }: { type: string }) {
+  return (
+    <span className="text-[10px] text-dim px-1.5 py-0.5 bg-tertiary rounded flex-shrink-0">
+      {type}
+    </span>
+  );
+}
+
 export function CommandPalette({ onClose }: CommandPaletteProps) {
-  const [query, setQuery] = useState('');
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
+  const [search, setSearch] = useState('');
   const navigate = useNavigate();
-  const { navigateToPanel } = usePanelNavigation();
+  const { navigateToPanel, closePanel } = usePanelNavigation();
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const { data: sidebar } = useQuery({
     queryKey: ['sidebar'],
@@ -36,201 +78,234 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     queryFn: projectsApi.list,
   });
 
-  // Build flat list of all items
-  const allItems = useMemo((): CommandItem[] => {
-    const items: CommandItem[] = [];
-
-    // Actions
-    items.push({
-      id: 'action-home',
-      type: 'action',
-      label: 'Go to Dashboard',
-      icon: '>',
-      onSelect: () => { navigate('/'); onClose(); },
-    });
-    items.push({
-      id: 'action-settings',
-      type: 'action',
-      label: 'Settings',
-      icon: '*',
-      onSelect: () => { navigate('/settings'); onClose(); },
-    });
-
-    // Projects
-    for (const p of projects ?? []) {
-      items.push({
-        id: `project-${p.id}`,
-        type: 'project',
-        label: p.name,
-        detail: p.path,
-        icon: '/',
-        onSelect: () => { navigateToPanel(`/projects/${p.id}`); onClose(); },
-      });
-      items.push({
-        id: `project-filter-${p.id}`,
-        type: 'action',
-        label: `Filter Dashboard: ${p.name}`,
-        detail: 'Show only this project on the board',
-        icon: '=',
-        onSelect: () => { navigate(`/?project=${p.id}`); onClose(); },
-      });
-    }
-
-    // Tasks + sessions from sidebar
-    if (sidebar?.projects) {
-      for (const p of sidebar.projects) {
-        for (const t of p.tasks) {
-          items.push({
-            id: `task-${t.id}`,
-            type: 'task',
-            label: t.title,
-            detail: `${p.name} · ${t.status.replace('_', ' ')}`,
-            icon: t.status === TASK_STATUS.IN_REVIEW ? '!' : '#',
-            onSelect: () => { navigateToPanel(`/tasks/${t.id}`); onClose(); },
-          });
-
-          for (const s of t.sessions) {
-            items.push({
-              id: `session-${s.id}`,
-              type: 'session',
-              label: `${s.provider} #${s.number}`,
-              detail: `${t.title} · ${s.status.replace('_', ' ')}`,
-              icon: s.status === 'waiting_input' ? '?' : '~',
-              onSelect: () => { navigateToPanel(`/tasks/${t.id}?session=${s.id}`); onClose(); },
+  // Waiting sessions extracted from sidebar
+  const waitingSessions = useMemo(() => {
+    const results: Array<{
+      session: SidebarSession;
+      taskId: string;
+      taskTitle: string;
+      projectName: string;
+    }> = [];
+    if (!sidebar?.projects) return results;
+    for (const p of sidebar.projects) {
+      for (const t of p.tasks) {
+        for (const s of t.sessions) {
+          if (s.status === 'waiting_input') {
+            results.push({
+              session: s,
+              taskId: t.id,
+              taskTitle: t.title,
+              projectName: p.name,
             });
           }
         }
       }
     }
+    return results;
+  }, [sidebar]);
 
-    return items;
-  }, [sidebar, projects, navigate, onClose]);
+  const select = useCallback((fn: () => void) => {
+    fn();
+    onClose();
+  }, [onClose]);
 
-  // Filter items
-  const filtered = useMemo(() => {
-    if (!query.trim()) return allItems;
-    const q = query.toLowerCase();
-    return allItems.filter((item) =>
-      item.label.toLowerCase().includes(q) ||
-      item.detail?.toLowerCase().includes(q)
-    );
-  }, [allItems, query]);
-
-  // Clamp selection
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [query]);
-
-  // Focus input on mount
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  // Scroll selected item into view
-  useEffect(() => {
-    const list = listRef.current;
-    if (!list) return;
-    const selected = list.children[selectedIndex] as HTMLElement | undefined;
-    selected?.scrollIntoView({ block: 'nearest' });
-  }, [selectedIndex]);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    switch (e.key) {
-      case 'ArrowDown':
-        e.preventDefault();
-        setSelectedIndex((i) => Math.min(i + 1, filtered.length - 1));
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        setSelectedIndex((i) => Math.max(i - 1, 0));
-        break;
-      case 'Enter':
-        e.preventDefault();
-        if (filtered[selectedIndex]) {
-          filtered[selectedIndex].onSelect();
-        }
-        break;
-      case 'Escape':
-        e.preventDefault();
-        onClose();
-        break;
+  // Close on click outside the command container
+  const handleBackdropClick = useCallback((e: React.MouseEvent) => {
+    if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      onClose();
     }
-  }, [filtered, selectedIndex, onClose]);
-
-  const typeLabel = (type: string) => {
-    switch (type) {
-      case 'project': return 'project';
-      case 'task': return 'task';
-      case 'session': return 'session';
-      case 'action': return 'action';
-      default: return '';
-    }
-  };
+  }, [onClose]);
 
   return createPortal(
-    <div className="fixed inset-0 z-[200] flex items-start justify-center pt-[15vh]">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm" onClick={onClose} />
+    <AnimatePresence>
+      <div className="fixed inset-0 z-[200] flex items-start justify-center pt-[15vh]" onClick={handleBackdropClick}>
+        {/* Backdrop */}
+        <motion.div
+          className="absolute inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+        />
 
-      {/* Palette */}
-      <div className="relative w-full max-w-lg bg-elevated border border-subtle rounded-xl shadow-lg">
-        {/* Search input */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-subtle">
-          <span className="text-accent text-sm">&gt;</span>
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="jump to..."
-            className="flex-1 bg-transparent text-sm text-[var(--color-text-primary)] focus:outline-none placeholder:text-dim"
-          />
-          <span className="text-[10px] text-dim">esc</span>
-        </div>
-
-        {/* Results */}
-        <div ref={listRef} className="max-h-[50vh] overflow-y-auto">
-          {filtered.length === 0 ? (
-            <div className="px-4 py-6 text-sm text-dim text-center">
-              No results
+        {/* Palette container */}
+        <motion.div
+          ref={containerRef}
+          className="relative w-full max-w-xl"
+          initial={{ opacity: 0, scale: 0.97 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.97 }}
+          transition={{ duration: 0.15 }}
+        >
+          <Command
+            loop
+            className="bg-[var(--color-card)] border border-[var(--color-card-border)] rounded-xl shadow-card-hover overflow-hidden"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                onClose();
+              }
+            }}
+          >
+            {/* Search input */}
+            <div className="flex items-center gap-2 px-3 border-b border-subtle">
+              <Search className="w-4 h-4 text-dim flex-shrink-0" />
+              <Command.Input
+                value={search}
+                onValueChange={setSearch}
+                placeholder="Search projects, tasks..."
+                className="flex-1 bg-transparent text-sm text-[var(--color-text-primary)] py-3 focus:outline-none placeholder:text-dim"
+                autoFocus
+              />
+              <kbd className="text-[10px] text-dim bg-tertiary px-1.5 py-0.5 rounded">esc</kbd>
             </div>
-          ) : (
-            filtered.map((item, i) => (
-              <div
-                key={item.id}
-                onClick={item.onSelect}
-                className={`flex items-center gap-3 px-4 py-2.5 mx-1 rounded-md cursor-pointer transition-colors ${
-                  i === selectedIndex
-                    ? 'bg-tertiary text-[var(--color-text-primary)]'
-                    : 'text-[var(--color-text-secondary)] hover:bg-tertiary'
-                }`}
-              >
-                <span className="w-4 text-center text-xs text-accent flex-shrink-0">
-                  {item.icon}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm truncate">{item.label}</div>
-                  {item.detail && (
-                    <div className="text-[10px] text-dim truncate">{item.detail}</div>
-                  )}
-                </div>
-                <span className="text-[10px] text-dim flex-shrink-0">
-                  {typeLabel(item.type)}
-                </span>
-              </div>
-            ))
-          )}
-        </div>
 
-        {/* Footer hint */}
-        <div className="px-4 py-2 border-t border-subtle flex gap-4 text-[10px] text-dim">
-          <span>Arrows navigate</span>
-          <span>Enter select</span>
-          <span>Esc close</span>
-        </div>
+            {/* Results list */}
+            <Command.List className="max-h-[50vh] overflow-y-auto p-1 cmdk-list">
+              <Command.Empty className="px-4 py-6 text-sm text-dim text-center">
+                No results found
+              </Command.Empty>
+
+              {/* Projects */}
+              {projects && projects.length > 0 && (
+                <Command.Group heading="Projects" className="cmdk-group">
+                  {projects.filter(p => !p.hidden).map((p) => (
+                    <Command.Item
+                      key={`project-${p.id}`}
+                      value={`project ${p.name}`}
+                      keywords={[p.path, p.gitOrigin ?? '', p.defaultBranch]}
+                      onSelect={() => select(() => navigateToPanel(`/projects/${p.id}`))}
+                      className="cmdk-item"
+                    >
+                      <FolderGit2 className="w-4 h-4 text-accent flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm truncate">{p.name}</div>
+                        <div className="text-[10px] text-dim truncate">{p.path}</div>
+                      </div>
+                      <TypeBadge type="project" />
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )}
+
+              {/* Tasks */}
+              {sidebar?.projects && sidebar.projects.some(p => p.tasks.length > 0) && (
+                <Command.Group heading="Tasks" className="cmdk-group">
+                  {sidebar.projects.flatMap((p) =>
+                    p.tasks.map((t) => (
+                      <Command.Item
+                        key={`task-${t.id}`}
+                        value={`task ${t.title} ${p.name}`}
+                        keywords={[
+                          p.name,
+                          t.status.replace('_', ' '),
+                          t.branch ?? '',
+                        ]}
+                        onSelect={() => select(() => navigateToPanel(`/tasks/${t.id}`))}
+                        className="cmdk-item"
+                      >
+                        {taskStatusIcon(t.status)}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm truncate">{t.title}</div>
+                          <div className="text-[10px] text-dim truncate">
+                            {p.name} &middot; {t.status.replace('_', ' ')}
+                          </div>
+                        </div>
+                        <TypeBadge type="task" />
+                      </Command.Item>
+                    ))
+                  )}
+                </Command.Group>
+              )}
+
+              {/* Waiting sessions */}
+              {waitingSessions.length > 0 && (
+                <Command.Group heading="Needs Attention" className="cmdk-group">
+                  {waitingSessions.map(({ session, taskId, taskTitle, projectName }) => (
+                    <Command.Item
+                      key={`session-${session.id}`}
+                      value={`session ${session.provider} ${taskTitle}`}
+                      keywords={[
+                        taskTitle,
+                        projectName,
+                        session.status.replace('_', ' '),
+                        session.provider,
+                        'waiting',
+                      ]}
+                      onSelect={() => select(() => navigateToPanel(`/tasks/${taskId}?session=${session.id}`))}
+                      className="cmdk-item"
+                    >
+                      {sessionIcon(session)}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm truncate">
+                          {session.provider} #{session.number}
+                        </div>
+                        <div className="text-[10px] text-dim truncate">
+                          {taskTitle} &middot; waiting for input
+                        </div>
+                      </div>
+                      <TypeBadge type="session" />
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )}
+
+              {/* Actions */}
+              <Command.Group heading="Actions" className="cmdk-group">
+                <Command.Item
+                  value="Dashboard"
+                  onSelect={() => select(() => closePanel())}
+                  className="cmdk-item"
+                >
+                  <LayoutDashboard className="w-4 h-4 text-dim flex-shrink-0" />
+                  <span className="text-sm flex-1">Go to Dashboard</span>
+                </Command.Item>
+                <Command.Item
+                  value="Create Task"
+                  keywords={['new', 'add']}
+                  onSelect={() => select(() => navigate('/tasks/quick'))}
+                  className="cmdk-item"
+                >
+                  <Plus className="w-4 h-4 text-dim flex-shrink-0" />
+                  <span className="text-sm flex-1">Create Task</span>
+                </Command.Item>
+                {projects?.filter(p => !p.hidden).map((p) => (
+                  <Command.Item
+                    key={`filter-${p.id}`}
+                    value={`Filter ${p.name}`}
+                    keywords={[p.name, 'dashboard', 'board']}
+                    onSelect={() => select(() => navigate(`/?project=${p.id}`))}
+                    className="cmdk-item"
+                  >
+                    <Filter className="w-4 h-4 text-dim flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm truncate">Filter: {p.name}</div>
+                      <div className="text-[10px] text-dim truncate">Show only this project on the board</div>
+                    </div>
+                  </Command.Item>
+                ))}
+                <Command.Item
+                  value="Settings"
+                  keywords={['preferences', 'config']}
+                  onSelect={() => select(() => navigate('/settings'))}
+                  className="cmdk-item"
+                >
+                  <Settings className="w-4 h-4 text-dim flex-shrink-0" />
+                  <span className="text-sm flex-1">Settings</span>
+                </Command.Item>
+              </Command.Group>
+            </Command.List>
+
+            {/* Footer */}
+            <div className="px-3 py-2 border-t border-subtle flex gap-4 text-[10px] text-dim">
+              <span><kbd className="bg-tertiary px-1 py-0.5 rounded">&#8593;&#8595;</kbd> navigate</span>
+              <span><kbd className="bg-tertiary px-1 py-0.5 rounded">&#8629;</kbd> open</span>
+              <span><kbd className="bg-tertiary px-1 py-0.5 rounded">esc</kbd> close</span>
+            </div>
+          </Command>
+        </motion.div>
       </div>
-    </div>,
+    </AnimatePresence>,
     document.body,
   );
 }

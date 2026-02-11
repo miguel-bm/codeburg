@@ -1095,6 +1095,7 @@ func TestSessionHook_Notification(t *testing.T) {
 	// Create a session directly in the DB
 	session, err := env.server.db.CreateSession(db.CreateSessionInput{
 		TaskID:      task.ID,
+		ProjectID:   project.ID,
 		Provider:    "claude",
 		SessionType: "terminal",
 	})
@@ -1146,6 +1147,7 @@ func TestSessionHook_SessionEnd(t *testing.T) {
 	// Create a session directly in the DB
 	session, err := env.server.db.CreateSession(db.CreateSessionInput{
 		TaskID:      task.ID,
+		ProjectID:   project.ID,
 		Provider:    "claude",
 		SessionType: "terminal",
 	})
@@ -1197,6 +1199,7 @@ func TestSessionHook_Stop(t *testing.T) {
 	// Create a session and set it to running
 	session, err := env.server.db.CreateSession(db.CreateSessionInput{
 		TaskID:      task.ID,
+		ProjectID:   project.ID,
 		Provider:    "claude",
 		SessionType: "terminal",
 	})
@@ -1246,6 +1249,7 @@ func TestSessionHook_StopWhileContinuing(t *testing.T) {
 
 	session, err := env.server.db.CreateSession(db.CreateSessionInput{
 		TaskID:      task.ID,
+		ProjectID:   project.ID,
 		Provider:    "claude",
 		SessionType: "terminal",
 	})
@@ -1295,6 +1299,7 @@ func TestSessionHook_NotificationAuthSuccessDoesNotFlipWaiting(t *testing.T) {
 
 	session, err := env.server.db.CreateSession(db.CreateSessionInput{
 		TaskID:      task.ID,
+		ProjectID:   project.ID,
 		Provider:    "claude",
 		SessionType: "terminal",
 	})
@@ -1343,6 +1348,7 @@ func TestSessionHook_AgentTurnComplete(t *testing.T) {
 
 	session, err := env.server.db.CreateSession(db.CreateSessionInput{
 		TaskID:      task.ID,
+		ProjectID:   project.ID,
 		Provider:    "codex",
 		SessionType: "terminal",
 	})
@@ -1427,6 +1433,7 @@ func TestSessionHook_ScopedToken(t *testing.T) {
 
 	session, err := env.server.db.CreateSession(db.CreateSessionInput{
 		TaskID:      task.ID,
+		ProjectID:   project.ID,
 		Provider:    "claude",
 		SessionType: "terminal",
 	})
@@ -1481,6 +1488,7 @@ func TestSessionHook_ScopedTokenWrongSession(t *testing.T) {
 
 	session, err := env.server.db.CreateSession(db.CreateSessionInput{
 		TaskID:      task.ID,
+		ProjectID:   project.ID,
 		Provider:    "claude",
 		SessionType: "terminal",
 	})
@@ -1526,6 +1534,7 @@ func TestSessionHook_NoToken(t *testing.T) {
 
 	session, err := env.server.db.CreateSession(db.CreateSessionInput{
 		TaskID:      task.ID,
+		ProjectID:   project.ID,
 		Provider:    "claude",
 		SessionType: "terminal",
 	})

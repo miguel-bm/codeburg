@@ -1,6 +1,5 @@
 import { useEffect, useCallback, useRef, useMemo } from 'react';
 import type { ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { usePanelStore, PANEL_WIDTH_MIN, PANEL_WIDTH_MAX, PANEL_WIDTH_DEFAULT } from '../../stores/panel';
@@ -16,9 +15,8 @@ interface PanelProps {
 
 export function Panel({ children }: PanelProps) {
   const { width, setWidth } = usePanelStore();
-  const { isExpanded, toggleExpanded } = usePanelNavigation();
+  const { isExpanded, toggleExpanded, closePanel } = usePanelNavigation();
   const isMobile = useMobile();
-  const navigate = useNavigate();
   const isFullMode = isMobile || isExpanded;
   const dragging = useRef(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -40,8 +38,8 @@ export function Panel({ children }: PanelProps) {
 
   // Escape key handler — close the panel
   const handleClose = useCallback(() => {
-    navigate('/');
-  }, [navigate]);
+    closePanel();
+  }, [closePanel]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -105,7 +103,7 @@ export function Panel({ children }: PanelProps) {
           className="fixed inset-0 z-10 bg-secondary flex flex-col"
         >
           <Header />
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-hidden flex flex-col">
             {children}
           </div>
         </motion.div>
@@ -187,7 +185,7 @@ export function Panel({ children }: PanelProps) {
         )}
 
         <Header />
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-hidden flex flex-col">
           {children}
         </div>
       </motion.div>

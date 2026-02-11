@@ -138,41 +138,16 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Default provider to "claude"
-	if req.Provider == "" {
-		req.Provider = "claude"
-	}
-
-	// Validate provider
-	if req.Provider != "claude" && req.Provider != "codex" && req.Provider != "terminal" {
-		writeError(w, http.StatusBadRequest, "invalid provider: "+req.Provider)
+	if err := validateSessionRequest(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
-	// Validate model name if provided (interpolated into shell commands)
-	if req.Model != "" && !isValidModelName(req.Model) {
-		writeError(w, http.StatusBadRequest, "invalid model name: must start with a letter and contain only letters, digits, hyphens, dots, and colons")
-		return
-	}
-
-	session, err := s.startSessionInternal(task, req)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusCreated, session)
-}
-
-// startSessionInternal creates and starts a session for the given task.
-// It handles hook setup and process launch in the PTY runtime.
-func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*db.AgentSession, error) {
-	provider := req.Provider
 
 	// Get project for worktree path
 	project, err := s.db.GetProject(task.ProjectID)
 	if err != nil {
-		return nil, fmt.Errorf("get project: %w", err)
+		writeError(w, http.StatusInternalServerError, "get project: "+err.Error())
+		return
 	}
 
 	// Determine working directory (worktree if available, else project path)
@@ -181,9 +156,99 @@ func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*
 		workDir = *task.WorktreePath
 	}
 
+	session, err := s.startSessionInternal(startSessionParams{
+		ProjectID: task.ProjectID,
+		TaskID:    task.ID,
+		WorkDir:   workDir,
+	}, req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, session)
+}
+
+func (s *Server) handleListProjectSessions(w http.ResponseWriter, r *http.Request) {
+	projectID := urlParam(r, "id")
+
+	// Verify project exists
+	_, err := s.db.GetProject(projectID)
+	if err != nil {
+		writeDBError(w, err, "project")
+		return
+	}
+
+	sessions, err := s.db.ListSessionsByProject(projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list sessions")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, sessions)
+}
+
+func (s *Server) handleStartProjectSession(w http.ResponseWriter, r *http.Request) {
+	projectID := urlParam(r, "id")
+
+	project, err := s.db.GetProject(projectID)
+	if err != nil {
+		writeDBError(w, err, "project")
+		return
+	}
+
+	var req StartSessionRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := validateSessionRequest(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	session, err := s.startSessionInternal(startSessionParams{
+		ProjectID: project.ID,
+		WorkDir:   project.Path,
+	}, req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, session)
+}
+
+func validateSessionRequest(req *StartSessionRequest) error {
+	if req.Provider == "" {
+		req.Provider = "claude"
+	}
+	if req.Provider != "claude" && req.Provider != "codex" && req.Provider != "terminal" {
+		return fmt.Errorf("invalid provider: %s", req.Provider)
+	}
+	if req.Model != "" && !isValidModelName(req.Model) {
+		return fmt.Errorf("invalid model name: must start with a letter and contain only letters, digits, hyphens, dots, and colons")
+	}
+	return nil
+}
+
+// startSessionParams encapsulates the resolved parameters for starting a session.
+type startSessionParams struct {
+	ProjectID string
+	TaskID    string // empty for project-level sessions
+	WorkDir   string
+}
+
+// startSessionInternal creates and starts a session.
+// It handles hook setup and process launch in the PTY runtime.
+func (s *Server) startSessionInternal(params startSessionParams, req StartSessionRequest) (*db.AgentSession, error) {
+	provider := req.Provider
+
 	// Create database session (terminal transport)
 	dbSession, err := s.db.CreateSession(db.CreateSessionInput{
-		TaskID:      task.ID,
+		TaskID:      params.TaskID,
+		ProjectID:   params.ProjectID,
 		Provider:    provider,
 		SessionType: "terminal",
 	})
@@ -239,16 +304,21 @@ func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*
 		slog.Warn("provider command not found in service PATH, using login-shell fallback", "session_id", dbSession.ID, "provider", req.Provider, "command", originalCommand)
 	}
 
+	workDir := params.WorkDir
+	taskID := params.TaskID
+
 	startRuntime := func() error {
 		return s.sessions.runtime.Start(dbSession.ID, ptyruntime.StartOptions{
 			WorkDir: workDir,
 			Command: command,
 			Args:    args,
 			OnOutput: func(sessionID string, chunk []byte) {
-				s.portSuggest.IngestOutput(task.ID, sessionID, chunk)
+				if taskID != "" {
+					s.portSuggest.IngestOutput(taskID, sessionID, chunk)
+				}
 			},
 			OnExit: func(result ptyruntime.ExitResult) {
-				s.handleRuntimeExit(task.ID, result)
+				s.handleRuntimeExit(taskID, result)
 			},
 		})
 	}
@@ -288,7 +358,7 @@ func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*
 	// Store in-memory session
 	execSession := &Session{
 		ID:       dbSession.ID,
-		TaskID:   task.ID,
+		TaskID:   taskID,
 		Provider: provider,
 		Status:   db.SessionStatusRunning,
 		WorkDir:  workDir,
@@ -439,10 +509,12 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 
 	// Broadcast to WebSocket
 	s.wsHub.BroadcastToSession(id, "session_stopped", nil)
-	s.wsHub.BroadcastToTask(dbSession.TaskID, "session_status_changed", map[string]string{
-		"sessionId": id,
-		"status":    string(db.SessionStatusCompleted),
-	})
+	if dbSession.TaskID != "" {
+		s.wsHub.BroadcastToTask(dbSession.TaskID, "session_status_changed", map[string]string{
+			"sessionId": id,
+			"status":    string(db.SessionStatusCompleted),
+		})
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -488,9 +560,11 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 
 	// Broadcast to WebSocket
 	s.wsHub.BroadcastToSession(id, "session_deleted", nil)
-	s.wsHub.BroadcastToTask(dbSession.TaskID, "session_deleted", map[string]string{
-		"sessionId": id,
-	})
+	if dbSession.TaskID != "" {
+		s.wsHub.BroadcastToTask(dbSession.TaskID, "session_deleted", map[string]string{
+			"sessionId": id,
+		})
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -549,7 +623,7 @@ func (sm *SessionManager) StartCleanupLoop(database *db.DB, wsHub *WSHub) {
 				removeNotifyScript(id)
 
 				// Get task ID for broadcast
-				if dbSession, err := database.GetSession(id); err == nil {
+				if dbSession, err := database.GetSession(id); err == nil && dbSession.TaskID != "" {
 					wsHub.BroadcastToTask(dbSession.TaskID, "session_status_changed", map[string]string{
 						"sessionId": id,
 						"status":    string(db.SessionStatusCompleted),
@@ -644,10 +718,12 @@ func (s *Server) handleRuntimeExit(taskID string, result ptyruntime.ExitResult) 
 	s.wsHub.BroadcastToSession(result.SessionID, "status_changed", map[string]string{
 		"status": string(status),
 	})
-	s.wsHub.BroadcastToTask(taskID, "session_status_changed", map[string]string{
-		"sessionId": result.SessionID,
-		"status":    string(status),
-	})
+	if taskID != "" {
+		s.wsHub.BroadcastToTask(taskID, "session_status_changed", map[string]string{
+			"sessionId": result.SessionID,
+			"status":    string(status),
+		})
+	}
 	s.wsHub.BroadcastGlobal("sidebar_update", map[string]string{
 		"taskId":    taskID,
 		"sessionId": result.SessionID,

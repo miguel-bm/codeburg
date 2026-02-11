@@ -250,4 +250,46 @@ var migrations = []migration{
 			ALTER TABLE projects ADD COLUMN hidden BOOLEAN DEFAULT FALSE;
 		`,
 	},
+	{
+		version: 13,
+		sql: `
+			-- Add project_id to sessions for project-level sessions
+			ALTER TABLE agent_sessions ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE CASCADE;
+			-- Backfill project_id from existing task sessions
+			UPDATE agent_sessions SET project_id = (
+				SELECT project_id FROM tasks WHERE tasks.id = agent_sessions.task_id
+			) WHERE task_id IS NOT NULL;
+			CREATE INDEX idx_sessions_project ON agent_sessions(project_id);
+		`,
+	},
+	{
+		version: 14,
+		sql: `
+			-- Recreate agent_sessions with nullable task_id (was NOT NULL from v1,
+			-- but project-level sessions need task_id to be NULL).
+			CREATE TABLE agent_sessions_new (
+				id TEXT PRIMARY KEY,
+				task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+				project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+				provider TEXT NOT NULL,
+				session_type TEXT DEFAULT 'terminal',
+				provider_session_id TEXT,
+				status TEXT DEFAULT 'idle',
+				tmux_window TEXT,
+				tmux_pane TEXT,
+				log_file TEXT,
+				last_activity_at TIMESTAMP,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			);
+			INSERT INTO agent_sessions_new SELECT
+				id, task_id, project_id, provider, session_type, provider_session_id,
+				status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
+			FROM agent_sessions;
+			DROP TABLE agent_sessions;
+			ALTER TABLE agent_sessions_new RENAME TO agent_sessions;
+			CREATE INDEX idx_sessions_task ON agent_sessions(task_id);
+			CREATE INDEX idx_sessions_project ON agent_sessions(project_id);
+		`,
+	},
 }

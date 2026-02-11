@@ -479,8 +479,9 @@ func TestCreateSession(t *testing.T) {
 	task, _ := db.CreateTask(CreateTaskInput{ProjectID: project.ID, Title: "Session Task"})
 
 	session, err := db.CreateSession(CreateSessionInput{
-		TaskID:   task.ID,
-		Provider: "claude",
+		TaskID:    task.ID,
+		ProjectID: project.ID,
+		Provider:  "claude",
 	})
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -506,8 +507,8 @@ func TestListSessionsByTask(t *testing.T) {
 	project, _ := db.CreateProject(CreateProjectInput{Name: "p", Path: "/tmp/p"})
 	task, _ := db.CreateTask(CreateTaskInput{ProjectID: project.ID, Title: "T"})
 
-	db.CreateSession(CreateSessionInput{TaskID: task.ID, Provider: "claude"})
-	db.CreateSession(CreateSessionInput{TaskID: task.ID, Provider: "claude"})
+	db.CreateSession(CreateSessionInput{TaskID: task.ID, ProjectID: project.ID, Provider: "claude"})
+	db.CreateSession(CreateSessionInput{TaskID: task.ID, ProjectID: project.ID, Provider: "claude"})
 
 	sessions, err := db.ListSessionsByTask(task.ID)
 	if err != nil {
@@ -523,7 +524,7 @@ func TestUpdateSession(t *testing.T) {
 
 	project, _ := db.CreateProject(CreateProjectInput{Name: "p", Path: "/tmp/p"})
 	task, _ := db.CreateTask(CreateTaskInput{ProjectID: project.ID, Title: "T"})
-	session, _ := db.CreateSession(CreateSessionInput{TaskID: task.ID, Provider: "claude"})
+	session, _ := db.CreateSession(CreateSessionInput{TaskID: task.ID, ProjectID: project.ID, Provider: "claude"})
 
 	running := SessionStatusRunning
 	window := "@1"
@@ -552,9 +553,9 @@ func TestListActiveSessions(t *testing.T) {
 	task, _ := db.CreateTask(CreateTaskInput{ProjectID: project.ID, Title: "T"})
 
 	// Create sessions with various statuses
-	s1, _ := db.CreateSession(CreateSessionInput{TaskID: task.ID, Provider: "claude"})
-	s2, _ := db.CreateSession(CreateSessionInput{TaskID: task.ID, Provider: "terminal"})
-	s3, _ := db.CreateSession(CreateSessionInput{TaskID: task.ID, Provider: "claude"})
+	s1, _ := db.CreateSession(CreateSessionInput{TaskID: task.ID, ProjectID: project.ID, Provider: "claude"})
+	s2, _ := db.CreateSession(CreateSessionInput{TaskID: task.ID, ProjectID: project.ID, Provider: "terminal"})
+	s3, _ := db.CreateSession(CreateSessionInput{TaskID: task.ID, ProjectID: project.ID, Provider: "claude"})
 
 	// s1: running, s2: completed, s3: waiting_input
 	runningStatus := SessionStatusRunning

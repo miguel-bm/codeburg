@@ -3,8 +3,8 @@ import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { motion } from 'motion/react';
-import { GitBranch, Pin, GitPullRequest, X, Plus, Inbox, Play, Eye, CheckCircle2, Clock, Calendar, LayoutGrid, List as ListIcon, Search, ChevronDown, Check, Crosshair, SlidersHorizontal } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { GitBranch, Pin, GitPullRequest, X, Plus, Inbox, Play, Eye, CheckCircle2, Clock, Calendar, LayoutGrid, List as ListIcon, Search, ChevronDown, Check, Crosshair, SlidersHorizontal, ChevronRight } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
 import { tasksApi, projectsApi, sessionsApi, invalidateTaskQueries } from '../api';
@@ -1848,6 +1848,223 @@ interface TaskListViewProps {
   onCreateTask: () => void;
 }
 
+function groupTasksByStatus(tasks: Task[]): Map<TaskStatus, Task[]> {
+  const map = new Map<TaskStatus, Task[]>();
+  for (const col of COLUMNS) map.set(col.id, []);
+  for (const task of tasks) {
+    const list = map.get(task.status);
+    if (list) list.push(task);
+  }
+  return map;
+}
+
+function ListRow({
+  task,
+  selectedProjectId,
+  getProjectName,
+  onOpenTask,
+}: {
+  task: Task;
+  selectedProjectId?: string;
+  getProjectName: (projectId: string) => string;
+  onOpenTask: (taskId: string) => void;
+}) {
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [tooltip, setTooltip] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    return () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); };
+  }, []);
+
+  const handleMouseEnter = useCallback((e: React.MouseEvent) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    hoverTimer.current = setTimeout(() => {
+      setTooltip({ x: rect.right + 8, y: rect.top });
+    }, 800);
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    setTooltip(null);
+  }, []);
+
+  const statusMeta = COLUMNS.find((c) => c.id === task.status);
+  const statusColor = statusMeta?.color ?? 'text-dim';
+  const priorityColor = task.priority ? (PRIORITY_COLORS[task.priority] || 'var(--color-text-dim)') : undefined;
+  const hasCode = !!(task.branch || task.prUrl || (task.diffStats && (task.diffStats.additions > 0 || task.diffStats.deletions > 0)));
+  const hasLabels = task.labels.length > 0;
+  const touchedAt = task.completedAt ?? task.startedAt ?? task.createdAt;
+  const projectName = selectedProjectId ? undefined : getProjectName(task.projectId);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => onOpenTask(task.id)}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        className="relative w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-[var(--color-bg-tertiary)] transition-colors cursor-pointer group text-left"
+      >
+        {/* Priority accent bar */}
+        {priorityColor && (
+          <div
+            className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full"
+            style={{ backgroundColor: priorityColor }}
+          />
+        )}
+
+        {/* Status dot */}
+        <span className={`h-[6px] w-[6px] rounded-full flex-shrink-0 ${statusColor}`} />
+
+        {/* Title + inline metadata */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            {task.pinned && <Pin size={11} className="text-[var(--color-warning)] flex-shrink-0" />}
+            <span className="text-[13px] font-medium text-[var(--color-text-primary)] truncate">{task.title}</span>
+          </div>
+          {(hasLabels || hasCode) && (
+            <div className="flex items-center gap-1.5 mt-0.5">
+              {hasLabels && task.labels.slice(0, 2).map((label) => (
+                <span
+                  key={label.id}
+                  className="text-[9px] px-1.5 py-px rounded-full font-medium leading-tight"
+                  style={{ backgroundColor: `${label.color}22`, color: label.color }}
+                >
+                  {label.name}
+                </span>
+              ))}
+              {task.labels.length > 2 && <span className="text-[9px] text-dim">+{task.labels.length - 2}</span>}
+              {task.branch && (
+                <span className="text-[10px] text-dim font-mono flex items-center gap-0.5 truncate max-w-[140px]">
+                  <GitBranch size={10} className="flex-shrink-0 opacity-60" />
+                  {task.branch}
+                </span>
+              )}
+              {task.diffStats && (task.diffStats.additions > 0 || task.diffStats.deletions > 0) && (
+                <span className="text-[10px] font-mono flex items-center gap-0.5">
+                  {task.diffStats.additions > 0 && (
+                    <span className="text-[var(--color-success)]">+{task.diffStats.additions}</span>
+                  )}
+                  {task.diffStats.deletions > 0 && (
+                    <span className="text-[var(--color-error)]">-{task.diffStats.deletions}</span>
+                  )}
+                </span>
+              )}
+              {task.prUrl && (
+                <a
+                  href={task.prUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-[10px] font-mono text-accent hover:underline inline-flex items-center gap-0.5 flex-shrink-0"
+                >
+                  <GitPullRequest size={10} />
+                  PR
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Right side metadata */}
+        <div className="flex items-center gap-4 flex-shrink-0">
+          {projectName && (
+            <span className="text-xs text-dim truncate max-w-[120px] hidden lg:block">{projectName}</span>
+          )}
+          {task.priority && (
+            <span
+              className="text-[10px] font-semibold"
+              style={{ color: priorityColor }}
+            >
+              {PRIORITY_LABELS[task.priority] || task.priority}
+            </span>
+          )}
+          <span className="text-[11px] text-dim w-[52px] text-right">{relativeTime(touchedAt)}</span>
+        </div>
+      </button>
+
+      {tooltip && <TaskTooltip task={task} projectName={projectName} x={tooltip.x} y={tooltip.y} />}
+    </>
+  );
+}
+
+function MobileListRow({
+  task,
+  selectedProjectId,
+  getProjectName,
+  onOpenTask,
+}: {
+  task: Task;
+  selectedProjectId?: string;
+  getProjectName: (projectId: string) => string;
+  onOpenTask: (taskId: string) => void;
+}) {
+  const statusMeta = COLUMNS.find((c) => c.id === task.status);
+  const statusLabel = statusMeta?.title ?? task.status;
+  const statusColor = statusMeta?.color ?? 'text-dim';
+  const priorityColor = task.priority ? (PRIORITY_COLORS[task.priority] || 'var(--color-text-dim)') : undefined;
+  const touchedAt = task.completedAt ?? task.startedAt ?? task.createdAt;
+  const hasLabels = task.labels.length > 0;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenTask(task.id)}
+      className="relative w-full rounded-xl bg-[var(--color-bg-secondary)]/70 px-3 py-2.5 text-left hover:bg-[var(--color-accent-glow)] transition-colors"
+    >
+      {/* Priority accent bar */}
+      {priorityColor && (
+        <div
+          className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full"
+          style={{ backgroundColor: priorityColor }}
+        />
+      )}
+
+      {/* Top: pin + title + status badge */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm text-[var(--color-text-primary)] truncate flex items-center gap-1.5 min-w-0">
+          {task.pinned && <Pin size={11} className="text-[var(--color-warning)] flex-shrink-0" />}
+          <span className="truncate">{task.title}</span>
+        </div>
+        <span
+          className={`text-[10px] font-medium shrink-0 px-1.5 py-0.5 rounded-full ${statusColor}`}
+          style={{ backgroundColor: 'var(--color-bg-tertiary)' }}
+        >
+          {statusLabel}
+        </span>
+      </div>
+
+      {/* Middle: labels */}
+      {hasLabels && (
+        <div className="flex items-center gap-1 mt-1.5">
+          {task.labels.slice(0, 2).map((label) => (
+            <span
+              key={label.id}
+              className="text-[9px] px-1.5 py-px rounded-full font-medium leading-tight"
+              style={{ backgroundColor: `${label.color}22`, color: label.color }}
+            >
+              {label.name}
+            </span>
+          ))}
+          {task.labels.length > 2 && <span className="text-[9px] text-dim">+{task.labels.length - 2}</span>}
+        </div>
+      )}
+
+      {/* Bottom: project · priority · time */}
+      <div className="mt-1 text-[11px] text-dim flex items-center gap-1.5">
+        <span className="truncate">{selectedProjectId ? 'Current project' : getProjectName(task.projectId)}</span>
+        {task.priority && (
+          <>
+            <span>&middot;</span>
+            <span className="font-semibold" style={{ color: priorityColor }}>{PRIORITY_LABELS[task.priority] || task.priority}</span>
+          </>
+        )}
+        <span className="ml-auto flex-shrink-0">{relativeTime(touchedAt)}</span>
+      </div>
+    </button>
+  );
+}
+
 function TaskListView({
   tasks,
   loading,
@@ -1858,6 +2075,18 @@ function TaskListView({
   onCreateTask,
 }: TaskListViewProps) {
   const isMobile = useMobile();
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+
+  const grouped = useMemo(() => groupTasksByStatus(tasks), [tasks]);
+
+  const toggleSection = useCallback((status: string) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(status)) next.delete(status);
+      else next.add(status);
+      return next;
+    });
+  }, []);
 
   if (loading) {
     return (
@@ -1868,101 +2097,86 @@ function TaskListView({
   return (
     <div className="px-3 py-3 h-full overflow-y-auto">
       <Card padding="none" className="h-full min-h-0 flex flex-col">
+        {/* Toolbar */}
         <div className="px-3 py-2.5 text-[11px] text-dim flex items-center justify-between bg-[var(--color-bg-secondary)]/65">
           <span>{tasks.length} tasks</span>
           <Button variant="ghost" size="xs" icon={<Plus size={12} />} onClick={onCreateTask} disabled={!canCreateTask}>
             New task
           </Button>
         </div>
+
         {tasks.length === 0 ? (
           <div className="flex-1 flex items-center justify-center text-sm text-dim">
             No tasks match the current filters.
           </div>
-        ) : isMobile ? (
-          <div className="flex-1 overflow-y-auto p-2 space-y-2.5">
-            {tasks.map((task) => {
-              const statusMeta = COLUMNS.find((column) => column.id === task.status);
-              const statusLabel = statusMeta?.title ?? task.status;
-              const statusColor = statusMeta?.color ?? 'text-dim';
-              const touchedAt = task.completedAt ?? task.startedAt ?? task.createdAt;
+        ) : (
+          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            {COLUMNS.map((col) => {
+              const sectionTasks = grouped.get(col.id);
+              if (!sectionTasks || sectionTasks.length === 0) return null;
+
+              const StatusIcon = COLUMN_ICONS[col.id];
+              const isCollapsed = collapsedSections.has(col.id);
+
               return (
-                <button
-                  key={task.id}
-                  type="button"
-                  onClick={() => onOpenTask(task.id)}
-                  className="w-full rounded-xl bg-[var(--color-bg-secondary)]/70 px-3 py-2.5 text-left hover:bg-[var(--color-accent-glow)] transition-colors"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-sm text-[var(--color-text-primary)] truncate flex items-center gap-1.5">
-                      {task.pinned && <Pin size={11} className="text-[var(--color-warning)]" />}
-                      <span className="truncate">{task.title}</span>
-                    </div>
-                    <span className={`text-[11px] font-medium shrink-0 ${statusColor}`}>{statusLabel}</span>
-                  </div>
-                  <div className="mt-1 text-[11px] text-dim flex items-center justify-between gap-2">
-                    <span className="truncate">{selectedProjectId ? 'Current project' : getProjectName(task.projectId)}</span>
-                    <span>{relativeTime(touchedAt)}</span>
-                  </div>
-                </button>
+                <div key={col.id}>
+                  {/* Section header */}
+                  <button
+                    type="button"
+                    onClick={() => toggleSection(col.id)}
+                    className="w-full flex items-center gap-2 px-2 py-2 hover:bg-[var(--color-bg-tertiary)] rounded-md transition-colors"
+                  >
+                    <ChevronRight
+                      size={12}
+                      className={`text-dim transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
+                    />
+                    <StatusIcon size={14} className={col.color} />
+                    <span className={`text-[11px] uppercase tracking-wide font-medium ${col.color}`}>
+                      {col.title}
+                    </span>
+                    <Badge variant="count" className="text-[10px] h-4 min-w-[1rem]">{sectionTasks.length}</Badge>
+                  </button>
+
+                  {/* Separator */}
+                  <div className="border-b border-subtle/30 mx-2" />
+
+                  {/* Task rows */}
+                  <AnimatePresence initial={false}>
+                    {!isCollapsed && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: 'easeInOut' }}
+                        className="overflow-hidden"
+                      >
+                        <div className={`${isMobile ? 'space-y-2 py-1.5' : 'py-0.5'}`}>
+                          {sectionTasks.map((task) =>
+                            isMobile ? (
+                              <MobileListRow
+                                key={task.id}
+                                task={task}
+                                selectedProjectId={selectedProjectId}
+                                getProjectName={getProjectName}
+                                onOpenTask={onOpenTask}
+                              />
+                            ) : (
+                              <ListRow
+                                key={task.id}
+                                task={task}
+                                selectedProjectId={selectedProjectId}
+                                getProjectName={getProjectName}
+                                onOpenTask={onOpenTask}
+                              />
+                            ),
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               );
             })}
-          </div>
-        ) : (
-          <div className="flex-1 overflow-auto p-2">
-            <div className="grid grid-cols-[minmax(280px,2.2fr)_minmax(140px,1fr)_minmax(120px,0.9fr)_minmax(110px,0.8fr)_minmax(90px,0.7fr)] px-3 pb-2 text-[10px] uppercase tracking-wide text-dim">
-              <span className="pl-2">Task</span>
-              <span>Project</span>
-              <span>Status</span>
-              <span>Priority</span>
-              <span>Updated</span>
-            </div>
-            <div className="space-y-1.5">
-              {tasks.map((task) => {
-                const statusMeta = COLUMNS.find((column) => column.id === task.status);
-                const statusLabel = statusMeta?.title ?? task.status;
-                const statusColor = statusMeta?.color ?? 'text-dim';
-                const touchedAt = task.completedAt ?? task.startedAt ?? task.createdAt;
-                return (
-                  <button
-                    key={task.id}
-                    type="button"
-                    onClick={() => onOpenTask(task.id)}
-                    className="w-full grid grid-cols-[minmax(280px,2.2fr)_minmax(140px,1fr)_minmax(120px,0.9fr)_minmax(110px,0.8fr)_minmax(90px,0.7fr)] items-center gap-2 rounded-xl bg-[var(--color-bg-secondary)]/60 px-3 py-3 text-left hover:bg-[var(--color-accent-glow)] transition-colors"
-                  >
-                    <div className="min-w-0 flex items-start gap-2">
-                      <span className={`mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0 ${statusColor}`} />
-                      <div className="min-w-0">
-                        <div className="truncate text-sm text-[var(--color-text-primary)] flex items-center gap-1.5">
-                          {task.pinned && <Pin size={11} className="text-[var(--color-warning)]" />}
-                          <span className="truncate">{task.title}</span>
-                        </div>
-                        {task.labels.length > 0 && (
-                          <div className="mt-1 flex items-center gap-1 pl-0.5">
-                            {task.labels.slice(0, 2).map((label) => (
-                              <span
-                                key={label.id}
-                                className="text-[9px] px-1.5 py-px rounded-full font-medium leading-tight"
-                                style={{
-                                  backgroundColor: `${label.color}22`,
-                                  color: label.color,
-                                }}
-                              >
-                                {label.name}
-                              </span>
-                            ))}
-                            {task.labels.length > 2 && <span className="text-[9px] text-dim">+{task.labels.length - 2}</span>}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <span className="text-xs text-dim truncate">{selectedProjectId ? 'Current project' : getProjectName(task.projectId)}</span>
-                    <span className={`text-xs font-medium ${statusColor}`}>{statusLabel}</span>
-                    <span className="text-xs text-dim">{task.priority ? (PRIORITY_LABELS[task.priority] || task.priority) : '-'}</span>
-                    <span className="text-xs text-dim">{relativeTime(touchedAt)}</span>
-                  </button>
-                );
-              })}
-            </div>
           </div>
         )}
       </Card>

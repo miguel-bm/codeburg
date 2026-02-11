@@ -25,7 +25,8 @@ const (
 // (background/no UI), or "api" (direct API without CLI).
 type AgentSession struct {
 	ID                string        `json:"id"`
-	TaskID            string        `json:"taskId"`
+	TaskID            string        `json:"taskId,omitempty"`
+	ProjectID         string        `json:"projectId"`
 	Provider          string        `json:"provider"`
 	SessionType       string        `json:"sessionType"`
 	ProviderSessionID *string       `json:"providerSessionId,omitempty"`
@@ -41,6 +42,7 @@ type AgentSession struct {
 // CreateSessionInput contains fields for creating a new session
 type CreateSessionInput struct {
 	TaskID            string
+	ProjectID         string
 	Provider          string
 	SessionType       string
 	ProviderSessionID *string
@@ -68,10 +70,15 @@ func (db *DB) CreateSession(input CreateSessionInput) (*AgentSession, error) {
 		sessionType = "terminal"
 	}
 
+	var taskID interface{} = input.TaskID
+	if input.TaskID == "" {
+		taskID = nil
+	}
+
 	_, err := db.conn.Exec(`
-		INSERT INTO agent_sessions (id, task_id, provider, session_type, provider_session_id, status, tmux_window, tmux_pane, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, input.TaskID, input.Provider, sessionType, NullString(input.ProviderSessionID), SessionStatusIdle, NullString(input.TmuxWindow), NullString(input.TmuxPane), now, now)
+		INSERT INTO agent_sessions (id, task_id, project_id, provider, session_type, provider_session_id, status, tmux_window, tmux_pane, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, id, taskID, input.ProjectID, input.Provider, sessionType, NullString(input.ProviderSessionID), SessionStatusIdle, NullString(input.TmuxWindow), NullString(input.TmuxPane), now, now)
 	if err != nil {
 		return nil, fmt.Errorf("insert session: %w", err)
 	}
@@ -82,7 +89,7 @@ func (db *DB) CreateSession(input CreateSessionInput) (*AgentSession, error) {
 // GetSession retrieves a session by ID
 func (db *DB) GetSession(id string) (*AgentSession, error) {
 	row := db.conn.QueryRow(`
-		SELECT id, task_id, provider, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
+		SELECT id, task_id, project_id, provider, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
 		FROM agent_sessions WHERE id = ?
 	`, id)
 
@@ -96,7 +103,7 @@ func (db *DB) GetSession(id string) (*AgentSession, error) {
 // ListSessionsByTask retrieves all sessions for a task
 func (db *DB) ListSessionsByTask(taskID string) ([]*AgentSession, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, task_id, provider, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
+		SELECT id, task_id, project_id, provider, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
 		FROM agent_sessions WHERE task_id = ? ORDER BY created_at DESC
 	`, taskID)
 	if err != nil {
@@ -119,7 +126,7 @@ func (db *DB) ListSessionsByTask(taskID string) ([]*AgentSession, error) {
 // ListActiveSessions returns all sessions with active statuses (running, waiting_input, idle)
 func (db *DB) ListActiveSessions() ([]*AgentSession, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, task_id, provider, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
+		SELECT id, task_id, project_id, provider, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
 		FROM agent_sessions WHERE status IN (?, ?, ?) ORDER BY created_at
 	`, SessionStatusRunning, SessionStatusWaitingInput, SessionStatusIdle)
 	if err != nil {
@@ -209,7 +216,7 @@ func (db *DB) DeleteSession(id string) error {
 // GetActiveSessionForTask returns the most recent active session for a task
 func (db *DB) GetActiveSessionForTask(taskID string) (*AgentSession, error) {
 	row := db.conn.QueryRow(`
-		SELECT id, task_id, provider, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
+		SELECT id, task_id, project_id, provider, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
 		FROM agent_sessions
 		WHERE task_id = ? AND status IN (?, ?, ?)
 		ORDER BY created_at DESC LIMIT 1
@@ -222,20 +229,50 @@ func (db *DB) GetActiveSessionForTask(taskID string) (*AgentSession, error) {
 	return session, err
 }
 
+// ListSessionsByProject retrieves all sessions for a project (project-level only, no task)
+func (db *DB) ListSessionsByProject(projectID string) ([]*AgentSession, error) {
+	rows, err := db.conn.Query(`
+		SELECT id, task_id, project_id, provider, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
+		FROM agent_sessions WHERE project_id = ? AND task_id IS NULL ORDER BY created_at DESC
+	`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("query project sessions: %w", err)
+	}
+	defer rows.Close()
+
+	sessions := make([]*AgentSession, 0)
+	for rows.Next() {
+		s, err := scanSession(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, s)
+	}
+
+	return sessions, rows.Err()
+}
+
 func scanSession(scan scanFunc) (*AgentSession, error) {
 	var s AgentSession
+	var taskID, projectID sql.NullString
 	var sessionType sql.NullString
 	var providerSessionID, tmuxWindow, tmuxPane, logFile sql.NullString
 	var lastActivityAt sql.NullTime
 
 	err := scan(
-		&s.ID, &s.TaskID, &s.Provider, &sessionType, &providerSessionID, &s.Status,
+		&s.ID, &taskID, &projectID, &s.Provider, &sessionType, &providerSessionID, &s.Status,
 		&tmuxWindow, &tmuxPane, &logFile, &lastActivityAt, &s.CreatedAt, &s.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	if taskID.Valid {
+		s.TaskID = taskID.String
+	}
+	if projectID.Valid {
+		s.ProjectID = projectID.String
+	}
 	s.SessionType = "terminal"
 	if sessionType.Valid && sessionType.String != "" {
 		s.SessionType = sessionType.String

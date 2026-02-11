@@ -104,10 +104,12 @@ func (db *DB) GetTask(id string) (*Task, error) {
 // ListTasks retrieves tasks with optional filtering
 func (db *DB) ListTasks(filter TaskFilter) ([]*Task, error) {
 	query := `
-		SELECT id, project_id, title, description, status, task_type, priority,
-		       branch, worktree_path, pr_url, pinned, position,
-		       created_at, started_at, completed_at
-		FROM tasks WHERE 1=1
+		SELECT tasks.id, tasks.project_id, tasks.title, tasks.description, tasks.status, tasks.task_type, tasks.priority,
+		       tasks.branch, tasks.worktree_path, tasks.pr_url, tasks.pinned, tasks.position,
+		       tasks.created_at, tasks.started_at, tasks.completed_at
+		FROM tasks
+		JOIN projects ON tasks.project_id = projects.id AND projects.hidden = FALSE
+		WHERE 1=1
 	`
 	var args []any
 

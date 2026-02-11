@@ -153,22 +153,57 @@ func (s *Server) handleListBranches(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, branches)
 }
 
+// resolveProjectWorkDir resolves a project's working directory from URL param.
+func (s *Server) resolveProjectWorkDir(w http.ResponseWriter, r *http.Request) (string, bool) {
+	projectID := urlParam(r, "id")
+
+	project, err := s.db.GetProject(projectID)
+	if err != nil {
+		writeDBError(w, err, "project")
+		return "", false
+	}
+
+	return project.Path, true
+}
+
+// gitStatus computes git status for a given work directory.
+func gitStatus(workDir string) (*GitStatusResponse, error) {
+	out, err := runGit(workDir, "status", "--porcelain=v1", "-b")
+	if err != nil {
+		return nil, err
+	}
+
+	resp := parseGitStatus(out)
+	mergeNumstat(workDir, &resp)
+	return &resp, nil
+}
+
 func (s *Server) handleGitStatus(w http.ResponseWriter, r *http.Request) {
 	workDir, ok := s.resolveTaskWorkDir(w, r)
 	if !ok {
 		return
 	}
 
-	out, err := runGit(workDir, "status", "--porcelain=v1", "-b")
+	resp, err := gitStatus(workDir)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	resp := parseGitStatus(out)
+	writeJSON(w, http.StatusOK, resp)
+}
 
-	// Merge in diff stats from --numstat for staged and unstaged files
-	mergeNumstat(workDir, &resp)
+func (s *Server) handleProjectGitStatus(w http.ResponseWriter, r *http.Request) {
+	workDir, ok := s.resolveProjectWorkDir(w, r)
+	if !ok {
+		return
+	}
+
+	resp, err := gitStatus(workDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -604,6 +639,249 @@ func (s *Server) handleGitStash(w http.ResponseWriter, r *http.Request) {
 
 		writeJSON(w, http.StatusOK, GitStashResponse{Entries: entries})
 
+	default:
+		writeError(w, http.StatusBadRequest, "invalid action: must be push, pop, or list")
+	}
+}
+
+// --- Project-level git handlers ---
+
+func (s *Server) handleProjectGitDiff(w http.ResponseWriter, r *http.Request) {
+	workDir, ok := s.resolveProjectWorkDir(w, r)
+	if !ok {
+		return
+	}
+
+	file := r.URL.Query().Get("file")
+	staged := r.URL.Query().Get("staged") == "true"
+
+	var args []string
+	if staged {
+		args = []string{"diff", "--cached"}
+	} else {
+		args = []string{"diff"}
+	}
+
+	if file != "" {
+		args = append(args, "--", file)
+	}
+
+	out, err := runGit(workDir, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, GitDiffResponse{Diff: out})
+}
+
+func (s *Server) handleProjectGitStage(w http.ResponseWriter, r *http.Request) {
+	workDir, ok := s.resolveProjectWorkDir(w, r)
+	if !ok {
+		return
+	}
+
+	var req GitStageRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.Files) == 0 {
+		writeError(w, http.StatusBadRequest, "files is required")
+		return
+	}
+
+	args := append([]string{"add", "--"}, req.Files...)
+	if _, err := runGit(workDir, args...); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleProjectGitUnstage(w http.ResponseWriter, r *http.Request) {
+	workDir, ok := s.resolveProjectWorkDir(w, r)
+	if !ok {
+		return
+	}
+
+	var req GitStageRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.Files) == 0 {
+		writeError(w, http.StatusBadRequest, "files is required")
+		return
+	}
+
+	args := append([]string{"reset", "HEAD", "--"}, req.Files...)
+	if _, err := runGit(workDir, args...); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleProjectGitRevert(w http.ResponseWriter, r *http.Request) {
+	workDir, ok := s.resolveProjectWorkDir(w, r)
+	if !ok {
+		return
+	}
+
+	var req GitRevertRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.Tracked) == 0 && len(req.Untracked) == 0 {
+		writeError(w, http.StatusBadRequest, "tracked or untracked files are required")
+		return
+	}
+
+	if len(req.Tracked) > 0 {
+		args := append([]string{"restore", "--staged", "--worktree", "--"}, req.Tracked...)
+		if _, err := runGit(workDir, args...); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if len(req.Untracked) > 0 {
+		args := append([]string{"clean", "-f", "-d", "--"}, req.Untracked...)
+		if _, err := runGit(workDir, args...); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleProjectGitCommit(w http.ResponseWriter, r *http.Request) {
+	workDir, ok := s.resolveProjectWorkDir(w, r)
+	if !ok {
+		return
+	}
+
+	var req GitCommitRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Message == "" && !req.Amend {
+		writeError(w, http.StatusBadRequest, "message is required")
+		return
+	}
+
+	args := []string{"commit"}
+	if req.Amend {
+		args = append(args, "--amend")
+		if req.Message == "" {
+			args = append(args, "--no-edit")
+		}
+	}
+	if req.Message != "" {
+		args = append(args, "-m", req.Message)
+	}
+
+	if _, err := runGit(workDir, args...); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	hashOut, err := runGit(workDir, "rev-parse", "--short", "HEAD")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	msgOut, err := runGit(workDir, "log", "-1", "--format=%s")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, GitCommitResponse{
+		Hash:    strings.TrimSpace(hashOut),
+		Message: strings.TrimSpace(msgOut),
+	})
+}
+
+func (s *Server) handleProjectGitPull(w http.ResponseWriter, r *http.Request) {
+	workDir, ok := s.resolveProjectWorkDir(w, r)
+	if !ok {
+		return
+	}
+
+	if _, err := runGit(workDir, "pull", "--ff-only"); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleProjectGitPush(w http.ResponseWriter, r *http.Request) {
+	workDir, ok := s.resolveProjectWorkDir(w, r)
+	if !ok {
+		return
+	}
+
+	if _, err := runGit(workDir, "push"); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleProjectGitStash(w http.ResponseWriter, r *http.Request) {
+	workDir, ok := s.resolveProjectWorkDir(w, r)
+	if !ok {
+		return
+	}
+
+	var req GitStashRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	switch req.Action {
+	case "push":
+		if _, err := runGit(workDir, "stash", "push"); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case "pop":
+		if _, err := runGit(workDir, "stash", "pop"); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case "list":
+		out, err := runGit(workDir, "stash", "list")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		entries := []GitStashEntry{}
+		scanner := bufio.NewScanner(strings.NewReader(out))
+		idx := 0
+		for scanner.Scan() {
+			line := scanner.Text()
+			if colonIdx := strings.Index(line, ": "); colonIdx >= 0 {
+				entries = append(entries, GitStashEntry{
+					Index:   idx,
+					Message: line[colonIdx+2:],
+				})
+			}
+			idx++
+		}
+		writeJSON(w, http.StatusOK, GitStashResponse{Entries: entries})
 	default:
 		writeError(w, http.StatusBadRequest, "invalid action: must be push, pop, or list")
 	}

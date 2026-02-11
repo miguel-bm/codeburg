@@ -158,10 +158,12 @@ func (s *Server) handleSessionHook(w http.ResponseWriter, r *http.Request) {
 	s.wsHub.BroadcastToSession(sessionID, "status_changed", map[string]string{
 		"status": string(newStatus),
 	})
-	s.wsHub.BroadcastToTask(session.TaskID, "session_status_changed", map[string]string{
-		"sessionId": sessionID,
-		"status":    string(newStatus),
-	})
+	if session.TaskID != "" {
+		s.wsHub.BroadcastToTask(session.TaskID, "session_status_changed", map[string]string{
+			"sessionId": sessionID,
+			"status":    string(newStatus),
+		})
+	}
 
 	// Broadcast sidebar update to all clients
 	s.wsHub.BroadcastGlobal("sidebar_update", map[string]string{

@@ -45,7 +45,7 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const [showCreateProject, setShowCreateProject] = useState(false);
-  const { navigateToPanel } = usePanelNavigation();
+  const { navigateToPanel, closePanel } = usePanelNavigation();
 
   const isExpanded = useSidebarStore(selectIsExpanded);
   const toggleExpanded = useSidebarStore((s) => s.toggleExpanded);
@@ -172,7 +172,7 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
 
   const handleHomeClick = () => {
     sessionStorage.removeItem('codeburg:active-project');
-    navigate('/');
+    closePanel();
     onClose?.();
   };
 
@@ -419,7 +419,6 @@ interface SidebarProjectNodeProps {
 }
 
 function SidebarProjectNode({ project, isActive, isFiltered, onProjectClick, onProjectFilterClick, onClose, collapseSignal, forceCollapsed, onCollapseToggle, keyboardFocused, focusedTaskId, addTaskFocused, onOpenWizard }: SidebarProjectNodeProps) {
-  const navigate = useNavigate();
   const { navigateToPanel } = usePanelNavigation();
   const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(() => {
@@ -643,7 +642,6 @@ interface SidebarTaskNodeProps {
 }
 
 function SidebarTaskNode({ task, onClose, keyboardFocused }: SidebarTaskNodeProps) {
-  const navigate = useNavigate();
   const { navigateToPanel } = usePanelNavigation();
   const queryClient = useQueryClient();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);

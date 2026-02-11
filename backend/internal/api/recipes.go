@@ -10,6 +10,39 @@ import (
 
 var recipesMgr = recipes.NewManager()
 
+// handleListProjectRecipes lists discovered recipes from common sources in a project directory.
+func (s *Server) handleListProjectRecipes(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	project, err := s.db.GetProject(projectID)
+	if err != nil {
+		writeDBError(w, err, "project")
+		return
+	}
+
+	discovered, err := recipesMgr.List(project.Path)
+	if err != nil {
+		slog.Error("failed to list project recipes", "projectID", projectID, "error", err)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	sources := make([]string, 0, 4)
+	seenSources := map[string]struct{}{}
+	for _, recipe := range discovered {
+		if _, ok := seenSources[recipe.Source]; ok {
+			continue
+		}
+		seenSources[recipe.Source] = struct{}{}
+		sources = append(sources, recipe.Source)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"recipes": discovered,
+		"sources": sources,
+	})
+}
+
 // handleListTaskRecipes lists discovered recipes from common sources in a task worktree.
 func (s *Server) handleListTaskRecipes(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "id")

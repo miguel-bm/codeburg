@@ -202,11 +202,33 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/projects/{id}/file", s.handleReadProjectFile)
 		r.Put("/api/projects/{id}/file", s.handlePutProjectFile)
 		r.Delete("/api/projects/{id}/file", s.handleDeleteProjectFile)
+		r.Post("/api/projects/{id}/file/rename", s.handleRenameProjectFile)
+		r.Post("/api/projects/{id}/file/duplicate", s.handleDuplicateProjectFile)
 		r.Get("/api/projects/{id}/secrets", s.handleGetProjectSecrets)
 		r.Patch("/api/projects/{id}/secrets", s.handlePatchProjectSecrets)
 		r.Get("/api/projects/{id}/secrets/content", s.handleGetProjectSecretContent)
 		r.Put("/api/projects/{id}/secrets/content", s.handlePutProjectSecretContent)
 		r.Post("/api/projects/{id}/secrets/resolve", s.handleResolveProjectSecrets)
+		r.Post("/api/projects/{id}/files/search", s.handleSearchProjectFiles)
+
+		// Project sessions
+		r.Get("/api/projects/{id}/sessions", s.handleListProjectSessions)
+		r.Post("/api/projects/{id}/sessions", s.handleStartProjectSession)
+
+		// Project git
+		r.Get("/api/projects/{id}/git/status", s.handleProjectGitStatus)
+		r.Get("/api/projects/{id}/git/diff", s.handleProjectGitDiff)
+		r.Post("/api/projects/{id}/git/stage", s.handleProjectGitStage)
+		r.Post("/api/projects/{id}/git/unstage", s.handleProjectGitUnstage)
+		r.Post("/api/projects/{id}/git/revert", s.handleProjectGitRevert)
+		r.Post("/api/projects/{id}/git/commit", s.handleProjectGitCommit)
+		r.Post("/api/projects/{id}/git/pull", s.handleProjectGitPull)
+		r.Post("/api/projects/{id}/git/push", s.handleProjectGitPush)
+		r.Post("/api/projects/{id}/git/stash", s.handleProjectGitStash)
+
+		// Project tunnels
+		r.Get("/api/projects/{id}/tunnels", s.handleListProjectTunnels)
+		r.Post("/api/projects/{id}/tunnels", s.handleCreateProjectTunnel)
 
 		// Branches
 		r.Get("/api/projects/{id}/branches", s.handleListBranches)
@@ -223,6 +245,16 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/tasks/{id}/worktree", s.handleCreateWorktree)
 		r.Delete("/api/tasks/{id}/worktree", s.handleDeleteWorktree)
 
+		// Task files
+		r.Get("/api/tasks/{id}/files", s.handleListTaskFiles)
+		r.Post("/api/tasks/{id}/files", s.handleCreateTaskFileEntry)
+		r.Get("/api/tasks/{id}/file", s.handleReadTaskFile)
+		r.Put("/api/tasks/{id}/file", s.handlePutTaskFile)
+		r.Delete("/api/tasks/{id}/file", s.handleDeleteTaskFile)
+		r.Post("/api/tasks/{id}/file/rename", s.handleRenameTaskFile)
+		r.Post("/api/tasks/{id}/file/duplicate", s.handleDuplicateTaskFile)
+		r.Post("/api/tasks/{id}/files/search", s.handleSearchTaskFiles)
+
 		// Sessions
 		r.Get("/api/tasks/{taskId}/sessions", s.handleListSessions)
 		r.Post("/api/tasks/{taskId}/sessions", s.handleStartSession)
@@ -233,6 +265,7 @@ func (s *Server) setupRoutes() {
 
 		// Recipes / Justfile
 		r.Get("/api/tasks/{id}/recipes", s.handleListTaskRecipes)
+		r.Get("/api/projects/{id}/recipes", s.handleListProjectRecipes)
 		r.Get("/api/projects/{id}/justfile", s.handleListJustRecipes)
 		r.Post("/api/projects/{id}/just/{recipe}", s.handleRunJustRecipe)
 		r.Get("/api/tasks/{id}/justfile", s.handleListTaskJustRecipes)

@@ -1,16 +1,8 @@
 import { useCallback, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-function stripExpanded(search: string): string {
-  const params = new URLSearchParams(search);
-  params.delete('expanded');
-  const result = params.toString();
-  return result ? `?${result}` : '';
-}
-
-function pathWithoutExpanded(pathname: string, search: string): string {
-  return pathname + stripExpanded(search);
-}
+/** Search params that belong to the dashboard and should survive panel navigation */
+const DASHBOARD_PARAMS = new Set(['view', 'project', 'status', 'priority', 'type', 'label']);
 
 export function usePanelNavigation() {
   const location = useLocation();
@@ -48,22 +40,29 @@ export function usePanelNavigation() {
   const navigateToPanel = useCallback((to: string, options?: { replace?: boolean }) => {
     // Parse the target URL
     const [targetPath, targetSearch = ''] = to.split('?');
-    const targetClean = pathWithoutExpanded(targetPath, targetSearch ? `?${targetSearch}` : '');
 
-    // Compare with current URL (ignoring expanded param)
-    const currentClean = pathWithoutExpanded(location.pathname, location.search);
+    // "Same element" = same pathname (search params like ?session= are sub-selections
+    // within the same panel, not different elements)
+    const sameElement = targetPath === location.pathname;
 
-    if (currentClean === targetClean) {
-      // Same element — if not expanded, expand; if already expanded, no-op
+    if (sameElement) {
+      // Same element — if not expanded, expand (with current search params preserved);
+      // if already expanded, no-op
       if (!isExpanded) {
-        const params = new URLSearchParams(targetSearch);
+        const params = new URLSearchParams(location.search);
         params.set('expanded', '1');
         const qs = params.toString();
-        navigate(targetPath + (qs ? `?${qs}` : ''), { replace: true });
+        navigate(location.pathname + (qs ? `?${qs}` : ''), { replace: true });
       }
     } else {
-      // Different element — carry expanded state if currently expanded
-      const params = new URLSearchParams(targetSearch);
+      // Different element — carry over dashboard params, then apply target params
+      const params = new URLSearchParams();
+      for (const [key, value] of new URLSearchParams(location.search)) {
+        if (DASHBOARD_PARAMS.has(key)) params.set(key, value);
+      }
+      for (const [key, value] of new URLSearchParams(targetSearch)) {
+        params.set(key, value);
+      }
       if (isExpanded) {
         params.set('expanded', '1');
       }
@@ -72,5 +71,14 @@ export function usePanelNavigation() {
     }
   }, [location.pathname, location.search, isExpanded, navigate]);
 
-  return { isExpanded, toggleExpanded, setExpanded, navigateToPanel };
+  const closePanel = useCallback(() => {
+    const params = new URLSearchParams();
+    for (const [key, value] of new URLSearchParams(location.search)) {
+      if (DASHBOARD_PARAMS.has(key)) params.set(key, value);
+    }
+    const qs = params.toString();
+    navigate('/' + (qs ? `?${qs}` : ''));
+  }, [location.search, navigate]);
+
+  return { isExpanded, toggleExpanded, setExpanded, navigateToPanel, closePanel };
 }

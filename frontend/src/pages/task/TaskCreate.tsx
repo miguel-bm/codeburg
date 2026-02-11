@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Bug,
@@ -130,11 +130,10 @@ const DEFAULT_LABEL_COLORS = [
 ];
 
 export function TaskCreate() {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const titleRef = useRef<HTMLInputElement>(null);
-  const { isExpanded, toggleExpanded, navigateToPanel } = usePanelNavigation();
+  const { isExpanded, toggleExpanded, navigateToPanel, closePanel } = usePanelNavigation();
 
   const mode = parseCreateMode(searchParams.get('status'));
   const isInProgressCreate = mode === TASK_STATUS.IN_PROGRESS;
@@ -273,7 +272,7 @@ export function TaskCreate() {
 
   const canCreate = title.trim().length > 0 && !!projectId && !createMutation.isPending;
 
-  const handleClose = () => navigate('/');
+  const handleClose = () => closePanel();
 
   const handleSubmit = () => {
     if (!canCreate) return;

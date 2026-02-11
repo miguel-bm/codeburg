@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Check, Plus, X, Play, Pin, Trash2 } from 'lucide-react';
 import { TaskHeader } from './TaskHeader';
@@ -64,8 +63,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export function TaskDetailBacklog({ task, project }: Props) {
-  const navigate = useNavigate();
-  const { navigateToPanel } = usePanelNavigation();
+  const { navigateToPanel, closePanel } = usePanelNavigation();
   const queryClient = useQueryClient();
 
   const [titleValue, setTitleValue] = useState(task.title);
@@ -93,7 +91,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
     mutationFn: () => tasksApi.delete(task.id),
     onSuccess: () => {
       invalidateTaskQueries(queryClient, task.id);
-      navigate('/');
+      closePanel();
     },
   });
 
