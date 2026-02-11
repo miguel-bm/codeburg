@@ -1,10 +1,13 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { usePanelStore, PANEL_WIDTH_MIN, PANEL_WIDTH_MAX, PANEL_WIDTH_DEFAULT } from '../../stores/panel';
+import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 import { useMobile } from '../../hooks/useMobile';
+import { useKeyboardNav } from '../../hooks/useKeyboardNav';
+import { useSessionShortcutSettings, resolveLayout } from '../../stores/keyboard';
 import { HeaderProvider, Header } from './Header';
 
 interface PanelProps {
@@ -12,12 +15,28 @@ interface PanelProps {
 }
 
 export function Panel({ children }: PanelProps) {
-  const { size, width, setWidth, toggleSize } = usePanelStore();
+  const { width, setWidth } = usePanelStore();
+  const { isExpanded, toggleExpanded } = usePanelNavigation();
   const isMobile = useMobile();
   const navigate = useNavigate();
-  const effectiveSize = isMobile ? 'full' : size;
+  const isFullMode = isMobile || isExpanded;
   const dragging = useRef(false);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  // Determine the toggle key based on keyboard layout
+  const layout = useSessionShortcutSettings((s) => s.layout);
+  const toggleKey = useMemo(() => {
+    const resolved = resolveLayout(layout);
+    return resolved === 'es' ? '\u00BA' : '`';
+  }, [layout]);
+
+  // Keyboard shortcut: º (Spanish) / ` (intl) toggles expanded/collapsed
+  useKeyboardNav({
+    keyMap: useMemo(() => ({
+      [toggleKey]: toggleExpanded,
+    }), [toggleKey, toggleExpanded]),
+    enabled: !isMobile,
+  });
 
   // Escape key handler — close the panel
   const handleClose = useCallback(() => {
@@ -71,7 +90,6 @@ export function Panel({ children }: PanelProps) {
     document.addEventListener('mouseup', onMouseUp);
   }, [setWidth]);
 
-  const isFullMode = effectiveSize === 'full';
   const targetWidth = width || PANEL_WIDTH_DEFAULT;
   const ease: [number, number, number, number] = [0.4, 0, 0.2, 1];
 
@@ -137,7 +155,7 @@ export function Panel({ children }: PanelProps) {
             {/* Expand + Collapse buttons — appear on edge hover */}
             <div className="absolute top-1/2 -translate-y-1/2 left-0 flex flex-col opacity-0 group-hover/edge:opacity-100 transition-opacity duration-150">
               <button
-                onClick={toggleSize}
+                onClick={toggleExpanded}
                 onMouseDown={(e) => e.stopPropagation()}
                 className={[
                   'w-3.5 h-5 flex items-center justify-center',

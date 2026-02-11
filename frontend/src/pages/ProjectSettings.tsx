@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Archive, ArrowRight, CheckCircle2, Eye, EyeOff, Maximize2, Minimize2, Settings, Trash2, X, Zap } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
 import { projectsApi } from '../api';
-import { usePanelStore } from '../stores/panel';
+import { usePanelNavigation } from '../hooks/usePanelNavigation';
 import { useMobile } from '../hooks/useMobile';
 import type { Project, ProjectWorkflow, BacklogToProgressConfig, ProgressToReviewConfig, ReviewToDoneConfig } from '../api';
 import { SectionCard, SectionHeader, SectionBody, FieldRow, FieldLabel, Toggle } from '../components/ui/settings';
@@ -28,7 +28,7 @@ const PROJECT_SETTINGS_GROUP_LABELS: Record<ProjectSettingsGroup, string> = {
 export function ProjectSettings() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { size, toggleSize } = usePanelStore();
+  const { isExpanded, toggleExpanded } = usePanelNavigation();
   const isMobile = useMobile();
 
   const { data: project, isLoading } = useQuery({
@@ -46,9 +46,9 @@ export function ProjectSettings() {
         ]} />
         <div className="flex items-center gap-2 shrink-0">
           <IconButton
-            icon={size === 'half' ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
-            onClick={toggleSize}
-            tooltip={size === 'half' ? 'Expand panel' : 'Collapse panel'}
+            icon={isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            onClick={toggleExpanded}
+            tooltip={isExpanded ? 'Collapse panel' : 'Expand panel'}
           />
           <IconButton
             icon={<X size={14} />}
@@ -58,7 +58,7 @@ export function ProjectSettings() {
         </div>
       </div>
     ) : null,
-    `project-settings-${id ?? 'none'}-${project?.name ?? ''}-${size}`,
+    `project-settings-${id ?? 'none'}-${project?.name ?? ''}-${isExpanded}`,
   );
 
   const sections = useMemo(() => {

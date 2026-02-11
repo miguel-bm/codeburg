@@ -33,9 +33,12 @@ export function useKeyboardNav({ keyMap, enabled = true, allowInInputs = [] }: O
         (e.shiftKey ? 'Shift+' : '') +
         e.key;
 
-      // Allow Escape through always, but skip other keys when in inputs
-      const tag = (document.activeElement?.tagName ?? '').toUpperCase();
-      const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      // Allow Escape through always, but skip other keys when in inputs/terminals
+      const active = document.activeElement as HTMLElement | null;
+      const tag = (active?.tagName ?? '').toUpperCase();
+      const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+        || active?.isContentEditable
+        || !!active?.closest('.xterm');
       if (e.key !== 'Escape' && inInput && !allowInInputsRef.current.has(composite)) {
         return;
       }

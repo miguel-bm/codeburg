@@ -5,12 +5,12 @@ import { AnimatePresence } from 'motion/react';
 import { Dashboard } from './Dashboard';
 import { Panel } from '../components/layout/Panel';
 import { HeaderProvider, Header } from '../components/layout/Header';
-import { usePanelStore } from '../stores/panel';
+import { usePanelNavigation } from '../hooks/usePanelNavigation';
 import { useMobile } from '../hooks/useMobile';
 
 export function DashboardWithPanels() {
   const isRoot = useMatch('/');
-  const { size } = usePanelStore();
+  const { isExpanded } = usePanelNavigation();
   const isMobile = useMobile();
 
   const panelOpen = !isRoot;
@@ -42,7 +42,7 @@ export function DashboardWithPanels() {
   // On mobile, panel is a full-screen overlay — dashboard always renders underneath.
   // On desktop half-mode, both are visible side by side.
   // On desktop full-mode, only panel is visible (including during exit animation).
-  const hideDashboard = (panelOpen || panelExiting) && !isMobile && size === 'full';
+  const hideDashboard = (panelOpen || panelExiting) && !isMobile && isExpanded;
 
   return (
     <div className="flex h-full overflow-hidden">

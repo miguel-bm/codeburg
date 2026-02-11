@@ -16,6 +16,7 @@ import { useLongPress } from '../hooks/useLongPress';
 import { useKeyboardNav } from '../hooks/useKeyboardNav';
 import { HelpOverlay } from '../components/common/HelpOverlay';
 import { CreateProjectModal } from '../components/common/CreateProjectModal';
+import { usePanelNavigation } from '../hooks/usePanelNavigation';
 import { useSidebarFocusStore } from '../stores/sidebarFocus';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -174,6 +175,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { navigateToPanel } = usePanelNavigation();
   const isMobile = useMobile();
   const sidebarFocused = useSidebarFocusStore((s) => s.focused);
   const enterSidebar = useSidebarFocusStore((s) => s.enter);
@@ -218,7 +220,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
       if (data.workflowAction === 'ask') {
         setWorkflowPrompt({ taskId: data.id });
       } else if (data.sessionStarted) {
-        navigate(`/tasks/${data.id}`);
+        navigateToPanel(`/tasks/${data.id}`);
       }
     },
   });
@@ -587,8 +589,8 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     if (selectedProjectId) params.set('project', selectedProjectId);
     if (targetStatus !== TASK_STATUS.BACKLOG) params.set('status', targetStatus);
     const qs = params.toString();
-    navigate(`/tasks/new${qs ? `?${qs}` : ''}`);
-  }, [navigate, selectedProjectId]);
+    navigateToPanel(`/tasks/new${qs ? `?${qs}` : ''}`);
+  }, [navigateToPanel, selectedProjectId]);
 
   const getColumnTasks = useCallback(
     (colIdx: number): Task[] => tasksByStatus.get(COLUMNS[colIdx]?.id) ?? [],
@@ -763,9 +765,9 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     if (!changed) return;
     const task = getColumnTasks(focus.col)[focus.card];
     if (task && task.id !== panelTaskId) {
-      navigate(`/tasks/${task.id}`, { replace: true });
+      navigateToPanel(`/tasks/${task.id}`, { replace: true });
     }
-  }, [focus, panelOpen, location.pathname, navigate, getColumnTasks, getPanelTaskIdFromPath]);
+  }, [focus, panelOpen, location.pathname, navigateToPanel, getColumnTasks, getPanelTaskIdFromPath]);
 
   useKeyboardNav({
     keyMap: {
@@ -799,7 +801,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         if (!focus) return;
         const task = getFocusedTask();
         if (task) {
-          navigate(`/tasks/${task.id}`);
+          navigateToPanel(`/tasks/${task.id}`);
         } else if (hasProjects && canCreateTaskInStatus(COLUMNS[focus.col].id)) {
           navigateToCreate(COLUMNS[focus.col].id);
         }
@@ -930,7 +932,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         if (dist < 5) {
           // Click — navigate
           const task = (tasks ?? []).find((t) => t.id === d.taskId);
-          if (task) navigate(`/tasks/${task.id}`);
+          if (task) navigateToPanel(`/tasks/${task.id}`);
         } else {
           // Drop — update task
           const sourceStatus = COLUMNS[d.sourceCol].id;
@@ -997,7 +999,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
           loading={tasksLoading}
           selectedProjectId={selectedProjectId}
           getProjectName={getProjectName}
-          onOpenTask={(taskId) => navigate(`/tasks/${taskId}`)}
+          onOpenTask={(taskId) => navigateToPanel(`/tasks/${taskId}`)}
           canCreateTask={hasProjects}
           onCreateTask={() => {
             if (hasProjects) navigateToCreate();
@@ -2064,7 +2066,7 @@ const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
   { task, projectName, isMobile, onLongPress, focused, ghost, onMouseDown },
   ref,
 ) {
-  const navigate = useNavigate();
+  const { navigateToPanel } = usePanelNavigation();
   const internalRef = useRef<HTMLDivElement>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [tooltip, setTooltip] = useState<{ x: number; y: number } | null>(null);
@@ -2077,7 +2079,7 @@ const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
   }, [ref]);
 
   const handleClick = () => {
-    navigate(`/tasks/${task.id}`);
+    navigateToPanel(`/tasks/${task.id}`);
   };
 
   const longPressHandlers = useLongPress({
@@ -2407,7 +2409,7 @@ interface WorkflowPromptModalProps {
 }
 
 function WorkflowPromptModal({ taskId, onClose }: WorkflowPromptModalProps) {
-  const navigate = useNavigate();
+  const { navigateToPanel } = usePanelNavigation();
   const [provider, setProvider] = useState<'claude' | 'codex'>('claude');
   const [prompt, setPrompt] = useState('');
   const [error, setError] = useState('');
@@ -2422,7 +2424,7 @@ function WorkflowPromptModal({ taskId, onClose }: WorkflowPromptModalProps) {
     mutationFn: () => sessionsApi.start(taskId, { provider, prompt: prompt || undefined }),
     onSuccess: () => {
       onClose();
-      navigate(`/tasks/${taskId}`);
+      navigateToPanel(`/tasks/${taskId}`);
     },
     onError: (err) => {
       setError(err instanceof Error ? err.message : 'Failed to start session');

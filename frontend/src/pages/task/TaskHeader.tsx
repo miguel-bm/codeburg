@@ -7,7 +7,7 @@ import { Breadcrumb } from '../../components/ui/Breadcrumb';
 import { tasksApi, invalidateTaskQueries } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { Task, Project } from '../../api/types';
-import { usePanelStore } from '../../stores/panel';
+import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 import { Button } from '../../components/ui/Button';
 import { IconButton } from '../../components/ui/IconButton';
 import { Modal } from '../../components/ui/Modal';
@@ -57,7 +57,7 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
-  const { size, toggleSize } = usePanelStore();
+  const { isExpanded, toggleExpanded, navigateToPanel } = usePanelNavigation();
 
   // Editing state
   const [editingTitle, setEditingTitle] = useState(false);
@@ -137,9 +137,9 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
       <div className="flex items-center gap-2 shrink-0">
         {actions}
         <IconButton
-          icon={size === 'half' ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
-          onClick={toggleSize}
-          tooltip={size === 'half' ? 'Expand panel' : 'Collapse panel'}
+          icon={isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          onClick={toggleExpanded}
+          tooltip={isExpanded ? 'Collapse panel' : 'Expand panel'}
           size="xs"
         />
         <IconButton
@@ -150,7 +150,7 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
         />
       </div>
     </div>,
-    `task-header-${task.id}-${task.status}-${task.title}-${project?.name ?? ''}-${expanded}-${size}`,
+    `task-header-${task.id}-${task.status}-${task.title}-${project?.name ?? ''}-${expanded}-${isExpanded}`,
   );
 
   return (
@@ -259,7 +259,7 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
               )}
               {project && (
                 <button
-                  onClick={() => navigate(`/projects/${project.id}/settings`)}
+                  onClick={() => navigateToPanel(`/projects/${project.id}/settings`)}
                   className="hover:text-accent transition-colors"
                 >
                   {project.name}

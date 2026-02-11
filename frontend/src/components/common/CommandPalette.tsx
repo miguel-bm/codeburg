@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { sidebarApi, projectsApi, TASK_STATUS } from '../../api';
+import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 
 interface CommandItem {
   id: string;
@@ -23,6 +24,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const { navigateToPanel } = usePanelNavigation();
 
   const { data: sidebar } = useQuery({
     queryKey: ['sidebar'],
@@ -62,7 +64,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
         label: p.name,
         detail: p.path,
         icon: '/',
-        onSelect: () => { navigate(`/projects/${p.id}`); onClose(); },
+        onSelect: () => { navigateToPanel(`/projects/${p.id}`); onClose(); },
       });
       items.push({
         id: `project-filter-${p.id}`,
@@ -84,7 +86,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
             label: t.title,
             detail: `${p.name} · ${t.status.replace('_', ' ')}`,
             icon: t.status === TASK_STATUS.IN_REVIEW ? '!' : '#',
-            onSelect: () => { navigate(`/tasks/${t.id}`); onClose(); },
+            onSelect: () => { navigateToPanel(`/tasks/${t.id}`); onClose(); },
           });
 
           for (const s of t.sessions) {
@@ -94,7 +96,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
               label: `${s.provider} #${s.number}`,
               detail: `${t.title} · ${s.status.replace('_', ' ')}`,
               icon: s.status === 'waiting_input' ? '?' : '~',
-              onSelect: () => { navigate(`/tasks/${t.id}?session=${s.id}`); onClose(); },
+              onSelect: () => { navigateToPanel(`/tasks/${t.id}?session=${s.id}`); onClose(); },
             });
           }
         }

@@ -8,6 +8,7 @@ import type { SidebarProject, SidebarTask, SidebarSession, SidebarData } from '.
 import { useSidebarData } from '../../hooks/useSidebarData';
 import { useKeyboardNav } from '../../hooks/useKeyboardNav';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
+import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 import { useSidebarFocusStore } from '../../stores/sidebarFocus';
 import { useSidebarStore, selectIsExpanded } from '../../stores/sidebar';
 import { CreateProjectModal } from '../common/CreateProjectModal';
@@ -44,6 +45,7 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const [showCreateProject, setShowCreateProject] = useState(false);
+  const { navigateToPanel } = usePanelNavigation();
 
   const isExpanded = useSidebarStore(selectIsExpanded);
   const toggleExpanded = useSidebarStore((s) => s.toggleExpanded);
@@ -147,11 +149,11 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
         const item = focusableItems[sidebarIndex];
         if (!item) return;
         if (item.type === 'project') {
-          navigate(`/projects/${item.id}`);
+          navigateToPanel(`/projects/${item.id}`);
         } else if (item.type === 'add-task') {
-          navigate(`/tasks/new?project=${item.projectId}&status=${TASK_STATUS.IN_PROGRESS}`);
+          navigateToPanel(`/tasks/new?project=${item.projectId}&status=${TASK_STATUS.IN_PROGRESS}`);
         } else {
-          navigate(`/tasks/${item.id}`);
+          navigateToPanel(`/tasks/${item.id}`);
         }
       },
     },
@@ -159,7 +161,7 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   });
 
   const handleProjectClick = (projectId: string) => {
-    navigate(`/projects/${projectId}`);
+    navigateToPanel(`/projects/${projectId}`);
     onClose?.();
   };
 
@@ -348,7 +350,7 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
                   focusedTaskId={focusedItem?.type === 'task' && focusedItem.projectId === project.id ? focusedItem.id : undefined}
                   addTaskFocused={focusedItem?.type === 'add-task' && focusedItem.projectId === project.id}
                   onOpenWizard={() => {
-                    navigate(`/tasks/new?project=${project.id}&status=${TASK_STATUS.IN_PROGRESS}`);
+                    navigateToPanel(`/tasks/new?project=${project.id}&status=${TASK_STATUS.IN_PROGRESS}`);
                     onClose?.();
                   }}
                 />
@@ -418,6 +420,7 @@ interface SidebarProjectNodeProps {
 
 function SidebarProjectNode({ project, isActive, isFiltered, onProjectClick, onProjectFilterClick, onClose, collapseSignal, forceCollapsed, onCollapseToggle, keyboardFocused, focusedTaskId, addTaskFocused, onOpenWizard }: SidebarProjectNodeProps) {
   const navigate = useNavigate();
+  const { navigateToPanel } = usePanelNavigation();
   const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(() => {
     const stored = localStorage.getItem(`sidebar-collapse-${project.id}`);
@@ -505,7 +508,7 @@ function SidebarProjectNode({ project, isActive, isFiltered, onProjectClick, onP
           <Funnel size={12} />
         </button>
         <button
-          onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.id}/settings`); onClose?.(); }}
+          onClick={(e) => { e.stopPropagation(); navigateToPanel(`/projects/${project.id}/settings`); onClose?.(); }}
           className="flex-shrink-0 text-transparent group-hover:text-dim hover:!text-accent transition-colors"
           title="project settings"
         >
@@ -641,11 +644,12 @@ interface SidebarTaskNodeProps {
 
 function SidebarTaskNode({ task, onClose, keyboardFocused }: SidebarTaskNodeProps) {
   const navigate = useNavigate();
+  const { navigateToPanel } = usePanelNavigation();
   const queryClient = useQueryClient();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const handleClick = () => {
-    navigate(`/tasks/${task.id}`);
+    navigateToPanel(`/tasks/${task.id}`);
     onClose?.();
   };
 
@@ -837,10 +841,10 @@ interface SidebarSessionNodeProps {
 }
 
 function SidebarSessionNode({ session, taskId, onClose }: SidebarSessionNodeProps) {
-  const navigate = useNavigate();
+  const { navigateToPanel } = usePanelNavigation();
 
   const handleClick = () => {
-    navigate(`/tasks/${taskId}?session=${session.id}`);
+    navigateToPanel(`/tasks/${taskId}?session=${session.id}`);
     onClose?.();
   };
 

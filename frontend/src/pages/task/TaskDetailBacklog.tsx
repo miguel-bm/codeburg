@@ -12,6 +12,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { IconButton } from '../../components/ui/IconButton';
 import { Modal } from '../../components/ui/Modal';
+import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 
 interface Props {
   task: Task;
@@ -64,6 +65,7 @@ function CopyButton({ text }: { text: string }) {
 
 export function TaskDetailBacklog({ task, project }: Props) {
   const navigate = useNavigate();
+  const { navigateToPanel } = usePanelNavigation();
   const queryClient = useQueryClient();
 
   const [titleValue, setTitleValue] = useState(task.title);
@@ -157,7 +159,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
         )}
         {project && (
           <button
-            onClick={() => navigate(`/projects/${project.id}/settings`)}
+            onClick={() => navigateToPanel(`/projects/${project.id}/settings`)}
             className="text-xs text-accent shrink-0"
           >
             {project.name}
@@ -338,7 +340,7 @@ function PropertiesSidebar({
   task, project, branchDisplay, isAutoBranch, updateTask,
   onTogglePin, onDelete, onStartWorking, isPending, onShowLabelPicker,
 }: PropertiesSidebarProps) {
-  const navigate = useNavigate();
+  const { navigateToPanel } = usePanelNavigation();
 
   return (
     <>
@@ -380,7 +382,7 @@ function PropertiesSidebar({
       {project && (
         <PropertyRow label="Project">
           <button
-            onClick={() => navigate(`/projects/${project.id}/settings`)}
+            onClick={() => navigateToPanel(`/projects/${project.id}/settings`)}
             className="text-xs text-accent hover:underline transition-colors"
           >
             {project.name}
@@ -509,7 +511,7 @@ function MobileDetails({
   task, project, branchDisplay, isAutoBranch,
   onTogglePin, onDelete, onStartWorking, isPending, onShowLabelPicker,
 }: MobileDetailsProps) {
-  const navigate = useNavigate();
+  const { navigateToPanel } = usePanelNavigation();
 
   return (
     <>
@@ -555,7 +557,7 @@ function MobileDetails({
           <div className="flex gap-4">
             <span className="text-dim w-16 shrink-0">project</span>
             <button
-              onClick={() => navigate(`/projects/${project.id}/settings`)}
+              onClick={() => navigateToPanel(`/projects/${project.id}/settings`)}
               className="text-accent hover:underline"
             >
               {project.name}

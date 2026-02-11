@@ -26,7 +26,7 @@ import { tasksApi, sessionsApi, invalidateTaskQueries, projectsApi, labelsApi } 
 import { TASK_STATUS } from '../../api/types';
 import type { Label, Project } from '../../api/types';
 import type { SessionProvider } from '../../api/sessions';
-import { usePanelStore } from '../../stores/panel';
+import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 import { Button } from '../../components/ui/Button';
 import { IconButton } from '../../components/ui/IconButton';
 import { Toggle } from '../../components/ui/settings';
@@ -134,7 +134,7 @@ export function TaskCreate() {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const titleRef = useRef<HTMLInputElement>(null);
-  const { size, toggleSize } = usePanelStore();
+  const { isExpanded, toggleExpanded, navigateToPanel } = usePanelNavigation();
 
   const mode = parseCreateMode(searchParams.get('status'));
   const isInProgressCreate = mode === TASK_STATUS.IN_PROGRESS;
@@ -267,7 +267,7 @@ export function TaskCreate() {
     },
     onSuccess: ({ taskId, sessionId }) => {
       invalidateTaskQueries(queryClient, taskId);
-      navigate(sessionId ? `/tasks/${taskId}?session=${sessionId}` : `/tasks/${taskId}`);
+      navigateToPanel(sessionId ? `/tasks/${taskId}?session=${sessionId}` : `/tasks/${taskId}`);
     },
   });
 
@@ -329,9 +329,9 @@ export function TaskCreate() {
           {createMutation.isPending ? 'Creating...' : 'Create'}
         </Button>
         <IconButton
-          icon={size === 'half' ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
-          onClick={toggleSize}
-          tooltip={size === 'half' ? 'Expand panel' : 'Collapse panel'}
+          icon={isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          onClick={toggleExpanded}
+          tooltip={isExpanded ? 'Collapse panel' : 'Expand panel'}
           size="xs"
         />
         <IconButton
@@ -342,7 +342,7 @@ export function TaskCreate() {
         />
       </div>
     </div>,
-    `task-create-${mode}-${projectId}-${selectedProject?.name ?? ''}-${canCreate}-${createMutation.isPending}-${size}`,
+    `task-create-${mode}-${projectId}-${selectedProject?.name ?? ''}-${canCreate}-${createMutation.isPending}-${isExpanded}`,
   );
 
   return (

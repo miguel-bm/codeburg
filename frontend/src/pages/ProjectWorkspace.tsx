@@ -46,7 +46,7 @@ import type {
   ProjectSecretFileStatus,
 } from '../api';
 import { useMobile } from '../hooks/useMobile';
-import { usePanelStore } from '../stores/panel';
+import { usePanelNavigation } from '../hooks/usePanelNavigation';
 
 type MobilePanel = 'files' | 'preview' | 'secrets';
 
@@ -221,7 +221,7 @@ export function ProjectWorkspace() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isMobile = useMobile();
-  const { size, toggleSize } = usePanelStore();
+  const { isExpanded, toggleExpanded, navigateToPanel } = usePanelNavigation();
 
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('files');
   const [treeSelection, setTreeSelection] = useState<string | null>(null);
@@ -673,14 +673,14 @@ export function ProjectWorkspace() {
             variant="secondary"
             size="xs"
             icon={<Settings size={13} />}
-            onClick={() => navigate(`/projects/${project.id}/settings`)}
+            onClick={() => navigateToPanel(`/projects/${project.id}/settings`)}
           >
             <span className="hidden sm:inline">Settings</span>
           </Button>
           <IconButton
-            icon={size === 'half' ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
-            onClick={toggleSize}
-            tooltip={size === 'half' ? 'Expand panel' : 'Collapse panel'}
+            icon={isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            onClick={toggleExpanded}
+            tooltip={isExpanded ? 'Collapse panel' : 'Expand panel'}
           />
           <IconButton
             icon={<X size={14} />}
@@ -690,7 +690,7 @@ export function ProjectWorkspace() {
         </div>
       </div>
     ) : null,
-    `project-workspace-${id ?? 'none'}-${project?.name ?? ''}-${syncDefaultBranchMutation.isPending}-${size}`,
+    `project-workspace-${id ?? 'none'}-${project?.name ?? ''}-${syncDefaultBranchMutation.isPending}-${isExpanded}`,
   );
 
   if (projectLoading) {
