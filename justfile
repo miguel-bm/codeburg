@@ -74,3 +74,10 @@ yeet msg:
     git commit -m "{{msg}}"
     git push -u origin "$(git branch --show-current)"
     just deploy "$(git branch --show-current)"
+
+# Amend, force push, and deploy (no new commit)
+stomp:
+    git add -A
+    git commit --amend --no-edit
+    git push --force-with-lease -u origin "$(git branch --show-current)"
+    just deploy "$(git branch --show-current)"

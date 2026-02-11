@@ -3,6 +3,8 @@ export type ResolvedTheme = 'light' | 'dark';
 
 const STORAGE_KEY = 'codeburg:theme-preference';
 const THEME_CHANGE_EVENT = 'codeburg:theme-change';
+const THEME_TRANSITION_CLASS = 'theme-transitioning';
+const THEME_TRANSITION_MS = 500;
 
 interface ThemeChangeDetail {
   preference: ThemePreference;
@@ -10,6 +12,11 @@ interface ThemeChangeDetail {
 }
 
 let systemThemeListenerAttached = false;
+let themeTransitionTimeoutId: number | null = null;
+
+interface ApplyThemeOptions {
+  animated?: boolean;
+}
 
 function isThemePreference(value: unknown): value is ThemePreference {
   return value === 'system' || value === 'light' || value === 'dark';
@@ -27,6 +34,21 @@ function writeThemePreference(preference: ThemePreference) {
   } catch {
     // ignore
   }
+}
+
+function startThemeTransition(root: HTMLElement) {
+  if (typeof window === 'undefined') return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  root.classList.add(THEME_TRANSITION_CLASS);
+  if (themeTransitionTimeoutId !== null) {
+    window.clearTimeout(themeTransitionTimeoutId);
+  }
+
+  themeTransitionTimeoutId = window.setTimeout(() => {
+    root.classList.remove(THEME_TRANSITION_CLASS);
+    themeTransitionTimeoutId = null;
+  }, THEME_TRANSITION_MS);
 }
 
 function watchSystemThemeChanges() {
@@ -63,11 +85,22 @@ export function getResolvedTheme(preference: ThemePreference = getThemePreferenc
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-export function applyTheme(preference: ThemePreference) {
+export function applyTheme(preference: ThemePreference, options: ApplyThemeOptions = {}) {
   if (typeof document === 'undefined') return;
 
+  const { animated = true } = options;
   const root = document.documentElement;
   const resolvedTheme = getResolvedTheme(preference);
+
+  if (animated) {
+    startThemeTransition(root);
+  } else {
+    root.classList.remove(THEME_TRANSITION_CLASS);
+    if (themeTransitionTimeoutId !== null && typeof window !== 'undefined') {
+      window.clearTimeout(themeTransitionTimeoutId);
+      themeTransitionTimeoutId = null;
+    }
+  }
 
   if (preference === 'system') {
     root.removeAttribute('data-theme');
@@ -86,7 +119,7 @@ export function setThemePreference(preference: ThemePreference) {
 
 export function initializeTheme() {
   const preference = getThemePreference();
-  applyTheme(preference);
+  applyTheme(preference, { animated: false });
   watchSystemThemeChanges();
 }
 

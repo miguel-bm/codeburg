@@ -1,23 +1,30 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ChevronLeft, ArrowRight, CheckCircle2, Maximize2, Minimize2, Settings, X, Zap, SunMoon } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ArrowRight, CheckCircle2, Maximize2, Minimize2, Settings, X, Zap } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
 import { projectsApi } from '../api';
 import { usePanelStore } from '../stores/panel';
+import { useMobile } from '../hooks/useMobile';
 import type { Project, ProjectWorkflow, BacklogToProgressConfig, ProgressToReviewConfig, ReviewToDoneConfig } from '../api';
-import { getResolvedTheme, getThemePreference, setThemePreference, subscribeToThemeChange } from '../lib/theme';
-import type { ThemePreference } from '../lib/theme';
 import { SectionCard, SectionHeader, SectionBody, FieldRow, FieldLabel, Toggle } from '../components/ui/settings';
 import { Button } from '../components/ui/Button';
 import { IconButton } from '../components/ui/IconButton';
 import { Select } from '../components/ui/Select';
 import type { SelectOption } from '../components/ui/Select';
+import { SettingsShell } from '../components/ui/SettingsShell';
+import type { SettingsShellSection } from '../components/ui/SettingsShell';
+
+const PROJECT_SETTINGS_GROUP_LABELS: Record<'project' | 'automation', string> = {
+  project: 'Project',
+  automation: 'Automation',
+};
 
 export function ProjectSettings() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { size, toggleSize } = usePanelStore();
+  const isMobile = useMobile();
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', id],
@@ -57,6 +64,30 @@ export function ProjectSettings() {
     `project-settings-${id ?? 'none'}-${project?.name ?? ''}-${size}`,
   );
 
+  const sections = useMemo(() => {
+    if (!project) return [] as SettingsShellSection<'project' | 'automation'>[];
+    return [
+      {
+        id: 'general',
+        group: 'project',
+        title: 'General',
+        description: 'Basic project configuration',
+        keywords: ['name', 'path', 'git', 'remote', 'branch'],
+        icon: <Settings size={15} />,
+        content: <GeneralSection project={project} />,
+      },
+      {
+        id: 'workflow',
+        group: 'automation',
+        title: 'Workflow automation',
+        description: 'Automatic actions when tasks change status',
+        keywords: ['workflow', 'automation', 'agent', 'pull request', 'merge'],
+        icon: <Zap size={15} />,
+        content: <WorkflowSection project={project} />,
+      },
+    ] satisfies SettingsShellSection<'project' | 'automation'>[];
+  }, [project]);
+
   if (isLoading) {
     return (
       <div className="p-6 text-dim">Loading...</div>
@@ -73,78 +104,17 @@ export function ProjectSettings() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
-          <GeneralSection project={project} />
-          <AppearanceSection />
-          <WorkflowSection project={project} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; description: string }> = [
-  { value: 'system', label: 'System', description: 'Follow your OS appearance setting' },
-  { value: 'dark', label: 'Dark', description: 'Always use dark mode' },
-  { value: 'light', label: 'Light', description: 'Always use light mode' },
-];
-
-function AppearanceSection() {
-  const [themePreference, setThemePreferenceState] = useState<ThemePreference>(() => getThemePreference());
-  const resolvedTheme = getResolvedTheme(themePreference);
-  const activeThemeOption = THEME_OPTIONS.find((option) => option.value === themePreference);
-
-  useEffect(() => (
-    subscribeToThemeChange(({ preference }) => {
-      setThemePreferenceState(preference);
-    })
-  ), []);
-
-  const handleThemeChange = (value: ThemePreference) => {
-    setThemePreferenceState(value);
-    setThemePreference(value);
-  };
-
-  return (
-    <SectionCard>
-      <SectionHeader
-        title="Appearance"
-        description="Switch between dark and light themes"
-        icon={<SunMoon size={15} />}
-      />
-      <SectionBody>
-        <FieldRow>
-          <FieldLabel
-            label="Theme"
-            description={`Current mode: ${resolvedTheme}`}
-          />
-          <div role="radiogroup" aria-label="Theme mode" className="inline-flex rounded-lg border border-subtle bg-primary p-1">
-            {THEME_OPTIONS.map((option) => {
-              const active = option.value === themePreference;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  onClick={() => handleThemeChange(option.value)}
-                  className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
-                    active
-                      ? 'bg-accent/15 border-accent/55 text-accent'
-                      : 'bg-transparent border-transparent text-dim hover:text-[var(--color-text-primary)]'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
-        </FieldRow>
-        <p className="text-xs text-dim mt-3">{activeThemeOption?.description}</p>
-      </SectionBody>
-    </SectionCard>
+    <SettingsShell
+      sections={sections}
+      groupOrder={['project', 'automation']}
+      groupLabels={PROJECT_SETTINGS_GROUP_LABELS}
+      initialSectionId="general"
+      navTitle="Project settings"
+      searchPlaceholder="Search project settings"
+      emptyMessage="No project settings sections match your search."
+      forceCompact={isMobile || size === 'half'}
+      compactBreakpoint={980}
+    />
   );
 }
 

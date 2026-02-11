@@ -35,10 +35,8 @@ export function useSetHeader(content: ReactNode, key?: string) {
 export function Header() {
   const { headerContent } = useContext(HeaderContext);
 
-  if (!headerContent) return null;
-
   return (
-    <div className="flex items-center h-12 px-4 gap-3 border-b border-[var(--color-border)]/30 transition-opacity duration-150">
+    <div className="flex items-center h-12 px-4 gap-3 transition-opacity duration-150">
       {headerContent}
     </div>
   );

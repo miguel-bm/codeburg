@@ -15,7 +15,7 @@ export function SectionHeader({ title, description, action, icon }: {
   icon?: React.ReactNode;
 }) {
   return (
-    <div className="px-5 py-4 border-b border-subtle flex items-start justify-between gap-4">
+    <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-subtle flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
       <div>
         <h2 className="text-sm font-semibold text-[var(--color-text-primary)] flex items-center gap-2">
           {icon && <span className="text-dim">{icon}</span>}
@@ -32,7 +32,7 @@ export function SectionHeader({ title, description, action, icon }: {
 
 export function SectionBody({ children, className = '', bordered = false }: { children: React.ReactNode; className?: string; bordered?: boolean }) {
   return (
-    <div className={`px-5 py-4 ${bordered ? 'border-b border-subtle' : ''} ${className}`}>
+    <div className={`px-4 sm:px-5 py-3.5 sm:py-4 ${bordered ? 'border-b border-subtle' : ''} ${className}`}>
       {children}
     </div>
   );
@@ -40,7 +40,7 @@ export function SectionBody({ children, className = '', bordered = false }: { ch
 
 export function FieldRow({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-3 border-b border-subtle last:border-b-0">
+    <div className="flex flex-col items-start gap-2.5 py-3 border-b border-subtle last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       {children}
     </div>
   );

@@ -1,10 +1,6 @@
 import { create } from 'zustand';
 
-export type SidebarMode =
-  | 'expanded-pinned'
-  | 'expanded-hover'
-  | 'collapsed-pinned'
-  | 'collapsed-hover';
+export type SidebarMode = 'expanded' | 'collapsed';
 
 interface SidebarPersisted {
   mode: SidebarMode;
@@ -12,18 +8,15 @@ interface SidebarPersisted {
 }
 
 interface SidebarState extends SidebarPersisted {
-  hoverVisible: boolean;
   setMode: (mode: SidebarMode) => void;
   setWidth: (width: number) => void;
-  setHoverVisible: (visible: boolean) => void;
-  togglePin: () => void;
   toggleExpanded: () => void;
 }
 
 const STORAGE_KEY = 'codeburg:sidebar';
 
 const DEFAULTS: SidebarPersisted = {
-  mode: 'expanded-pinned',
+  mode: 'expanded',
   width: 288,
 };
 
@@ -31,7 +24,13 @@ function load(): SidebarPersisted {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      return { ...DEFAULTS, ...JSON.parse(raw) };
+      const parsed = JSON.parse(raw);
+      // Migrate old 4-mode values to 2-mode
+      if (typeof parsed.mode === 'string') {
+        if (parsed.mode.startsWith('expanded')) parsed.mode = 'expanded';
+        else if (parsed.mode.startsWith('collapsed')) parsed.mode = 'collapsed';
+      }
+      return { ...DEFAULTS, ...parsed };
     }
   } catch {
     // ignore
@@ -49,12 +48,11 @@ function clampWidth(width: number): number {
 
 export const useSidebarStore = create<SidebarState>((set, get) => ({
   ...load(),
-  hoverVisible: false,
 
   setMode: (mode) => {
     set({ mode });
-    const { mode: m, width } = get();
-    save({ mode: m, width });
+    const { width } = get();
+    save({ mode, width });
   },
 
   setWidth: (width) => {
@@ -64,29 +62,12 @@ export const useSidebarStore = create<SidebarState>((set, get) => ({
     save({ mode, width: clamped });
   },
 
-  setHoverVisible: (hoverVisible) => {
-    set({ hoverVisible });
-  },
-
-  togglePin: () => {
-    const { mode, width } = get();
-    const isPinned = mode.endsWith('pinned');
-    const prefix = mode.startsWith('expanded') ? 'expanded' : 'collapsed';
-    const newMode: SidebarMode = `${prefix}-${isPinned ? 'hover' : 'pinned'}`;
-    set({ mode: newMode });
-    save({ mode: newMode, width });
-  },
-
   toggleExpanded: () => {
     const { mode, width } = get();
-    const isExpanded = mode.startsWith('expanded');
-    const suffix = mode.endsWith('pinned') ? 'pinned' : 'hover';
-    const newMode: SidebarMode = `${isExpanded ? 'collapsed' : 'expanded'}-${suffix}`;
+    const newMode: SidebarMode = mode === 'expanded' ? 'collapsed' : 'expanded';
     set({ mode: newMode });
     save({ mode: newMode, width });
   },
 }));
 
-// Derived selectors
-export const selectIsExpanded = (state: SidebarState) => state.mode.startsWith('expanded');
-export const selectIsPinned = (state: SidebarState) => state.mode.endsWith('pinned');
+export const selectIsExpanded = (state: SidebarState) => state.mode === 'expanded';

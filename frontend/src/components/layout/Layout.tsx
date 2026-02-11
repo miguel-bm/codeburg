@@ -4,7 +4,7 @@ import { Menu } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { Header, HeaderProvider } from './Header';
 import { useMobile } from '../../hooks/useMobile';
-import { useSidebarStore, selectIsExpanded, selectIsPinned } from '../../stores/sidebar';
+import { useSidebarStore, selectIsExpanded } from '../../stores/sidebar';
 
 const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 480;
@@ -21,14 +21,11 @@ export function Layout({ children }: LayoutProps) {
 
   const store = useSidebarStore();
   const isExpanded = useSidebarStore(selectIsExpanded);
-  const isPinned = useSidebarStore(selectIsPinned);
   const sidebarWidth = store.width;
 
   const dragging = useRef(false);
   const startX = useRef(0);
   const startWidth = useRef(0);
-
-  const hoverTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -61,21 +58,6 @@ export function Layout({ children }: LayoutProps) {
       window.removeEventListener('mouseup', onMouseUp);
     };
   }, [store]);
-
-  const showHover = useCallback(() => {
-    clearTimeout(hoverTimeout.current);
-    store.setHoverVisible(true);
-  }, [store]);
-
-  const hideHover = useCallback(() => {
-    hoverTimeout.current = setTimeout(() => {
-      store.setHoverVisible(false);
-    }, 200);
-  }, [store]);
-
-  useEffect(() => {
-    return () => clearTimeout(hoverTimeout.current);
-  }, []);
 
   if (isMobile) {
     return (
@@ -114,52 +96,25 @@ export function Layout({ children }: LayoutProps) {
     );
   }
 
-  // Desktop modes
-  const hoverVisible = store.hoverVisible;
-  const hoverWidth = isExpanded ? sidebarWidth : COLLAPSED_WIDTH;
-
+  // Desktop: expanded or collapsed, always visible
   return (
     <HeaderProvider>
       <div className="flex h-screen bg-canvas">
-        {/* Pinned sidebar */}
-        {isPinned && (
-          <div
-            className="relative flex-shrink-0 transition-[width] duration-200 ease-out"
-            style={{ width: isExpanded ? sidebarWidth : COLLAPSED_WIDTH }}
-          >
-            <Sidebar width={isExpanded ? sidebarWidth : COLLAPSED_WIDTH} collapsed={!isExpanded} />
-            {/* Drag handle (expanded-pinned only) */}
-            {isExpanded && (
-              <div
-                onMouseDown={onMouseDown}
-                onDoubleClick={() => store.setWidth(SIDEBAR_DEFAULT)}
-                className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-accent/40 active:bg-accent/60 transition-colors z-10"
-              />
-            )}
-          </div>
-        )}
+        <div
+          className="relative flex-shrink-0 transition-[width] duration-200 ease-out"
+          style={{ width: isExpanded ? sidebarWidth : COLLAPSED_WIDTH }}
+        >
+          <Sidebar width={isExpanded ? sidebarWidth : COLLAPSED_WIDTH} collapsed={!isExpanded} />
+          {/* Drag handle (expanded only) */}
+          {isExpanded && (
+            <div
+              onMouseDown={onMouseDown}
+              onDoubleClick={() => store.setWidth(SIDEBAR_DEFAULT)}
+              className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-accent/40 active:bg-accent/60 transition-colors z-10"
+            />
+          )}
+        </div>
 
-        {/* Hover trigger zone */}
-        {!isPinned && !hoverVisible && (
-          <div
-            className="fixed left-0 top-0 bottom-0 w-2 z-40"
-            onMouseEnter={showHover}
-          />
-        )}
-
-        {/* Hover overlay sidebar */}
-        {!isPinned && hoverVisible && (
-          <div
-            className="fixed left-0 top-0 bottom-0 z-50 shadow-panel"
-            style={{ width: hoverWidth }}
-            onMouseLeave={hideHover}
-            onMouseEnter={showHover}
-          >
-            <Sidebar width={hoverWidth} collapsed={!isExpanded} />
-          </div>
-        )}
-
-        {/* Main content */}
         <div className="flex-1 flex flex-col min-w-0">
           <Header />
           <main className="flex-1 overflow-auto">

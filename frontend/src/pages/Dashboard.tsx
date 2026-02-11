@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect, useRef, useCallback, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { GitBranch, Pin, GitPullRequest, Funnel, X, Plus, Inbox, Play, Eye, CheckCircle2 } from 'lucide-react';
+import { GitBranch, Pin, GitPullRequest, Funnel, X, Plus, Inbox, Play, Eye, CheckCircle2, Clock, Calendar } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
 import { tasksApi, projectsApi, sessionsApi, invalidateTaskQueries } from '../api';
@@ -169,28 +169,32 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   const activeProjectName = selectedProjectId ? getProjectName(selectedProjectId) : null;
 
   useSetHeader(
-    selectedProjectId ? (
-      <div className="flex items-center justify-between w-full">
-        <div className="inline-flex items-center gap-2 text-xs text-dim">
-          <Funnel size={12} />
-          <span>
-            Dashboard filter: <span className="text-[var(--color-text-primary)]">{activeProjectName}</span>
-          </span>
-        </div>
-        <Button
-          variant="ghost"
-          size="xs"
-          icon={<X size={12} />}
-          onClick={() => {
-            sessionStorage.removeItem(SESSION_KEY);
-            navigate('/');
-          }}
-          title="Clear project filter"
-        >
-          Clear
-        </Button>
-      </div>
-    ) : null,
+    <div className="flex items-center justify-between w-full">
+      {selectedProjectId ? (
+        <>
+          <div className="inline-flex items-center gap-2 text-xs text-dim">
+            <Funnel size={12} />
+            <span>
+              Filtering: <span className="text-[var(--color-text-primary)]">{activeProjectName}</span>
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="xs"
+            icon={<X size={12} />}
+            onClick={() => {
+              sessionStorage.removeItem(SESSION_KEY);
+              navigate('/');
+            }}
+            title="Clear project filter"
+          >
+            Clear
+          </Button>
+        </>
+      ) : (
+        <span className="text-sm text-dim">Dashboard</span>
+      )}
+    </div>,
     `dashboard-${selectedProjectId ?? 'none'}`,
   );
 
@@ -307,6 +311,49 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     });
   }, [focus, enterSidebar, getMaxCard]);
 
+  // --- Bidirectional sync: kanban focus ↔ panel URL ---
+  const location = useLocation();
+  const syncFromUrl = useRef(false); // prevents focus→URL loop
+
+  // Reverse sync: panel URL → kanban focus
+  // When the URL changes to /tasks/:id (e.g. clicking a card), highlight that card in the kanban
+  useEffect(() => {
+    if (!panelOpen || !tasks) return;
+    const match = location.pathname.match(/^\/tasks\/([^/]+)/);
+    if (!match) return;
+    const panelTaskId = match[1];
+
+    // Find the task in the kanban and set focus to it
+    for (let col = 0; col < COLUMNS.length; col++) {
+      const colTasks = tasksByStatus.get(COLUMNS[col].id) ?? [];
+      const cardIdx = colTasks.findIndex((t) => t.id === panelTaskId);
+      if (cardIdx >= 0) {
+        // Only update if focus doesn't already point here
+        if (!focus || focus.col !== col || focus.card !== cardIdx) {
+          syncFromUrl.current = true;
+          setFocus({ col, card: cardIdx });
+        }
+        return;
+      }
+    }
+  }, [location.pathname, panelOpen, tasks, tasksByStatus, focus]);
+
+  // Forward sync: kanban focus → panel URL
+  // When keyboard nav changes focus while panel is open, update the panel to show that task
+  const prevFocus = useRef(focus);
+  useEffect(() => {
+    if (!panelOpen || !focus) { prevFocus.current = focus; return; }
+    // Skip if this focus change came from URL sync (avoid loop)
+    if (syncFromUrl.current) { syncFromUrl.current = false; prevFocus.current = focus; return; }
+    const changed = !prevFocus.current || prevFocus.current.col !== focus.col || prevFocus.current.card !== focus.card;
+    prevFocus.current = focus;
+    if (!changed) return;
+    const task = getColumnTasks(focus.col)[focus.card];
+    if (task) {
+      navigate(`/tasks/${task.id}`, { replace: true });
+    }
+  }, [focus, panelOpen, navigate, getColumnTasks]);
+
   useKeyboardNav({
     keyMap: {
       ArrowLeft: handleNavLeft,
@@ -339,14 +386,17 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         }
       },
       Escape: () => setFocus(null),
-      'Shift+ArrowLeft': moveColumnLeft,
-      'Shift+ArrowRight': moveColumnRight,
-      'Shift+H': moveColumnLeft,
-      'Shift+L': moveColumnRight,
-      'Shift+ArrowUp': reorderUp,
-      'Shift+ArrowDown': reorderDown,
-      'Shift+K': reorderUp,
-      'Shift+J': reorderDown,
+      // Reorder/move shortcuts only when panel is closed
+      ...(!panelOpen ? {
+        'Shift+ArrowLeft': moveColumnLeft,
+        'Shift+ArrowRight': moveColumnRight,
+        'Shift+H': moveColumnLeft,
+        'Shift+L': moveColumnRight,
+        'Shift+ArrowUp': reorderUp,
+        'Shift+ArrowDown': reorderDown,
+        'Shift+K': reorderUp,
+        'Shift+J': reorderDown,
+      } : {}),
       x: togglePin,
       n: () => {
         if (hasProjects) {
@@ -360,7 +410,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
       '4': () => setFocus({ col: 3, card: 0 }),
       '?': () => setShowHelp(true),
     },
-    enabled: !panelOpen && !showCreateProject && !showHelp && !contextMenu && !drag && !sidebarFocused,
+    enabled: !showCreateProject && !showHelp && !contextMenu && !drag && !sidebarFocused,
   });
 
   // Sync mobile tab to focus column
@@ -515,7 +565,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         // Mobile: Tabbed columns with swipe navigation
         <div className="flex flex-col h-full">
           {/* Tab Navigation */}
-          <div className="flex border-b border-subtle bg-secondary overflow-x-auto">
+          <div className="flex overflow-x-auto">
             {COLUMNS.map((column, index) => {
               const TabIcon = COLUMN_ICONS[column.id];
               return (
@@ -576,15 +626,15 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
                 <Card
                   key={column.id}
                   padding="none"
-                  className={`group flex-1 min-w-0 flex flex-col transition-colors ${
+                  className={`group flex-1 min-w-0 flex flex-col transition-all duration-150 ${
                     focus?.col === colIdx
                       ? '!border-accent'
                       : ''
-                  }`}
+                  } ${isDragging && drag?.targetCol === colIdx ? 'drag-target-col' : ''}`}
                 >
                   <div ref={(el) => { columnRefs.current[colIdx] = el; }} className="flex flex-col h-full">
                   {/* Column Header */}
-                  <div className="px-4 py-3 border-b border-subtle">
+                  <div className="px-4 py-3">
                     <div className="flex items-center justify-between">
                       <h3 className={`text-xs font-medium uppercase tracking-wider ${column.color} flex items-center gap-1.5`}>
                         <ColIcon size={14} className="text-dim" />
@@ -595,7 +645,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
                   </div>
 
                   {/* Tasks */}
-                  <div className="flex-1 p-2 space-y-2 overflow-y-auto">
+                  <div className="flex-1 p-2 space-y-1 overflow-y-auto">
                     {tasksLoading ? (
                       <div className="text-center text-dim py-4 text-sm">
                         Loading...
@@ -604,7 +654,11 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
                       <>
                         {colTasks.map((task, cardIdx) => {
                           const isGhost = !!(isDragging && drag?.taskId === task.id);
-                          const showDropPlaceholder = isDragging && drag?.targetCol === colIdx && drag?.targetPosition === cardIdx && drag?.taskId !== task.id;
+                          // Show placeholder before this card if it's the drop target.
+                          // Suppress when hovering at the original position: calcDropTarget skips
+                          // the ghost, so "original spot" = targetPosition === sourceCard + 1 in the same column.
+                          const isReturnToOrigin = drag?.sourceCol === colIdx && drag?.sourceCard !== undefined && cardIdx === drag.sourceCard + 1;
+                          const showDropPlaceholder = isDragging && drag?.targetCol === colIdx && drag?.targetPosition === cardIdx && drag?.taskId !== task.id && !isReturnToOrigin;
                           return (
                             <div key={task.id}>
                               {showDropPlaceholder && (
@@ -624,8 +678,9 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
                             </div>
                           );
                         })}
-                        {/* Drop placeholder at end of column */}
-                        {isDragging && drag?.targetCol === colIdx && drag?.targetPosition >= colTasks.length && (
+                        {/* Drop placeholder at end of column (suppress if ghost is the last card) */}
+                        {isDragging && drag?.targetCol === colIdx && drag?.targetPosition >= colTasks.length
+                          && !(drag?.sourceCol === colIdx && drag?.sourceCard === colTasks.length - 1) && (
                           <DropPlaceholder height={drag!.cardHeight} />
                         )}
                         <NewTaskPlaceholder
@@ -649,22 +704,27 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
       {isDragging && drag && (() => {
         const draggedTask = (tasks ?? []).find((t) => t.id === drag.taskId);
         if (!draggedTask) return null;
+        // Dynamic rotation based on horizontal velocity (clamped)
+        const vx = drag.mouseX - drag.initialMouseX;
+        const rotation = Math.max(-4, Math.min(4, vx * 0.02));
         return createPortal(
           <div
-            className="fixed z-[100] pointer-events-none"
+            className="fixed z-[100] pointer-events-none animate-drag-pickup"
             style={{
               left: drag.mouseX - drag.cardOffsetX,
               top: drag.mouseY - drag.cardOffsetY,
               width: drag.cardWidth,
-              transform: 'rotate(2deg)',
-              opacity: 0.9,
+              transform: `rotate(${rotation}deg) scale(1.03)`,
+              willChange: 'transform',
             }}
           >
-            <TaskCard
-              task={draggedTask}
-              projectName={!selectedProjectId ? getProjectName(draggedTask.projectId) : undefined}
-              focused={false}
-            />
+            <div className="bg-card rounded-lg" style={{ boxShadow: '0 12px 28px oklch(0 0 0 / 0.25), 0 4px 10px oklch(0 0 0 / 0.15)' }}>
+              <TaskCard
+                task={draggedTask}
+                projectName={!selectedProjectId ? getProjectName(draggedTask.projectId) : undefined}
+                focused={false}
+              />
+            </div>
           </div>,
           document.body,
         );
@@ -708,10 +768,11 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
 
 function DropPlaceholder({ height }: { height: number }) {
   return (
-    <div
-      className="border-2 border-dashed border-accent bg-[var(--color-accent-glow)] rounded-md animate-drop-pulse mb-2"
-      style={{ height }}
-    />
+    <div className="animate-drop-expand" style={{ height }}>
+      <div className="h-full rounded-lg bg-accent/[0.07] flex items-center justify-center">
+        <div className="w-8 h-[2px] rounded-full bg-accent/30" />
+      </div>
+    </div>
   );
 }
 
@@ -770,12 +831,41 @@ interface TaskCardProps {
   onMouseDown?: (e: React.MouseEvent) => void;
 }
 
+const PRIORITY_COLORS: Record<string, string> = {
+  urgent: 'var(--color-error)',
+  high: '#f97316',
+  medium: '#eab308',
+  low: 'var(--color-text-dim)',
+};
+
+const PRIORITY_LABELS: Record<string, string> = {
+  urgent: 'P0',
+  high: 'P1',
+  medium: 'P2',
+  low: 'P3',
+};
+
+function relativeTime(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  const hours = Math.floor(mins / 60);
+  const days = Math.floor(hours / 24);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  return new Date(dateStr).toLocaleDateString();
+}
+
 const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
   { task, projectName, isMobile, onLongPress, focused, ghost, onMouseDown },
   ref,
 ) {
   const navigate = useNavigate();
   const internalRef = useRef<HTMLDivElement>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [tooltip, setTooltip] = useState<{ x: number; y: number } | null>(null);
 
   // Merge refs
   const setRef = useCallback((el: HTMLDivElement | null) => {
@@ -808,97 +898,244 @@ const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
     }
   }, [focused]);
 
+  // Clean up hover timer on unmount
+  useEffect(() => {
+    return () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); };
+  }, []);
+
+  const handleMouseEnter = useCallback((e: React.MouseEvent) => {
+    if (isMobile || ghost) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    hoverTimer.current = setTimeout(() => {
+      setTooltip({ x: rect.right + 8, y: rect.top });
+    }, 800);
+  }, [isMobile, ghost]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    setTooltip(null);
+  }, []);
+
+  // Suppress tooltip on mousedown (drag start)
+  const wrappedMouseDown = useCallback((e: React.MouseEvent) => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    setTooltip(null);
+    onMouseDown?.(e);
+  }, [onMouseDown]);
+
+  const hasMeta = !!(projectName || task.priority || (task.taskType && task.taskType !== 'task'));
+  const hasCode = !!(task.branch || task.prUrl || (task.diffStats && (task.diffStats.additions > 0 || task.diffStats.deletions > 0)));
+  const hasLabels = !!(task.labels && task.labels.length > 0);
+  const priorityColor = task.priority ? (PRIORITY_COLORS[task.priority] || 'var(--color-text-dim)') : undefined;
+
   return (
-    <div
-      ref={setRef}
-      id={`task-${task.id}`}
-      {...(isMobile ? longPressHandlers : {})}
-      onMouseDown={!isMobile ? onMouseDown : undefined}
-      className={`bg-inset rounded-lg border p-2 transition-all cursor-pointer select-none ${
-        isMobile ? 'select-none' : ''
-      } ${ghost ? 'opacity-20' : ''} ${focused ? 'border-accent bg-[var(--color-accent-glow)]' : 'border-subtle hover:border-[var(--color-text-dim)]'}`}
-    >
-      <h4 className="font-medium text-sm">
-        {task.title}
-      </h4>
-      <div className="flex items-center flex-wrap gap-2 mt-2">
-        {projectName && (
-          <span className="text-xs text-accent">
-            {projectName}
-          </span>
+    <>
+      <div
+        ref={setRef}
+        id={`task-${task.id}`}
+        {...(isMobile ? longPressHandlers : {})}
+        onMouseDown={!isMobile ? wrappedMouseDown : undefined}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        className={[
+          'relative rounded-lg px-2.5 py-2 cursor-pointer select-none',
+          ghost ? 'drag-ghost' : 'transition-all',
+          focused
+            ? 'bg-[var(--color-accent-glow)] ring-1 ring-accent/50'
+            : ghost ? '' : 'hover:bg-[var(--color-bg-tertiary)]',
+        ].join(' ')}
+      >
+        {/* Priority accent bar */}
+        {priorityColor && (
+          <div
+            className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full"
+            style={{ backgroundColor: priorityColor }}
+          />
         )}
-        {task.taskType && task.taskType !== 'task' && (
-          <span className="text-[10px] text-dim capitalize">
-            {task.taskType}
-          </span>
-        )}
-        {task.priority && (
-          <PriorityDot priority={task.priority} />
-        )}
-        {task.branch && (
-          <span className="text-xs text-dim font-mono flex items-center gap-1">
-            <GitBranch size={12} className="flex-shrink-0" />
-            {task.branch}
-          </span>
-        )}
+
+        {/* Pinned indicator */}
         {task.pinned && (
-          <span className="text-xs text-[var(--color-error)] flex items-center gap-0.5">
-            <Pin size={10} />
-            Pinned
-          </span>
+          <Pin size={10} className="absolute top-2 right-2 text-[var(--color-warning)] opacity-70" />
         )}
-        {task.diffStats && (task.diffStats.additions > 0 || task.diffStats.deletions > 0) && (
-          <span className="text-[10px] font-mono">
-            {task.diffStats.additions > 0 && (
-              <span className="text-[var(--color-success)]">+{task.diffStats.additions}</span>
+
+        {/* Title */}
+        <h4 className={`text-[13px] font-medium leading-snug ${priorityColor ? 'pl-1.5' : ''}`}>
+          {task.title}
+        </h4>
+
+        {/* Metadata row: project, type, priority label */}
+        {hasMeta && (
+          <div className={`flex items-center gap-1.5 mt-1 ${priorityColor ? 'pl-1.5' : ''}`}>
+            {projectName && (
+              <span className="text-[11px] text-accent truncate max-w-[120px]">{projectName}</span>
             )}
-            {task.diffStats.additions > 0 && task.diffStats.deletions > 0 && ' '}
-            {task.diffStats.deletions > 0 && (
-              <span className="text-[var(--color-error)]">-{task.diffStats.deletions}</span>
+            {projectName && (task.priority || (task.taskType && task.taskType !== 'task')) && (
+              <span className="text-dim text-[10px]">&middot;</span>
             )}
-          </span>
+            {task.taskType && task.taskType !== 'task' && (
+              <span className="text-[10px] text-dim capitalize">{task.taskType}</span>
+            )}
+            {task.priority && (
+              <span
+                className="text-[10px] font-semibold"
+                style={{ color: priorityColor }}
+              >
+                {PRIORITY_LABELS[task.priority] || task.priority}
+              </span>
+            )}
+          </div>
         )}
-        {task.prUrl && (
-          <a
-            href={task.prUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            className="text-[10px] font-mono text-accent hover:underline inline-flex items-center gap-0.5"
-          >
-            <GitPullRequest size={10} />
-            PR
-          </a>
+
+        {/* Code metadata row: branch, diff stats, PR */}
+        {hasCode && (
+          <div className={`flex items-center gap-2 mt-1 ${priorityColor ? 'pl-1.5' : ''}`}>
+            {task.branch && (
+              <span className="text-[10px] text-dim font-mono flex items-center gap-0.5 truncate max-w-[140px]">
+                <GitBranch size={10} className="flex-shrink-0 opacity-60" />
+                {task.branch}
+              </span>
+            )}
+            {task.diffStats && (task.diffStats.additions > 0 || task.diffStats.deletions > 0) && (
+              <span className="text-[10px] font-mono flex items-center gap-0.5">
+                {task.diffStats.additions > 0 && (
+                  <span className="text-[var(--color-success)]">+{task.diffStats.additions}</span>
+                )}
+                {task.diffStats.deletions > 0 && (
+                  <span className="text-[var(--color-error)]">-{task.diffStats.deletions}</span>
+                )}
+              </span>
+            )}
+            {task.prUrl && (
+              <a
+                href={task.prUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                className="text-[10px] font-mono text-accent hover:underline inline-flex items-center gap-0.5 flex-shrink-0"
+              >
+                <GitPullRequest size={10} />
+                PR
+              </a>
+            )}
+          </div>
         )}
-        {task.labels?.slice(0, 3).map(label => (
-          <span
-            key={label.id}
-            className="text-[10px] px-1.5 py-px rounded-full text-white font-medium"
-            style={{ backgroundColor: label.color }}
-          >
-            {label.name}
-          </span>
-        ))}
+
+        {/* Labels */}
+        {hasLabels && (
+          <div className={`flex flex-wrap gap-1 mt-1.5 ${priorityColor ? 'pl-1.5' : ''}`}>
+            {task.labels.slice(0, 3).map(label => (
+              <span
+                key={label.id}
+                className="text-[9px] px-1.5 py-px rounded-full font-medium leading-tight"
+                style={{
+                  backgroundColor: label.color + '22',
+                  color: label.color,
+                }}
+              >
+                {label.name}
+              </span>
+            ))}
+            {task.labels.length > 3 && (
+              <span className="text-[9px] text-dim">+{task.labels.length - 3}</span>
+            )}
+          </div>
+        )}
       </div>
-    </div>
+
+      {/* Hover tooltip (portal) */}
+      {tooltip && <TaskTooltip task={task} projectName={projectName} x={tooltip.x} y={tooltip.y} />}
+    </>
   );
 });
 
-const PRIORITY_COLORS: Record<string, string> = {
-  urgent: 'var(--color-error)',
-  high: '#f97316',
-  medium: '#eab308',
-  low: 'var(--color-text-dim)',
-};
+// --- Delayed hover tooltip ---
 
-function PriorityDot({ priority }: { priority: string }) {
-  const color = PRIORITY_COLORS[priority] || 'var(--color-text-dim)';
-  return (
-    <span className="flex items-center gap-0.5 text-[10px]" style={{ color }}>
-      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} />
-      {priority}
-    </span>
+function TaskTooltip({ task, projectName, x, y }: { task: Task; projectName?: string; x: number; y: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ x, y });
+
+  // Adjust position to stay within viewport
+  useEffect(() => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    let nx = x;
+    let ny = y;
+    if (nx + rect.width > window.innerWidth - 12) {
+      nx = x - rect.width - 16; // flip to left side of card
+    }
+    if (ny + rect.height > window.innerHeight - 12) {
+      ny = window.innerHeight - rect.height - 12;
+    }
+    if (ny < 12) ny = 12;
+    setPos({ x: nx, y: ny });
+  }, [x, y]);
+
+  const hasDescription = !!task.description;
+  const hasBranch = !!task.branch;
+  const hasPR = !!task.prUrl;
+  const hasTimestamps = !!(task.createdAt || task.startedAt || task.completedAt);
+
+  return createPortal(
+    <div
+      ref={ref}
+      className="fixed z-[200] bg-elevated border border-subtle rounded-lg shadow-lg max-w-xs w-72 text-xs animate-fadeIn pointer-events-none"
+      style={{ left: pos.x, top: pos.y }}
+    >
+      {/* Header */}
+      <div className="px-3 pt-2.5 pb-2">
+        {projectName && (
+          <span className="text-[10px] text-accent block mb-0.5">{projectName}</span>
+        )}
+        <div className="font-medium text-[13px] text-[var(--color-text-primary)] leading-snug">{task.title}</div>
+      </div>
+
+      {/* Description */}
+      {hasDescription && (
+        <div className="px-3 pb-2">
+          <p className="text-[11px] text-[var(--color-text-secondary)] leading-relaxed line-clamp-4 whitespace-pre-wrap">
+            {task.description}
+          </p>
+        </div>
+      )}
+
+      {/* Details section */}
+      {(hasBranch || hasPR || hasTimestamps) && (
+        <div className="px-3 pb-2.5 space-y-1.5 border-t border-subtle/50 pt-2">
+          {hasBranch && (
+            <div className="flex items-center gap-1.5 text-dim">
+              <GitBranch size={10} className="flex-shrink-0 opacity-60" />
+              <span className="font-mono text-[10px] truncate">{task.branch}</span>
+            </div>
+          )}
+          {hasPR && (
+            <div className="flex items-center gap-1.5 text-accent">
+              <GitPullRequest size={10} className="flex-shrink-0" />
+              <span className="text-[10px]">Pull request open</span>
+            </div>
+          )}
+          {task.createdAt && (
+            <div className="flex items-center gap-1.5 text-dim">
+              <Calendar size={10} className="flex-shrink-0 opacity-60" />
+              <span className="text-[10px]">Created {relativeTime(task.createdAt)}</span>
+            </div>
+          )}
+          {task.startedAt && (
+            <div className="flex items-center gap-1.5 text-dim">
+              <Clock size={10} className="flex-shrink-0 opacity-60" />
+              <span className="text-[10px]">Started {relativeTime(task.startedAt)}</span>
+            </div>
+          )}
+          {task.completedAt && (
+            <div className="flex items-center gap-1.5 text-[var(--color-success)]">
+              <CheckCircle2 size={10} className="flex-shrink-0" />
+              <span className="text-[10px]">Completed {relativeTime(task.completedAt)}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>,
+    document.body,
   );
 }
 
@@ -933,7 +1170,7 @@ function TaskContextMenu({ x, y, currentStatus, onClose, onStatusChange }: TaskC
         className="fixed z-50 bg-elevated border border-subtle rounded-lg shadow-lg min-w-[150px]"
         style={menuStyle}
       >
-        <div className="px-3 py-2 text-xs font-medium uppercase tracking-wider text-dim border-b border-subtle">
+        <div className="px-3 py-2 text-xs font-medium uppercase tracking-wider text-dim">
           Move to
         </div>
         {COLUMNS.map((column) => {
@@ -993,7 +1230,7 @@ function WorkflowPromptModal({ taskId, onClose }: WorkflowPromptModalProps) {
   return (
     <div className="fixed inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
       <div className="bg-elevated border border-subtle rounded-xl shadow-lg w-full max-w-md">
-        <div className="px-4 py-3 border-b border-subtle">
+        <div className="px-4 py-3">
           <h2 className="text-sm font-medium">Start Agent Session</h2>
         </div>
         <div className="p-4 space-y-4">

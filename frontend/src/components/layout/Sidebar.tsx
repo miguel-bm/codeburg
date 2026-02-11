@@ -1,14 +1,14 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { ChevronDown, ChevronUp, X, Settings, ChevronRight, Pin, PinOff, PanelLeftClose, PanelLeftOpen, GitPullRequest, GitBranch, Funnel, FolderOpen } from 'lucide-react';
+import { ChevronDown, ChevronUp, X, Settings, ChevronRight, Pin, PanelLeftClose, PanelLeftOpen, GitPullRequest, GitBranch, Funnel, FolderOpen } from 'lucide-react';
 import { sidebarApi, tasksApi, preferencesApi, invalidateTaskQueries, TASK_STATUS } from '../../api';
 import type { SidebarProject, SidebarTask, SidebarSession, SidebarData, UpdateTaskResponse } from '../../api';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useKeyboardNav } from '../../hooks/useKeyboardNav';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import { useSidebarFocusStore } from '../../stores/sidebarFocus';
-import { useSidebarStore, selectIsExpanded, selectIsPinned } from '../../stores/sidebar';
+import { useSidebarStore, selectIsExpanded } from '../../stores/sidebar';
 import { CreateProjectModal } from '../common/CreateProjectModal';
 
 interface FocusableItem {
@@ -44,8 +44,6 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   const [showCreateProject, setShowCreateProject] = useState(false);
 
   const isExpanded = useSidebarStore(selectIsExpanded);
-  const isPinned = useSidebarStore(selectIsPinned);
-  const togglePin = useSidebarStore((s) => s.togglePin);
   const toggleExpanded = useSidebarStore((s) => s.toggleExpanded);
 
   const activeProjectId = searchParams.get('project') || undefined;
@@ -182,11 +180,11 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   if (collapsed) {
     return (
       <aside
-        className={`bg-sidebar border-r border-[var(--color-border)]/20 flex flex-col h-full`}
+        className={`bg-canvas flex flex-col h-full`}
         style={sidebarStyle}
       >
         {/* Header: just "C" logo */}
-        <div className="p-2 border-b border-subtle flex items-center justify-center">
+        <div className="p-2 flex items-center justify-center">
           <button
             onClick={handleHomeClick}
             className="w-8 h-8 rounded-md bg-tertiary hover:bg-[var(--color-border)] text-sm font-bold text-accent transition-colors flex items-center justify-center"
@@ -233,15 +231,8 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
           )}
         </div>
 
-        {/* Footer: pin + expand + settings */}
-        <div className="p-2 border-t border-subtle flex flex-col items-center gap-1">
-          <button
-            onClick={togglePin}
-            className="p-1.5 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
-            title={isPinned ? 'unpin sidebar' : 'pin sidebar'}
-          >
-            {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
-          </button>
+        {/* Footer: expand + settings */}
+        <div className="p-2 flex flex-col items-center gap-1">
           <button
             onClick={toggleExpanded}
             className="p-1.5 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
@@ -268,11 +259,11 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   // --- Expanded mode ---
   return (
     <aside
-      className={`bg-sidebar border-r border-[var(--color-border)]/20 flex flex-col h-full ${width ? '' : 'w-72'}`}
+      className={`bg-canvas flex flex-col h-full ${width ? '' : 'w-72'}`}
       style={sidebarStyle}
     >
       {/* Header */}
-      <div className="p-4 border-b border-subtle flex items-center justify-between">
+      <div className="px-4 pt-4 pb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h1
             onClick={handleHomeClick}
@@ -347,19 +338,12 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
       </div>
 
       {/* Footer */}
-      <div className="p-3 border-t border-subtle flex gap-2">
+      <div className="p-3 flex gap-2">
         <button
           onClick={() => setShowCreateProject(true)}
           className="flex-1 px-3 py-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
         >
           + Project
-        </button>
-        <button
-          onClick={togglePin}
-          className="px-2 py-2 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
-          title={isPinned ? 'unpin sidebar' : 'pin sidebar'}
-        >
-          {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
         </button>
         <button
           onClick={toggleExpanded}
@@ -445,7 +429,7 @@ function SidebarProjectNode({ project, isActive, isFiltered, onProjectClick, onP
   const hasTasks = sortedTasks.length > 0;
 
   return (
-    <div className="border-b border-subtle">
+    <div>
       {/* Project header */}
       <div
         data-sidebar-project={project.id}
@@ -455,12 +439,13 @@ function SidebarProjectNode({ project, isActive, isFiltered, onProjectClick, onP
         {hasTasks ? (
           <button
             onClick={toggleCollapse}
-            className="text-dim hover:text-[var(--color-text-secondary)] flex-shrink-0"
+            aria-label={collapsed ? `Expand ${project.name}` : `Collapse ${project.name}`}
+            className="h-6 w-6 flex items-center justify-center -ml-1 rounded text-dim hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-border)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60 transition-colors flex-shrink-0"
           >
             <ChevronRight size={12} className={`transition-transform ${collapsed ? '' : 'rotate-90'}`} />
           </button>
         ) : (
-          <div className="w-3 flex-shrink-0" />
+          <div className="w-6 flex-shrink-0" />
         )}
         <span className={`truncate ${isActive ? 'text-accent' : 'text-[var(--color-text-primary)]'}`}>
           {project.name}
