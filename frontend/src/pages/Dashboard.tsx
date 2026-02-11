@@ -3,7 +3,8 @@ import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { GitBranch, Pin, GitPullRequest, X, Plus, Inbox, Play, Eye, CheckCircle2, Clock, Calendar, LayoutGrid, List as ListIcon, Search, ChevronDown, Check, Crosshair } from 'lucide-react';
+import { motion } from 'motion/react';
+import { GitBranch, Pin, GitPullRequest, X, Plus, Inbox, Play, Eye, CheckCircle2, Clock, Calendar, LayoutGrid, List as ListIcon, Search, ChevronDown, Check, Crosshair, SlidersHorizontal } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
 import { tasksApi, projectsApi, sessionsApi, invalidateTaskQueries } from '../api';
@@ -151,7 +152,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
 
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [headerHost, setHeaderHost] = useState<HTMLDivElement | null>(null);
-  const [compactViewToggle, setCompactViewToggle] = useState(false);
+  const [isCompact, setIsCompact] = useState(false);
   const [activeColumnIndex, setActiveColumnIndex] = useState(0);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [focus, setFocus] = useState<{ col: number; card: number } | null>(null);
@@ -356,20 +357,12 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
 
   useEffect(() => {
     if (!headerHost) return;
-    const update = () => {
-      const width = headerHost.clientWidth;
-      const threshold = panelOpen ? 1120 : 920;
-      setCompactViewToggle(width < threshold);
-    };
+    const update = () => setIsCompact(headerHost.clientWidth < 640);
     update();
-    if (typeof ResizeObserver !== 'undefined') {
-      const ro = new ResizeObserver(update);
-      ro.observe(headerHost);
-      return () => ro.disconnect();
-    }
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, [headerHost, panelOpen]);
+    const ro = new ResizeObserver(update);
+    ro.observe(headerHost);
+    return () => ro.disconnect();
+  }, [headerHost]);
 
   const projectFilterItems = useMemo(
     () => (projects ?? []).map((project) => ({
@@ -415,136 +408,160 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   );
 
   useSetHeader(
-    <div ref={setHeaderHost} className="w-full overflow-x-auto">
-      <div className="inline-flex items-center gap-2 min-w-max py-1">
-        <div className="inline-flex items-center rounded-lg border border-subtle bg-[var(--color-card)] p-0.5">
+    <div ref={setHeaderHost} className="flex items-center gap-2 w-full">
+      {/* View toggle — animated sliding indicator, always icon-only */}
+      <div className="relative inline-flex items-center rounded-md bg-tertiary p-0.5 shrink-0">
+        {([{ key: 'kanban' as DashboardView, icon: LayoutGrid }, { key: 'list' as DashboardView, icon: ListIcon }] as const).map((opt) => (
           <button
+            key={opt.key}
             type="button"
-            onClick={() => setView('kanban')}
-            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${
-              view === 'kanban'
-                ? 'bg-accent/15 text-accent'
-                : 'text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
+            onClick={() => setView(opt.key)}
+            className={`relative inline-flex items-center justify-center w-7 h-6 rounded-[5px] transition-colors ${
+              view === opt.key
+                ? 'text-accent'
+                : 'text-dim hover:text-[var(--color-text-primary)]'
             }`}
-            title="Kanban view"
+            title={`${opt.key === 'kanban' ? 'Kanban' : 'List'} view`}
           >
-            <LayoutGrid size={12} />
-            {!compactViewToggle && 'Kanban'}
+            {view === opt.key && (
+              <motion.div
+                layoutId="view-indicator"
+                className="absolute inset-0 rounded-[5px] bg-accent/15"
+                transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+              />
+            )}
+            <opt.icon size={12} className="relative z-[1]" />
           </button>
-          <button
-            type="button"
-            onClick={() => setView('list')}
-            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${
-              view === 'list'
-                ? 'bg-accent/15 text-accent'
-                : 'text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
-            }`}
-            title="List view"
-          >
-            <ListIcon size={12} />
-            {!compactViewToggle && 'List'}
-          </button>
-        </div>
+        ))}
+      </div>
 
-        <SingleSelectFilterMenu
-          label="Project"
-          selectedValue={selectedProjectId}
-          selectedLabel={activeProjectName}
-          items={projectFilterItems}
-          allLabel="All projects"
-          emptyMessage="No projects found."
-          onSelect={(projectId) => {
-            updateDashboardParams({ project: projectId });
-          }}
-          onClear={() => {
+      {/* Filters — compact or expanded */}
+      {isCompact ? (
+        <CompactFilterPanel
+          selectedProjectId={selectedProjectId}
+          projectFilterItems={projectFilterItems}
+          statusFilter={statusFilter}
+          statusFilterItems={statusFilterItems}
+          statusFilterOrder={statusFilterOrder}
+          priorityFilter={priorityFilter}
+          priorityFilterItems={priorityFilterItems}
+          priorityFilterOrder={priorityFilterOrder}
+          typeFilter={typeFilter}
+          typeFilterItems={typeFilterItems}
+          typeFilterOrder={typeFilterOrder}
+          labelFilter={labelFilter}
+          labelFilterItems={labelFilterItems}
+          labelFilterOrder={labelFilterOrder}
+          activeFilterCount={activeFilterCount}
+          onSelectProject={(projectId) => updateDashboardParams({ project: projectId })}
+          onClearProject={() => {
             sessionStorage.removeItem(SESSION_KEY);
             updateDashboardParams({ project: null });
           }}
-          menuWidth={460}
-          searchable
+          onToggleMultiFilter={toggleMultiFilterValue}
+          onResetAll={clearDashboardFilters}
         />
+      ) : (
+        <div className="flex items-center gap-1.5 min-w-0">
+          <SingleSelectFilterMenu
+            label="Project"
+            selectedValue={selectedProjectId}
+            selectedLabel={activeProjectName}
+            items={projectFilterItems}
+            allLabel="All projects"
+            emptyMessage="No projects found."
+            onSelect={(projectId) => {
+              updateDashboardParams({ project: projectId });
+            }}
+            onClear={() => {
+              sessionStorage.removeItem(SESSION_KEY);
+              updateDashboardParams({ project: null });
+            }}
+            menuWidth={460}
+            searchable
+          />
 
-        <MultiSelectFilterMenu
-          label="Status"
-          selected={statusFilter}
-          items={statusFilterItems}
-          emptyMessage="No statuses available."
-          onToggle={(value) => toggleMultiFilterValue(
-            DASHBOARD_STATUS_PARAM,
-            value,
-            statusFilter,
-            statusFilterOrder,
-          )}
-          onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_STATUS_PARAM, value)}
-          onReset={() => updateDashboardParams({ [DASHBOARD_STATUS_PARAM]: null })}
-        />
+          <MultiSelectFilterMenu
+            label="Status"
+            selected={statusFilter}
+            items={statusFilterItems}
+            emptyMessage="No statuses available."
+            onToggle={(value) => toggleMultiFilterValue(
+              DASHBOARD_STATUS_PARAM,
+              value,
+              statusFilter,
+              statusFilterOrder,
+            )}
+            onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_STATUS_PARAM, value)}
+            onReset={() => updateDashboardParams({ [DASHBOARD_STATUS_PARAM]: null })}
+          />
 
-        <MultiSelectFilterMenu
-          label="Priority"
-          selected={priorityFilter}
-          items={priorityFilterItems}
-          emptyMessage="No priorities found."
-          onToggle={(value) => toggleMultiFilterValue(
-            DASHBOARD_PRIORITY_PARAM,
-            value,
-            priorityFilter,
-            priorityFilterOrder,
-          )}
-          onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_PRIORITY_PARAM, value)}
-          onReset={() => updateDashboardParams({ [DASHBOARD_PRIORITY_PARAM]: null })}
-        />
+          <MultiSelectFilterMenu
+            label="Priority"
+            selected={priorityFilter}
+            items={priorityFilterItems}
+            emptyMessage="No priorities found."
+            onToggle={(value) => toggleMultiFilterValue(
+              DASHBOARD_PRIORITY_PARAM,
+              value,
+              priorityFilter,
+              priorityFilterOrder,
+            )}
+            onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_PRIORITY_PARAM, value)}
+            onReset={() => updateDashboardParams({ [DASHBOARD_PRIORITY_PARAM]: null })}
+          />
 
-        <MultiSelectFilterMenu
-          label="Type"
-          selected={typeFilter}
-          items={typeFilterItems}
-          emptyMessage="No task types found."
-          onToggle={(value) => toggleMultiFilterValue(
-            DASHBOARD_TYPE_PARAM,
-            value,
-            typeFilter,
-            typeFilterOrder,
-          )}
-          onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_TYPE_PARAM, value)}
-          onReset={() => updateDashboardParams({ [DASHBOARD_TYPE_PARAM]: null })}
-          searchable
-        />
+          <MultiSelectFilterMenu
+            label="Type"
+            selected={typeFilter}
+            items={typeFilterItems}
+            emptyMessage="No task types found."
+            onToggle={(value) => toggleMultiFilterValue(
+              DASHBOARD_TYPE_PARAM,
+              value,
+              typeFilter,
+              typeFilterOrder,
+            )}
+            onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_TYPE_PARAM, value)}
+            onReset={() => updateDashboardParams({ [DASHBOARD_TYPE_PARAM]: null })}
+            searchable
+          />
 
-        <MultiSelectFilterMenu
-          label="Label"
-          selected={labelFilter}
-          items={labelFilterItems}
-          emptyMessage="No labels found."
-          onToggle={(value) => toggleMultiFilterValue(
-            DASHBOARD_LABEL_PARAM,
-            value,
-            labelFilter,
-            labelFilterOrder,
-          )}
-          onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_LABEL_PARAM, value)}
-          onReset={() => updateDashboardParams({ [DASHBOARD_LABEL_PARAM]: null })}
-          searchable
-        />
+          <MultiSelectFilterMenu
+            label="Label"
+            selected={labelFilter}
+            items={labelFilterItems}
+            emptyMessage="No labels found."
+            onToggle={(value) => toggleMultiFilterValue(
+              DASHBOARD_LABEL_PARAM,
+              value,
+              labelFilter,
+              labelFilterOrder,
+            )}
+            onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_LABEL_PARAM, value)}
+            onReset={() => updateDashboardParams({ [DASHBOARD_LABEL_PARAM]: null })}
+            searchable
+          />
+        </div>
+      )}
 
-        {activeFilterCount > 0 && (
-          <>
-            <div className="inline-flex items-center px-2 py-1 rounded-md text-[11px] text-dim">
-              {activeFilterCount} active
-            </div>
-            <Button
-              variant="ghost"
-              size="xs"
-              icon={<X size={12} />}
-              onClick={clearDashboardFilters}
-              title="Clear all filters"
-            >
-              Clear
-            </Button>
-          </>
-        )}
-      </div>
+      {/* Clear — always visible, pinned right */}
+      {activeFilterCount > 0 && (
+        <div className="ml-auto flex items-center gap-1.5 shrink-0">
+          <span className="text-[11px] text-dim">{activeFilterCount}</span>
+          <Button
+            variant="ghost"
+            size="xs"
+            icon={<X size={12} />}
+            onClick={clearDashboardFilters}
+            title="Clear all filters"
+          >
+            Clear
+          </Button>
+        </div>
+      )}
     </div>,
-    `dashboard-${view}-${selectedProjectId ?? 'none'}-${Array.from(statusFilter).sort().join('.')}-${Array.from(priorityFilter).sort().join('.')}-${Array.from(typeFilter).sort().join('.')}-${Array.from(labelFilter).sort().join('.')}-${(projects ?? []).length}-${availablePriorities.join('.')}-${availableTaskTypes.join('.')}-${availableLabels.map((label) => label.id).join('.')}`,
+    `dashboard-${view}-${isCompact}-${selectedProjectId ?? 'none'}-${Array.from(statusFilter).sort().join('.')}-${Array.from(priorityFilter).sort().join('.')}-${Array.from(typeFilter).sort().join('.')}-${Array.from(labelFilter).sort().join('.')}-${(projects ?? []).length}-${availablePriorities.join('.')}-${availableTaskTypes.join('.')}-${availableLabels.map((label) => label.id).join('.')}`,
   );
 
   const hasProjects = (projects?.length ?? 0) > 0;
@@ -1275,10 +1292,10 @@ function SingleSelectFilterMenu({
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] transition-colors ${
+        className={`inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] transition-colors ${
           selectedValue
-            ? 'border-accent/28 bg-[var(--color-accent-glow)] text-accent'
-            : 'border-subtle/45 bg-[var(--color-card)] text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
+            ? 'bg-accent/10 text-accent'
+            : 'bg-transparent text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
         }`}
       >
         <span className="font-medium">{label}</span>
@@ -1290,13 +1307,16 @@ function SingleSelectFilterMenu({
 
       {open && menuStyle && createPortal(
         <>
-          <div className="fixed inset-0 z-[1190] animate-fadeIn" onClick={() => setOpen(false)} />
+          <div
+            className="fixed inset-0 z-[1190] animate-fadeIn"
+            onMouseDown={(e) => { e.preventDefault(); setOpen(false); }}
+          />
           <div
             ref={menuRef}
             style={menuStyle}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            className="rounded-xl border border-subtle/35 bg-elevated shadow-lg shadow-black/35 overflow-hidden flex flex-col animate-scaleIn"
+            className="rounded-xl bg-elevated shadow-lg shadow-black/35 overflow-hidden flex flex-col animate-scaleIn"
           >
             <div className="px-3 py-2.5 bg-[var(--color-bg-secondary)]/45 flex items-center justify-between">
               <div className="text-xs font-medium">{label}</div>
@@ -1304,7 +1324,7 @@ function SingleSelectFilterMenu({
                 type="button"
                 onClick={() => {
                   onClear();
-                  setOpen(false);
+                  setTimeout(() => setOpen(false), 0);
                 }}
                 className="text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
               >
@@ -1357,7 +1377,7 @@ function SingleSelectFilterMenu({
                       type="button"
                       onClick={() => {
                         onSelect(item.value);
-                        setOpen(false);
+                        setTimeout(() => setOpen(false), 0);
                       }}
                       className="inline-flex items-center gap-1 px-1.5 py-1 rounded text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
                     >
@@ -1454,10 +1474,10 @@ function MultiSelectFilterMenu({
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] transition-colors ${
+        className={`inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] transition-colors ${
           selectedCount > 0
-            ? 'border-accent/28 bg-[var(--color-accent-glow)] text-accent'
-            : 'border-subtle/45 bg-[var(--color-card)] text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
+            ? 'bg-accent/10 text-accent'
+            : 'bg-transparent text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
         }`}
       >
         <span className="font-medium">{label}</span>
@@ -1469,13 +1489,16 @@ function MultiSelectFilterMenu({
 
       {open && menuStyle && createPortal(
         <>
-          <div className="fixed inset-0 z-[1190] animate-fadeIn" onClick={() => setOpen(false)} />
+          <div
+            className="fixed inset-0 z-[1190] animate-fadeIn"
+            onMouseDown={(e) => { e.preventDefault(); setOpen(false); }}
+          />
           <div
             ref={menuRef}
             style={menuStyle}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            className="rounded-xl border border-subtle/35 bg-elevated shadow-lg shadow-black/35 overflow-hidden flex flex-col animate-scaleIn"
+            className="rounded-xl bg-elevated shadow-lg shadow-black/35 overflow-hidden flex flex-col animate-scaleIn"
           >
             <div className="px-3 py-2.5 bg-[var(--color-bg-secondary)]/45 flex items-center justify-between">
               <div className="text-xs font-medium">{label}</div>
@@ -1535,7 +1558,7 @@ function MultiSelectFilterMenu({
                         type="button"
                         onClick={() => {
                           onOnly(item.value);
-                          setOpen(false);
+                          setTimeout(() => setOpen(false), 0);
                         }}
                         className="inline-flex items-center gap-1 px-1.5 py-1 rounded text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
                       >
@@ -1546,6 +1569,224 @@ function MultiSelectFilterMenu({
                   );
                 })
               )}
+            </div>
+          </div>
+        </>,
+        document.body,
+      )}
+    </>
+  );
+}
+
+interface CompactFilterPanelProps {
+  selectedProjectId?: string;
+  projectFilterItems: FilterOptionItem[];
+  statusFilter: Set<string>;
+  statusFilterItems: FilterOptionItem[];
+  statusFilterOrder: string[];
+  priorityFilter: Set<string>;
+  priorityFilterItems: FilterOptionItem[];
+  priorityFilterOrder: string[];
+  typeFilter: Set<string>;
+  typeFilterItems: FilterOptionItem[];
+  typeFilterOrder: string[];
+  labelFilter: Set<string>;
+  labelFilterItems: FilterOptionItem[];
+  labelFilterOrder: string[];
+  activeFilterCount: number;
+  onSelectProject: (projectId: string) => void;
+  onClearProject: () => void;
+  onToggleMultiFilter: (param: string, value: string, current: Set<string>, orderedValues: string[]) => void;
+  onResetAll: () => void;
+}
+
+function CompactFilterPanel({
+  selectedProjectId,
+  projectFilterItems,
+  statusFilter,
+  statusFilterItems,
+  statusFilterOrder,
+  priorityFilter,
+  priorityFilterItems,
+  priorityFilterOrder,
+  typeFilter,
+  typeFilterItems,
+  typeFilterOrder,
+  labelFilter,
+  labelFilterItems,
+  labelFilterOrder,
+  activeFilterCount,
+  onSelectProject,
+  onClearProject,
+  onToggleMultiFilter,
+  onResetAll,
+}: CompactFilterPanelProps) {
+  const [open, setOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const reposition = useCallback(() => {
+    setMenuStyle(buildMenuStyle(triggerRef.current, 320));
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    reposition();
+    const onEscape = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setOpen(false); };
+    const onOutside = (ev: MouseEvent) => {
+      const target = ev.target as Node;
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('keydown', onEscape);
+    document.addEventListener('mousedown', onOutside);
+    return () => {
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+      window.removeEventListener('keydown', onEscape);
+      document.removeEventListener('mousedown', onOutside);
+    };
+  }, [open, reposition]);
+
+  const sections: {
+    key: string;
+    label: string;
+    mode: 'single' | 'multi';
+    items: FilterOptionItem[];
+    selected: Set<string>;
+    param: string;
+    order: string[];
+  }[] = [
+    { key: 'project', label: 'PROJECT', mode: 'single', items: projectFilterItems, selected: new Set(selectedProjectId ? [selectedProjectId] : []), param: 'project', order: [] },
+    ...(statusFilterItems.length > 0 ? [{ key: 'status', label: 'STATUS', mode: 'multi' as const, items: statusFilterItems, selected: statusFilter, param: DASHBOARD_STATUS_PARAM, order: statusFilterOrder }] : []),
+    ...(priorityFilterItems.length > 0 ? [{ key: 'priority', label: 'PRIORITY', mode: 'multi' as const, items: priorityFilterItems, selected: priorityFilter, param: DASHBOARD_PRIORITY_PARAM, order: priorityFilterOrder }] : []),
+    ...(typeFilterItems.length > 0 ? [{ key: 'type', label: 'TYPE', mode: 'multi' as const, items: typeFilterItems, selected: typeFilter, param: DASHBOARD_TYPE_PARAM, order: typeFilterOrder }] : []),
+    ...(labelFilterItems.length > 0 ? [{ key: 'label', label: 'LABEL', mode: 'multi' as const, items: labelFilterItems, selected: labelFilter, param: DASHBOARD_LABEL_PARAM, order: labelFilterOrder }] : []),
+  ];
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] transition-colors ${
+          activeFilterCount > 0
+            ? 'bg-accent/10 text-accent'
+            : 'bg-transparent text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
+        }`}
+      >
+        <SlidersHorizontal size={12} />
+        <span className="font-medium">Filters</span>
+        {activeFilterCount > 0 && (
+          <span className="inline-flex items-center justify-center min-w-[16px] h-4 rounded-full bg-accent/20 text-accent text-[10px] font-medium px-1">
+            {activeFilterCount}
+          </span>
+        )}
+      </button>
+
+      {open && menuStyle && createPortal(
+        <>
+          <div
+            className="fixed inset-0 z-[1190] animate-fadeIn"
+            onMouseDown={(e) => { e.preventDefault(); setOpen(false); }}
+          />
+          <div
+            ref={menuRef}
+            style={menuStyle}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="rounded-xl bg-elevated shadow-lg shadow-black/35 overflow-hidden flex flex-col animate-scaleIn"
+          >
+            <div className="px-3 py-2.5 bg-[var(--color-bg-secondary)]/45 flex items-center justify-between">
+              <div className="text-xs font-medium">Filters</div>
+              <button
+                type="button"
+                onClick={() => {
+                  onResetAll();
+                  setTimeout(() => setOpen(false), 0);
+                }}
+                className="text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
+              >
+                Reset all
+              </button>
+            </div>
+
+            <div className="overflow-y-auto p-1.5 space-y-3">
+              {sections.map((section) => (
+                <div key={section.key}>
+                  <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-dim">
+                    {section.label}
+                  </div>
+                  {section.mode === 'single' ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClearProject();
+                          setTimeout(() => setOpen(false), 0);
+                        }}
+                        className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
+                          !selectedProjectId ? 'text-accent' : 'text-[var(--color-text-primary)] hover:bg-tertiary'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate">All projects</span>
+                          {!selectedProjectId && <Check size={12} className="text-accent shrink-0" />}
+                        </div>
+                      </button>
+                      {section.items.map((item) => {
+                        const active = item.value === selectedProjectId;
+                        return (
+                          <button
+                            key={item.value}
+                            type="button"
+                            onClick={() => {
+                              onSelectProject(item.value);
+                              setTimeout(() => setOpen(false), 0);
+                            }}
+                            className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
+                              active ? 'text-accent' : 'text-[var(--color-text-primary)] hover:bg-tertiary'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate">{item.label}</span>
+                              {active && <Check size={12} className="text-accent shrink-0" />}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </>
+                  ) : (
+                    section.items.map((item) => {
+                      const active = section.selected.has(item.value);
+                      return (
+                        <button
+                          key={item.value}
+                          type="button"
+                          onClick={() => onToggleMultiFilter(section.param, item.value, section.selected, section.order)}
+                          className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors hover:bg-tertiary ${
+                            active ? 'text-accent' : 'text-[var(--color-text-primary)]'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              className={`truncate ${item.toneClass ?? ''}`}
+                              style={item.toneColor ? { color: item.toneColor } : undefined}
+                            >
+                              {item.label}
+                            </span>
+                            {active && <Check size={12} className="text-accent shrink-0" />}
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </>,

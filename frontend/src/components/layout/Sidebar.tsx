@@ -12,6 +12,7 @@ import { useSidebarFocusStore } from '../../stores/sidebarFocus';
 import { useSidebarStore, selectIsExpanded } from '../../stores/sidebar';
 import { CreateProjectModal } from '../common/CreateProjectModal';
 import { getSessionStatusMeta } from '../../lib/sessionStatus';
+import { CodeburgIcon } from '../ui/CodeburgIcon';
 
 interface FocusableItem {
   type: 'project' | 'task';
@@ -170,14 +171,14 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
         className={`bg-canvas flex flex-col h-full`}
         style={sidebarStyle}
       >
-        {/* Header: just "C" logo */}
+        {/* Header: icon logo */}
         <div className="p-2 flex items-center justify-center">
           <button
             onClick={handleHomeClick}
-            className="w-8 h-8 rounded-md bg-tertiary hover:bg-[var(--color-border)] text-sm font-bold text-accent transition-colors flex items-center justify-center"
+            className="w-8 h-8 rounded-md hover:bg-tertiary text-dim hover:text-[var(--color-text-primary)] transition-colors flex items-center justify-center"
             title="Codeburg"
           >
-            C
+            <CodeburgIcon size={22} />
           </button>
         </div>
 
@@ -254,10 +255,13 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
       {/* Header */}
       <div className="px-4 pt-4 pb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <h1
+          <div
             onClick={handleHomeClick}
-            className="text-lg font-semibold text-[var(--color-text-primary)] hover:text-accent transition-colors cursor-pointer"
-          >Codeburg</h1>
+            className="flex items-center gap-2 hover:text-accent transition-colors cursor-pointer text-[var(--color-text-primary)]"
+          >
+            <CodeburgIcon size={22} />
+            <h1 className="text-lg font-semibold">Codeburg</h1>
+          </div>
           {waitingCount > 0 && (
             <span className="text-xs bg-[var(--color-warning)]/15 text-[var(--color-warning)] animate-pulse font-medium rounded-full px-1.5 py-0.5">
               {waitingCount}

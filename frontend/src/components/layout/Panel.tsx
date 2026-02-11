@@ -2,7 +2,7 @@ import { useEffect, useCallback, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { usePanelStore, PANEL_WIDTH_MIN, PANEL_WIDTH_MAX, PANEL_WIDTH_DEFAULT } from '../../stores/panel';
 import { useMobile } from '../../hooks/useMobile';
 import { HeaderProvider, Header } from './Header';
@@ -12,7 +12,7 @@ interface PanelProps {
 }
 
 export function Panel({ children }: PanelProps) {
-  const { size, width, setWidth } = usePanelStore();
+  const { size, width, setWidth, toggleSize } = usePanelStore();
   const isMobile = useMobile();
   const navigate = useNavigate();
   const effectiveSize = isMobile ? 'full' : size;
@@ -134,23 +134,37 @@ export function Panel({ children }: PanelProps) {
               onDoubleClick={() => setWidth(PANEL_WIDTH_DEFAULT)}
               className="absolute inset-y-0 left-0 w-1.5 cursor-col-resize hover:bg-accent/40 active:bg-accent/60 transition-colors"
             />
-            {/* Collapse button — appears on edge hover */}
-            <button
-              onClick={handleClose}
-              onMouseDown={(e) => e.stopPropagation()}
-              className={[
-                'absolute top-1/2 -translate-y-1/2 left-0',
-                'w-3.5 h-9 flex items-center justify-center',
-                'rounded-r-lg',
-                'opacity-0 group-hover/edge:opacity-100',
-                'bg-transparent group-hover/edge:bg-tertiary hover:!bg-accent/20',
-                'transition-all duration-150',
-                'cursor-pointer',
-              ].join(' ')}
-              title="Close panel"
-            >
-              <ChevronRight size={11} className="text-dim" />
-            </button>
+            {/* Expand + Collapse buttons — appear on edge hover */}
+            <div className="absolute top-1/2 -translate-y-1/2 left-0 flex flex-col opacity-0 group-hover/edge:opacity-100 transition-opacity duration-150">
+              <button
+                onClick={toggleSize}
+                onMouseDown={(e) => e.stopPropagation()}
+                className={[
+                  'w-3.5 h-5 flex items-center justify-center',
+                  'rounded-tr-lg',
+                  'bg-transparent group-hover/edge:bg-tertiary hover:!bg-accent/20',
+                  'transition-colors duration-150',
+                  'cursor-pointer',
+                ].join(' ')}
+                title="Expand panel"
+              >
+                <ChevronLeft size={11} className="text-dim" />
+              </button>
+              <button
+                onClick={handleClose}
+                onMouseDown={(e) => e.stopPropagation()}
+                className={[
+                  'w-3.5 h-5 flex items-center justify-center',
+                  'rounded-br-lg',
+                  'bg-transparent group-hover/edge:bg-tertiary hover:!bg-accent/20',
+                  'transition-colors duration-150',
+                  'cursor-pointer',
+                ].join(' ')}
+                title="Close panel"
+              >
+                <ChevronRight size={11} className="text-dim" />
+              </button>
+            </div>
           </div>
         )}
 
