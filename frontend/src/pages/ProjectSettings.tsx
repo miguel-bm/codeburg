@@ -1,13 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowRight, CheckCircle2, Maximize2, Minimize2, Settings, X, Zap } from 'lucide-react';
+import { AlertTriangle, Archive, ArrowRight, CheckCircle2, Eye, EyeOff, Maximize2, Minimize2, Settings, Trash2, X, Zap } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
 import { projectsApi } from '../api';
 import { usePanelStore } from '../stores/panel';
 import { useMobile } from '../hooks/useMobile';
 import type { Project, ProjectWorkflow, BacklogToProgressConfig, ProgressToReviewConfig, ReviewToDoneConfig } from '../api';
 import { SectionCard, SectionHeader, SectionBody, FieldRow, FieldLabel, Toggle } from '../components/ui/settings';
+import { Modal } from '../components/ui/Modal';
 import { Breadcrumb } from '../components/ui/Breadcrumb';
 import { Button } from '../components/ui/Button';
 import { IconButton } from '../components/ui/IconButton';
@@ -16,9 +17,12 @@ import type { SelectOption } from '../components/ui/Select';
 import { SettingsShell } from '../components/ui/SettingsShell';
 import type { SettingsShellSection } from '../components/ui/SettingsShell';
 
-const PROJECT_SETTINGS_GROUP_LABELS: Record<'project' | 'automation', string> = {
+type ProjectSettingsGroup = 'project' | 'automation' | 'danger';
+
+const PROJECT_SETTINGS_GROUP_LABELS: Record<ProjectSettingsGroup, string> = {
   project: 'Project',
   automation: 'Automation',
+  danger: 'Danger zone',
 };
 
 export function ProjectSettings() {
@@ -58,7 +62,7 @@ export function ProjectSettings() {
   );
 
   const sections = useMemo(() => {
-    if (!project) return [] as SettingsShellSection<'project' | 'automation'>[];
+    if (!project) return [] as SettingsShellSection<ProjectSettingsGroup>[];
     return [
       {
         id: 'general',
@@ -78,7 +82,16 @@ export function ProjectSettings() {
         icon: <Zap size={15} />,
         content: <WorkflowSection project={project} />,
       },
-    ] satisfies SettingsShellSection<'project' | 'automation'>[];
+      {
+        id: 'danger',
+        group: 'danger',
+        title: 'Danger zone',
+        description: 'Hide, archive, or delete this project',
+        keywords: ['hide', 'archive', 'delete', 'remove', 'danger'],
+        icon: <AlertTriangle size={15} />,
+        content: <DangerSection project={project} />,
+      },
+    ] satisfies SettingsShellSection<ProjectSettingsGroup>[];
   }, [project]);
 
   if (isLoading) {
@@ -99,7 +112,7 @@ export function ProjectSettings() {
   return (
     <SettingsShell
       sections={sections}
-      groupOrder={['project', 'automation']}
+      groupOrder={['project', 'automation', 'danger']}
       groupLabels={PROJECT_SETTINGS_GROUP_LABELS}
       initialSectionId="general"
       navTitle="Project settings"
@@ -446,6 +459,167 @@ function WorkflowSection({ project }: { project: Project }) {
           Save Workflow
         </Button>
       </SectionBody>
+    </SectionCard>
+  );
+}
+
+/* ─── Danger Section ─────────────────────────────────────────────────── */
+
+function DangerSection({ project }: { project: Project }) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [showArchiveModal, setShowArchiveModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+
+  const hideMutation = useMutation({
+    mutationFn: () => projectsApi.update(project.id, { hidden: !project.hidden }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', project.id] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+    },
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: () => projectsApi.archive(project.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+      navigate('/');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => projectsApi.delete(project.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+      navigate('/');
+    },
+  });
+
+  return (
+    <SectionCard>
+      <SectionHeader
+        title="Danger zone"
+        description="Hide, archive, or delete this project"
+        icon={<AlertTriangle size={15} />}
+      />
+
+      {/* Hide / Unhide */}
+      <SectionBody bordered>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium text-[var(--color-text-primary)]">
+              {project.hidden ? 'Unhide project' : 'Hide project'}
+            </h3>
+            <p className="text-xs text-dim mt-0.5">
+              {project.hidden
+                ? 'Show this project in the sidebar and filters again.'
+                : 'Remove from sidebar and filters. Data is preserved.'}
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            size="md"
+            onClick={() => hideMutation.mutate()}
+            disabled={hideMutation.isPending}
+            loading={hideMutation.isPending}
+          >
+            {project.hidden ? <><Eye size={14} /> Unhide</> : <><EyeOff size={14} /> Hide</>}
+          </Button>
+        </div>
+      </SectionBody>
+
+      {/* Archive */}
+      <SectionBody bordered>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium text-[var(--color-text-primary)]">Archive project</h3>
+            <p className="text-xs text-dim mt-0.5">
+              Export all data to a JSON file and remove from the database. Can be restored later.
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            size="md"
+            onClick={() => setShowArchiveModal(true)}
+          >
+            <Archive size={14} /> Archive
+          </Button>
+        </div>
+      </SectionBody>
+
+      {/* Delete */}
+      <SectionBody>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium text-[var(--color-error)]">Delete project</h3>
+            <p className="text-xs text-dim mt-0.5">
+              Permanently delete this project and all its tasks. This cannot be undone.
+            </p>
+          </div>
+          <Button
+            variant="danger"
+            size="md"
+            onClick={() => setShowDeleteModal(true)}
+          >
+            <Trash2 size={14} /> Delete
+          </Button>
+        </div>
+      </SectionBody>
+
+      {/* Archive confirmation modal */}
+      <Modal open={showArchiveModal} onClose={() => setShowArchiveModal(false)} title="Archive project" size="sm">
+        <p className="text-sm text-dim mb-4">
+          This will export <span className="font-medium text-[var(--color-text-primary)]">{project.name}</span> and all its tasks to a JSON file, then remove it from the database. You can restore it later from Settings.
+        </p>
+        {archiveMutation.isError && (
+          <div className="text-sm text-[var(--color-error)] mb-3">
+            {archiveMutation.error instanceof Error ? archiveMutation.error.message : 'Failed to archive'}
+          </div>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" size="md" onClick={() => setShowArchiveModal(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="md"
+            onClick={() => archiveMutation.mutate()}
+            disabled={archiveMutation.isPending}
+            loading={archiveMutation.isPending}
+          >
+            Archive
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Delete confirmation modal */}
+      <Modal open={showDeleteModal} onClose={() => setShowDeleteModal(false)} title="Delete project" size="sm">
+        <p className="text-sm text-dim mb-4">
+          This will permanently delete <span className="font-medium text-[var(--color-text-primary)]">{project.name}</span> and all its tasks, sessions, and labels. This cannot be undone.
+        </p>
+        {deleteMutation.isError && (
+          <div className="text-sm text-[var(--color-error)] mb-3">
+            {deleteMutation.error instanceof Error ? deleteMutation.error.message : 'Failed to delete'}
+          </div>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" size="md" onClick={() => setShowDeleteModal(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            size="md"
+            onClick={() => deleteMutation.mutate()}
+            disabled={deleteMutation.isPending}
+            loading={deleteMutation.isPending}
+          >
+            Delete permanently
+          </Button>
+        </div>
+      </Modal>
     </SectionCard>
   );
 }

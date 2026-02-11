@@ -170,6 +170,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   const [warning, setWarning] = useState<string | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const columnRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const kanbanScrollRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -182,6 +183,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   useEffect(() => {
     if (prevSidebarFocused.current && !sidebarFocused) {
       setFocus({ col: 0, card: 0 });
+      kanbanScrollRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
     }
     prevSidebarFocused.current = sidebarFocused;
   }, [sidebarFocused]);
@@ -374,7 +376,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   }, [headerHost]);
 
   const projectFilterItems = useMemo(
-    () => (projects ?? []).map((project) => ({
+    () => (projects ?? []).filter((p) => !p.hidden).map((project) => ({
       value: project.id,
       label: project.name,
       description: project.path,
@@ -705,6 +707,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     if (!focus || focus.col === 0) {
       enterSidebar();
       setFocus(null);
+      kanbanScrollRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
       return;
     }
     setFocus((f) => {
@@ -770,10 +773,16 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
       h: handleNavLeft,
       ArrowRight: () => setFocus((f) => {
         const col = Math.min((f?.col ?? -1) + 1, COLUMNS.length - 1);
+        if (col === COLUMNS.length - 1) {
+          kanbanScrollRef.current?.scrollTo({ left: kanbanScrollRef.current.scrollWidth, behavior: 'smooth' });
+        }
         return { col, card: Math.min(f?.card ?? 0, getMaxCard(col)) };
       }),
       l: () => setFocus((f) => {
         const col = Math.min((f?.col ?? -1) + 1, COLUMNS.length - 1);
+        if (col === COLUMNS.length - 1) {
+          kanbanScrollRef.current?.scrollTo({ left: kanbanScrollRef.current.scrollWidth, behavior: 'smooth' });
+        }
         return { col, card: Math.min(f?.card ?? 0, getMaxCard(col)) };
       }),
       ArrowUp: () => setFocus((f) => f ? { ...f, card: Math.max(f.card - 1, 0) } : { col: 0, card: 0 }),
@@ -1054,7 +1063,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
             </div>
           ) : (
             // Desktop: Horizontal scrolling kanban with custom DnD
-            <div className="px-3 py-3 h-full overflow-x-auto">
+            <div ref={kanbanScrollRef} className="px-3 py-3 h-full overflow-x-auto">
               <div className="flex gap-2 h-full min-w-[1200px]">
                 {COLUMNS.map((column, colIdx) => {
                   const colTasks = getTasksByStatus(column.id);

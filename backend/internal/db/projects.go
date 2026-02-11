@@ -55,6 +55,7 @@ type Project struct {
 	SetupScript    *string            `json:"setupScript,omitempty"`
 	TeardownScript *string            `json:"teardownScript,omitempty"`
 	Workflow       *ProjectWorkflow   `json:"workflow,omitempty"`
+	Hidden         bool               `json:"hidden"`
 	CreatedAt      time.Time          `json:"createdAt"`
 	UpdatedAt      time.Time          `json:"updatedAt"`
 }
@@ -81,6 +82,7 @@ type UpdateProjectInput struct {
 	SetupScript    *string            `json:"setupScript,omitempty"`
 	TeardownScript *string            `json:"teardownScript,omitempty"`
 	Workflow       *ProjectWorkflow   `json:"workflow,omitempty"`
+	Hidden         *bool              `json:"hidden,omitempty"`
 }
 
 // CreateProject creates a new project
@@ -123,8 +125,8 @@ func (db *DB) CreateProject(input CreateProjectInput) (*Project, error) {
 	}
 
 	_, err := db.conn.Exec(`
-		INSERT INTO projects (id, name, path, git_origin, default_branch, symlink_paths, secret_files, setup_script, teardown_script, workflow, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO projects (id, name, path, git_origin, default_branch, symlink_paths, secret_files, setup_script, teardown_script, workflow, hidden, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, ?, ?)
 	`, id, input.Name, input.Path, NullString(input.GitOrigin), defaultBranch, symlinkPathsJSON, secretFilesJSON, NullString(input.SetupScript), NullString(input.TeardownScript), workflowJSON, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("insert project: %w", err)
@@ -136,7 +138,7 @@ func (db *DB) CreateProject(input CreateProjectInput) (*Project, error) {
 // GetProject retrieves a project by ID
 func (db *DB) GetProject(id string) (*Project, error) {
 	row := db.conn.QueryRow(`
-		SELECT id, name, path, git_origin, default_branch, symlink_paths, secret_files, setup_script, teardown_script, workflow, created_at, updated_at
+		SELECT id, name, path, git_origin, default_branch, symlink_paths, secret_files, setup_script, teardown_script, workflow, hidden, created_at, updated_at
 		FROM projects WHERE id = ?
 	`, id)
 
@@ -150,7 +152,7 @@ func (db *DB) GetProject(id string) (*Project, error) {
 // ListProjects retrieves all projects
 func (db *DB) ListProjects() ([]*Project, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, name, path, git_origin, default_branch, symlink_paths, secret_files, setup_script, teardown_script, workflow, created_at, updated_at
+		SELECT id, name, path, git_origin, default_branch, symlink_paths, secret_files, setup_script, teardown_script, workflow, hidden, created_at, updated_at
 		FROM projects ORDER BY name
 	`)
 	if err != nil {
@@ -224,6 +226,10 @@ func (db *DB) UpdateProject(id string, input UpdateProjectInput) (*Project, erro
 		query += ", workflow = ?"
 		args = append(args, string(data))
 	}
+	if input.Hidden != nil {
+		query += ", hidden = ?"
+		args = append(args, *input.Hidden)
+	}
 
 	query += " WHERE id = ?"
 	args = append(args, id)
@@ -266,7 +272,7 @@ func scanProject(scan scanFunc) (*Project, error) {
 	var p Project
 	var gitOrigin, symlinkPathsJSON, secretFilesJSON, setupScript, teardownScript, workflowJSON sql.NullString
 
-	err := scan(&p.ID, &p.Name, &p.Path, &gitOrigin, &p.DefaultBranch, &symlinkPathsJSON, &secretFilesJSON, &setupScript, &teardownScript, &workflowJSON, &p.CreatedAt, &p.UpdatedAt)
+	err := scan(&p.ID, &p.Name, &p.Path, &gitOrigin, &p.DefaultBranch, &symlinkPathsJSON, &secretFilesJSON, &setupScript, &teardownScript, &workflowJSON, &p.Hidden, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}

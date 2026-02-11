@@ -21,6 +21,7 @@ type SidebarProject struct {
 	ID     string        `json:"id"`
 	Name   string        `json:"name"`
 	Pinned bool          `json:"pinned"`
+	Hidden bool          `json:"hidden"`
 	Tasks  []SidebarTask `json:"tasks"`
 }
 
@@ -215,6 +216,7 @@ func (s *Server) handleSidebar(w http.ResponseWriter, r *http.Request) {
 			ID:     p.ID,
 			Name:   p.Name,
 			Pinned: pinnedSet[p.ID],
+			Hidden: p.Hidden,
 			Tasks:  make([]SidebarTask, 0),
 		}
 

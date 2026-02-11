@@ -42,6 +42,7 @@ export interface Project {
   setupScript?: string;
   teardownScript?: string;
   workflow?: ProjectWorkflow;
+  hidden: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -71,6 +72,7 @@ export interface UpdateProjectInput {
   setupScript?: string;
   teardownScript?: string;
   workflow?: ProjectWorkflow;
+  hidden?: boolean;
 }
 
 export interface WorktreeResponse {
@@ -165,6 +167,7 @@ export interface SidebarProject {
   id: string;
   name: string;
   pinned: boolean;
+  hidden: boolean;
   tasks: SidebarTask[];
 }
 
@@ -183,6 +186,14 @@ export interface SidebarSession {
   provider: SessionProvider;
   status: SessionStatus;
   number: number;
+}
+
+export interface ArchiveInfo {
+  filename: string;
+  projectName: string;
+  projectId: string;
+  archivedAt: string;
+  size: number;
 }
 
 export interface AuthStatus {

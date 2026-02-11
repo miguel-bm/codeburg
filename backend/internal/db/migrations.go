@@ -243,4 +243,11 @@ var migrations = []migration{
 			ALTER TABLE projects ADD COLUMN secret_files TEXT;
 		`,
 	},
+	{
+		version: 12,
+		sql: `
+			-- Allow hiding projects from sidebar and filters
+			ALTER TABLE projects ADD COLUMN hidden BOOLEAN DEFAULT FALSE;
+		`,
+	},
 }

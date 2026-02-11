@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { Project, CreateProjectInput, UpdateProjectInput, ProjectSecretFile } from './types';
+import type { Project, CreateProjectInput, UpdateProjectInput, ProjectSecretFile, ArchiveInfo } from './types';
 
 export interface ProjectFileEntry {
   name: string;
@@ -126,4 +126,16 @@ export const projectsApi = {
 
   syncDefaultBranch: (id: string) =>
     api.post<ProjectSyncDefaultBranchResponse>(`/projects/${id}/sync-default-branch`),
+
+  archive: (id: string) =>
+    api.post<{ filename: string; path: string }>(`/projects/${id}/archive`),
+
+  listArchives: () =>
+    api.get<ArchiveInfo[]>('/archives'),
+
+  unarchive: (filename: string) =>
+    api.post<Project>(`/archives/${encodeURIComponent(filename)}/unarchive`),
+
+  deleteArchive: (filename: string) =>
+    api.delete(`/archives/${encodeURIComponent(filename)}`),
 };

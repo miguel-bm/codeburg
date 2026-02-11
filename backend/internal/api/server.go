@@ -264,6 +264,12 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/tasks/{id}/ports/scan", s.handleScanTaskPorts)
 		r.Delete("/api/tunnels/{id}", s.handleStopTunnel)
 
+		// Archives
+		r.Post("/api/projects/{id}/archive", s.handleArchiveProject)
+		r.Get("/api/archives", s.handleListArchives)
+		r.Post("/api/archives/{filename}/unarchive", s.handleUnarchiveProject)
+		r.Delete("/api/archives/{filename}", s.handleDeleteArchive)
+
 		// Telegram bot management
 		r.Post("/api/telegram/bot/restart", s.handleRestartTelegramBot)
 

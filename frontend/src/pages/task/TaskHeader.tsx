@@ -1,14 +1,13 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Maximize2, Minimize2, Pin, Trash2, X } from 'lucide-react';
+import { ChevronDown, GitBranch, Maximize2, Minimize2, Pin, Trash2, X } from 'lucide-react';
 import { useSetHeader } from '../../components/layout/Header';
 import { Breadcrumb } from '../../components/ui/Breadcrumb';
 import { tasksApi, invalidateTaskQueries } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { Task, Project } from '../../api/types';
 import { usePanelStore } from '../../stores/panel';
-import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { IconButton } from '../../components/ui/IconButton';
 import { Modal } from '../../components/ui/Modal';
@@ -25,6 +24,13 @@ export const statusColors: Record<string, string> = {
   [TASK_STATUS.IN_PROGRESS]: 'bg-[var(--color-status-in-progress)]/15 text-[var(--color-status-in-progress)]',
   [TASK_STATUS.IN_REVIEW]: 'bg-[var(--color-status-in-review)]/15 text-[var(--color-status-in-review)]',
   [TASK_STATUS.DONE]: 'bg-[var(--color-status-done)]/15 text-[var(--color-status-done)]',
+};
+
+const statusTextColorMap: Record<string, string> = {
+  [TASK_STATUS.BACKLOG]: 'var(--color-status-backlog)',
+  [TASK_STATUS.IN_PROGRESS]: 'var(--color-status-in-progress)',
+  [TASK_STATUS.IN_REVIEW]: 'var(--color-status-in-review)',
+  [TASK_STATUS.DONE]: 'var(--color-status-done)',
 };
 
 export const statusLabels: Record<string, string> = {
@@ -110,14 +116,12 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
       <div className="flex items-center gap-3 min-w-0">
         <Breadcrumb items={[
           ...(project ? [{ label: project.name, href: `/projects/${project.id}` }] : []),
-          { label: task.title },
+          { label: task.title, style: { color: statusTextColorMap[task.status] } },
         ]} />
-        <Badge variant="status" status={task.status as 'backlog' | 'in_progress' | 'in_review' | 'done'} className="shrink-0">
-          {statusLabels[task.status] || task.status}
-        </Badge>
         {task.branch && (
-          <span className="text-xs text-dim font-mono shrink-0 hidden sm:inline">
-            {task.branch}
+          <span className="items-center gap-1 text-xs text-dim font-mono min-w-0 hidden sm:flex" title={task.branch}>
+            <GitBranch size={11} className="shrink-0" />
+            <span className="truncate">{task.branch}</span>
           </span>
         )}
         {expandable && (

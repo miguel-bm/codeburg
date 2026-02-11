@@ -2,8 +2,8 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronDown, ChevronUp, X, Settings, ChevronRight, Pin, PanelLeftClose, PanelLeftOpen, GitPullRequest, GitBranch, Funnel, FolderOpen, Plus } from 'lucide-react';
-import { tasksApi, preferencesApi, invalidateTaskQueries, TASK_STATUS } from '../../api';
+import { ChevronDown, ChevronUp, X, Settings, ChevronRight, Pin, PanelLeftClose, PanelLeftOpen, GitPullRequest, GitBranch, Funnel, FolderOpen, Plus, Eye, EyeOff } from 'lucide-react';
+import { tasksApi, projectsApi, preferencesApi, invalidateTaskQueries, TASK_STATUS } from '../../api';
 import type { SidebarProject, SidebarTask, SidebarSession, SidebarData } from '../../api';
 import { useSidebarData } from '../../hooks/useSidebarData';
 import { useKeyboardNav } from '../../hooks/useKeyboardNav';
@@ -54,6 +54,16 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
 
   const { data: sidebar, isLoading } = useSidebarData();
 
+  const visibleProjects = useMemo(
+    () => (sidebar?.projects ?? []).filter((p) => !p.hidden),
+    [sidebar],
+  );
+  const hiddenProjects = useMemo(
+    () => (sidebar?.projects ?? []).filter((p) => p.hidden),
+    [sidebar],
+  );
+  const [showHidden, setShowHidden] = useState(false);
+
   const waitingCount = countWaiting(sidebar);
 
   const sidebarFocused = useSidebarFocusStore((s) => s.focused);
@@ -82,11 +92,11 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
     setCollapseVersion((v) => v + 1);
   }, []);
 
-  // Build flat list of focusable sidebar items
+  // Build flat list of focusable sidebar items (visible projects only)
   const focusableItems = useMemo((): FocusableItem[] => {
-    if (!sidebar?.projects) return [];
+    if (!visibleProjects.length) return [];
     const items: FocusableItem[] = [];
-    for (const p of sidebar.projects) {
+    for (const p of visibleProjects) {
       items.push({ type: 'project', id: p.id });
       const isCollapsed = localStorage.getItem(`sidebar-collapse-${p.id}`) === 'true';
       if (!isCollapsed) {
@@ -103,7 +113,7 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
     return items;
     // collapseVersion/collapseSignal included to recalculate when projects are toggled
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sidebar, collapseVersion, collapseSignal]);
+  }, [visibleProjects, collapseVersion, collapseSignal]);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -201,13 +211,13 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
                 <div key={i} className="w-8 h-8 rounded-full bg-tertiary animate-pulse" />
               ))}
             </div>
-          ) : !sidebar?.projects?.length ? (
+          ) : !visibleProjects.length ? (
             <div className="p-2 text-center">
               <span className="text-dim text-xs">--</span>
             </div>
           ) : (
             <div className="flex flex-col items-center gap-1">
-              {sidebar.projects.map((project) => {
+              {visibleProjects.map((project) => {
                 const isActive = activeProjectPageId === project.id;
                 const firstLetter = project.name.charAt(0).toUpperCase();
                 return (
@@ -313,36 +323,47 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
               </div>
             ))}
           </div>
-        ) : !sidebar?.projects?.length ? (
+        ) : !visibleProjects.length && !hiddenProjects.length ? (
           <div className="px-4 py-8 text-sm text-dim text-center flex flex-col items-center gap-2">
             <FolderOpen size={32} className="text-dim" />
             No projects yet
           </div>
         ) : (
-          sidebar.projects.map((project) => {
-            const focusedItem = sidebarFocused ? focusableItems[sidebarIndex] : null;
-            return (
-              <SidebarProjectNode
-                key={project.id}
-                project={project}
-                isActive={activeProjectPageId === project.id}
-                isFiltered={location.pathname === '/' && activeProjectId === project.id}
+          <>
+            {visibleProjects.map((project) => {
+              const focusedItem = sidebarFocused ? focusableItems[sidebarIndex] : null;
+              return (
+                <SidebarProjectNode
+                  key={project.id}
+                  project={project}
+                  isActive={activeProjectPageId === project.id}
+                  isFiltered={location.pathname === '/' && activeProjectId === project.id}
+                  onProjectClick={handleProjectClick}
+                  onProjectFilterClick={handleProjectFilterClick}
+                  onClose={onClose}
+                  collapseSignal={collapseSignal}
+                  forceCollapsed={allCollapsed}
+                  onCollapseToggle={handleCollapseToggle}
+                  keyboardFocused={focusedItem?.type === 'project' && focusedItem.id === project.id}
+                  focusedTaskId={focusedItem?.type === 'task' && focusedItem.projectId === project.id ? focusedItem.id : undefined}
+                  addTaskFocused={focusedItem?.type === 'add-task' && focusedItem.projectId === project.id}
+                  onOpenWizard={() => {
+                    navigate(`/tasks/new?project=${project.id}&status=${TASK_STATUS.IN_PROGRESS}`);
+                    onClose?.();
+                  }}
+                />
+              );
+            })}
+            {hiddenProjects.length > 0 && (
+              <HiddenProjectsSection
+                projects={hiddenProjects}
+                expanded={showHidden}
+                onToggle={() => setShowHidden((v) => !v)}
                 onProjectClick={handleProjectClick}
-                onProjectFilterClick={handleProjectFilterClick}
-                onClose={onClose}
-                collapseSignal={collapseSignal}
-                forceCollapsed={allCollapsed}
-                onCollapseToggle={handleCollapseToggle}
-                keyboardFocused={focusedItem?.type === 'project' && focusedItem.id === project.id}
-                focusedTaskId={focusedItem?.type === 'task' && focusedItem.projectId === project.id ? focusedItem.id : undefined}
-                addTaskFocused={focusedItem?.type === 'add-task' && focusedItem.projectId === project.id}
-                onOpenWizard={() => {
-                  navigate(`/tasks/new?project=${project.id}&status=${TASK_STATUS.IN_PROGRESS}`);
-                  onClose?.();
-                }}
+                activeProjectPageId={activeProjectPageId}
               />
-            );
-          })
+            )}
+          </>
         )}
       </div>
 
@@ -512,6 +533,76 @@ function SidebarProjectNode({ project, isActive, isFiltered, onProjectClick, onP
               ))}
               <AddTaskButton projectId={project.id} onOpenWizard={onOpenWizard} keyboardFocused={addTaskFocused} />
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// --- Hidden Projects Section ---
+
+interface HiddenProjectsSectionProps {
+  projects: SidebarProject[];
+  expanded: boolean;
+  onToggle: () => void;
+  onProjectClick: (id: string) => void;
+  activeProjectPageId?: string;
+}
+
+function HiddenProjectsSection({ projects, expanded, onToggle, onProjectClick, activeProjectPageId }: HiddenProjectsSectionProps) {
+  const queryClient = useQueryClient();
+
+  const unhideMutation = useMutation({
+    mutationFn: (id: string) => projectsApi.update(id, { hidden: false }),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+    },
+  });
+
+  return (
+    <div className="mt-1 border-t border-subtle">
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-dim hover:text-[var(--color-text-secondary)] transition-colors"
+      >
+        <EyeOff size={12} />
+        <span>Hidden ({projects.length})</span>
+        <ChevronRight size={10} className={`ml-auto transition-transform ${expanded ? 'rotate-90' : ''}`} />
+      </button>
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
+            className="overflow-hidden"
+          >
+            {projects.map((project) => (
+              <div
+                key={project.id}
+                className={`flex items-center gap-2 px-3 py-1.5 mx-1 text-xs rounded-md group ${
+                  activeProjectPageId === project.id ? 'bg-tertiary' : 'hover:bg-tertiary'
+                }`}
+              >
+                <span
+                  className="truncate flex-1 text-dim cursor-pointer hover:text-[var(--color-text-secondary)]"
+                  onClick={() => onProjectClick(project.id)}
+                >
+                  {project.name}
+                </span>
+                <button
+                  onClick={() => unhideMutation.mutate(project.id)}
+                  className="flex-shrink-0 text-transparent group-hover:text-dim hover:!text-accent transition-colors"
+                  title="Unhide project"
+                >
+                  <Eye size={12} />
+                </button>
+              </div>
+            ))}
           </motion.div>
         )}
       </AnimatePresence>
