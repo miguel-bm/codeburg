@@ -6,6 +6,7 @@ import { Login } from './pages/Login';
 import { DashboardWithPanels } from './pages/DashboardWithPanels';
 import { TaskDetail } from './pages/TaskDetail';
 import { TaskCreate } from './pages/task/TaskCreate';
+import { QuickTaskWizard } from './components/layout/QuickTaskWizard';
 import { ProjectSettings } from './pages/ProjectSettings';
 import { ProjectWorkspace } from './pages/ProjectWorkspace';
 import { Settings } from './pages/Settings';
@@ -56,6 +57,7 @@ function MainAppShell() {
     <>
       <Routes>
         <Route path="/" element={<Layout><DashboardWithPanels /></Layout>}>
+          <Route path="tasks/quick" element={<QuickTaskWizard />} />
           <Route path="tasks/new" element={<TaskCreate />} />
           <Route path="tasks/:id" element={<TaskDetail />} />
           <Route path="projects/:id" element={<ProjectWorkspace />} />

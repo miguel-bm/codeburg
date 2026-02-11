@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Home } from 'lucide-react';
 
 interface BreadcrumbItem {
   label: string;
@@ -15,7 +15,12 @@ interface BreadcrumbProps {
 
 export function Breadcrumb({ items, className = '' }: BreadcrumbProps) {
   return (
-    <nav className={`flex items-center gap-1 text-xs ${className}`}>
+    <nav className={`flex items-center gap-1 text-sm ${className}`}>
+      <span className="inline-flex items-center gap-1">
+        <Link to="/" className="text-dim hover:text-[var(--color-text-secondary)] transition-colors">
+          <Home size={14} />
+        </Link>
+      </span>
       {items.map((item, i) => {
         const isLast = i === items.length - 1;
         const content = (
@@ -27,7 +32,7 @@ export function Breadcrumb({ items, className = '' }: BreadcrumbProps) {
 
         return (
           <span key={i} className="inline-flex items-center gap-1">
-            {i > 0 && <ChevronRight size={12} className="text-dim flex-shrink-0" />}
+            <ChevronRight size={12} className="text-dim flex-shrink-0" />
             {isLast ? (
               <span className="text-[var(--color-text-primary)]">{content}</span>
             ) : item.href ? (

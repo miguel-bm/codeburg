@@ -35,6 +35,15 @@ const COLUMNS: { id: TaskStatus; title: string; color: string }[] = [
   { id: TASK_STATUS.DONE, title: 'Done', color: 'status-done' },
 ];
 
+const CREATE_TASK_STATUSES = new Set<TaskStatus>([
+  TASK_STATUS.BACKLOG,
+  TASK_STATUS.IN_PROGRESS,
+]);
+
+function canCreateTaskInStatus(status: TaskStatus): boolean {
+  return CREATE_TASK_STATUSES.has(status);
+}
+
 interface ContextMenu {
   taskId: string;
   x: number;
@@ -440,6 +449,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         <CompactFilterPanel
           selectedProjectId={selectedProjectId}
           projectFilterItems={projectFilterItems}
+          showStatusFilter={view === 'list'}
           statusFilter={statusFilter}
           statusFilterItems={statusFilterItems}
           statusFilterOrder={statusFilterOrder}
@@ -481,20 +491,22 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
             searchable
           />
 
-          <MultiSelectFilterMenu
-            label="Status"
-            selected={statusFilter}
-            items={statusFilterItems}
-            emptyMessage="No statuses available."
-            onToggle={(value) => toggleMultiFilterValue(
-              DASHBOARD_STATUS_PARAM,
-              value,
-              statusFilter,
-              statusFilterOrder,
-            )}
-            onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_STATUS_PARAM, value)}
-            onReset={() => updateDashboardParams({ [DASHBOARD_STATUS_PARAM]: null })}
-          />
+          {view === 'list' && (
+            <MultiSelectFilterMenu
+              label="Status"
+              selected={statusFilter}
+              items={statusFilterItems}
+              emptyMessage="No statuses available."
+              onToggle={(value) => toggleMultiFilterValue(
+                DASHBOARD_STATUS_PARAM,
+                value,
+                statusFilter,
+                statusFilterOrder,
+              )}
+              onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_STATUS_PARAM, value)}
+              onReset={() => updateDashboardParams({ [DASHBOARD_STATUS_PARAM]: null })}
+            />
+          )}
 
           <MultiSelectFilterMenu
             label="Priority"
@@ -567,9 +579,11 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   const hasProjects = (projects?.length ?? 0) > 0;
 
   const navigateToCreate = useCallback((status?: TaskStatus) => {
+    if (status && !canCreateTaskInStatus(status)) return;
+    const targetStatus = status === TASK_STATUS.IN_PROGRESS ? TASK_STATUS.IN_PROGRESS : TASK_STATUS.BACKLOG;
     const params = new URLSearchParams();
     if (selectedProjectId) params.set('project', selectedProjectId);
-    if (status && status !== TASK_STATUS.BACKLOG) params.set('status', status);
+    if (targetStatus !== TASK_STATUS.BACKLOG) params.set('status', targetStatus);
     const qs = params.toString();
     navigate(`/tasks/new${qs ? `?${qs}` : ''}`);
   }, [navigate, selectedProjectId]);
@@ -623,7 +637,13 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   const STATUS_ORDER: TaskStatus[] = COLUMNS.map((c) => c.id);
 
   const getMaxCard = useCallback(
-    (colIdx: number): number => getColumnTasks(colIdx).length,
+    (colIdx: number): number => {
+      const count = getColumnTasks(colIdx).length;
+      const status = COLUMNS[colIdx]?.id;
+      if (!status) return 0;
+      if (canCreateTaskInStatus(status)) return count;
+      return count === 0 ? 0 : count - 1;
+    },
     [getColumnTasks],
   );
 
@@ -696,14 +716,20 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   // --- Bidirectional sync: kanban focus ↔ panel URL ---
   const location = useLocation();
   const syncFromUrl = useRef(false); // prevents focus→URL loop
+  const getPanelTaskIdFromPath = useCallback((pathname: string): string | null => {
+    const match = pathname.match(/^\/tasks\/([^/]+)$/);
+    if (!match) return null;
+    const taskId = match[1];
+    if (taskId === 'new' || taskId === 'quick') return null;
+    return taskId;
+  }, []);
 
   // Reverse sync: panel URL → kanban focus
   // When the URL changes to /tasks/:id (e.g. clicking a card), highlight that card in the kanban
   useEffect(() => {
     if (!panelOpen || !tasks) return;
-    const match = location.pathname.match(/^\/tasks\/([^/]+)/);
-    if (!match) return;
-    const panelTaskId = match[1];
+    const panelTaskId = getPanelTaskIdFromPath(location.pathname);
+    if (!panelTaskId) return;
 
     // Find the task in the kanban and set focus to it
     for (let col = 0; col < COLUMNS.length; col++) {
@@ -718,23 +744,25 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         return;
       }
     }
-  }, [location.pathname, panelOpen, tasks, tasksByStatus, focus]);
+  }, [location.pathname, panelOpen, tasks, tasksByStatus, focus, getPanelTaskIdFromPath]);
 
   // Forward sync: kanban focus → panel URL
   // When keyboard nav changes focus while panel is open, update the panel to show that task
   const prevFocus = useRef(focus);
   useEffect(() => {
     if (!panelOpen || !focus) { prevFocus.current = focus; return; }
+    const panelTaskId = getPanelTaskIdFromPath(location.pathname);
+    if (!panelTaskId) { prevFocus.current = focus; return; }
     // Skip if this focus change came from URL sync (avoid loop)
     if (syncFromUrl.current) { syncFromUrl.current = false; prevFocus.current = focus; return; }
     const changed = !prevFocus.current || prevFocus.current.col !== focus.col || prevFocus.current.card !== focus.card;
     prevFocus.current = focus;
     if (!changed) return;
     const task = getColumnTasks(focus.col)[focus.card];
-    if (task) {
+    if (task && task.id !== panelTaskId) {
       navigate(`/tasks/${task.id}`, { replace: true });
     }
-  }, [focus, panelOpen, navigate, getColumnTasks]);
+  }, [focus, panelOpen, location.pathname, navigate, getColumnTasks, getPanelTaskIdFromPath]);
 
   useKeyboardNav({
     keyMap: {
@@ -763,7 +791,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         const task = getFocusedTask();
         if (task) {
           navigate(`/tasks/${task.id}`);
-        } else if (hasProjects) {
+        } else if (hasProjects && canCreateTaskInStatus(COLUMNS[focus.col].id)) {
           navigateToCreate(COLUMNS[focus.col].id);
         }
       },
@@ -781,8 +809,10 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
       } : {}),
       x: togglePin,
       n: () => {
-        if (hasProjects) {
-          navigateToCreate(COLUMNS[focus?.col ?? 0].id);
+        if (!hasProjects) return;
+        const status = COLUMNS[focus?.col ?? 0].id;
+        if (canCreateTaskInStatus(status)) {
+          navigateToCreate(status);
         }
       },
       p: () => setShowCreateProject(true),
@@ -966,11 +996,6 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         />
       ) : (
         <>
-          {hasAdvancedFilters && (
-            <div className="px-4 py-1.5 text-[11px] text-dim border-b border-subtle bg-[var(--color-card)]/40">
-              Advanced filters are active. Drag reorder and shift-move shortcuts are temporarily disabled.
-            </div>
-          )}
           {isMobile ? (
             // Mobile: Tabbed columns with swipe navigation
             <div className="flex flex-col h-full">
@@ -1017,10 +1042,12 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
                         focused={focus?.col === activeColumnIndex && focus?.card === cardIdx}
                       />
                     ))}
-                    <NewTaskPlaceholder
-                      focused={focus?.col === activeColumnIndex && focus?.card === getTasksByStatus(COLUMNS[activeColumnIndex].id).length}
-                      onClick={() => { if (hasProjects) navigateToCreate(COLUMNS[activeColumnIndex].id); }}
-                    />
+                    {canCreateTaskInStatus(COLUMNS[activeColumnIndex].id) && (
+                      <NewTaskPlaceholder
+                        focused={focus?.col === activeColumnIndex && focus?.card === getTasksByStatus(COLUMNS[activeColumnIndex].id).length}
+                        onClick={() => { if (hasProjects) navigateToCreate(COLUMNS[activeColumnIndex].id); }}
+                      />
+                    )}
                   </div>
                 )}
               </div>
@@ -1093,12 +1120,14 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
                                 && !(drag?.sourceCol === colIdx && drag?.sourceCard === colTasks.length - 1) && (
                                 <DropPlaceholder height={drag!.cardHeight} />
                               )}
-                              <NewTaskPlaceholder
-                                focused={focus?.col === colIdx && focus?.card === colTasks.length}
-                                selected={focus?.col === colIdx}
-                                showOnHover
-                                onClick={() => { if (hasProjects) navigateToCreate(column.id); }}
-                              />
+                              {canCreateTaskInStatus(column.id) && (
+                                <NewTaskPlaceholder
+                                  focused={focus?.col === colIdx && focus?.card === colTasks.length}
+                                  selected={focus?.col === colIdx}
+                                  showOnHover
+                                  onClick={() => { if (hasProjects) navigateToCreate(column.id); }}
+                                />
+                              )}
                             </>
                           )}
                         </div>
@@ -1581,6 +1610,7 @@ function MultiSelectFilterMenu({
 interface CompactFilterPanelProps {
   selectedProjectId?: string;
   projectFilterItems: FilterOptionItem[];
+  showStatusFilter: boolean;
   statusFilter: Set<string>;
   statusFilterItems: FilterOptionItem[];
   statusFilterOrder: string[];
@@ -1603,6 +1633,7 @@ interface CompactFilterPanelProps {
 function CompactFilterPanel({
   selectedProjectId,
   projectFilterItems,
+  showStatusFilter,
   statusFilter,
   statusFilterItems,
   statusFilterOrder,
@@ -1661,7 +1692,7 @@ function CompactFilterPanel({
     order: string[];
   }[] = [
     { key: 'project', label: 'PROJECT', mode: 'single', items: projectFilterItems, selected: new Set(selectedProjectId ? [selectedProjectId] : []), param: 'project', order: [] },
-    ...(statusFilterItems.length > 0 ? [{ key: 'status', label: 'STATUS', mode: 'multi' as const, items: statusFilterItems, selected: statusFilter, param: DASHBOARD_STATUS_PARAM, order: statusFilterOrder }] : []),
+    ...(showStatusFilter && statusFilterItems.length > 0 ? [{ key: 'status', label: 'STATUS', mode: 'multi' as const, items: statusFilterItems, selected: statusFilter, param: DASHBOARD_STATUS_PARAM, order: statusFilterOrder }] : []),
     ...(priorityFilterItems.length > 0 ? [{ key: 'priority', label: 'PRIORITY', mode: 'multi' as const, items: priorityFilterItems, selected: priorityFilter, param: DASHBOARD_PRIORITY_PARAM, order: priorityFilterOrder }] : []),
     ...(typeFilterItems.length > 0 ? [{ key: 'type', label: 'TYPE', mode: 'multi' as const, items: typeFilterItems, selected: typeFilter, param: DASHBOARD_TYPE_PARAM, order: typeFilterOrder }] : []),
     ...(labelFilterItems.length > 0 ? [{ key: 'label', label: 'LABEL', mode: 'multi' as const, items: labelFilterItems, selected: labelFilter, param: DASHBOARD_LABEL_PARAM, order: labelFilterOrder }] : []),

@@ -2,9 +2,9 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronDown, ChevronUp, X, Settings, ChevronRight, Pin, PanelLeftClose, PanelLeftOpen, GitPullRequest, GitBranch, Funnel, FolderOpen } from 'lucide-react';
+import { ChevronDown, ChevronUp, X, Settings, ChevronRight, Pin, PanelLeftClose, PanelLeftOpen, GitPullRequest, GitBranch, Funnel, FolderOpen, Plus } from 'lucide-react';
 import { tasksApi, preferencesApi, invalidateTaskQueries, TASK_STATUS } from '../../api';
-import type { SidebarProject, SidebarTask, SidebarSession, SidebarData, UpdateTaskResponse } from '../../api';
+import type { SidebarProject, SidebarTask, SidebarSession, SidebarData } from '../../api';
 import { useSidebarData } from '../../hooks/useSidebarData';
 import { useKeyboardNav } from '../../hooks/useKeyboardNav';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
@@ -15,7 +15,7 @@ import { getSessionStatusMeta } from '../../lib/sessionStatus';
 import { CodeburgIcon } from '../ui/CodeburgIcon';
 
 interface FocusableItem {
-  type: 'project' | 'task';
+  type: 'project' | 'task' | 'add-task';
   id: string;
   projectId?: string;
 }
@@ -97,6 +97,7 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
         for (const t of sortedTasks) {
           items.push({ type: 'task', id: t.id, projectId: p.id });
         }
+        items.push({ type: 'add-task', id: `add-${p.id}`, projectId: p.id });
       }
     }
     return items;
@@ -111,7 +112,11 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
     if (!sidebarFocused || !scrollContainerRef.current) return;
     const item = focusableItems[sidebarIndex];
     if (!item) return;
-    const attr = item.type === 'project' ? `data-sidebar-project="${item.id}"` : `data-sidebar-task="${item.id}"`;
+    const attr = item.type === 'project'
+      ? `data-sidebar-project="${item.id}"`
+      : item.type === 'add-task'
+        ? `data-sidebar-add-task="${item.id}"`
+        : `data-sidebar-task="${item.id}"`;
     const el = scrollContainerRef.current.querySelector(`[${attr}]`);
     if (el) {
       el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -133,6 +138,8 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
         if (!item) return;
         if (item.type === 'project') {
           navigate(`/projects/${item.id}`);
+        } else if (item.type === 'add-task') {
+          navigate(`/tasks/new?project=${item.projectId}&status=${TASK_STATUS.IN_PROGRESS}`);
         } else {
           navigate(`/tasks/${item.id}`);
         }
@@ -158,7 +165,11 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   };
 
   const handleSettingsClick = () => {
-    navigate('/settings');
+    if (location.pathname === '/settings') {
+      navigate(-1);
+    } else {
+      navigate('/settings');
+    }
     onClose?.();
   };
 
@@ -232,7 +243,7 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
           </button>
           <button
             onClick={handleSettingsClick}
-            className="p-1.5 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
+            className={`p-1.5 hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors ${location.pathname === '/settings' ? 'text-accent' : 'text-dim'}`}
             title="settings"
           >
             <Settings size={14} />
@@ -324,6 +335,11 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
                 onCollapseToggle={handleCollapseToggle}
                 keyboardFocused={focusedItem?.type === 'project' && focusedItem.id === project.id}
                 focusedTaskId={focusedItem?.type === 'task' && focusedItem.projectId === project.id ? focusedItem.id : undefined}
+                addTaskFocused={focusedItem?.type === 'add-task' && focusedItem.projectId === project.id}
+                onOpenWizard={() => {
+                  navigate(`/tasks/new?project=${project.id}&status=${TASK_STATUS.IN_PROGRESS}`);
+                  onClose?.();
+                }}
               />
             );
           })
@@ -347,7 +363,7 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
         </button>
         <button
           onClick={handleSettingsClick}
-          className="px-2 py-2 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
+          className={`px-2 py-2 hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors ${location.pathname === '/settings' ? 'text-accent' : 'text-dim'}`}
           title="settings"
         >
           <Settings size={16} />
@@ -375,9 +391,11 @@ interface SidebarProjectNodeProps {
   onCollapseToggle?: () => void;
   keyboardFocused?: boolean;
   focusedTaskId?: string;
+  addTaskFocused?: boolean;
+  onOpenWizard: () => void;
 }
 
-function SidebarProjectNode({ project, isActive, isFiltered, onProjectClick, onProjectFilterClick, onClose, collapseSignal, forceCollapsed, onCollapseToggle, keyboardFocused, focusedTaskId }: SidebarProjectNodeProps) {
+function SidebarProjectNode({ project, isActive, isFiltered, onProjectClick, onProjectFilterClick, onClose, collapseSignal, forceCollapsed, onCollapseToggle, keyboardFocused, focusedTaskId, addTaskFocused, onOpenWizard }: SidebarProjectNodeProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(() => {
@@ -492,7 +510,7 @@ function SidebarProjectNode({ project, isActive, isFiltered, onProjectClick, onP
               {sortedTasks.map((task) => (
                 <SidebarTaskNode key={task.id} task={task} onClose={onClose} keyboardFocused={focusedTaskId === task.id} />
               ))}
-              <QuickAddTask projectId={project.id} onClose={onClose} />
+              <AddTaskButton projectId={project.id} onOpenWizard={onOpenWizard} keyboardFocused={addTaskFocused} />
             </div>
           </motion.div>
         )}
@@ -501,91 +519,24 @@ function SidebarProjectNode({ project, isActive, isFiltered, onProjectClick, onP
   );
 }
 
-// --- Quick Add Task ---
+// --- Add Task Button ---
 
-interface QuickAddTaskProps {
+interface AddTaskButtonProps {
   projectId: string;
-  onClose?: () => void;
+  onOpenWizard: () => void;
+  keyboardFocused?: boolean;
 }
 
-function QuickAddTask({ projectId, onClose }: QuickAddTaskProps) {
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const [editing, setEditing] = useState(false);
-  const [title, setTitle] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (editing) inputRef.current?.focus();
-  }, [editing]);
-
-  // Step 1: create in backlog
-  const createMutation = useMutation({
-    mutationFn: (taskTitle: string) =>
-      tasksApi.create(projectId, { title: taskTitle }),
-  });
-
-  // Step 2: move to in_progress (triggers workflow)
-  const moveMutation = useMutation({
-    mutationFn: (taskId: string) =>
-      tasksApi.update(taskId, { status: TASK_STATUS.IN_PROGRESS }),
-    onSuccess: (data: UpdateTaskResponse) => {
-      invalidateTaskQueries(queryClient, data.id);
-      navigate(`/tasks/${data.id}`);
-      onClose?.();
-    },
-  });
-
-  const handleSubmit = async () => {
-    const trimmed = title.trim();
-    if (!trimmed) {
-      setEditing(false);
-      return;
-    }
-
-    const task = await createMutation.mutateAsync(trimmed);
-    setTitle('');
-    setEditing(false);
-    moveMutation.mutate(task.id);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleSubmit();
-    } else if (e.key === 'Escape') {
-      setTitle('');
-      setEditing(false);
-    }
-  };
-
-  const isPending = createMutation.isPending || moveMutation.isPending;
-
-  if (editing) {
-    return (
-      <div className="px-6 py-1">
-        <input
-          ref={inputRef}
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onBlur={handleSubmit}
-          disabled={isPending}
-          placeholder="task title..."
-          className="w-full text-xs px-2 py-1 border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-[var(--color-text-secondary)] placeholder:text-dim"
-        />
-      </div>
-    );
-  }
-
+function AddTaskButton({ projectId, onOpenWizard, keyboardFocused }: AddTaskButtonProps) {
   return (
-    <button
-      onClick={() => setEditing(true)}
-      className="w-full px-6 py-1 text-[11px] text-dim hover:text-accent transition-colors text-left"
+    <div
+      data-sidebar-add-task={`add-${projectId}`}
+      onClick={onOpenWizard}
+      className={`flex items-center gap-1.5 px-6 py-1 mx-1 text-xs cursor-pointer hover:bg-tertiary rounded-md transition-colors ${keyboardFocused ? 'bg-accent/10' : ''}`}
     >
-      + Task
-    </button>
+      <Plus size={12} className="flex-shrink-0 text-dim" />
+      <span className="text-dim hover:text-accent transition-colors">New task</span>
+    </div>
   );
 }
 

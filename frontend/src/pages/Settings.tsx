@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { startRegistration } from '@simplewebauthn/browser';
-import { ChevronLeft, AlertCircle, CheckCircle2, Fingerprint, KeyRound, Trash2, Pencil, Volume2, Bell, Terminal, Code2, Lock, Send, Keyboard, LogOut, SunMoon, Sun, Moon, Monitor } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Fingerprint, KeyRound, Trash2, Pencil, Volume2, Bell, Terminal, Code2, Lock, Send, Keyboard, LogOut, SunMoon, Sun, Moon, Monitor, X } from 'lucide-react';
 import { useSetHeader, HeaderProvider, Header } from '../components/layout/Header';
 import { authApi, preferencesApi } from '../api';
 import type { EditorType } from '../api';
@@ -20,7 +20,9 @@ import { isNotificationSoundEnabled, setNotificationSoundEnabled, playNotificati
 import { getResolvedTheme, getThemePreference, setThemePreference, subscribeToThemeChange } from '../lib/theme';
 import type { ThemePreference } from '../lib/theme';
 import { SectionCard, SectionHeader, SectionBody, FieldRow, FieldLabel, Toggle } from '../components/ui/settings';
+import { Breadcrumb } from '../components/ui/Breadcrumb';
 import { Button } from '../components/ui/Button';
+import { IconButton } from '../components/ui/IconButton';
 import { SettingsShell } from '../components/ui/SettingsShell';
 
 type SettingsGroupId = 'general' | 'integrations' | 'security' | 'account';
@@ -45,21 +47,43 @@ const SETTINGS_GROUP_LABELS: Record<SettingsGroupId, string> = {
 };
 
 export function Settings() {
+  return (
+    <HeaderProvider>
+      <SettingsInner />
+    </HeaderProvider>
+  );
+}
+
+function SettingsInner() {
   const navigate = useNavigate();
   const logout = useAuthStore((s) => s.logout);
 
+  const handleClose = useCallback(() => {
+    navigate(-1);
+  }, [navigate]);
+
+  // ESC to go back
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const modals = document.querySelectorAll('.fixed.inset-0');
+      if (modals.length > 0) return;
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      handleClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleClose]);
+
   useSetHeader(
-    <div className="flex items-center gap-3">
-      <Button
-        variant="ghost"
-        size="sm"
-        icon={<ChevronLeft size={16} />}
-        onClick={() => navigate('/')}
-      >
-        Back
-      </Button>
-      <div className="w-px h-4 bg-[var(--color-border)]" />
-      <h1 className="text-sm font-semibold tracking-wide">Settings</h1>
+    <div className="flex items-center justify-between w-full">
+      <Breadcrumb items={[{ label: 'Settings' }]} />
+      <IconButton
+        icon={<X size={14} />}
+        onClick={handleClose}
+        tooltip="Close settings"
+      />
     </div>,
     'settings',
   );
@@ -149,22 +173,20 @@ export function Settings() {
   ]), [logout]);
 
   return (
-    <HeaderProvider>
-      <div className="flex flex-col h-full">
-        <Header />
-        <div className="flex-1 overflow-hidden">
-          <SettingsShell
-            sections={sections}
-            groupOrder={SETTINGS_GROUP_ORDER}
-            groupLabels={SETTINGS_GROUP_LABELS}
-            initialSectionId="notifications"
-            navTitle="All settings"
-            searchPlaceholder="Search settings"
-            emptyMessage="No settings sections match your search."
-          />
-        </div>
+    <div className="flex flex-col h-full">
+      <Header />
+      <div className="flex-1 overflow-hidden">
+        <SettingsShell
+          sections={sections}
+          groupOrder={SETTINGS_GROUP_ORDER}
+          groupLabels={SETTINGS_GROUP_LABELS}
+          initialSectionId="notifications"
+          navTitle="All settings"
+          searchPlaceholder="Search settings"
+          emptyMessage="No settings sections match your search."
+        />
       </div>
-    </HeaderProvider>
+    </div>
   );
 }
 

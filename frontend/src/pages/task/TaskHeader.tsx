@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, Maximize2, Minimize2, Pin, Trash2, X } from 'lucide-react';
 import { useSetHeader } from '../../components/layout/Header';
+import { Breadcrumb } from '../../components/ui/Breadcrumb';
 import { tasksApi, invalidateTaskQueries } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { Task, Project } from '../../api/types';
@@ -107,14 +108,10 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
   useSetHeader(
     <div className="flex items-center justify-between gap-4 w-full">
       <div className="flex items-center gap-3 min-w-0">
-        <button
-          onClick={() => navigate(project ? `/projects/${project.id}` : '/')}
-          className="text-dim hover:text-[var(--color-text-primary)] transition-colors shrink-0 text-sm"
-        >
-          {project?.name || 'back'}
-        </button>
-        <span className="text-dim shrink-0">/</span>
-        <h1 className="text-sm font-medium truncate">{task.title}</h1>
+        <Breadcrumb items={[
+          ...(project ? [{ label: project.name, href: `/projects/${project.id}` }] : []),
+          { label: task.title },
+        ]} />
         <Badge variant="status" status={task.status as 'backlog' | 'in_progress' | 'in_review' | 'done'} className="shrink-0">
           {statusLabels[task.status] || task.status}
         </Badge>

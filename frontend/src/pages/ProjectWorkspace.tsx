@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
 import { OpenInEditorButton } from '../components/common/OpenInEditorButton';
+import { Breadcrumb } from '../components/ui/Breadcrumb';
 import { Button } from '../components/ui/Button';
 import { IconButton } from '../components/ui/IconButton';
 import { Modal } from '../components/ui/Modal';
@@ -646,10 +647,7 @@ export function ProjectWorkspace() {
   useSetHeader(
     project ? (
       <div className="flex items-center justify-between w-full">
-        <div className="min-w-0">
-          <h1 className="text-sm font-semibold truncate">{project.name}</h1>
-          <p className="text-[11px] text-dim font-mono truncate">{project.path}</p>
-        </div>
+        <Breadcrumb items={[{ label: project.name }]} />
         <div className="flex items-center gap-2 shrink-0">
           <OpenInEditorButton worktreePath={project.path} />
           <Button

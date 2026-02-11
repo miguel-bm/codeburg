@@ -1,13 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ChevronLeft, ArrowRight, CheckCircle2, Maximize2, Minimize2, Settings, X, Zap } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CheckCircle2, Maximize2, Minimize2, Settings, X, Zap } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
 import { projectsApi } from '../api';
 import { usePanelStore } from '../stores/panel';
 import { useMobile } from '../hooks/useMobile';
 import type { Project, ProjectWorkflow, BacklogToProgressConfig, ProgressToReviewConfig, ReviewToDoneConfig } from '../api';
 import { SectionCard, SectionHeader, SectionBody, FieldRow, FieldLabel, Toggle } from '../components/ui/settings';
+import { Breadcrumb } from '../components/ui/Breadcrumb';
 import { Button } from '../components/ui/Button';
 import { IconButton } from '../components/ui/IconButton';
 import { Select } from '../components/ui/Select';
@@ -35,18 +36,10 @@ export function ProjectSettings() {
   useSetHeader(
     project ? (
       <div className="flex items-center justify-between w-full">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={<ChevronLeft size={16} />}
-            onClick={() => navigate(`/projects/${project.id}`)}
-          >
-            Back
-          </Button>
-          <div className="w-px h-4 bg-[var(--color-border)]" />
-          <h1 className="text-sm font-semibold tracking-wide">{project.name} / Settings</h1>
-        </div>
+        <Breadcrumb items={[
+          { label: project.name, href: `/projects/${project.id}` },
+          { label: 'Settings' },
+        ]} />
         <div className="flex items-center gap-2 shrink-0">
           <IconButton
             icon={size === 'half' ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
