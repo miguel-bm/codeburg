@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { startRegistration } from '@simplewebauthn/browser';
 import { ChevronLeft, AlertCircle, CheckCircle2, Fingerprint, KeyRound, Trash2, Pencil, Volume2, Bell, Terminal, Code2, Lock, Send, Keyboard, LogOut, SunMoon, Sun, Moon, Monitor } from 'lucide-react';
-import { useSetHeader } from '../components/layout/Header';
+import { useSetHeader, HeaderProvider, Header } from '../components/layout/Header';
 import { authApi, preferencesApi } from '../api';
 import type { EditorType } from '../api';
 import { useAuthStore } from '../stores/auth';
@@ -149,15 +149,22 @@ export function Settings() {
   ]), [logout]);
 
   return (
-    <SettingsShell
-      sections={sections}
-      groupOrder={SETTINGS_GROUP_ORDER}
-      groupLabels={SETTINGS_GROUP_LABELS}
-      initialSectionId="notifications"
-      navTitle="All settings"
-      searchPlaceholder="Search settings"
-      emptyMessage="No settings sections match your search."
-    />
+    <HeaderProvider>
+      <div className="flex flex-col h-full">
+        <Header />
+        <div className="flex-1 overflow-hidden">
+          <SettingsShell
+            sections={sections}
+            groupOrder={SETTINGS_GROUP_ORDER}
+            groupLabels={SETTINGS_GROUP_LABELS}
+            initialSectionId="notifications"
+            navTitle="All settings"
+            searchPlaceholder="Search settings"
+            emptyMessage="No settings sections match your search."
+          />
+        </div>
+      </div>
+    </HeaderProvider>
   );
 }
 

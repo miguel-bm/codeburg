@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, X, ChevronDown, GitBranch, Maximize2, Minimize2 } from 'lucide-react';
+import { useSetHeader } from '../../components/layout/Header';
 import { tasksApi, invalidateTaskQueries, projectsApi, labelsApi } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { TaskStatus, Label } from '../../api/types';
@@ -111,50 +112,50 @@ export function TaskCreate() {
 
   const selectedProject = projects?.find(p => p.id === projectId);
 
+  useSetHeader(
+    <div className="flex items-center justify-between gap-4 w-full">
+      <div className="flex items-center gap-3 min-w-0">
+        <button
+          onClick={handleDiscard}
+          className="text-dim hover:text-[var(--color-text-primary)] transition-colors shrink-0 text-sm"
+        >
+          {selectedProject?.name || 'back'}
+        </button>
+        <span className="text-dim shrink-0">/</span>
+        <h1 className="text-sm font-medium text-dim">New task</h1>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <Button variant="ghost" size="sm" onClick={handleDiscard}>
+          Discard
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => createMutation.mutate()}
+          disabled={!canCreate}
+          loading={createMutation.isPending}
+        >
+          {createMutation.isPending ? 'Creating...' : 'Create'}
+        </Button>
+        <IconButton
+          icon={size === 'half' ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+          onClick={toggleSize}
+          tooltip={size === 'half' ? 'Expand panel' : 'Collapse panel'}
+          size="xs"
+        />
+        <IconButton
+          icon={<X size={14} />}
+          onClick={() => navigate('/')}
+          tooltip="Close panel"
+          size="xs"
+        />
+      </div>
+    </div>,
+    `task-create-${projectId}-${selectedProject?.name ?? ''}-${canCreate}-${createMutation.isPending}-${size}`,
+  );
+
   return (
     <div className="flex flex-col h-full">
-        {/* Header */}
-        <header className="bg-primary border-b border-subtle shrink-0">
-          <div className="flex items-center justify-between gap-4 px-4 py-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <button
-                onClick={handleDiscard}
-                className="text-dim hover:text-[var(--color-text-primary)] transition-colors shrink-0 text-sm"
-              >
-                {selectedProject?.name || 'back'}
-              </button>
-              <span className="text-dim shrink-0">/</span>
-              <h1 className="text-sm font-medium text-dim">New task</h1>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <Button variant="ghost" size="sm" onClick={handleDiscard}>
-                Discard
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => createMutation.mutate()}
-                disabled={!canCreate}
-                loading={createMutation.isPending}
-              >
-                {createMutation.isPending ? 'Creating...' : 'Create'}
-              </Button>
-              <IconButton
-                icon={size === 'half' ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
-                onClick={toggleSize}
-                tooltip={size === 'half' ? 'Expand panel' : 'Collapse panel'}
-                size="xs"
-              />
-              <IconButton
-                icon={<X size={14} />}
-                onClick={() => navigate('/')}
-                tooltip="Close panel"
-                size="xs"
-              />
-            </div>
-          </div>
-        </header>
-
         {/* Error */}
         {createMutation.error && (
           <div className="mx-4 mt-3 border border-[var(--color-error)] rounded-md p-3 text-sm text-[var(--color-error)]">

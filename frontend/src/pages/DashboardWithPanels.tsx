@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Outlet, useMatch } from 'react-router-dom';
 import { Dashboard } from './Dashboard';
 import { Panel } from '../components/layout/Panel';
+import { HeaderProvider, Header } from '../components/layout/Header';
 import { usePanelStore } from '../stores/panel';
 import { useMobile } from '../hooks/useMobile';
 
@@ -47,9 +48,14 @@ export function DashboardWithPanels() {
   return (
     <div className="flex h-full overflow-hidden">
       {!hideDashboard && (
-        <div className="flex-1 min-w-0 h-full overflow-auto">
-          <Dashboard panelOpen={showPanel} />
-        </div>
+        <HeaderProvider>
+          <div className="flex-1 min-w-0 h-full flex flex-col">
+            <Header />
+            <div className="flex-1 overflow-auto">
+              <Dashboard panelOpen={showPanel} />
+            </div>
+          </div>
+        </HeaderProvider>
       )}
 
       {showPanel && (

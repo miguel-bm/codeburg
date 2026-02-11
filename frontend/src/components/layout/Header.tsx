@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { createContext, useContext, useState, useEffect } from 'react';
+import { useMobile } from '../../hooks/useMobile';
 
 interface HeaderContextValue {
   headerContent: ReactNode;
@@ -34,9 +35,10 @@ export function useSetHeader(content: ReactNode, key?: string) {
 
 export function Header() {
   const { headerContent } = useContext(HeaderContext);
+  const isMobile = useMobile();
 
   return (
-    <div className="flex items-center h-12 px-4 gap-3 transition-opacity duration-150">
+    <div className={`flex items-center h-12 px-4 gap-3 transition-opacity duration-150 ${isMobile ? 'pl-14' : ''}`}>
       {headerContent}
     </div>
   );

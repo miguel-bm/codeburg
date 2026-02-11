@@ -33,7 +33,7 @@ export function SessionTabs({
   );
 
   return (
-    <div className="h-10 flex items-center border-b border-subtle bg-primary overflow-x-auto">
+    <div className="h-10 flex items-center border-b border-subtle overflow-x-auto">
       {sorted.map((session, i) => {
         const isActive = session.id === activeSessionId;
         const canResume = onResume && session.provider === 'claude' && session.status === 'completed';

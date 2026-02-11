@@ -418,7 +418,7 @@ export function TaskDetailInProgress({
               )
             ) : (
               <div className="flex flex-col h-full">
-                <div className="flex items-center justify-between px-4 py-2 border-b border-subtle bg-primary">
+                <div className="flex items-center justify-between mx-3 my-2 px-3 py-2 rounded-lg border border-subtle bg-[var(--color-card)]">
                   <span className="text-xs font-mono text-dim">
                     {mainContent.file || 'full branch diff'}
                     {mainContent.base

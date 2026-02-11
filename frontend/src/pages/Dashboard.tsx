@@ -1,8 +1,9 @@
 import { useState, useMemo, useEffect, useRef, useCallback, forwardRef } from 'react';
+import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { GitBranch, Pin, GitPullRequest, Funnel, X, Plus, Inbox, Play, Eye, CheckCircle2, Clock, Calendar, LayoutGrid, List as ListIcon, Search } from 'lucide-react';
+import { GitBranch, Pin, GitPullRequest, X, Plus, Inbox, Play, Eye, CheckCircle2, Clock, Calendar, LayoutGrid, List as ListIcon, Search, ChevronDown, Check } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
 import { tasksApi, projectsApi, sessionsApi, invalidateTaskQueries } from '../api';
@@ -69,10 +70,6 @@ const DASHBOARD_STATUS_PARAM = 'status';
 const DASHBOARD_PRIORITY_PARAM = 'priority';
 const DASHBOARD_TYPE_PARAM = 'type';
 const DASHBOARD_LABEL_PARAM = 'label';
-const DASHBOARD_PINNED_PARAM = 'pinned';
-const DASHBOARD_HAS_PR_PARAM = 'has_pr';
-const DASHBOARD_HAS_BRANCH_PARAM = 'has_branch';
-const DASHBOARD_QUERY_PARAM = 'q';
 
 function parseDashboardView(value: string | null): DashboardView {
   return value === 'list' ? 'list' : 'kanban';
@@ -97,14 +94,13 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         .filter((status): status is TaskStatus => allowed.has(status as TaskStatus)),
     );
   }, [searchParams]);
-  const priorityFilter = searchParams.get(DASHBOARD_PRIORITY_PARAM) || '';
-  const typeFilter = searchParams.get(DASHBOARD_TYPE_PARAM) || '';
-  const labelFilter = searchParams.get(DASHBOARD_LABEL_PARAM) || '';
-  const searchFilter = searchParams.get(DASHBOARD_QUERY_PARAM) || '';
-  const pinnedOnly = searchParams.get(DASHBOARD_PINNED_PARAM) === '1';
-  const hasPrOnly = searchParams.get(DASHBOARD_HAS_PR_PARAM) === '1';
-  const hasBranchOnly = searchParams.get(DASHBOARD_HAS_BRANCH_PARAM) === '1';
+  const priorityFilter = useMemo(() => new Set(parseCsvParam(searchParams.get(DASHBOARD_PRIORITY_PARAM))), [searchParams]);
+  const typeFilter = useMemo(() => new Set(parseCsvParam(searchParams.get(DASHBOARD_TYPE_PARAM))), [searchParams]);
+  const labelFilter = useMemo(() => new Set(parseCsvParam(searchParams.get(DASHBOARD_LABEL_PARAM))), [searchParams]);
   const hasStatusFilter = statusFilter.size > 0;
+  const hasPriorityFilter = priorityFilter.size > 0;
+  const hasTypeFilter = typeFilter.size > 0;
+  const hasLabelFilter = labelFilter.size > 0;
 
   // Restore project filter from sessionStorage on mount
   useEffect(() => {
@@ -145,14 +141,17 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     next.delete(DASHBOARD_PRIORITY_PARAM);
     next.delete(DASHBOARD_TYPE_PARAM);
     next.delete(DASHBOARD_LABEL_PARAM);
-    next.delete(DASHBOARD_PINNED_PARAM);
-    next.delete(DASHBOARD_HAS_PR_PARAM);
-    next.delete(DASHBOARD_HAS_BRANCH_PARAM);
-    next.delete(DASHBOARD_QUERY_PARAM);
+    // Remove legacy filter params that may still exist in old links.
+    next.delete('pinned');
+    next.delete('has_pr');
+    next.delete('has_branch');
+    next.delete('q');
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
   const [showCreateProject, setShowCreateProject] = useState(false);
+  const [headerHost, setHeaderHost] = useState<HTMLDivElement | null>(null);
+  const [compactViewToggle, setCompactViewToggle] = useState(false);
   const [activeColumnIndex, setActiveColumnIndex] = useState(0);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [focus, setFocus] = useState<{ col: number; card: number } | null>(null);
@@ -256,41 +255,24 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     return Array.from(labelMap.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [tasks]);
 
-  const normalizedSearchFilter = searchFilter.trim().toLowerCase();
   const filteredTasks = useMemo(() => {
     return (tasks ?? []).filter((task) => {
       if (hasStatusFilter && !statusFilter.has(task.status)) return false;
-      if (priorityFilter && (task.priority ?? '') !== priorityFilter) return false;
-      if (typeFilter && task.taskType !== typeFilter) return false;
-      if (labelFilter && !task.labels.some((label) => label.id === labelFilter)) return false;
-      if (pinnedOnly && !task.pinned) return false;
-      if (hasPrOnly && !task.prUrl) return false;
-      if (hasBranchOnly && !task.branch) return false;
-      if (!normalizedSearchFilter) return true;
-      const projectName = getProjectName(task.projectId);
-      const haystack = [
-        task.title,
-        task.description ?? '',
-        task.branch ?? '',
-        projectName,
-        ...(task.labels ?? []).map((label) => label.name),
-      ]
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(normalizedSearchFilter);
+      if (hasPriorityFilter && !priorityFilter.has(task.priority ?? '')) return false;
+      if (hasTypeFilter && !typeFilter.has(task.taskType)) return false;
+      if (hasLabelFilter && !task.labels.some((label) => labelFilter.has(label.id))) return false;
+      return true;
     });
   }, [
     tasks,
     hasStatusFilter,
     statusFilter,
+    hasPriorityFilter,
     priorityFilter,
+    hasTypeFilter,
     typeFilter,
+    hasLabelFilter,
     labelFilter,
-    pinnedOnly,
-    hasPrOnly,
-    hasBranchOnly,
-    normalizedSearchFilter,
-    getProjectName,
   ]);
 
   const tasksByStatus = useMemo(() => {
@@ -322,18 +304,48 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     });
   }, [filteredTasks]);
 
-  const activeProjectName = selectedProjectId ? getProjectName(selectedProjectId) : null;
+  const statusFilterOrder = useMemo(() => COLUMNS.map((column) => column.id), []);
+  const priorityFilterOrder = availablePriorities;
+  const typeFilterOrder = availableTaskTypes;
+  const labelFilterOrder = useMemo(() => availableLabels.map((label) => label.id), [availableLabels]);
+
+  const applyMultiFilter = useCallback((
+    param: string,
+    next: Set<string>,
+    orderedValues: string[],
+  ) => {
+    const normalized = orderedValues.filter((value) => next.has(value));
+    updateDashboardParams({
+      [param]: normalized.length === 0 ? null : normalized.join(','),
+    });
+  }, [updateDashboardParams]);
+
+  const toggleMultiFilterValue = useCallback((
+    param: string,
+    value: string,
+    current: Set<string>,
+    orderedValues: string[],
+  ) => {
+    const next = new Set(current);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    applyMultiFilter(param, next, orderedValues);
+  }, [applyMultiFilter]);
+
+  const setOnlyMultiFilterValue = useCallback((
+    param: string,
+    value: string,
+  ) => {
+    updateDashboardParams({ [param]: value });
+  }, [updateDashboardParams]);
+
+  const activeProjectName = selectedProjectId ? getProjectName(selectedProjectId) : 'All projects';
   const activeFilterCount = Number(!!selectedProjectId)
     + Number(hasStatusFilter)
-    + Number(!!priorityFilter)
-    + Number(!!typeFilter)
-    + Number(!!labelFilter)
-    + Number(pinnedOnly)
-    + Number(hasPrOnly)
-    + Number(hasBranchOnly)
-    + Number(!!normalizedSearchFilter);
-  const hasAdvancedFilters = hasStatusFilter || !!priorityFilter || !!typeFilter || !!labelFilter
-    || pinnedOnly || hasPrOnly || hasBranchOnly || !!normalizedSearchFilter;
+    + Number(hasPriorityFilter)
+    + Number(hasTypeFilter)
+    + Number(hasLabelFilter);
+  const hasAdvancedFilters = hasStatusFilter || hasPriorityFilter || hasTypeFilter || hasLabelFilter;
 
   const setView = useCallback(
     (nextView: DashboardView) => {
@@ -342,20 +354,68 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     [updateDashboardParams],
   );
 
-  const toggleStatusFilter = useCallback((status: TaskStatus) => {
-    const next = new Set(statusFilter);
-    if (next.has(status)) next.delete(status);
-    else next.add(status);
-    const ordered = COLUMNS.map((column) => column.id).filter((columnId) => next.has(columnId));
-    updateDashboardParams({
-      [DASHBOARD_STATUS_PARAM]: ordered.length === 0 || ordered.length === COLUMNS.length
-        ? null
-        : ordered.join(','),
-    });
-  }, [statusFilter, updateDashboardParams]);
+  useEffect(() => {
+    if (!headerHost) return;
+    const update = () => {
+      const width = headerHost.clientWidth;
+      const threshold = panelOpen ? 1120 : 920;
+      setCompactViewToggle(width < threshold);
+    };
+    update();
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(update);
+      ro.observe(headerHost);
+      return () => ro.disconnect();
+    }
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [headerHost, panelOpen]);
+
+  const projectFilterItems = useMemo(
+    () => (projects ?? []).map((project) => ({
+      value: project.id,
+      label: project.name,
+      description: project.path,
+    })),
+    [projects],
+  );
+
+  const statusFilterItems = useMemo(
+    () => COLUMNS.map((column) => ({
+      value: column.id,
+      label: column.title,
+      toneClass: column.color,
+    })),
+    [],
+  );
+
+  const priorityFilterItems = useMemo(
+    () => availablePriorities.map((priority) => ({
+      value: priority,
+      label: PRIORITY_LABELS[priority] ? `${PRIORITY_LABELS[priority]} · ${priority}` : priority,
+      toneColor: PRIORITY_COLORS[priority] ?? 'var(--color-text-primary)',
+    })),
+    [availablePriorities],
+  );
+
+  const typeFilterItems = useMemo(
+    () => availableTaskTypes.map((taskType) => ({
+      value: taskType,
+      label: taskType,
+    })),
+    [availableTaskTypes],
+  );
+
+  const labelFilterItems = useMemo(
+    () => availableLabels.map((label) => ({
+      value: label.id,
+      label: label.name,
+    })),
+    [availableLabels],
+  );
 
   useSetHeader(
-    <div className="w-full overflow-x-auto">
+    <div ref={setHeaderHost} className="w-full overflow-x-auto">
       <div className="inline-flex items-center gap-2 min-w-max py-1">
         <div className="inline-flex items-center rounded-lg border border-subtle bg-[var(--color-card)] p-0.5">
           <button
@@ -369,7 +429,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
             title="Kanban view"
           >
             <LayoutGrid size={12} />
-            Kanban
+            {!compactViewToggle && 'Kanban'}
           </button>
           <button
             type="button"
@@ -382,137 +442,88 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
             title="List view"
           >
             <ListIcon size={12} />
-            List
+            {!compactViewToggle && 'List'}
           </button>
         </div>
 
-        <div className="inline-flex items-center gap-1.5 rounded-lg border border-subtle bg-[var(--color-card)] px-2 py-1">
-          <Funnel size={12} className="text-dim" />
-          <span className="text-[11px] text-dim">Project</span>
-          <select
-            value={selectedProjectId ?? ''}
-            onChange={(e) => {
-              const nextProjectId = e.target.value || null;
-              if (!nextProjectId) sessionStorage.removeItem(SESSION_KEY);
-              updateDashboardParams({ project: nextProjectId });
-            }}
-            className="bg-transparent text-[11px] text-[var(--color-text-primary)] border-none focus:outline-none"
-            title="Project scope"
-          >
-            <option value="">All projects</option>
-            {(projects ?? []).map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-        </div>
+        <SingleSelectFilterMenu
+          label="Project"
+          selectedValue={selectedProjectId}
+          selectedLabel={activeProjectName}
+          items={projectFilterItems}
+          allLabel="All projects"
+          emptyMessage="No projects found."
+          onSelect={(projectId) => {
+            updateDashboardParams({ project: projectId });
+          }}
+          onClear={() => {
+            sessionStorage.removeItem(SESSION_KEY);
+            updateDashboardParams({ project: null });
+          }}
+          searchable
+        />
 
-        <div className="inline-flex items-center gap-1 rounded-lg border border-subtle bg-[var(--color-card)] p-0.5">
-          {COLUMNS.map((column) => {
-            const active = !hasStatusFilter || statusFilter.has(column.id);
-            return (
-              <button
-                key={column.id}
-                type="button"
-                onClick={() => toggleStatusFilter(column.id)}
-                className={`px-2 py-1 rounded-md text-[11px] font-medium transition-all duration-150 ${
-                  active
-                    ? `${column.color} bg-[var(--color-accent-glow)]`
-                    : 'text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
-                }`}
-              >
-                {column.title}
-              </button>
-            );
-          })}
-        </div>
+        <MultiSelectFilterMenu
+          label="Status"
+          selected={statusFilter}
+          items={statusFilterItems}
+          emptyMessage="No statuses available."
+          onToggle={(value) => toggleMultiFilterValue(
+            DASHBOARD_STATUS_PARAM,
+            value,
+            statusFilter,
+            statusFilterOrder,
+          )}
+          onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_STATUS_PARAM, value)}
+          onReset={() => updateDashboardParams({ [DASHBOARD_STATUS_PARAM]: null })}
+        />
 
-        <div className="inline-flex items-center gap-1.5 rounded-lg border border-subtle bg-[var(--color-card)] px-2 py-1">
-          <span className="text-[11px] text-dim">Priority</span>
-          <select
-            value={priorityFilter}
-            onChange={(e) => updateDashboardParams({ [DASHBOARD_PRIORITY_PARAM]: e.target.value || null })}
-            className="bg-transparent text-[11px] text-[var(--color-text-primary)] border-none focus:outline-none"
-            title="Priority filter"
-          >
-            <option value="">All</option>
-            {availablePriorities.map((priority) => (
-              <option key={priority} value={priority}>
-                {priority}
-              </option>
-            ))}
-          </select>
-        </div>
+        <MultiSelectFilterMenu
+          label="Priority"
+          selected={priorityFilter}
+          items={priorityFilterItems}
+          emptyMessage="No priorities found."
+          onToggle={(value) => toggleMultiFilterValue(
+            DASHBOARD_PRIORITY_PARAM,
+            value,
+            priorityFilter,
+            priorityFilterOrder,
+          )}
+          onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_PRIORITY_PARAM, value)}
+          onReset={() => updateDashboardParams({ [DASHBOARD_PRIORITY_PARAM]: null })}
+        />
 
-        <div className="inline-flex items-center gap-1.5 rounded-lg border border-subtle bg-[var(--color-card)] px-2 py-1">
-          <span className="text-[11px] text-dim">Type</span>
-          <select
-            value={typeFilter}
-            onChange={(e) => updateDashboardParams({ [DASHBOARD_TYPE_PARAM]: e.target.value || null })}
-            className="bg-transparent text-[11px] text-[var(--color-text-primary)] border-none focus:outline-none"
-            title="Task type filter"
-          >
-            <option value="">All</option>
-            {availableTaskTypes.map((taskType) => (
-              <option key={taskType} value={taskType}>
-                {taskType}
-              </option>
-            ))}
-          </select>
-        </div>
+        <MultiSelectFilterMenu
+          label="Type"
+          selected={typeFilter}
+          items={typeFilterItems}
+          emptyMessage="No task types found."
+          onToggle={(value) => toggleMultiFilterValue(
+            DASHBOARD_TYPE_PARAM,
+            value,
+            typeFilter,
+            typeFilterOrder,
+          )}
+          onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_TYPE_PARAM, value)}
+          onReset={() => updateDashboardParams({ [DASHBOARD_TYPE_PARAM]: null })}
+          searchable
+        />
 
-        <div className="inline-flex items-center gap-1.5 rounded-lg border border-subtle bg-[var(--color-card)] px-2 py-1">
-          <span className="text-[11px] text-dim">Label</span>
-          <select
-            value={labelFilter}
-            onChange={(e) => updateDashboardParams({ [DASHBOARD_LABEL_PARAM]: e.target.value || null })}
-            className="max-w-[110px] bg-transparent text-[11px] text-[var(--color-text-primary)] border-none focus:outline-none"
-            title="Label filter"
-          >
-            <option value="">All</option>
-            {availableLabels.map((label) => (
-              <option key={label.id} value={label.id}>
-                {label.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <FilterToggleChip
-          active={pinnedOnly}
-          onClick={() => updateDashboardParams({ [DASHBOARD_PINNED_PARAM]: pinnedOnly ? null : '1' })}
-        >
-          Pinned
-        </FilterToggleChip>
-        <FilterToggleChip
-          active={hasPrOnly}
-          onClick={() => updateDashboardParams({ [DASHBOARD_HAS_PR_PARAM]: hasPrOnly ? null : '1' })}
-        >
-          Has PR
-        </FilterToggleChip>
-        <FilterToggleChip
-          active={hasBranchOnly}
-          onClick={() => updateDashboardParams({ [DASHBOARD_HAS_BRANCH_PARAM]: hasBranchOnly ? null : '1' })}
-        >
-          Has branch
-        </FilterToggleChip>
-
-        <label className="relative inline-flex items-center">
-          <Search size={12} className="absolute left-2 text-dim pointer-events-none" />
-          <input
-            value={searchFilter}
-            onChange={(e) => updateDashboardParams({ [DASHBOARD_QUERY_PARAM]: e.target.value || null })}
-            placeholder="Search title, branch, label..."
-            className="h-7 w-[220px] rounded-lg border border-subtle bg-[var(--color-card)] pl-7 pr-2 text-[11px] text-[var(--color-text-primary)] placeholder:text-dim focus:outline-none focus:border-accent transition-colors"
-          />
-        </label>
-
-        {activeProjectName && (
-          <div className="inline-flex items-center gap-1 rounded-md bg-[var(--color-accent-glow)] px-2 py-1 text-[11px] text-accent">
-            {activeProjectName}
-          </div>
-        )}
+        <MultiSelectFilterMenu
+          label="Label"
+          selected={labelFilter}
+          items={labelFilterItems}
+          emptyMessage="No labels found."
+          onToggle={(value) => toggleMultiFilterValue(
+            DASHBOARD_LABEL_PARAM,
+            value,
+            labelFilter,
+            labelFilterOrder,
+          )}
+          onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_LABEL_PARAM, value)}
+          onReset={() => updateDashboardParams({ [DASHBOARD_LABEL_PARAM]: null })}
+          searchable
+        />
 
         {activeFilterCount > 0 && (
           <>
@@ -532,7 +543,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         )}
       </div>
     </div>,
-    `dashboard-${view}-${selectedProjectId ?? 'none'}-${Array.from(statusFilter).sort().join('.')}-${priorityFilter}-${typeFilter}-${labelFilter}-${pinnedOnly}-${hasPrOnly}-${hasBranchOnly}-${searchFilter}-${(projects ?? []).length}-${availablePriorities.join('.')}-${availableTaskTypes.join('.')}-${availableLabels.map((label) => label.id).join('.')}`,
+    `dashboard-${view}-${selectedProjectId ?? 'none'}-${Array.from(statusFilter).sort().join('.')}-${Array.from(priorityFilter).sort().join('.')}-${Array.from(typeFilter).sort().join('.')}-${Array.from(labelFilter).sort().join('.')}-${(projects ?? []).length}-${availablePriorities.join('.')}-${availableTaskTypes.join('.')}-${availableLabels.map((label) => label.id).join('.')}`,
   );
 
   const hasProjects = (projects?.length ?? 0) > 0;
@@ -561,13 +572,9 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     () => [
       selectedProjectId ?? '',
       Array.from(statusFilter).sort().join(','),
-      priorityFilter,
-      typeFilter,
-      labelFilter,
-      pinnedOnly ? '1' : '0',
-      hasPrOnly ? '1' : '0',
-      hasBranchOnly ? '1' : '0',
-      normalizedSearchFilter,
+      Array.from(priorityFilter).sort().join(','),
+      Array.from(typeFilter).sort().join(','),
+      Array.from(labelFilter).sort().join(','),
     ].join('|'),
     [
       selectedProjectId,
@@ -575,10 +582,6 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
       priorityFilter,
       typeFilter,
       labelFilter,
-      pinnedOnly,
-      hasPrOnly,
-      hasBranchOnly,
-      normalizedSearchFilter,
     ],
   );
   const prevFocusSelectionKey = useRef(focusSelectionKey);
@@ -1157,25 +1160,390 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   );
 }
 
-interface FilterToggleChipProps {
-  active: boolean;
-  onClick: () => void;
-  children: string;
+interface FilterOptionItem {
+  value: string;
+  label: string;
+  description?: string;
+  toneClass?: string;
+  toneColor?: string;
 }
 
-function FilterToggleChip({ active, onClick, children }: FilterToggleChipProps) {
+function buildMenuStyle(trigger: HTMLButtonElement | null, preferredWidth = 280): CSSProperties | null {
+  if (!trigger) return null;
+  const rect = trigger.getBoundingClientRect();
+  const viewportPadding = 8;
+  const menuWidth = Math.min(preferredWidth, window.innerWidth - viewportPadding * 2);
+  const left = Math.min(
+    Math.max(rect.left, viewportPadding),
+    window.innerWidth - menuWidth - viewportPadding,
+  );
+  const availableBelow = window.innerHeight - rect.bottom - 10;
+  const availableAbove = rect.top - 10;
+  const openAbove = availableBelow < 240 && availableAbove > availableBelow;
+  const maxHeight = Math.max(180, Math.min(360, openAbove ? availableAbove : availableBelow));
+  const top = openAbove ? Math.max(viewportPadding, rect.top - maxHeight - 8) : rect.bottom + 8;
+  return {
+    position: 'fixed',
+    top,
+    left,
+    width: menuWidth,
+    maxHeight,
+    zIndex: 1200,
+  };
+}
+
+interface SingleSelectFilterMenuProps {
+  label: string;
+  selectedValue?: string;
+  selectedLabel: string;
+  items: FilterOptionItem[];
+  allLabel: string;
+  emptyMessage: string;
+  onSelect: (value: string) => void;
+  onClear: () => void;
+  searchable?: boolean;
+}
+
+function SingleSelectFilterMenu({
+  label,
+  selectedValue,
+  selectedLabel,
+  items,
+  allLabel,
+  emptyMessage,
+  onSelect,
+  onClear,
+  searchable = false,
+}: SingleSelectFilterMenuProps) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const canSearch = searchable || items.length > 8;
+
+  const reposition = useCallback(() => {
+    setMenuStyle(buildMenuStyle(triggerRef.current, 320));
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    reposition();
+    const onEscape = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setOpen(false); };
+    const onOutside = (ev: MouseEvent) => {
+      const target = ev.target as Node;
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('keydown', onEscape);
+    document.addEventListener('mousedown', onOutside);
+    return () => {
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+      window.removeEventListener('keydown', onEscape);
+      document.removeEventListener('mousedown', onOutside);
+    };
+  }, [open, reposition]);
+
+  useEffect(() => {
+    if (!open || !canSearch) return;
+    const id = window.setTimeout(() => {
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [open, canSearch]);
+
+  const filteredItems = useMemo(() => {
+    if (!query.trim()) return items;
+    const normalized = query.trim().toLowerCase();
+    return items.filter((item) => {
+      return item.label.toLowerCase().includes(normalized)
+        || (item.description ?? '').toLowerCase().includes(normalized);
+    });
+  }, [items, query]);
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex items-center rounded-md px-2 py-1 text-[11px] font-medium transition-all duration-150 ${
-        active
-          ? 'bg-[var(--color-accent-glow)] text-accent border border-accent/30'
-          : 'bg-[var(--color-card)] border border-subtle text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
-      }`}
-    >
-      {children}
-    </button>
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] transition-colors ${
+          selectedValue
+            ? 'border-accent/40 bg-[var(--color-accent-glow)] text-accent'
+            : 'border-subtle bg-[var(--color-card)] text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
+        }`}
+      >
+        <span className="font-medium">{label}</span>
+        <span className={`max-w-[140px] truncate ${selectedValue ? 'text-accent' : 'text-dim'}`}>
+          {selectedValue ? selectedLabel : allLabel}
+        </span>
+        <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && menuStyle && createPortal(
+        <>
+          <div className="fixed inset-0 z-[1190] animate-fadeIn" onClick={() => setOpen(false)} />
+          <div
+            ref={menuRef}
+            style={menuStyle}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="rounded-xl border border-subtle/70 bg-elevated shadow-lg shadow-black/35 overflow-hidden flex flex-col animate-scaleIn"
+          >
+            <div className="px-3 py-2.5 bg-[var(--color-bg-secondary)]/45 flex items-center justify-between">
+              <div className="text-xs font-medium">{label}</div>
+              <button
+                type="button"
+                onClick={() => {
+                  onClear();
+                  setOpen(false);
+                }}
+                className="text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
+              >
+                Reset
+              </button>
+            </div>
+
+            {canSearch && (
+              <div className="px-3 pb-2">
+                <label className="relative block">
+                  <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
+                  <input
+                    ref={searchRef}
+                    value={query}
+                    onChange={(ev) => setQuery(ev.target.value)}
+                    placeholder={`Search ${label.toLowerCase()}...`}
+                    className="w-full h-7 rounded-md border border-subtle/55 bg-[var(--color-bg-secondary)]/60 pl-7 pr-2 text-[11px] text-[var(--color-text-primary)] placeholder:text-dim focus:outline-none focus:border-accent/70"
+                  />
+                </label>
+              </div>
+            )}
+
+            <div className="overflow-y-auto p-1.5">
+              {filteredItems.length === 0 ? (
+                <div className="px-3 py-4 text-xs text-dim text-center">{emptyMessage}</div>
+              ) : (
+                filteredItems.map((item) => {
+                  const selected = item.value === selectedValue;
+                  return (
+                    <div key={item.value} className="flex items-center gap-1 rounded-md hover:bg-tertiary px-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selected) onClear();
+                          else onSelect(item.value);
+                        }}
+                        className={`flex-1 text-left px-1.5 py-2 text-xs rounded-md transition-colors ${
+                          selected ? 'text-accent' : 'text-[var(--color-text-primary)]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate">{item.label}</span>
+                          {selected && <Check size={12} className="text-accent shrink-0" />}
+                        </div>
+                        {item.description && (
+                          <div className="text-[10px] text-dim mt-0.5 truncate">{item.description}</div>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSelect(item.value);
+                          setOpen(false);
+                        }}
+                        className="px-1.5 py-1 rounded text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
+                      >
+                        only
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </>,
+        document.body,
+      )}
+    </>
+  );
+}
+
+interface MultiSelectFilterMenuProps {
+  label: string;
+  selected: Set<string>;
+  items: FilterOptionItem[];
+  emptyMessage: string;
+  onToggle: (value: string) => void;
+  onOnly: (value: string) => void;
+  onReset: () => void;
+  searchable?: boolean;
+}
+
+function MultiSelectFilterMenu({
+  label,
+  selected,
+  items,
+  emptyMessage,
+  onToggle,
+  onOnly,
+  onReset,
+  searchable = false,
+}: MultiSelectFilterMenuProps) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const canSearch = searchable || items.length > 7;
+
+  const reposition = useCallback(() => {
+    setMenuStyle(buildMenuStyle(triggerRef.current, 300));
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    reposition();
+    const onEscape = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setOpen(false); };
+    const onOutside = (ev: MouseEvent) => {
+      const target = ev.target as Node;
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('keydown', onEscape);
+    document.addEventListener('mousedown', onOutside);
+    return () => {
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+      window.removeEventListener('keydown', onEscape);
+      document.removeEventListener('mousedown', onOutside);
+    };
+  }, [open, reposition]);
+
+  useEffect(() => {
+    if (!open || !canSearch) return;
+    const id = window.setTimeout(() => {
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [open, canSearch]);
+
+  const filteredItems = useMemo(() => {
+    if (!query.trim()) return items;
+    const normalized = query.trim().toLowerCase();
+    return items.filter((item) => item.label.toLowerCase().includes(normalized));
+  }, [items, query]);
+
+  const selectedCount = selected.size;
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] transition-colors ${
+          selectedCount > 0
+            ? 'border-accent/35 bg-[var(--color-accent-glow)] text-accent'
+            : 'border-subtle bg-[var(--color-card)] text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
+        }`}
+      >
+        <span className="font-medium">{label}</span>
+        <span className={`${selectedCount > 0 ? 'text-accent' : 'text-dim'}`}>
+          {selectedCount > 0 ? `${selectedCount} selected` : 'All'}
+        </span>
+        <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && menuStyle && createPortal(
+        <>
+          <div className="fixed inset-0 z-[1190] animate-fadeIn" onClick={() => setOpen(false)} />
+          <div
+            ref={menuRef}
+            style={menuStyle}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="rounded-xl border border-subtle/70 bg-elevated shadow-lg shadow-black/35 overflow-hidden flex flex-col animate-scaleIn"
+          >
+            <div className="px-3 py-2.5 bg-[var(--color-bg-secondary)]/45 flex items-center justify-between">
+              <div className="text-xs font-medium">{label}</div>
+              <button
+                type="button"
+                onClick={onReset}
+                className="text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
+              >
+                Reset
+              </button>
+            </div>
+
+            {canSearch && (
+              <div className="px-3 pb-2">
+                <label className="relative block">
+                  <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
+                  <input
+                    ref={searchRef}
+                    value={query}
+                    onChange={(ev) => setQuery(ev.target.value)}
+                    placeholder={`Search ${label.toLowerCase()}...`}
+                    className="w-full h-7 rounded-md border border-subtle/55 bg-[var(--color-bg-secondary)]/60 pl-7 pr-2 text-[11px] text-[var(--color-text-primary)] placeholder:text-dim focus:outline-none focus:border-accent/70"
+                  />
+                </label>
+              </div>
+            )}
+
+            <div className="overflow-y-auto p-1.5">
+              {filteredItems.length === 0 ? (
+                <div className="px-3 py-4 text-xs text-dim text-center">{emptyMessage}</div>
+              ) : (
+                filteredItems.map((item) => {
+                  const active = selected.has(item.value);
+                  return (
+                    <div key={item.value} className="flex items-center gap-1 rounded-md hover:bg-tertiary px-1">
+                      <button
+                        type="button"
+                        onClick={() => onToggle(item.value)}
+                        className={`flex-1 text-left px-1.5 py-2 text-xs rounded-md transition-colors ${
+                          active ? 'text-accent' : 'text-[var(--color-text-primary)]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span
+                            className={`truncate ${item.toneClass ?? ''}`}
+                            style={item.toneColor ? { color: item.toneColor } : undefined}
+                          >
+                            {item.label}
+                          </span>
+                          {active && <Check size={12} className="text-accent shrink-0" />}
+                        </div>
+                        {item.description && (
+                          <div className="text-[10px] text-dim mt-0.5 truncate">{item.description}</div>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onOnly(item.value)}
+                        className="px-1.5 py-1 rounded text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
+                      >
+                        only
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </>,
+        document.body,
+      )}
+    </>
   );
 }
 
@@ -1209,7 +1577,7 @@ function TaskListView({
   return (
     <div className="px-3 py-3 h-full overflow-y-auto">
       <Card padding="none" className="h-full min-h-0 flex flex-col">
-        <div className="px-3 py-2 border-b border-subtle text-[11px] text-dim flex items-center justify-between">
+        <div className="px-3 py-2.5 text-[11px] text-dim flex items-center justify-between bg-[var(--color-bg-secondary)]/65">
           <span>{tasks.length} tasks</span>
           <Button variant="ghost" size="xs" icon={<Plus size={12} />} onClick={onCreateTask} disabled={!canCreateTask}>
             New task
@@ -1220,7 +1588,7 @@ function TaskListView({
             No tasks match the current filters.
           </div>
         ) : isMobile ? (
-          <div className="flex-1 overflow-y-auto p-2 space-y-2">
+          <div className="flex-1 overflow-y-auto p-2 space-y-2.5">
             {tasks.map((task) => {
               const statusMeta = COLUMNS.find((column) => column.id === task.status);
               const statusLabel = statusMeta?.title ?? task.status;
@@ -1231,7 +1599,7 @@ function TaskListView({
                   key={task.id}
                   type="button"
                   onClick={() => onOpenTask(task.id)}
-                  className="w-full rounded-lg border border-subtle bg-[var(--color-card)] px-3 py-2 text-left hover:bg-tertiary transition-colors"
+                  className="w-full rounded-xl bg-[var(--color-bg-secondary)]/70 px-3 py-2.5 text-left hover:bg-[var(--color-accent-glow)] transition-colors"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="text-sm text-[var(--color-text-primary)] truncate flex items-center gap-1.5">
@@ -1249,15 +1617,15 @@ function TaskListView({
             })}
           </div>
         ) : (
-          <div className="flex-1 overflow-auto">
-            <div className="grid grid-cols-[minmax(260px,2fr)_minmax(120px,1fr)_minmax(100px,0.8fr)_minmax(100px,0.8fr)_minmax(90px,0.7fr)] px-3 py-2 text-[10px] uppercase tracking-wide text-dim border-b border-subtle sticky top-0 bg-[var(--color-card)]/95 backdrop-blur">
-              <span>Task</span>
+          <div className="flex-1 overflow-auto p-2">
+            <div className="grid grid-cols-[minmax(280px,2.2fr)_minmax(140px,1fr)_minmax(120px,0.9fr)_minmax(110px,0.8fr)_minmax(90px,0.7fr)] px-3 pb-2 text-[10px] uppercase tracking-wide text-dim">
+              <span className="pl-2">Task</span>
               <span>Project</span>
               <span>Status</span>
               <span>Priority</span>
               <span>Updated</span>
             </div>
-            <div>
+            <div className="space-y-1.5">
               {tasks.map((task) => {
                 const statusMeta = COLUMNS.find((column) => column.id === task.status);
                 const statusLabel = statusMeta?.title ?? task.status;
@@ -1268,32 +1636,35 @@ function TaskListView({
                     key={task.id}
                     type="button"
                     onClick={() => onOpenTask(task.id)}
-                    className="w-full grid grid-cols-[minmax(260px,2fr)_minmax(120px,1fr)_minmax(100px,0.8fr)_minmax(100px,0.8fr)_minmax(90px,0.7fr)] items-center gap-2 px-3 py-2.5 text-left border-b border-subtle/70 hover:bg-tertiary transition-colors"
+                    className="w-full grid grid-cols-[minmax(280px,2.2fr)_minmax(140px,1fr)_minmax(120px,0.9fr)_minmax(110px,0.8fr)_minmax(90px,0.7fr)] items-center gap-2 rounded-xl bg-[var(--color-bg-secondary)]/60 px-3 py-3 text-left hover:bg-[var(--color-accent-glow)] transition-colors"
                   >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm text-[var(--color-text-primary)] flex items-center gap-1.5">
-                        {task.pinned && <Pin size={11} className="text-[var(--color-warning)]" />}
-                        <span className="truncate">{task.title}</span>
-                      </div>
-                      {task.labels.length > 0 && (
-                        <div className="mt-1 flex items-center gap-1">
-                          {task.labels.slice(0, 2).map((label) => (
-                            <span
-                              key={label.id}
-                              className="text-[9px] px-1.5 py-px rounded-full font-medium leading-tight"
-                              style={{
-                                backgroundColor: `${label.color}22`,
-                                color: label.color,
-                              }}
-                            >
-                              {label.name}
-                            </span>
-                          ))}
-                          {task.labels.length > 2 && <span className="text-[9px] text-dim">+{task.labels.length - 2}</span>}
+                    <div className="min-w-0 flex items-start gap-2">
+                      <span className={`mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0 ${statusColor}`} />
+                      <div className="min-w-0">
+                        <div className="truncate text-sm text-[var(--color-text-primary)] flex items-center gap-1.5">
+                          {task.pinned && <Pin size={11} className="text-[var(--color-warning)]" />}
+                          <span className="truncate">{task.title}</span>
                         </div>
-                      )}
+                        {task.labels.length > 0 && (
+                          <div className="mt-1 flex items-center gap-1 pl-0.5">
+                            {task.labels.slice(0, 2).map((label) => (
+                              <span
+                                key={label.id}
+                                className="text-[9px] px-1.5 py-px rounded-full font-medium leading-tight"
+                                style={{
+                                  backgroundColor: `${label.color}22`,
+                                  color: label.color,
+                                }}
+                              >
+                                {label.name}
+                              </span>
+                            ))}
+                            {task.labels.length > 2 && <span className="text-[9px] text-dim">+{task.labels.length - 2}</span>}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <span className="text-xs text-dim truncate">{selectedProjectId ? 'Current' : getProjectName(task.projectId)}</span>
+                    <span className="text-xs text-dim truncate">{selectedProjectId ? 'Current project' : getProjectName(task.projectId)}</span>
                     <span className={`text-xs font-medium ${statusColor}`}>{statusLabel}</span>
                     <span className="text-xs text-dim">{task.priority ? (PRIORITY_LABELS[task.priority] || task.priority) : '-'}</span>
                     <span className="text-xs text-dim">{relativeTime(touchedAt)}</span>

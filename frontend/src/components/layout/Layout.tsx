@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Menu } from 'lucide-react';
 import { Sidebar } from './Sidebar';
-import { Header, HeaderProvider } from './Header';
 import { useMobile } from '../../hooks/useMobile';
 import { useSidebarStore, selectIsExpanded } from '../../stores/sidebar';
 
@@ -59,10 +58,10 @@ export function Layout({ children }: LayoutProps) {
     };
   }, [store]);
 
-  if (isMobile) {
-    return (
-      <HeaderProvider>
-        <div className="flex h-screen bg-canvas">
+  return (
+    <div className="flex h-screen bg-canvas">
+      {isMobile ? (
+        <>
           <button
             onClick={() => setSidebarOpen(true)}
             className="fixed top-4 left-4 z-40 p-2 border border-subtle bg-secondary hover:bg-tertiary rounded-md transition-colors"
@@ -84,28 +83,13 @@ export function Layout({ children }: LayoutProps) {
           >
             <Sidebar onClose={() => setSidebarOpen(false)} />
           </div>
-
-          <div className="flex-1 flex flex-col min-w-0">
-            <Header />
-            <main className="flex-1 overflow-auto">
-              {children}
-            </main>
-          </div>
-        </div>
-      </HeaderProvider>
-    );
-  }
-
-  // Desktop: expanded or collapsed, always visible
-  return (
-    <HeaderProvider>
-      <div className="flex h-screen bg-canvas">
+        </>
+      ) : (
         <div
           className="relative flex-shrink-0 transition-[width] duration-200 ease-out"
           style={{ width: isExpanded ? sidebarWidth : COLLAPSED_WIDTH }}
         >
           <Sidebar width={isExpanded ? sidebarWidth : COLLAPSED_WIDTH} collapsed={!isExpanded} />
-          {/* Drag handle (expanded only) */}
           {isExpanded && (
             <div
               onMouseDown={onMouseDown}
@@ -114,14 +98,11 @@ export function Layout({ children }: LayoutProps) {
             />
           )}
         </div>
+      )}
 
-        <div className="flex-1 flex flex-col min-w-0">
-          <Header />
-          <main className="flex-1 overflow-auto">
-            {children}
-          </main>
-        </div>
+      <div className="flex-1 min-w-0 h-full overflow-hidden">
+        {children}
       </div>
-    </HeaderProvider>
+    </div>
   );
 }

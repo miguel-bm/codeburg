@@ -78,7 +78,7 @@ function ActivityIndicator({ lastActivityAt }: ActivityIndicatorProps) {
   if (secondsAgo < 10) {
     return (
       <div className="flex items-center gap-1">
-        <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+        <div className="w-1.5 h-1.5 rounded-full bg-accent" />
         <span className="text-xs text-dim">Active</span>
       </div>
     );

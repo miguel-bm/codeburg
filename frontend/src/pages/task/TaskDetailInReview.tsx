@@ -329,7 +329,7 @@ export function TaskDetailInReview({
           /* Collapsed: thin bar to open sessions */
           <button
             onClick={() => { setSessionPanelOpen(true); onShowStartComposer(); }}
-            className="flex items-center justify-center gap-1.5 px-4 py-1.5 border-t border-subtle bg-primary text-xs text-dim hover:text-accent hover:bg-tertiary transition-colors"
+            className="flex items-center justify-center gap-1.5 mx-3 my-2 px-3 py-1.5 rounded-lg border border-subtle bg-[var(--color-card)] text-xs text-dim hover:text-accent hover:bg-tertiary transition-colors"
           >
             <Plus size={12} />
             Session

@@ -198,19 +198,21 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
                 const isActive = activeProjectPageId === project.id;
                 const firstLetter = project.name.charAt(0).toUpperCase();
                 return (
-                  <button
-                    key={project.id}
-                    data-sidebar-project={project.id}
-                    onClick={() => handleProjectClick(project.id)}
-                    className={`w-8 h-8 rounded-full text-xs font-medium flex items-center justify-center transition-colors flex-shrink-0 ${
-                      isActive
-                        ? 'bg-accent/20 text-accent'
-                        : 'bg-tertiary text-[var(--color-text-secondary)] hover:bg-[var(--color-border)] hover:text-[var(--color-text-primary)]'
-                    }`}
-                    title={project.name}
-                  >
-                    {firstLetter}
-                  </button>
+                  <div key={project.id} className="flex flex-col items-center">
+                    <button
+                      data-sidebar-project={project.id}
+                      onClick={() => handleProjectClick(project.id)}
+                      className={`w-8 h-8 rounded-full text-xs font-medium flex items-center justify-center transition-colors flex-shrink-0 ${
+                        isActive
+                          ? 'bg-accent/20 text-accent'
+                          : 'bg-tertiary text-[var(--color-text-secondary)] hover:bg-[var(--color-border)] hover:text-[var(--color-text-primary)]'
+                      }`}
+                      title={project.name}
+                    >
+                      {firstLetter}
+                    </button>
+                    <CollapsedProjectIndicators project={project} />
+                  </div>
                 );
               })}
             </div>
@@ -787,7 +789,7 @@ function SidebarSessionNode({ session, taskId, onClose }: SidebarSessionNodeProp
   return (
     <div
       onClick={handleClick}
-      className="flex items-center gap-2 px-8 py-1 text-[11px] cursor-pointer hover:bg-tertiary transition-colors"
+      className="flex items-center gap-2 pl-11 pr-3 py-1 text-[11px] cursor-pointer hover:bg-tertiary transition-colors"
     >
       <StatusDot status={session.status} />
       <span className="text-dim">
@@ -802,6 +804,51 @@ function SidebarSessionNode({ session, taskId, onClose }: SidebarSessionNodeProp
 function StatusDot({ status }: { status: SidebarSession['status'] }) {
   const { dotClass } = getSessionStatusMeta(status);
   return <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass}`} />;
+}
+
+function getTaskStatusDotClass(status: SidebarTask['status']): string {
+  if (status === TASK_STATUS.IN_REVIEW) return 'bg-[var(--color-status-in-review)]';
+  if (status === TASK_STATUS.IN_PROGRESS) return 'bg-[var(--color-status-in-progress)]';
+  return 'bg-[var(--color-text-dim)]';
+}
+
+function CollapsedProjectIndicators({ project }: { project: SidebarProject }) {
+  const sortedTasks = [
+    ...project.tasks.filter((t) => t.status === TASK_STATUS.IN_REVIEW),
+    ...project.tasks.filter((t) => t.status === TASK_STATUS.IN_PROGRESS),
+  ];
+  const sessions = sortedTasks.flatMap((task) => task.sessions);
+  const visibleTasks = sortedTasks.slice(0, 4);
+  const visibleSessions = sessions.slice(0, 4);
+
+  if (visibleTasks.length === 0 && visibleSessions.length === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      className="mt-0.5 mb-1 flex flex-col items-center gap-[2px]"
+      title={`Tasks: ${sortedTasks.length} · Sessions: ${sessions.length}`}
+    >
+      <div className="h-1.5 flex items-center justify-center gap-[2px]">
+        {visibleTasks.map((task) => (
+          <span key={task.id} className={`w-1 h-1 rounded-full ${getTaskStatusDotClass(task.status)}`} />
+        ))}
+        {sortedTasks.length > visibleTasks.length && (
+          <span className="text-[8px] text-dim leading-none">+</span>
+        )}
+      </div>
+      <div className="h-1.5 flex items-center justify-center gap-[2px]">
+        {visibleSessions.map((session) => {
+          const { dotClass } = getSessionStatusMeta(session.status);
+          return <span key={session.id} className={`w-1 h-1 rounded-full ${dotClass}`} />;
+        })}
+        {sessions.length > visibleSessions.length && (
+          <span className="text-[8px] text-dim leading-none">+</span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // --- Status Icon (shown before each task name) ---

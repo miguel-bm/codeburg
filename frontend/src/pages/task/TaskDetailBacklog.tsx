@@ -147,7 +147,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
       />
 
       {/* Mobile: compact properties bar */}
-      <div className="sm:hidden flex items-center gap-2 px-4 py-2 bg-primary border-b border-subtle overflow-x-auto">
+      <div className="sm:hidden flex items-center gap-2 mx-3 my-2 px-3 py-2 rounded-lg border border-subtle bg-[var(--color-card)] overflow-x-auto">
         <Badge variant="status" status="backlog" className="shrink-0">backlog</Badge>
         <Badge color="gray" className="shrink-0 capitalize">{task.taskType}</Badge>
         {priorityInfo && (

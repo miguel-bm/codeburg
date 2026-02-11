@@ -118,7 +118,7 @@ export function Panel({ children, closing, onExitComplete }: PanelProps) {
         className={[
           'relative flex-shrink-0 flex flex-col bg-secondary border-l border-subtle overflow-hidden',
           'transition-[transform,opacity] duration-200 ease-out',
-          mounted ? 'translate-x-0 opacity-100' : 'translate-x-8 opacity-0',
+          mounted ? 'translate-x-0 opacity-100' : 'translate-x-24 opacity-0',
         ].join(' ')}
         style={{
           ...(effectiveSize === 'full' ? { flex: 1 } : { width: width || PANEL_WIDTH_DEFAULT }),
