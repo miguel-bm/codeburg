@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
 import { ChevronDown, ChevronUp, X, Settings, ChevronRight, Pin, PanelLeftClose, PanelLeftOpen, GitPullRequest, GitBranch, Funnel, FolderOpen } from 'lucide-react';
 import { tasksApi, preferencesApi, invalidateTaskQueries, TASK_STATUS } from '../../api';
 import type { SidebarProject, SidebarTask, SidebarSession, SidebarData, UpdateTaskResponse } from '../../api';
@@ -473,14 +474,25 @@ function SidebarProjectNode({ project, isActive, isFiltered, onProjectClick, onP
       </div>
 
       {/* Tasks (when expanded) */}
-      {!collapsed && (
-        <div className="pb-1">
-          {sortedTasks.map((task) => (
-            <SidebarTaskNode key={task.id} task={task} onClose={onClose} keyboardFocused={focusedTaskId === task.id} />
-          ))}
-          <QuickAddTask projectId={project.id} onClose={onClose} />
-        </div>
-      )}
+      <AnimatePresence initial={false}>
+        {!collapsed && (
+          <motion.div
+            key="tasks"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="pb-1">
+              {sortedTasks.map((task) => (
+                <SidebarTaskNode key={task.id} task={task} onClose={onClose} keyboardFocused={focusedTaskId === task.id} />
+              ))}
+              <QuickAddTask projectId={project.id} onClose={onClose} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

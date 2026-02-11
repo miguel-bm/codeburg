@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,10 @@ import (
 	"github.com/miguel-bm/codeburg/internal/db"
 	"github.com/miguel-bm/codeburg/internal/ptyruntime"
 )
+
+// Guards Claude startup sequence per worktree so hook file write + process start
+// cannot race across concurrent session launches.
+var claudeSessionStartLocks sync.Map // workDir (clean path) -> *sync.Mutex
 
 // SessionManager manages active agent sessions
 type SessionManager struct {
@@ -208,12 +213,6 @@ func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*
 
 	var notifyScript string
 	switch provider {
-	case "claude":
-		// Write Claude Code hooks config to workDir
-		if err := writeClaudeHooks(workDir, dbSession.ID, tokenPath, apiURL); err != nil {
-			slog.Warn("failed to write Claude hooks", "session_id", dbSession.ID, "error", err)
-		}
-
 	case "codex":
 		// Write codex notify script (outside worktree to avoid git noise)
 		notifyScript, err = writeCodexNotifyScript(dbSession.ID, tokenPath, apiURL)
@@ -239,17 +238,34 @@ func (s *Server) startSessionInternal(task *db.Task, req StartSessionRequest) (*
 	if originalCommand != command {
 		slog.Warn("provider command not found in service PATH, using login-shell fallback", "session_id", dbSession.ID, "provider", req.Provider, "command", originalCommand)
 	}
-	startErr := s.sessions.runtime.Start(dbSession.ID, ptyruntime.StartOptions{
-		WorkDir: workDir,
-		Command: command,
-		Args:    args,
-		OnOutput: func(sessionID string, chunk []byte) {
-			s.portSuggest.IngestOutput(task.ID, sessionID, chunk)
-		},
-		OnExit: func(result ptyruntime.ExitResult) {
-			s.handleRuntimeExit(task.ID, result)
-		},
-	})
+
+	startRuntime := func() error {
+		return s.sessions.runtime.Start(dbSession.ID, ptyruntime.StartOptions{
+			WorkDir: workDir,
+			Command: command,
+			Args:    args,
+			OnOutput: func(sessionID string, chunk []byte) {
+				s.portSuggest.IngestOutput(task.ID, sessionID, chunk)
+			},
+			OnExit: func(result ptyruntime.ExitResult) {
+				s.handleRuntimeExit(task.ID, result)
+			},
+		})
+	}
+
+	var startErr error
+	if provider == "claude" {
+		startErr = withClaudeSessionStartLock(workDir, func() error {
+			// Write Claude Code hooks config immediately before start.
+			// Claude snapshots hooks at startup, so this must be serialized per worktree.
+			if err := writeClaudeHooks(workDir, dbSession.ID, tokenPath, apiURL); err != nil {
+				slog.Warn("failed to write Claude hooks", "session_id", dbSession.ID, "error", err)
+			}
+			return startRuntime()
+		})
+	} else {
+		startErr = startRuntime()
+	}
 	if startErr != nil {
 		removeHookToken(dbSession.ID)
 		removeNotifyScript(dbSession.ID)
@@ -674,6 +690,15 @@ func removeSessionLog(sessionID string) {
 	os.Remove(filepath.Join(home, ".codeburg", "logs", "sessions", sessionID+".jsonl"))
 }
 
+func withClaudeSessionStartLock(workDir string, fn func() error) error {
+	key := filepath.Clean(workDir)
+	lock, _ := claudeSessionStartLocks.LoadOrStore(key, &sync.Mutex{})
+	mu := lock.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+	return fn()
+}
+
 // writeClaudeHooks writes .claude/settings.local.json with hooks that call back to Codeburg.
 // Existing user hooks on other events (and other matcher entries on the same events) are preserved.
 func writeClaudeHooks(workDir, sessionID, tokenPath, apiURL string) error {
@@ -684,18 +709,20 @@ func writeClaudeHooks(workDir, sessionID, tokenPath, apiURL string) error {
 
 	settingsPath := filepath.Join(claudeDir, "settings.local.json")
 
-	// Read existing settings if present
-	var settings map[string]interface{}
+	settings := make(map[string]interface{})
 	if data, err := os.ReadFile(settingsPath); err == nil {
-		json.Unmarshal(data, &settings)
-	}
-	if settings == nil {
-		settings = make(map[string]interface{})
+		if len(bytes.TrimSpace(data)) > 0 {
+			if err := json.Unmarshal(data, &settings); err != nil {
+				return fmt.Errorf("parse existing settings.local.json: %w", err)
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read settings.local.json: %w", err)
 	}
 
 	hookURL := fmt.Sprintf("%s/api/sessions/%s/hook", apiURL, sessionID)
 	curlCmd := fmt.Sprintf(
-		"curl -s -X POST -H \"Authorization: Bearer $(cat '%s')\" -H 'Content-Type: application/json' -d @- '%s'",
+		"curl -sS --connect-timeout 1 --max-time 4 --retry 1 -X POST -H \"Authorization: Bearer $(cat '%s')\" -H 'Content-Type: application/json' -d @- '%s' >/dev/null 2>&1 || true",
 		tokenPath, hookURL,
 	)
 
@@ -738,7 +765,36 @@ func writeClaudeHooks(workDir, sessionID, tokenPath, apiURL string) error {
 		return fmt.Errorf("marshal settings: %w", err)
 	}
 
-	return os.WriteFile(settingsPath, data, 0644)
+	return writeFileAtomic(settingsPath, data, 0644)
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("rename temp file: %w", err)
+	}
+	return nil
 }
 
 // isCodeburgHookEntry returns true if a matcher entry was written by Codeburg.
@@ -783,11 +839,11 @@ func writeCodexNotifyScript(sessionID, tokenPath, apiURL string) (string, error)
 
 	script := fmt.Sprintf(`#!/bin/bash
 TOKEN=$(cat '%s')
-curl -s -X POST \
+curl -sS --connect-timeout 1 --max-time 4 --retry 1 -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   --data-raw "$1" \
-  '%s'
+  '%s' >/dev/null 2>&1 || true
 `, tokenPath, hookURL)
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {

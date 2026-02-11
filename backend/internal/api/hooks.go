@@ -14,10 +14,14 @@ import (
 // HookPayload represents the JSON data from a Claude Code hook or Codex notify callback.
 // Claude Code sends the event name as "hook_event_name"; Codex sends it as "type".
 type HookPayload struct {
-	HookEventName string `json:"hook_event_name"`
-	Type          string `json:"type,omitempty"`
-	SessionID     string `json:"session_id,omitempty"`
-	CWD           string `json:"cwd,omitempty"`
+	HookEventName      string `json:"hook_event_name"`
+	HookEventNameCamel string `json:"hookEventName,omitempty"`
+	Type               string `json:"type,omitempty"`
+	Event              string `json:"event,omitempty"`
+	SessionID          string `json:"session_id,omitempty"`
+	CWD                string `json:"cwd,omitempty"`
+	NotificationType   string `json:"notification_type,omitempty"`
+	StopHookActive     *bool  `json:"stop_hook_active,omitempty"`
 }
 
 // EventName returns the hook event name, preferring hook_event_name over type.
@@ -25,7 +29,17 @@ func (p HookPayload) EventName() string {
 	if p.HookEventName != "" {
 		return p.HookEventName
 	}
+	if p.HookEventNameCamel != "" {
+		return p.HookEventNameCamel
+	}
 	return p.Type
+}
+
+func normalizeEventName(name string) string {
+	n := strings.TrimSpace(strings.ToLower(name))
+	n = strings.ReplaceAll(n, " ", "_")
+	n = strings.ReplaceAll(n, "-", "_")
+	return n
 }
 
 // handleSessionHook processes hook callbacks from Claude Code hooks or Codex notify
@@ -60,20 +74,43 @@ func (s *Server) handleSessionHook(w http.ResponseWriter, r *http.Request) {
 
 	// Map hook event to session status
 	eventName := payload.EventName()
+	if eventName == "" {
+		eventName = payload.Event
+	}
+	normalizedEvent := normalizeEventName(eventName)
 	var newStatus db.SessionStatus
-	switch eventName {
-	case "Notification":
-		newStatus = db.SessionStatusWaitingInput
-	case "Stop":
-		newStatus = db.SessionStatusRunning
-	case "SessionEnd":
+	switch normalizedEvent {
+	case "notification":
+		// Notification events include multiple types. We treat these as "waiting for user":
+		// - permission_prompt
+		// - idle_prompt
+		// - elicitation_dialog
+		//
+		// If no type is provided, keep compatibility by assuming waiting_input.
+		switch strings.TrimSpace(strings.ToLower(payload.NotificationType)) {
+		case "", "permission_prompt", "idle_prompt", "elicitation_dialog":
+			newStatus = db.SessionStatusWaitingInput
+		default:
+			// Non-interruptive notifications (e.g. auth_success) should not flip session state.
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+	case "stop":
+		// Stop fires when Claude finishes responding.
+		// If stop_hook_active is true, Claude is already continuing due to a stop hook.
+		if payload.StopHookActive != nil && *payload.StopHookActive {
+			newStatus = db.SessionStatusRunning
+		} else {
+			newStatus = db.SessionStatusWaitingInput
+		}
+	case "sessionend":
 		newStatus = db.SessionStatusCompleted
-	case "agent-turn-complete":
+	case "agent_turn_complete":
 		// Codex notify: agent finished a turn, waiting for user
 		newStatus = db.SessionStatusWaitingInput
 	default:
 		// Unknown event, just acknowledge
-		slog.Warn("unknown hook event", "event", eventName, "session_id", sessionID)
+		slog.Warn("unknown hook event", "event", eventName, "normalized_event", normalizedEvent, "session_id", sessionID)
 		w.WriteHeader(http.StatusOK)
 		return
 	}

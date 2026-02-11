@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Outlet, useMatch } from 'react-router-dom';
+import { AnimatePresence } from 'motion/react';
 import { Dashboard } from './Dashboard';
 import { Panel } from '../components/layout/Panel';
 import { HeaderProvider, Header } from '../components/layout/Header';
@@ -13,37 +14,35 @@ export function DashboardWithPanels() {
   const isMobile = useMobile();
 
   const panelOpen = !isRoot;
-  const [isClosing, setIsClosing] = useState(false);
+  const [panelExiting, setPanelExiting] = useState(false);
   const cachedContent = useRef<ReactNode>(null);
   const prevPanelOpen = useRef(panelOpen);
 
-  // Detect open→close transition to trigger exit animation
+  // Track panel open→close transitions for hideDashboard in full mode
   useEffect(() => {
-    if (prevPanelOpen.current && !panelOpen) {
-      setIsClosing(true);
-    }
-    if (!prevPanelOpen.current && panelOpen) {
-      setIsClosing(false);
+    if (panelOpen) {
+      setPanelExiting(false);
+    } else if (prevPanelOpen.current) {
+      setPanelExiting(true);
     }
     prevPanelOpen.current = panelOpen;
   }, [panelOpen]);
 
-  // Cache outlet content when panel is open so we can show it during close animation
+  // Cache outlet content so it persists during the exit animation
   const outlet = panelOpen ? <Outlet /> : null;
   if (outlet) {
     cachedContent.current = outlet;
   }
 
   const handleExitComplete = useCallback(() => {
-    setIsClosing(false);
+    setPanelExiting(false);
     cachedContent.current = null;
   }, []);
 
-  const showPanel = panelOpen || isClosing;
   // On mobile, panel is a full-screen overlay — dashboard always renders underneath.
   // On desktop half-mode, both are visible side by side.
-  // On desktop full-mode, only panel is visible.
-  const hideDashboard = showPanel && !isMobile && size === 'full';
+  // On desktop full-mode, only panel is visible (including during exit animation).
+  const hideDashboard = (panelOpen || panelExiting) && !isMobile && size === 'full';
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -52,17 +51,19 @@ export function DashboardWithPanels() {
           <div className="flex-1 min-w-0 h-full flex flex-col">
             <Header />
             <div className="flex-1 overflow-auto">
-              <Dashboard panelOpen={showPanel} />
+              <Dashboard panelOpen={panelOpen} />
             </div>
           </div>
         </HeaderProvider>
       )}
 
-      {showPanel && (
-        <Panel closing={isClosing} onExitComplete={handleExitComplete}>
-          {panelOpen ? <Outlet /> : cachedContent.current}
-        </Panel>
-      )}
+      <AnimatePresence onExitComplete={handleExitComplete}>
+        {panelOpen && (
+          <Panel key="panel">
+            {outlet || cachedContent.current}
+          </Panel>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

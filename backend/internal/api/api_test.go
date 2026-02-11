@@ -1194,7 +1194,7 @@ func TestSessionHook_Stop(t *testing.T) {
 	var task db.Task
 	decodeResponse(t, taskResp, &task)
 
-	// Create a session and set it to waiting_input
+	// Create a session and set it to running
 	session, err := env.server.db.CreateSession(db.CreateSessionInput{
 		TaskID:      task.ID,
 		Provider:    "claude",
@@ -1204,12 +1204,12 @@ func TestSessionHook_Stop(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 
-	waitingStatus := db.SessionStatusWaitingInput
+	runningStatus := db.SessionStatusRunning
 	env.server.db.UpdateSession(session.ID, db.UpdateSessionInput{
-		Status: &waitingStatus,
+		Status: &runningStatus,
 	})
 
-	// POST Stop hook -> should set status to running
+	// POST Stop hook -> should set status to waiting_input
 	resp := env.post("/api/sessions/"+session.ID+"/hook", map[string]string{
 		"hook_event_name": "Stop",
 	})
@@ -1218,6 +1218,103 @@ func TestSessionHook_Stop(t *testing.T) {
 	}
 
 	// Verify status changed
+	updated, err := env.server.db.GetSession(session.ID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if updated.Status != db.SessionStatusWaitingInput {
+		t.Errorf("expected status waiting_input, got %q", updated.Status)
+	}
+}
+
+func TestSessionHook_StopWhileContinuing(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "hook-project", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Hook Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	session, err := env.server.db.CreateSession(db.CreateSessionInput{
+		TaskID:      task.ID,
+		Provider:    "claude",
+		SessionType: "terminal",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	runningStatus := db.SessionStatusRunning
+	env.server.db.UpdateSession(session.ID, db.UpdateSessionInput{
+		Status: &runningStatus,
+	})
+
+	// If stop_hook_active is true, Claude is already continuing.
+	resp := env.post("/api/sessions/"+session.ID+"/hook", map[string]interface{}{
+		"hook_event_name":  "Stop",
+		"stop_hook_active": true,
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	updated, err := env.server.db.GetSession(session.ID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if updated.Status != db.SessionStatusRunning {
+		t.Errorf("expected status running, got %q", updated.Status)
+	}
+}
+
+func TestSessionHook_NotificationAuthSuccessDoesNotFlipWaiting(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "hook-project", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Hook Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	session, err := env.server.db.CreateSession(db.CreateSessionInput{
+		TaskID:      task.ID,
+		Provider:    "claude",
+		SessionType: "terminal",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	runningStatus := db.SessionStatusRunning
+	env.server.db.UpdateSession(session.ID, db.UpdateSessionInput{
+		Status: &runningStatus,
+	})
+
+	resp := env.post("/api/sessions/"+session.ID+"/hook", map[string]interface{}{
+		"hook_event_name":   "Notification",
+		"notification_type": "auth_success",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
 	updated, err := env.server.db.GetSession(session.ID)
 	if err != nil {
 		t.Fatalf("get session: %v", err)
@@ -1542,6 +1639,148 @@ func TestUpdateTask_StatusInReview(t *testing.T) {
 	if body["status"] != "in_review" {
 		t.Errorf("expected status 'in_review', got %v", body["status"])
 	}
+}
+
+func TestWriteClaudeHooks_InvalidExistingJSON(t *testing.T) {
+	workDir := t.TempDir()
+	claudeDir := filepath.Join(workDir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatalf("mkdir .claude: %v", err)
+	}
+	settingsPath := filepath.Join(claudeDir, "settings.local.json")
+	original := []byte(`{"hooks": invalid-json}`)
+	if err := os.WriteFile(settingsPath, original, 0644); err != nil {
+		t.Fatalf("write invalid settings file: %v", err)
+	}
+
+	err := writeClaudeHooks(workDir, "session-new", "/tmp/token", "http://localhost:8080")
+	if err == nil {
+		t.Fatal("expected parse error, got nil")
+	}
+
+	got, readErr := os.ReadFile(settingsPath)
+	if readErr != nil {
+		t.Fatalf("read settings file: %v", readErr)
+	}
+	if string(got) != string(original) {
+		t.Fatalf("expected invalid settings to remain unchanged")
+	}
+}
+
+func TestWriteClaudeHooks_ReplacesOnlyCodeburgEntries(t *testing.T) {
+	workDir := t.TempDir()
+	claudeDir := filepath.Join(workDir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatalf("mkdir .claude: %v", err)
+	}
+	settingsPath := filepath.Join(claudeDir, "settings.local.json")
+
+	initial := map[string]interface{}{
+		"hooks": map[string]interface{}{
+			"Notification": []interface{}{
+				map[string]interface{}{
+					"matcher": "",
+					"hooks": []interface{}{
+						map[string]interface{}{
+							"type":    "command",
+							"command": "curl -s -X POST 'http://localhost:8080/api/sessions/old-session/hook'",
+						},
+					},
+				},
+				map[string]interface{}{
+					"matcher": "",
+					"hooks": []interface{}{
+						map[string]interface{}{
+							"type":    "command",
+							"command": "echo user-notification",
+						},
+					},
+				},
+			},
+		},
+	}
+	data, err := json.MarshalIndent(initial, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal initial settings: %v", err)
+	}
+	if err := os.WriteFile(settingsPath, data, 0644); err != nil {
+		t.Fatalf("write initial settings: %v", err)
+	}
+
+	if err := writeClaudeHooks(workDir, "new-session", "/tmp/token", "http://localhost:8080"); err != nil {
+		t.Fatalf("writeClaudeHooks: %v", err)
+	}
+
+	updatedData, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("read updated settings: %v", err)
+	}
+
+	var updated map[string]interface{}
+	if err := json.Unmarshal(updatedData, &updated); err != nil {
+		t.Fatalf("unmarshal updated settings: %v", err)
+	}
+
+	hooksObj, ok := updated["hooks"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected hooks object")
+	}
+
+	checkEvent := func(event string, expectUser bool) {
+		t.Helper()
+		entries, ok := hooksObj[event].([]interface{})
+		if !ok {
+			t.Fatalf("expected %s hooks array", event)
+		}
+
+		var hasOldCodeburg bool
+		var hasNewCodeburg bool
+		var hasUser bool
+
+		for _, entry := range entries {
+			m, ok := entry.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			hooks, ok := m["hooks"].([]interface{})
+			if !ok {
+				continue
+			}
+			for _, h := range hooks {
+				hook, ok := h.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				cmd, _ := hook["command"].(string)
+				if strings.Contains(cmd, "/api/sessions/old-session/hook") {
+					hasOldCodeburg = true
+				}
+				if strings.Contains(cmd, "/api/sessions/new-session/hook") {
+					hasNewCodeburg = true
+				}
+				if strings.Contains(cmd, "echo user-notification") {
+					hasUser = true
+				}
+			}
+		}
+
+		if hasOldCodeburg {
+			t.Fatalf("event %s still contains old codeburg hook", event)
+		}
+		if !hasNewCodeburg {
+			t.Fatalf("event %s missing new codeburg hook", event)
+		}
+		if expectUser && !hasUser {
+			t.Fatalf("event %s missing preserved user hook", event)
+		}
+		if !expectUser && hasUser {
+			t.Fatalf("event %s should not include user hook", event)
+		}
+	}
+
+	checkEvent("Notification", true)
+	checkEvent("Stop", false)
+	checkEvent("SessionEnd", false)
 }
 
 // --- Helper to suppress unused import ---

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Menu } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { useMobile } from '../../hooks/useMobile';
@@ -9,6 +10,8 @@ const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 480;
 const SIDEBAR_DEFAULT = 288;
 const COLLAPSED_WIDTH = 48;
+
+const ease: [number, number, number, number] = [0.4, 0, 0.2, 1];
 
 interface LayoutProps {
   children: ReactNode;
@@ -70,24 +73,39 @@ export function Layout({ children }: LayoutProps) {
             <Menu size={20} />
           </button>
 
-          {sidebarOpen && (
-            <div
-              className="fixed inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm z-40"
-              onClick={() => setSidebarOpen(false)}
-            />
-          )}
-          <div
-            className={`fixed inset-y-0 left-0 z-50 transform transition-transform duration-200 ease-in-out ${
-              sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-            }`}
-          >
-            <Sidebar onClose={() => setSidebarOpen(false)} />
-          </div>
+          <AnimatePresence>
+            {sidebarOpen && (
+              <motion.div
+                key="backdrop"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="fixed inset-0 bg-[var(--color-bg-primary)]/60 backdrop-blur-sm z-40"
+                onClick={() => setSidebarOpen(false)}
+              />
+            )}
+            {sidebarOpen && (
+              <motion.div
+                key="drawer"
+                initial={{ x: '-100%' }}
+                animate={{ x: 0 }}
+                exit={{ x: '-100%' }}
+                transition={{ duration: 0.2, ease }}
+                className="fixed inset-y-0 left-0 z-50"
+              >
+                <Sidebar onClose={() => setSidebarOpen(false)} />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </>
       ) : (
-        <div
-          className="relative flex-shrink-0 transition-[width] duration-200 ease-out"
-          style={{ width: isExpanded ? sidebarWidth : COLLAPSED_WIDTH }}
+        <motion.div
+          className="relative flex-shrink-0 overflow-hidden"
+          animate={{ width: isExpanded ? sidebarWidth : COLLAPSED_WIDTH }}
+          transition={{
+            width: { duration: dragging.current ? 0 : 0.2, ease },
+          }}
         >
           <Sidebar width={isExpanded ? sidebarWidth : COLLAPSED_WIDTH} collapsed={!isExpanded} />
           {isExpanded && (
@@ -97,7 +115,7 @@ export function Layout({ children }: LayoutProps) {
               className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-accent/40 active:bg-accent/60 transition-colors z-10"
             />
           )}
-        </div>
+        </motion.div>
       )}
 
       <div className="flex-1 min-w-0 h-full overflow-hidden">

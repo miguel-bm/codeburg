@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'motion/react';
 import { ChevronRight } from 'lucide-react';
 import { usePanelStore, PANEL_WIDTH_MIN, PANEL_WIDTH_MAX, PANEL_WIDTH_DEFAULT } from '../../stores/panel';
 import { useMobile } from '../../hooks/useMobile';
@@ -8,37 +9,15 @@ import { HeaderProvider, Header } from './Header';
 
 interface PanelProps {
   children: ReactNode;
-  closing?: boolean;
-  onExitComplete?: () => void;
 }
 
-export function Panel({ children, closing, onExitComplete }: PanelProps) {
+export function Panel({ children }: PanelProps) {
   const { size, width, setWidth } = usePanelStore();
   const isMobile = useMobile();
   const navigate = useNavigate();
   const effectiveSize = isMobile ? 'full' : size;
-  const [mounted, setMounted] = useState(false);
   const dragging = useRef(false);
   const panelRef = useRef<HTMLDivElement>(null);
-
-  // Entry animation: set mounted=true on the next frame after mount
-  useEffect(() => {
-    if (!closing) {
-      const frame = requestAnimationFrame(() => setMounted(true));
-      return () => cancelAnimationFrame(frame);
-    }
-  }, [closing]);
-
-  // Exit animation: set mounted=false, then fire callback after transition ends
-  useEffect(() => {
-    if (closing) {
-      setMounted(false);
-      const timer = setTimeout(() => {
-        onExitComplete?.();
-      }, 220); // slightly longer than duration-200 to ensure transition finishes
-      return () => clearTimeout(timer);
-    }
-  }, [closing, onExitComplete]);
 
   // Escape key handler — close the panel
   const handleClose = useCallback(() => {
@@ -92,20 +71,26 @@ export function Panel({ children, closing, onExitComplete }: PanelProps) {
     document.addEventListener('mouseup', onMouseUp);
   }, [setWidth]);
 
+  const isFullMode = effectiveSize === 'full';
+  const targetWidth = width || PANEL_WIDTH_DEFAULT;
+  const ease: [number, number, number, number] = [0.4, 0, 0.2, 1];
+
   // Mobile: full-screen overlay
   if (isMobile) {
     return (
       <HeaderProvider>
-        <div className={[
-          'fixed inset-0 z-10 bg-secondary flex flex-col',
-          'transition-transform duration-200 ease-out',
-          mounted ? 'translate-x-0' : 'translate-x-full',
-        ].join(' ')}>
+        <motion.div
+          initial={{ x: '100%' }}
+          animate={{ x: 0 }}
+          exit={{ x: '100%' }}
+          transition={{ duration: 0.2, ease }}
+          className="fixed inset-0 z-10 bg-secondary flex flex-col"
+        >
           <Header />
           <div className="flex-1 overflow-auto">
             {children}
           </div>
-        </div>
+        </motion.div>
       </HeaderProvider>
     );
   }
@@ -113,20 +98,35 @@ export function Panel({ children, closing, onExitComplete }: PanelProps) {
   // Desktop: flex child alongside dashboard, slides in from the right
   return (
     <HeaderProvider>
-      <div
+      <motion.div
         ref={panelRef}
-        className={[
-          'relative flex-shrink-0 flex flex-col bg-secondary border-l border-subtle overflow-hidden',
-          'transition-[transform,opacity] duration-200 ease-out',
-          mounted ? 'translate-x-0 opacity-100' : 'translate-x-24 opacity-0',
-        ].join(' ')}
-        style={{
-          ...(effectiveSize === 'full' ? { flex: 1 } : { width: width || PANEL_WIDTH_DEFAULT }),
-          boxShadow: 'var(--shadow-panel)',
+        initial={isFullMode
+          ? { opacity: 0, x: 96 }
+          : { width: 0, opacity: 0 }}
+        animate={isFullMode
+          ? { opacity: 1, x: 0 }
+          : { width: targetWidth, opacity: 1 }}
+        exit={isFullMode
+          ? { opacity: 0, x: 96 }
+          : { width: 0, opacity: 0 }}
+        transition={{
+          duration: 0.2,
+          ease,
+          ...(!isFullMode ? {
+            width: {
+              duration: dragging.current ? 0 : 0.2,
+              ease,
+            },
+          } : {}),
         }}
+        className={[
+          'relative flex flex-col bg-secondary overflow-hidden',
+          isFullMode ? 'flex-1' : 'flex-shrink-0 border-l border-subtle',
+        ].join(' ')}
+        style={{ boxShadow: 'var(--shadow-panel)' }}
       >
         {/* Left edge: drag handle + collapse button */}
-        {effectiveSize !== 'full' && (
+        {!isFullMode && (
           <div className="group/edge absolute top-0 left-0 bottom-0 w-3 z-20">
             {/* Drag handle strip */}
             <div
@@ -158,7 +158,7 @@ export function Panel({ children, closing, onExitComplete }: PanelProps) {
         <div className="flex-1 overflow-auto">
           {children}
         </div>
-      </div>
+      </motion.div>
     </HeaderProvider>
   );
 }

@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { GitBranch, Pin, GitPullRequest, X, Plus, Inbox, Play, Eye, CheckCircle2, Clock, Calendar, LayoutGrid, List as ListIcon, Search, ChevronDown, Check } from 'lucide-react';
+import { GitBranch, Pin, GitPullRequest, X, Plus, Inbox, Play, Eye, CheckCircle2, Clock, Calendar, LayoutGrid, List as ListIcon, Search, ChevronDown, Check, Crosshair } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
 import { tasksApi, projectsApi, sessionsApi, invalidateTaskQueries } from '../api';
@@ -421,7 +421,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
           <button
             type="button"
             onClick={() => setView('kanban')}
-            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-all duration-150 ${
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${
               view === 'kanban'
                 ? 'bg-accent/15 text-accent'
                 : 'text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
@@ -434,7 +434,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
           <button
             type="button"
             onClick={() => setView('list')}
-            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-all duration-150 ${
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${
               view === 'list'
                 ? 'bg-accent/15 text-accent'
                 : 'text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
@@ -460,6 +460,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
             sessionStorage.removeItem(SESSION_KEY);
             updateDashboardParams({ project: null });
           }}
+          menuWidth={460}
           searchable
         />
 
@@ -1201,6 +1202,7 @@ interface SingleSelectFilterMenuProps {
   emptyMessage: string;
   onSelect: (value: string) => void;
   onClear: () => void;
+  menuWidth?: number;
   searchable?: boolean;
 }
 
@@ -1213,6 +1215,7 @@ function SingleSelectFilterMenu({
   emptyMessage,
   onSelect,
   onClear,
+  menuWidth = 320,
   searchable = false,
 }: SingleSelectFilterMenuProps) {
   const [open, setOpen] = useState(false);
@@ -1224,8 +1227,8 @@ function SingleSelectFilterMenu({
   const canSearch = searchable || items.length > 8;
 
   const reposition = useCallback(() => {
-    setMenuStyle(buildMenuStyle(triggerRef.current, 320));
-  }, []);
+    setMenuStyle(buildMenuStyle(triggerRef.current, menuWidth));
+  }, [menuWidth]);
 
   useEffect(() => {
     if (!open) return;
@@ -1274,12 +1277,12 @@ function SingleSelectFilterMenu({
         onClick={() => setOpen((v) => !v)}
         className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] transition-colors ${
           selectedValue
-            ? 'border-accent/40 bg-[var(--color-accent-glow)] text-accent'
-            : 'border-subtle bg-[var(--color-card)] text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
+            ? 'border-accent/28 bg-[var(--color-accent-glow)] text-accent'
+            : 'border-subtle/45 bg-[var(--color-card)] text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
         }`}
       >
         <span className="font-medium">{label}</span>
-        <span className={`max-w-[140px] truncate ${selectedValue ? 'text-accent' : 'text-dim'}`}>
+        <span className={`max-w-[180px] truncate ${selectedValue ? 'text-accent' : 'text-dim'}`}>
           {selectedValue ? selectedLabel : allLabel}
         </span>
         <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -1293,7 +1296,7 @@ function SingleSelectFilterMenu({
             style={menuStyle}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            className="rounded-xl border border-subtle/70 bg-elevated shadow-lg shadow-black/35 overflow-hidden flex flex-col animate-scaleIn"
+            className="rounded-xl border border-subtle/35 bg-elevated shadow-lg shadow-black/35 overflow-hidden flex flex-col animate-scaleIn"
           >
             <div className="px-3 py-2.5 bg-[var(--color-bg-secondary)]/45 flex items-center justify-between">
               <div className="text-xs font-medium">{label}</div>
@@ -1313,15 +1316,15 @@ function SingleSelectFilterMenu({
               <div className="px-3 pb-2">
                 <label className="relative block">
                   <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
-                  <input
-                    ref={searchRef}
-                    value={query}
-                    onChange={(ev) => setQuery(ev.target.value)}
-                    placeholder={`Search ${label.toLowerCase()}...`}
-                    className="w-full h-7 rounded-md border border-subtle/55 bg-[var(--color-bg-secondary)]/60 pl-7 pr-2 text-[11px] text-[var(--color-text-primary)] placeholder:text-dim focus:outline-none focus:border-accent/70"
-                  />
-                </label>
-              </div>
+                <input
+                  ref={searchRef}
+                  value={query}
+                  onChange={(ev) => setQuery(ev.target.value)}
+                  placeholder={`Search ${label.toLowerCase()}...`}
+                  className="w-full h-7 rounded-md border border-subtle/30 bg-[var(--color-bg-secondary)]/60 pl-7 pr-2 text-[11px] text-[var(--color-text-primary)] placeholder:text-dim focus:outline-none focus:border-accent/55"
+                />
+              </label>
+            </div>
             )}
 
             <div className="overflow-y-auto p-1.5">
@@ -1350,18 +1353,19 @@ function SingleSelectFilterMenu({
                           <div className="text-[10px] text-dim mt-0.5 truncate">{item.description}</div>
                         )}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onSelect(item.value);
-                          setOpen(false);
-                        }}
-                        className="px-1.5 py-1 rounded text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
-                      >
-                        only
-                      </button>
-                    </div>
-                  );
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelect(item.value);
+                        setOpen(false);
+                      }}
+                      className="inline-flex items-center gap-1 px-1.5 py-1 rounded text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
+                    >
+                      <Crosshair size={10} />
+                      only
+                    </button>
+                  </div>
+                );
                 })
               )}
             </div>
@@ -1452,8 +1456,8 @@ function MultiSelectFilterMenu({
         onClick={() => setOpen((v) => !v)}
         className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] transition-colors ${
           selectedCount > 0
-            ? 'border-accent/35 bg-[var(--color-accent-glow)] text-accent'
-            : 'border-subtle bg-[var(--color-card)] text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
+            ? 'border-accent/28 bg-[var(--color-accent-glow)] text-accent'
+            : 'border-subtle/45 bg-[var(--color-card)] text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
         }`}
       >
         <span className="font-medium">{label}</span>
@@ -1471,7 +1475,7 @@ function MultiSelectFilterMenu({
             style={menuStyle}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            className="rounded-xl border border-subtle/70 bg-elevated shadow-lg shadow-black/35 overflow-hidden flex flex-col animate-scaleIn"
+            className="rounded-xl border border-subtle/35 bg-elevated shadow-lg shadow-black/35 overflow-hidden flex flex-col animate-scaleIn"
           >
             <div className="px-3 py-2.5 bg-[var(--color-bg-secondary)]/45 flex items-center justify-between">
               <div className="text-xs font-medium">{label}</div>
@@ -1488,15 +1492,15 @@ function MultiSelectFilterMenu({
               <div className="px-3 pb-2">
                 <label className="relative block">
                   <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
-                  <input
-                    ref={searchRef}
-                    value={query}
-                    onChange={(ev) => setQuery(ev.target.value)}
-                    placeholder={`Search ${label.toLowerCase()}...`}
-                    className="w-full h-7 rounded-md border border-subtle/55 bg-[var(--color-bg-secondary)]/60 pl-7 pr-2 text-[11px] text-[var(--color-text-primary)] placeholder:text-dim focus:outline-none focus:border-accent/70"
-                  />
-                </label>
-              </div>
+                <input
+                  ref={searchRef}
+                  value={query}
+                  onChange={(ev) => setQuery(ev.target.value)}
+                  placeholder={`Search ${label.toLowerCase()}...`}
+                  className="w-full h-7 rounded-md border border-subtle/30 bg-[var(--color-bg-secondary)]/60 pl-7 pr-2 text-[11px] text-[var(--color-text-primary)] placeholder:text-dim focus:outline-none focus:border-accent/55"
+                />
+              </label>
+            </div>
             )}
 
             <div className="overflow-y-auto p-1.5">
@@ -1529,9 +1533,13 @@ function MultiSelectFilterMenu({
                       </button>
                       <button
                         type="button"
-                        onClick={() => onOnly(item.value)}
-                        className="px-1.5 py-1 rounded text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
+                        onClick={() => {
+                          onOnly(item.value);
+                          setOpen(false);
+                        }}
+                        className="inline-flex items-center gap-1 px-1.5 py-1 rounded text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
                       >
+                        <Crosshair size={10} />
                         only
                       </button>
                     </div>

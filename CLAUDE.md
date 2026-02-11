@@ -297,7 +297,8 @@ All sessions are terminal-based, rendered via xterm.js connected to tmux windows
 
 - **Claude sessions**: Runs `claude` CLI interactively in tmux. Claude Code hooks
   (`.claude/settings.local.json`) call back to `POST /api/sessions/:id/hook` for
-  status tracking (Notification→waiting_input, Stop→running, SessionEnd→completed).
+  status tracking (Notification→waiting_input for prompt-style notifications,
+  Stop→waiting_input unless `stop_hook_active=true`, SessionEnd→completed).
 - **Codex sessions**: Runs `codex` CLI in tmux. A notify script calls back on
   `agent-turn-complete` for status tracking.
 - **Terminal sessions**: Plain shell in the task's worktree directory.
