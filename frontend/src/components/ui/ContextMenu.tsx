@@ -4,6 +4,7 @@ import type { LucideIcon } from 'lucide-react';
 
 export interface ContextMenuItem {
   label: string;
+  description?: string;
   icon?: LucideIcon;
   onClick: () => void;
   danger?: boolean;
@@ -84,7 +85,12 @@ export function ContextMenu({ items, position, onClose }: ContextMenuProps) {
             }`}
           >
             {Icon && <Icon size={14} className="shrink-0" />}
-            {item.label}
+            <span>
+              {item.label}
+              {item.description && (
+                <span className="block text-[10px] text-dim font-normal">{item.description}</span>
+              )}
+            </span>
           </button>
         );
       })}

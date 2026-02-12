@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useSearchParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'motion/react';
-import { X, LayoutGrid, List as ListIcon } from 'lucide-react';
+import { X, LayoutGrid, List as ListIcon, Search } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
 import { tasksApi, projectsApi, invalidateTaskQueries } from '../api';
 import type { Task, TaskStatus, UpdateTaskResponse } from '../api';
@@ -145,6 +145,9 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   const [showHelp, setShowHelp] = useState(false);
   const [workflowPrompt, setWorkflowPrompt] = useState<{ taskId: string } | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const [searchExpanded, setSearchExpanded] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const columnRefs = useRef<(HTMLDivElement | null)[]>([]);
   const kanbanScrollRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -163,6 +166,19 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     }
     prevSidebarFocused.current = sidebarFocused;
   }, [sidebarFocused]);
+
+  const clearSearch = useCallback(() => {
+    setSearchQuery('');
+    setSearchExpanded(false);
+  }, []);
+
+  useEffect(() => {
+    if (searchExpanded) {
+      // Small delay to let the width transition start before focusing
+      const id = setTimeout(() => searchInputRef.current?.focus(), 50);
+      return () => clearTimeout(id);
+    }
+  }, [searchExpanded]);
 
   const swipeHandlers = useSwipe({
     onSwipeLeft: () => setActiveColumnIndex((i) => Math.min(i + 1, COLUMNS.length - 1)),
@@ -243,12 +259,15 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     return Array.from(labelMap.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [tasks]);
 
+  const searchQueryLower = useMemo(() => searchQuery.trim().toLowerCase(), [searchQuery]);
+
   const filteredTasks = useMemo(() => {
     return (tasks ?? []).filter((task) => {
       if (hasStatusFilter && !statusFilter.has(task.status)) return false;
       if (hasPriorityFilter && !priorityFilter.has(task.priority ?? '')) return false;
       if (hasTypeFilter && !typeFilter.has(task.taskType)) return false;
       if (hasLabelFilter && !task.labels.some((label) => labelFilter.has(label.id))) return false;
+      if (searchQueryLower && !task.title.toLowerCase().includes(searchQueryLower) && !(task.description && task.description.toLowerCase().includes(searchQueryLower))) return false;
       return true;
     });
   }, [
@@ -261,6 +280,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     typeFilter,
     hasLabelFilter,
     labelFilter,
+    searchQueryLower,
   ]);
 
   const tasksByStatus = useMemo(() => {
@@ -329,11 +349,10 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
 
   const activeProjectName = selectedProjectId ? getProjectName(selectedProjectId) : 'All projects';
   const activeFilterCount = Number(!!selectedProjectId)
-    + Number(hasStatusFilter)
     + Number(hasPriorityFilter)
     + Number(hasTypeFilter)
     + Number(hasLabelFilter);
-  const hasAdvancedFilters = hasStatusFilter || hasPriorityFilter || hasTypeFilter || hasLabelFilter;
+  const hasAdvancedFilters = hasPriorityFilter || hasTypeFilter || hasLabelFilter;
 
   const setView = useCallback(
     (nextView: DashboardView) => {
@@ -427,7 +446,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         <CompactFilterPanel
           selectedProjectId={selectedProjectId}
           projectFilterItems={projectFilterItems}
-          showStatusFilter={view === 'list'}
+          showStatusFilter={false}
           statusFilter={statusFilter}
           statusFilterItems={statusFilterItems}
           statusFilterOrder={statusFilterOrder}
@@ -469,24 +488,6 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
             menuWidth={460}
             searchable
           />
-
-          {view === 'list' && (
-            <FilterMenu
-              mode="multi"
-              label="Status"
-              selected={statusFilter}
-              items={statusFilterItems}
-              emptyMessage="No statuses available."
-              onToggle={(value) => toggleMultiFilterValue(
-                DASHBOARD_STATUS_PARAM,
-                value,
-                statusFilter,
-                statusFilterOrder,
-              )}
-              onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_STATUS_PARAM, value)}
-              onReset={() => updateDashboardParams({ [DASHBOARD_STATUS_PARAM]: null })}
-            />
-          )}
 
           <FilterMenu
             mode="multi"
@@ -540,6 +541,57 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         </div>
       )}
 
+      {/* Search — expanding inline field */}
+      <div
+        className={`inline-flex h-7 items-center rounded-lg shrink-0 overflow-hidden transition-all duration-200 ease-out ${
+          searchQuery
+            ? 'bg-accent/10'
+            : searchExpanded
+              ? 'bg-tertiary'
+              : ''
+        }`}
+        style={{ width: searchExpanded ? 200 : 28 }}
+      >
+        <button
+          type="button"
+          onClick={() => { if (!searchExpanded) setSearchExpanded(true); }}
+          className={`shrink-0 w-7 h-7 inline-flex items-center justify-center rounded-lg transition-colors ${
+            searchQuery
+              ? 'text-accent'
+              : searchExpanded
+                ? 'text-dim'
+                : 'text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
+          }`}
+        >
+          <Search size={12} />
+        </button>
+        <input
+          ref={searchInputRef}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape') clearSearch(); }}
+          placeholder="Search..."
+          className={`flex-1 min-w-0 h-7 bg-transparent text-[11px] focus:outline-none ${
+            searchQuery
+              ? 'text-accent placeholder:text-accent/50'
+              : 'text-[var(--color-text-primary)] placeholder:text-dim'
+          }`}
+          tabIndex={searchExpanded ? 0 : -1}
+        />
+        <button
+          type="button"
+          onClick={clearSearch}
+          className={`shrink-0 w-6 h-7 inline-flex items-center justify-center transition-colors ${
+            searchQuery
+              ? 'text-accent/60 hover:text-accent'
+              : 'text-dim hover:text-[var(--color-text-primary)]'
+          }`}
+          tabIndex={searchExpanded ? 0 : -1}
+        >
+          <X size={12} />
+        </button>
+      </div>
+
       {/* Clear — always visible, pinned right */}
       {activeFilterCount > 0 && (
         <div className="ml-auto flex items-center gap-1.5 shrink-0">
@@ -556,7 +608,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         </div>
       )}
     </div>,
-    `dashboard-${view}-${isCompact}-${selectedProjectId ?? 'none'}-${Array.from(statusFilter).sort().join('.')}-${Array.from(priorityFilter).sort().join('.')}-${Array.from(typeFilter).sort().join('.')}-${Array.from(labelFilter).sort().join('.')}-${(projects ?? []).length}-${availablePriorities.join('.')}-${availableTaskTypes.join('.')}-${availableLabels.map((label) => label.id).join('.')}`,
+    `dashboard-${view}-${isCompact}-${searchExpanded}-${searchQuery}-${selectedProjectId ?? 'none'}-${Array.from(statusFilter).sort().join('.')}-${Array.from(priorityFilter).sort().join('.')}-${Array.from(typeFilter).sort().join('.')}-${Array.from(labelFilter).sort().join('.')}-${(projects ?? []).length}-${availablePriorities.join('.')}-${availableTaskTypes.join('.')}-${availableLabels.map((label) => label.id).join('.')}`,
   );
 
   const hasProjects = (projects?.length ?? 0) > 0;
@@ -873,8 +925,8 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
           getProjectName={getProjectName}
           onOpenTask={(taskId) => navigateToPanel(`/tasks/${taskId}`)}
           canCreateTask={hasProjects}
-          onCreateTask={() => {
-            if (hasProjects) navigateToCreate();
+          onCreateTask={(status) => {
+            if (hasProjects) navigateToCreate(status);
           }}
         />
       ) : (

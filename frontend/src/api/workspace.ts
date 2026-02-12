@@ -1,6 +1,6 @@
 import { api } from './client';
 import type { AgentSession, StartSessionInput } from './sessions';
-import type { GitStatus, GitDiff, GitDiffContent, GitCommitResult, GitStashResponse } from './git';
+import type { GitStatus, GitDiff, GitDiffContent, GitCommitResult, GitStashResponse, GitLogResponse } from './git';
 import type { TunnelInfo } from './tunnels';
 
 // --- Scoped API factories ---
@@ -30,19 +30,21 @@ export function createGitApi(type: WorkspaceScopeType, id: string) {
   return {
     status: () => api.get<GitStatus>(`${prefix}/git/status`),
 
-    diff: (opts?: { file?: string; staged?: boolean; base?: boolean }) => {
+    diff: (opts?: { file?: string; staged?: boolean; base?: boolean; commit?: string }) => {
       const params = new URLSearchParams();
       if (opts?.file) params.set('file', opts.file);
       if (opts?.staged) params.set('staged', 'true');
       if (opts?.base) params.set('base', 'true');
+      if (opts?.commit) params.set('commit', opts.commit);
       const qs = params.toString();
       return api.get<GitDiff>(`${prefix}/git/diff${qs ? `?${qs}` : ''}`);
     },
 
-    diffContent: (opts: { file: string; staged?: boolean; base?: boolean }) => {
+    diffContent: (opts: { file: string; staged?: boolean; base?: boolean; commit?: string }) => {
       const params = new URLSearchParams({ file: opts.file });
       if (opts.staged) params.set('staged', 'true');
       if (opts.base) params.set('base', 'true');
+      if (opts.commit) params.set('commit', opts.commit);
       return api.get<GitDiffContent>(`${prefix}/git/diff-content?${params}`);
     },
 
@@ -53,9 +55,13 @@ export function createGitApi(type: WorkspaceScopeType, id: string) {
     commit: (message: string, amend?: boolean) =>
       api.post<GitCommitResult>(`${prefix}/git/commit`, { message, amend }),
     pull: () => api.post<void>(`${prefix}/git/pull`),
-    push: () => api.post<void>(`${prefix}/git/push`),
+    push: (opts?: { force?: boolean }) => api.post<void>(`${prefix}/git/push`, opts),
     stash: (action: 'push' | 'pop' | 'list') =>
       api.post<GitStashResponse>(`${prefix}/git/stash`, { action }),
+    log: (limit?: number) => {
+      const params = limit ? `?limit=${limit}` : '';
+      return api.get<GitLogResponse>(`${prefix}/git/log${params}`);
+    },
   };
 }
 

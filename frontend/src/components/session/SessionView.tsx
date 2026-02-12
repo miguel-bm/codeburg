@@ -17,7 +17,7 @@ export function SessionView({ session, showOpenInNewTab = true }: SessionViewPro
   return (
     <div className="flex flex-col h-full">
       {/* Status Bar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-subtle bg-primary">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-subtle bg-secondary">
         <div className="flex items-center gap-3">
           <StatusIndicator status={session.status} />
           <span className="text-xs text-dim">{session.provider}</span>

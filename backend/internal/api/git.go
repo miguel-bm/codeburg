@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -53,6 +54,27 @@ type GitRevertRequest struct {
 type GitCommitResponse struct {
 	Hash    string `json:"hash"`
 	Message string `json:"message"`
+}
+
+type GitPushRequest struct {
+	Force bool `json:"force,omitempty"`
+}
+
+type GitLogEntry struct {
+	Hash       string `json:"hash"`
+	ShortHash  string `json:"shortHash"`
+	Message    string `json:"message"`
+	Body       string `json:"body,omitempty"`
+	Author     string `json:"author"`
+	AuthorEmail string `json:"authorEmail"`
+	Date       string `json:"date"`
+	FilesChanged int  `json:"filesChanged"`
+	Additions  int    `json:"additions"`
+	Deletions  int    `json:"deletions"`
+}
+
+type GitLogResponse struct {
+	Commits []GitLogEntry `json:"commits"`
 }
 
 type GitStashRequest struct {
@@ -373,9 +395,19 @@ func (s *Server) handleGitDiff(w http.ResponseWriter, r *http.Request) {
 	file := r.URL.Query().Get("file")
 	staged := r.URL.Query().Get("staged") == "true"
 	base := r.URL.Query().Get("base") == "true"
+	commitHash := r.URL.Query().Get("commit")
 
 	var args []string
-	if base {
+	if commitHash != "" {
+		// Diff for a specific commit — use diff-tree for root commit safety
+		_, err := runGit(workDir, "rev-parse", "--verify", commitHash+"^")
+		if err != nil {
+			// Root commit: show entire tree as additions
+			args = []string{"diff-tree", "--patch", "--no-commit-id", "-r", commitHash}
+		} else {
+			args = []string{"diff", commitHash + "^", commitHash}
+		}
+	} else if base {
 		// Diff against merge-base with default branch
 		taskID := urlParam(r, "id")
 		task, _ := s.db.GetTask(taskID)
@@ -582,7 +614,15 @@ func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := runGit(workDir, "push"); err != nil {
+	var req GitPushRequest
+	// Body is optional — ignore decode errors for backwards compat
+	_ = decodeJSON(r, &req)
+
+	args := []string{"push"}
+	if req.Force {
+		args = append(args, "--force-with-lease")
+	}
+	if _, err := runGit(workDir, args...); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -646,6 +686,105 @@ func (s *Server) handleGitStash(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// gitLog returns recent commits for the given working directory.
+func gitLog(workDir string, limit int) ([]GitLogEntry, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	// Use a delimiter to reliably split fields
+	const sep = "§"
+	format := strings.Join([]string{"%H", "%h", "%s", "%b", "%an", "%ae", "%aI"}, sep)
+	out, err := runGit(workDir, "log", fmt.Sprintf("-%d", limit), fmt.Sprintf("--format=%s", format))
+	if err != nil {
+		return nil, err
+	}
+
+	var commits []GitLogEntry
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, sep, 7)
+		if len(parts) < 7 {
+			continue
+		}
+		entry := GitLogEntry{
+			Hash:        parts[0],
+			ShortHash:   parts[1],
+			Message:     parts[2],
+			Body:        strings.TrimSpace(parts[3]),
+			Author:      parts[4],
+			AuthorEmail: parts[5],
+			Date:        parts[6],
+		}
+
+		// Get diffstat for this commit
+		statOut, statErr := runGit(workDir, "diff-tree", "--no-commit-id", "--numstat", "-r", entry.Hash)
+		if statErr == nil {
+			for _, sl := range strings.Split(strings.TrimSpace(statOut), "\n") {
+				if sl == "" {
+					continue
+				}
+				fields := strings.Fields(sl)
+				if len(fields) >= 2 {
+					add, _ := strconv.Atoi(fields[0])
+					del, _ := strconv.Atoi(fields[1])
+					entry.Additions += add
+					entry.Deletions += del
+					entry.FilesChanged++
+				}
+			}
+		}
+
+		commits = append(commits, entry)
+	}
+	return commits, nil
+}
+
+func (s *Server) handleGitLog(w http.ResponseWriter, r *http.Request) {
+	workDir, ok := s.resolveTaskWorkDir(w, r)
+	if !ok {
+		return
+	}
+
+	limit := 20
+	if q := r.URL.Query().Get("limit"); q != "" {
+		if n, err := strconv.Atoi(q); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+
+	commits, err := gitLog(workDir, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, GitLogResponse{Commits: commits})
+}
+
+func (s *Server) handleProjectGitLog(w http.ResponseWriter, r *http.Request) {
+	workDir, ok := s.resolveProjectWorkDir(w, r)
+	if !ok {
+		return
+	}
+
+	limit := 20
+	if q := r.URL.Query().Get("limit"); q != "" {
+		if n, err := strconv.Atoi(q); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+
+	commits, err := gitLog(workDir, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, GitLogResponse{Commits: commits})
+}
+
 // --- Project-level git handlers ---
 
 func (s *Server) handleProjectGitDiff(w http.ResponseWriter, r *http.Request) {
@@ -656,9 +795,17 @@ func (s *Server) handleProjectGitDiff(w http.ResponseWriter, r *http.Request) {
 
 	file := r.URL.Query().Get("file")
 	staged := r.URL.Query().Get("staged") == "true"
+	commitHash := r.URL.Query().Get("commit")
 
 	var args []string
-	if staged {
+	if commitHash != "" {
+		_, err := runGit(workDir, "rev-parse", "--verify", commitHash+"^")
+		if err != nil {
+			args = []string{"diff-tree", "--patch", "--no-commit-id", "-r", commitHash}
+		} else {
+			args = []string{"diff", commitHash + "^", commitHash}
+		}
+	} else if staged {
 		args = []string{"diff", "--cached"}
 	} else {
 		args = []string{"diff"}
@@ -831,7 +978,14 @@ func (s *Server) handleProjectGitPush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := runGit(workDir, "push"); err != nil {
+	var req GitPushRequest
+	_ = decodeJSON(r, &req)
+
+	args := []string{"push"}
+	if req.Force {
+		args = append(args, "--force-with-lease")
+	}
+	if _, err := runGit(workDir, args...); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -897,12 +1051,23 @@ type GitDiffContentResponse struct {
 }
 
 // gitDiffContent computes the original and modified file content for a diff view.
-func gitDiffContent(workDir string, file string, staged bool, base bool, baseBranch string) (*GitDiffContentResponse, error) {
+func gitDiffContent(workDir string, file string, staged bool, base bool, baseBranch string, commitHash string) (*GitDiffContentResponse, error) {
 	if file == "" {
 		return nil, fmt.Errorf("file parameter is required")
 	}
 
 	absFile := filepath.Join(workDir, file)
+
+	if commitHash != "" {
+		// Show file content before and after a specific commit
+		var original string
+		_, err := runGit(workDir, "rev-parse", "--verify", commitHash+"^")
+		if err == nil {
+			original, _ = runGit(workDir, "show", commitHash+"^:"+file)
+		}
+		modified, _ := runGit(workDir, "show", commitHash+":"+file)
+		return &GitDiffContentResponse{Original: original, Modified: modified}, nil
+	}
 
 	if base {
 		// Diff against merge-base with default branch
@@ -992,6 +1157,7 @@ func (s *Server) handleGitDiffContent(w http.ResponseWriter, r *http.Request) {
 	file := r.URL.Query().Get("file")
 	staged := r.URL.Query().Get("staged") == "true"
 	base := r.URL.Query().Get("base") == "true"
+	commitHash := r.URL.Query().Get("commit")
 
 	baseBranch := "main"
 	if base {
@@ -1005,7 +1171,7 @@ func (s *Server) handleGitDiffContent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	resp, err := gitDiffContent(workDir, file, staged, base, baseBranch)
+	resp, err := gitDiffContent(workDir, file, staged, base, baseBranch, commitHash)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -1022,8 +1188,9 @@ func (s *Server) handleProjectGitDiffContent(w http.ResponseWriter, r *http.Requ
 
 	file := r.URL.Query().Get("file")
 	staged := r.URL.Query().Get("staged") == "true"
+	commitHash := r.URL.Query().Get("commit")
 
-	resp, err := gitDiffContent(workDir, file, staged, false, "")
+	resp, err := gitDiffContent(workDir, file, staged, false, "", commitHash)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

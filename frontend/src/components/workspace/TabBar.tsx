@@ -1,11 +1,14 @@
-import { FileText, Plus, X } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { FileText, Plus, X, XCircle, ArrowRightToLine } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspace';
 import type { WorkspaceTab } from '../../stores/workspace';
 import { useWorkspaceSessions } from '../../hooks/useWorkspaceSessions';
 import { getSessionStatusMeta } from '../../lib/sessionStatus';
 import { fileName } from './editorUtils';
-import claudeLogo from '../../assets/claude-logo.svg';
-import openaiLogo from '../../assets/openai-logo.svg';
+import { ProviderIcon } from '../session/ProviderIcon';
+import { useLongPress } from '../../hooks/useLongPress';
+import { ContextMenu } from '../ui/ContextMenu';
+import type { ContextMenuItem } from '../ui/ContextMenu';
 
 function SessionTabLabel({ tab }: { tab: Extract<WorkspaceTab, { type: 'session' }> }) {
   const { sessions } = useWorkspaceSessions();
@@ -18,17 +21,9 @@ function SessionTabLabel({ tab }: { tab: Extract<WorkspaceTab, { type: 'session'
   const { dotClass } = getSessionStatusMeta(session.status);
 
   return (
-    <div className="flex items-center gap-1.5">
-      {session.provider === 'claude' && (
-        <img src={claudeLogo} alt="" className="h-3.5 w-3.5" />
-      )}
-      {session.provider === 'codex' && (
-        <img src={openaiLogo} alt="" className="h-3.5 w-3.5" />
-      )}
-      {session.provider === 'terminal' && (
-        <span className="font-mono text-[10px] text-dim">{'>'}</span>
-      )}
-      <div className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
+    <div className="flex items-center gap-1.5 min-w-0">
+      <ProviderIcon provider={session.provider} />
+      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`} />
       <span className="truncate">#{session.id.slice(0, 6)}</span>
     </div>
   );
@@ -47,7 +42,7 @@ function TabLabel({ tab }: { tab: WorkspaceTab }) {
       );
     case 'editor':
       return (
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 min-w-0">
           <FileText size={12} className="text-dim shrink-0" />
           <span className="truncate">{fileName(tab.path)}</span>
           {tab.dirty && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />}
@@ -55,22 +50,39 @@ function TabLabel({ tab }: { tab: WorkspaceTab }) {
       );
     case 'diff':
       return (
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-mono text-yellow-500">D</span>
-          <span className="truncate">{tab.file ? fileName(tab.file) : 'All Changes'}</span>
-          {tab.staged && <span className="text-[9px] text-green-500">staged</span>}
-          {tab.base && <span className="text-[9px] text-dim">base</span>}
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-[10px] font-mono text-yellow-500 shrink-0">D</span>
+          <span className="truncate">{tab.file ? fileName(tab.file) : tab.commit ? `${tab.commit.slice(0, 7)}` : 'All Changes'}</span>
+          {tab.staged && <span className="text-[9px] text-green-500 shrink-0">staged</span>}
+          {tab.base && <span className="text-[9px] text-dim shrink-0">base</span>}
+          {tab.commit && <span className="text-[9px] text-accent shrink-0">commit</span>}
         </div>
       );
   }
 }
 
 export function TabBar() {
-  const { tabs, activeTabIndex, setActiveTab, closeTab, openNewSession } = useWorkspaceStore();
+  const { tabs, activeTabIndex, setActiveTab, closeTab, closeOtherTabs, closeTabsToRight, openNewSession, moveTab } = useWorkspaceStore();
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ index: number; position: { x: number; y: number } } | null>(null);
+
+  const handleDrop = useCallback((targetIndex: number) => {
+    if (dragFrom !== null && dragFrom !== targetIndex) {
+      moveTab(dragFrom, targetIndex);
+    }
+    setDragFrom(null);
+    setDragOver(null);
+  }, [dragFrom, moveTab]);
+
+  const handleDragEnd = useCallback(() => {
+    setDragFrom(null);
+    setDragOver(null);
+  }, []);
 
   if (tabs.length === 0) {
     return (
-      <div className="flex items-center h-9 px-2 bg-secondary border-b border-subtle">
+      <div className="flex items-center h-9 px-2 bg-canvas border-b border-subtle">
         <button
           onClick={openNewSession}
           className="flex items-center gap-1 text-xs text-dim hover:text-accent px-1.5 py-0.5 rounded hover:bg-tertiary"
@@ -95,15 +107,23 @@ export function TabBar() {
   });
 
   return (
-    <div className="flex items-center h-9 bg-secondary border-b border-subtle overflow-x-auto">
+    <div className="flex items-center h-9 bg-canvas border-b border-subtle overflow-x-scroll scrollbar-none py-1 gap-0.5 px-1">
       {/* Session tabs */}
       {sessionTabs.map(({ tab, index }) => (
         <Tab
           key={tab.type === 'session' ? tab.sessionId : 'new_session'}
           tab={tab}
+          storeIndex={index}
           isActive={activeTabIndex === index}
+          isDragging={dragFrom === index}
+          isDragOver={dragOver === index && dragFrom !== null && dragFrom !== index}
           onClick={() => setActiveTab(index)}
           onClose={() => closeTab(index)}
+          onContextMenu={(pos) => setContextMenu({ index, position: pos })}
+          onDragStart={() => setDragFrom(index)}
+          onDragOver={() => setDragOver(index)}
+          onDrop={() => handleDrop(index)}
+          onDragEnd={handleDragEnd}
         />
       ))}
 
@@ -115,11 +135,19 @@ export function TabBar() {
       {/* Editor/diff tabs */}
       {otherTabs.map(({ tab, index }) => (
         <Tab
-          key={tab.type === 'editor' ? `editor:${tab.path}` : tab.type === 'diff' ? `diff:${tab.file}:${tab.staged}:${tab.base}` : `tab:${index}`}
+          key={tab.type === 'editor' ? `editor:${tab.path}` : tab.type === 'diff' ? `diff:${tab.file}:${tab.staged}:${tab.base}:${tab.commit}` : `tab:${index}`}
           tab={tab}
+          storeIndex={index}
           isActive={activeTabIndex === index}
+          isDragging={dragFrom === index}
+          isDragOver={dragOver === index && dragFrom !== null && dragFrom !== index}
           onClick={() => setActiveTab(index)}
           onClose={() => closeTab(index)}
+          onContextMenu={(pos) => setContextMenu({ index, position: pos })}
+          onDragStart={() => setDragFrom(index)}
+          onDragOver={() => setDragOver(index)}
+          onDrop={() => handleDrop(index)}
+          onDragEnd={handleDragEnd}
         />
       ))}
 
@@ -131,37 +159,131 @@ export function TabBar() {
       >
         <Plus size={13} />
       </button>
+
+      {/* Tab context menu (long-press on mobile, right-click on desktop) */}
+      {contextMenu && (
+        <ContextMenu
+          position={contextMenu.position}
+          onClose={() => setContextMenu(null)}
+          items={buildTabContextMenuItems(contextMenu.index, tabs.length, closeTab, closeOtherTabs, closeTabsToRight)}
+        />
+      )}
     </div>
   );
 }
 
 function Tab({
   tab,
+  storeIndex,
   isActive,
+  isDragging,
+  isDragOver,
   onClick,
   onClose,
+  onContextMenu,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: {
   tab: WorkspaceTab;
+  storeIndex: number;
   isActive: boolean;
+  isDragging: boolean;
+  isDragOver: boolean;
   onClick: () => void;
   onClose: () => void;
+  onContextMenu: (position: { x: number; y: number }) => void;
+  onDragStart: () => void;
+  onDragOver: () => void;
+  onDrop: () => void;
+  onDragEnd: () => void;
 }) {
+  const longPress = useLongPress({
+    onLongPress: () => {
+      // Use a reasonable position — center of where the finger is
+      // We can't get touch coords from useLongPress directly, so we track them
+      onContextMenu(lastTouchPos.current);
+    },
+    onClick,
+  });
+
+  // Track touch position for long-press menu placement
+  const lastTouchPos = { current: { x: 0, y: 0 } };
+
   return (
     <div
-      onClick={onClick}
-      className={`flex items-center gap-1 px-2.5 h-full text-xs cursor-pointer shrink-0 border-b-2 transition-colors group max-w-44 ${
+      draggable
+      {...longPress}
+      onTouchStart={(e) => {
+        const touch = e.touches[0];
+        lastTouchPos.current = { x: touch.clientX, y: touch.clientY };
+        longPress.onTouchStart();
+      }}
+      onMouseDown={(e) => {
+        if (e.button === 1) { e.preventDefault(); onClose(); return; }
+        longPress.onMouseDown();
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onContextMenu({ x: e.clientX, y: e.clientY });
+      }}
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(storeIndex));
+        onDragStart();
+      }}
+      onDragOver={(e) => { e.preventDefault(); onDragOver(); }}
+      onDrop={(e) => { e.preventDefault(); onDrop(); }}
+      onDragEnd={onDragEnd}
+      className={`relative flex items-center gap-1 px-2.5 py-1 text-xs cursor-pointer shrink-0 rounded-md transition-colors group max-w-44 ${
+        isDragging ? 'opacity-30' : ''
+      } ${
         isActive
-          ? 'border-accent text-[var(--color-text-primary)] bg-primary'
-          : 'border-transparent text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
+          ? 'bg-accent/15 text-accent'
+          : 'bg-secondary text-dim hover:text-[var(--color-text-secondary)] hover:bg-tertiary'
       }`}
     >
-      <TabLabel tab={tab} />
+      {isDragOver && (
+        <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-accent rounded-full" />
+      )}
+      <div className="min-w-0 overflow-hidden">
+        <TabLabel tab={tab} />
+      </div>
       <button
         onClick={(e) => { e.stopPropagation(); onClose(); }}
-        className="p-0.5 text-dim hover:text-[var(--color-error)] opacity-0 group-hover:opacity-100 ml-1 shrink-0"
+        className="p-0.5 text-dim hover:text-[var(--color-error)] opacity-0 group-hover:opacity-100 shrink-0"
       >
         <X size={11} />
       </button>
     </div>
   );
+}
+
+function buildTabContextMenuItems(
+  index: number,
+  tabCount: number,
+  closeTab: (i: number) => void,
+  closeOtherTabs: (i: number) => void,
+  closeTabsToRight: (i: number) => void,
+): ContextMenuItem[] {
+  return [
+    {
+      label: 'Close',
+      icon: X,
+      onClick: () => closeTab(index),
+    },
+    {
+      label: 'Close Others',
+      icon: XCircle,
+      onClick: () => closeOtherTabs(index),
+      disabled: tabCount <= 1,
+    },
+    {
+      label: 'Close to the Right',
+      icon: ArrowRightToLine,
+      onClick: () => closeTabsToRight(index),
+      disabled: index >= tabCount - 1,
+    },
+  ];
 }

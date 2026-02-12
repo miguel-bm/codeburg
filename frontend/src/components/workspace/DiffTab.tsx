@@ -4,35 +4,49 @@ import { useWorkspace } from './WorkspaceContext';
 import { DiffContent } from './DiffContent';
 import { parseDiffFiles } from '../git/diffFiles';
 import { useWorkspaceStore } from '../../stores/workspace';
+import { StyledPath } from './StyledPath';
 
 interface DiffTabProps {
   file?: string;
   staged?: boolean;
   base?: boolean;
+  commit?: string;
 }
 
-export function DiffTab({ file, staged, base }: DiffTabProps) {
+export function DiffTab({ file, staged, base, commit }: DiffTabProps) {
   const { api, scopeType, scopeId } = useWorkspace();
   const { openDiff } = useWorkspaceStore();
 
   // When a specific file is provided, fetch its diff content
   const { data: diffContent, isLoading: contentLoading, error: contentError } = useQuery({
-    queryKey: ['workspace-diff-content', scopeType, scopeId, file, staged, base],
-    queryFn: () => api.git.diffContent({ file: file!, staged, base }),
+    queryKey: ['workspace-diff-content', scopeType, scopeId, file, staged, base, commit],
+    queryFn: () => api.git.diffContent({ file: file!, staged, base, commit }),
     enabled: !!file,
   });
 
-  // When no file specified, show overview from git status
+  // Also fetch raw diff for file-specific +/- stats
+  const { data: fileDiff } = useQuery({
+    queryKey: ['workspace-diff', scopeType, scopeId, file, staged, base, commit],
+    queryFn: () => api.git.diff({ file, staged, base, commit }),
+    enabled: !!file,
+  });
+
+  const fileStats = useMemo(() => {
+    if (!file || !fileDiff?.diff) return null;
+    const files = parseDiffFiles(fileDiff.diff);
+    return files[0] ?? null;
+  }, [file, fileDiff?.diff]);
+
+  // Fetch git status (always needed — for file badge when file is set, for overview otherwise)
   const { data: statusData, isLoading: statusLoading } = useQuery({
     queryKey: ['workspace-git-status', scopeType, scopeId],
     queryFn: () => api.git.status(),
-    enabled: !file,
   });
 
   // Also fetch full diff for overview +/- counts
   const { data: overviewDiff } = useQuery({
-    queryKey: ['workspace-diff', scopeType, scopeId, undefined, staged, base],
-    queryFn: () => api.git.diff({ staged, base }),
+    queryKey: ['workspace-diff', scopeType, scopeId, undefined, staged, base, commit],
+    queryFn: () => api.git.diff({ staged, base, commit }),
     enabled: !file,
   });
 
@@ -60,20 +74,40 @@ export function DiffTab({ file, staged, base }: DiffTabProps) {
     }
 
     return (
-      <div className="h-full overflow-hidden">
-        <DiffContent original={diffContent.original} modified={diffContent.modified} path={file} />
+      <div className="flex flex-col h-full overflow-hidden">
+        <div className="flex items-center justify-between px-3 py-1.5 border-b border-subtle bg-secondary shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <StyledPath path={file} />
+            <FileStatusBadge file={file} staged={staged} base={base} />
+          </div>
+          {fileStats && (fileStats.additions > 0 || fileStats.deletions > 0) && (
+            <div className="text-xs shrink-0 ml-2">
+              <span className="text-[var(--color-success)]">+{fileStats.additions}</span>
+              {' '}
+              <span className="text-[var(--color-error)]">-{fileStats.deletions}</span>
+            </div>
+          )}
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <DiffContent original={diffContent.original} modified={diffContent.modified} path={file} />
+        </div>
       </div>
     );
   }
 
   // Overview: file list
-  if (statusLoading) {
+  if (!commit && statusLoading) {
     return <div className="p-4 text-xs text-dim">loading...</div>;
   }
 
   const allFiles: { path: string; status: string; additions: number; deletions: number }[] = [];
 
-  if (statusData) {
+  if (commit) {
+    // For commit diffs, use parsed diff files
+    for (const d of diffFiles) {
+      allFiles.push({ path: d.path, status: 'M', additions: d.additions, deletions: d.deletions });
+    }
+  } else if (statusData) {
     if (staged) {
       for (const f of statusData.staged) {
         const stats = diffFiles.find((d) => d.path === f.path);
@@ -117,7 +151,7 @@ export function DiffTab({ file, staged, base }: DiffTabProps) {
       {allFiles.map((f) => (
         <button
           key={f.path}
-          onClick={() => openDiff(f.path, staged, base)}
+          onClick={() => openDiff(f.path, staged, base, commit)}
           className="w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-tertiary border-b border-subtle flex items-center gap-2"
         >
           <StatusBadge status={f.status} />
@@ -133,6 +167,29 @@ export function DiffTab({ file, staged, base }: DiffTabProps) {
       ))}
     </div>
   );
+}
+
+function FileStatusBadge({ file, staged, base }: { file: string; staged?: boolean; base?: boolean }) {
+  const { api, scopeType, scopeId } = useWorkspace();
+  const { data: status } = useQuery({
+    queryKey: ['workspace-git-status', scopeType, scopeId],
+    queryFn: () => api.git.status(),
+  });
+
+  if (!status) return null;
+
+  let fileStatus: string | undefined;
+  if (base) {
+    fileStatus = 'M';
+  } else if (staged) {
+    fileStatus = status.staged.find((f) => f.path === file)?.status;
+  } else {
+    fileStatus = status.unstaged.find((f) => f.path === file)?.status;
+    if (!fileStatus && status.untracked.includes(file)) fileStatus = '?';
+  }
+
+  if (!fileStatus) return null;
+  return <StatusBadge status={fileStatus} />;
 }
 
 function StatusBadge({ status }: { status: string }) {

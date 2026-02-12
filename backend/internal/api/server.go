@@ -226,6 +226,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/projects/{id}/git/pull", s.handleProjectGitPull)
 		r.Post("/api/projects/{id}/git/push", s.handleProjectGitPush)
 		r.Post("/api/projects/{id}/git/stash", s.handleProjectGitStash)
+		r.Get("/api/projects/{id}/git/log", s.handleProjectGitLog)
 
 		// Project tunnels
 		r.Get("/api/projects/{id}/tunnels", s.handleListProjectTunnels)
@@ -284,6 +285,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/tasks/{id}/git/pull", s.handleGitPull)
 		r.Post("/api/tasks/{id}/git/push", s.handleGitPush)
 		r.Post("/api/tasks/{id}/git/stash", s.handleGitStash)
+		r.Get("/api/tasks/{id}/git/log", s.handleGitLog)
 
 		// Labels
 		r.Get("/api/projects/{id}/labels", s.handleListLabels)

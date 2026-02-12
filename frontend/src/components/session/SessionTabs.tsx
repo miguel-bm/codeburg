@@ -1,6 +1,7 @@
 import type { AgentSession, SessionStatus } from '../../api/sessions';
 import { Plus, Sparkles, X } from 'lucide-react';
 import { getSessionStatusMeta } from '../../lib/sessionStatus';
+import { ProviderIcon } from './ProviderIcon';
 
 interface Props {
   sessions: AgentSession[];
@@ -33,7 +34,7 @@ export function SessionTabs({
   );
 
   return (
-    <div className="h-10 flex items-center border-b border-subtle overflow-x-auto">
+    <div className="h-10 flex items-center border-b border-subtle overflow-x-scroll scrollbar-none">
       {sorted.map((session, i) => {
         const isActive = session.id === activeSessionId;
         const canResume = onResume && session.provider === 'claude' && session.status === 'completed';
@@ -45,13 +46,13 @@ export function SessionTabs({
             onClick={() => onSelect(session)}
             className={`h-full flex items-center gap-2 px-3 text-xs transition-colors whitespace-nowrap border-b-2 ${
               isActive
-                ? 'border-accent text-accent bg-accent/10'
+                ? 'border-accent text-accent bg-[var(--color-accent-glow)]'
                 : 'border-transparent text-dim hover:text-[var(--color-text-primary)]'
             }`}
           >
+            <ProviderIcon provider={session.provider} />
             <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${getStatusDotClass(session.status)}`} />
             <span>#{i + 1}</span>
-            <span className="text-dim">{session.provider}</span>
             {canResume && (
               <span
                 onClick={(e) => {
@@ -79,7 +80,7 @@ export function SessionTabs({
         );
       })}
       {showNewSessionTab && (
-        <div className="h-full flex items-center gap-1 px-3 text-xs whitespace-nowrap border-b-2 border-accent text-accent bg-accent/10">
+        <div className="h-full flex items-center gap-1 px-3 text-xs whitespace-nowrap border-b-2 border-accent text-accent bg-[var(--color-accent-glow)]">
           <Sparkles size={13} />
           <span>new session</span>
           {onCancelNewSession && (
@@ -96,7 +97,7 @@ export function SessionTabs({
       )}
       <button
         onClick={onNewSession}
-        className="inline-flex items-center justify-center h-8 w-8 mx-1 shrink-0 rounded-md transition-colors border-b-2 border-transparent text-dim hover:text-accent hover:bg-accent/10"
+        className="inline-flex items-center justify-center h-8 w-8 mx-1 shrink-0 rounded-md transition-colors border-b-2 border-transparent text-dim hover:text-accent hover:bg-[var(--color-accent-glow)]"
         title="New session"
         aria-label="New session"
       >

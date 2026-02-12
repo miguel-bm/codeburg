@@ -39,6 +39,23 @@ export interface GitStashResponse {
   entries?: GitStashEntry[];
 }
 
+export interface GitLogEntry {
+  hash: string;
+  shortHash: string;
+  message: string;
+  body?: string;
+  author: string;
+  authorEmail: string;
+  date: string;
+  filesChanged: number;
+  additions: number;
+  deletions: number;
+}
+
+export interface GitLogResponse {
+  commits: GitLogEntry[];
+}
+
 export const gitApi = {
   status: (taskId: string) =>
     api.get<GitStatus>(`/tasks/${taskId}/git/status`),

@@ -7,7 +7,7 @@ export type WorkspaceTab =
   | { type: 'session'; sessionId: string }
   | { type: 'new_session' }
   | { type: 'editor'; path: string; dirty: boolean; line?: number }
-  | { type: 'diff'; file?: string; staged?: boolean; base?: boolean };
+  | { type: 'diff'; file?: string; staged?: boolean; base?: boolean; commit?: string };
 
 interface WorkspaceState {
   activePanel: ActivityPanel | null;
@@ -19,11 +19,14 @@ interface WorkspaceState {
   togglePanel: (panel: ActivityPanel) => void;
   setActivityPanelWidth: (width: number) => void;
   openFile: (path: string, line?: number) => void;
-  openDiff: (file?: string, staged?: boolean, base?: boolean) => void;
+  openDiff: (file?: string, staged?: boolean, base?: boolean, commit?: string) => void;
   openNewSession: () => void;
   openSession: (sessionId: string) => void;
   closeTab: (index: number) => void;
+  closeOtherTabs: (index: number) => void;
+  closeTabsToRight: (index: number) => void;
   setActiveTab: (index: number) => void;
+  moveTab: (from: number, to: number) => void;
   markDirty: (path: string, dirty: boolean) => void;
   resetTabs: () => void;
 }
@@ -63,20 +66,21 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ tabs: newTabs, activeTabIndex: newTabs.length - 1 });
       },
 
-      openDiff: (file, staged, base) => {
+      openDiff: (file, staged, base, commit) => {
         const { tabs } = get();
         const existing = tabs.findIndex(
           (t) =>
             t.type === 'diff' &&
             t.file === file &&
             t.staged === staged &&
-            t.base === base,
+            t.base === base &&
+            t.commit === commit,
         );
         if (existing >= 0) {
           set({ activeTabIndex: existing });
           return;
         }
-        const newTabs = [...tabs, { type: 'diff' as const, file, staged, base }];
+        const newTabs = [...tabs, { type: 'diff' as const, file, staged, base, commit }];
         set({ tabs: newTabs, activeTabIndex: newTabs.length - 1 });
       },
 
@@ -125,7 +129,37 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ tabs: newTabs, activeTabIndex: newActive });
       },
 
+      closeOtherTabs: (index) => {
+        const { tabs } = get();
+        if (index < 0 || index >= tabs.length) return;
+        set({ tabs: [tabs[index]], activeTabIndex: 0 });
+      },
+
+      closeTabsToRight: (index) => {
+        const { tabs, activeTabIndex } = get();
+        if (index < 0 || index >= tabs.length - 1) return;
+        const newTabs = tabs.slice(0, index + 1);
+        set({ tabs: newTabs, activeTabIndex: Math.min(activeTabIndex, newTabs.length - 1) });
+      },
+
       setActiveTab: (index) => set({ activeTabIndex: index }),
+
+      moveTab: (from, to) => {
+        const { tabs, activeTabIndex } = get();
+        if (from === to || from < 0 || from >= tabs.length || to < 0 || to >= tabs.length) return;
+        const newTabs = [...tabs];
+        const [moved] = newTabs.splice(from, 1);
+        newTabs.splice(to, 0, moved);
+        let newActive = activeTabIndex;
+        if (activeTabIndex === from) {
+          newActive = to;
+        } else if (from < to) {
+          if (activeTabIndex > from && activeTabIndex <= to) newActive = activeTabIndex - 1;
+        } else {
+          if (activeTabIndex >= to && activeTabIndex < from) newActive = activeTabIndex + 1;
+        }
+        set({ tabs: newTabs, activeTabIndex: newActive });
+      },
 
       markDirty: (path, dirty) =>
         set((s) => ({

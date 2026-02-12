@@ -178,6 +178,15 @@ body {
   background: var(--color-scrollbar-hover);
 }
 
+/* Hidden scrollbar (keeps scroll functionality) */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /* Selection */
 ::selection {
   background: var(--color-accent-glow);

@@ -8,6 +8,7 @@ import { useWorkspaceFiles } from '../../hooks/useWorkspaceFiles';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { getLanguageExtension, fileName, darkEditorTheme, lightEditorTheme } from './editorUtils';
 import { getResolvedTheme, subscribeToThemeChange } from '../../lib/theme';
+import { StyledPath } from './StyledPath';
 
 interface EditorTabProps {
   path: string;
@@ -139,8 +140,8 @@ export function EditorTab({ path, line }: EditorTabProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Editor toolbar */}
-      <div className="flex items-center justify-between px-3 py-1 border-b border-subtle bg-secondary">
-        <span className="text-xs text-dim font-mono truncate">{path}</span>
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-subtle bg-secondary">
+        <StyledPath path={path} />
         <div className="flex items-center gap-1.5">
           {truncated && (
             <span className="text-[10px] text-yellow-500">truncated</span>

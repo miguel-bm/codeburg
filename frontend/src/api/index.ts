@@ -19,7 +19,7 @@ export type { Recipe, JustfileInfo, RunResult } from './justfile';
 export type { TaskRecipe, TaskRecipesInfo } from './recipes';
 export type { PortSuggestion, PortSuggestionStatus, ScanPortsResult, ExistingTunnelRef } from './ports';
 export type { TunnelInfo } from './tunnels';
-export type { GitStatus, GitFileStatus, GitDiff, GitCommitResult, GitStashEntry } from './git';
+export type { GitStatus, GitFileStatus, GitDiff, GitCommitResult, GitStashEntry, GitLogEntry, GitLogResponse } from './git';
 export type {
   CreateProjectFileEntryInput,
   ProjectFileEntry,

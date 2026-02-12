@@ -7,6 +7,7 @@ export function useWorkspaceGit() {
 
   const statusKey = ['workspace-git-status', scopeType, scopeId];
   const baseDiffKey = ['workspace-git-basediff', scopeType, scopeId];
+  const logKey = ['workspace-git-log', scopeType, scopeId];
 
   const statusQuery = useQuery({
     queryKey: statusKey,
@@ -20,9 +21,16 @@ export function useWorkspaceGit() {
     refetchInterval: 5000,
   });
 
-  const invalidateStatus = () => {
+  const logQuery = useQuery({
+    queryKey: logKey,
+    queryFn: () => api.git.log(20),
+    refetchInterval: 10000,
+  });
+
+  const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: statusKey });
     queryClient.invalidateQueries({ queryKey: baseDiffKey });
+    queryClient.invalidateQueries({ queryKey: logKey });
   };
 
   const diffQuery = (opts?: { file?: string; staged?: boolean; base?: boolean }) =>
@@ -30,39 +38,39 @@ export function useWorkspaceGit() {
 
   const stageMutation = useMutation({
     mutationFn: (files: string[]) => api.git.stage(files),
-    onSuccess: invalidateStatus,
+    onSuccess: invalidateAll,
   });
 
   const unstageMutation = useMutation({
     mutationFn: (files: string[]) => api.git.unstage(files),
-    onSuccess: invalidateStatus,
+    onSuccess: invalidateAll,
   });
 
   const revertMutation = useMutation({
     mutationFn: (payload: { tracked?: string[]; untracked?: string[] }) =>
       api.git.revert(payload),
-    onSuccess: invalidateStatus,
+    onSuccess: invalidateAll,
   });
 
   const commitMutation = useMutation({
     mutationFn: ({ message, amend }: { message: string; amend?: boolean }) =>
       api.git.commit(message, amend),
-    onSuccess: invalidateStatus,
+    onSuccess: invalidateAll,
   });
 
   const pullMutation = useMutation({
     mutationFn: () => api.git.pull(),
-    onSuccess: invalidateStatus,
+    onSuccess: invalidateAll,
   });
 
   const pushMutation = useMutation({
-    mutationFn: () => api.git.push(),
-    onSuccess: invalidateStatus,
+    mutationFn: (opts?: { force?: boolean }) => api.git.push(opts),
+    onSuccess: invalidateAll,
   });
 
   const stashMutation = useMutation({
     mutationFn: (action: 'push' | 'pop' | 'list') => api.git.stash(action),
-    onSuccess: invalidateStatus,
+    onSuccess: invalidateAll,
   });
 
   // Combined error: first non-null mutation error
@@ -81,6 +89,7 @@ export function useWorkspaceGit() {
     refetch: statusQuery.refetch,
     getDiff: diffQuery,
     baseDiff: baseDiffQuery.data,
+    log: logQuery.data,
 
     stage: stageMutation.mutateAsync,
     unstage: unstageMutation.mutateAsync,

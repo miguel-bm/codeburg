@@ -58,7 +58,7 @@ function TabContent() {
       return <EditorTab path={activeTab.path} line={activeTab.line} />;
 
     case 'diff':
-      return <DiffTab file={activeTab.file} staged={activeTab.staged} base={activeTab.base} />;
+      return <DiffTab file={activeTab.file} staged={activeTab.staged} base={activeTab.base} commit={activeTab.commit} />;
   }
 }
 

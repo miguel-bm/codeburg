@@ -10,6 +10,7 @@ import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import type { Task, TaskStatus } from '../../api';
+import { TASK_STATUS } from '../../api';
 
 interface TaskListViewProps {
   tasks: Task[];
@@ -18,7 +19,7 @@ interface TaskListViewProps {
   getProjectName: (projectId: string) => string;
   onOpenTask: (taskId: string) => void;
   canCreateTask: boolean;
-  onCreateTask: () => void;
+  onCreateTask: (status: TaskStatus) => void;
 }
 
 function groupTasksByStatus(tasks: Task[]): Map<TaskStatus, Task[]> {
@@ -253,14 +254,6 @@ export function TaskListView({
   return (
     <div className="px-3 py-3 h-full overflow-y-auto">
       <Card padding="none" className="h-full min-h-0 flex flex-col">
-        {/* Toolbar */}
-        <div className="px-3 py-2.5 text-[11px] text-dim flex items-center justify-between bg-[var(--color-bg-secondary)]/65">
-          <span>{tasks.length} tasks</span>
-          <Button variant="ghost" size="xs" icon={<Plus size={12} />} onClick={onCreateTask} disabled={!canCreateTask}>
-            New task
-          </Button>
-        </div>
-
         {tasks.length === 0 ? (
           <div className="flex-1 flex items-center justify-center text-sm text-dim">
             No tasks match the current filters.
@@ -273,25 +266,33 @@ export function TaskListView({
 
               const StatusIcon = COLUMN_ICONS[col.id];
               const isCollapsed = collapsedSections.has(col.id);
+              const canCreateInSection = canCreateTask && (col.id === TASK_STATUS.BACKLOG || col.id === TASK_STATUS.IN_PROGRESS);
 
               return (
                 <div key={col.id}>
                   {/* Section header */}
-                  <button
-                    type="button"
-                    onClick={() => toggleSection(col.id)}
-                    className="w-full flex items-center gap-2 px-2 py-2 hover:bg-[var(--color-bg-tertiary)] rounded-md transition-colors"
-                  >
-                    <ChevronRight
-                      size={12}
-                      className={`text-dim transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
-                    />
-                    <StatusIcon size={14} className={col.color} />
-                    <span className={`text-[11px] uppercase tracking-wide font-medium ${col.color}`}>
-                      {col.title}
-                    </span>
-                    <Badge variant="count" className="text-[10px] h-4 min-w-[1rem]">{sectionTasks.length}</Badge>
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => toggleSection(col.id)}
+                      className="flex-1 min-w-0 flex items-center gap-2 px-2 py-2 hover:bg-[var(--color-bg-tertiary)] rounded-md transition-colors"
+                    >
+                      <ChevronRight
+                        size={12}
+                        className={`text-dim transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
+                      />
+                      <StatusIcon size={14} className={col.color} />
+                      <span className={`text-[11px] uppercase tracking-wide font-medium ${col.color}`}>
+                        {col.title}
+                      </span>
+                      <Badge variant="count" className="text-[10px] h-4 min-w-[1rem]">{sectionTasks.length}</Badge>
+                    </button>
+                    {canCreateInSection && (
+                      <Button variant="ghost" size="xs" icon={<Plus size={12} />} onClick={() => onCreateTask(col.id)}>
+                        New task
+                      </Button>
+                    )}
+                  </div>
 
                   {/* Separator */}
                   <div className="border-b border-subtle/30 mx-2" />
