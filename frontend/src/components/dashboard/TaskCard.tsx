@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
-import { GitBranch, Pin, GitPullRequest, Calendar, Clock, CheckCircle2, Plus } from 'lucide-react';
+import { GitBranch, Pin, GitPullRequest, Calendar, Clock, CheckCircle2, Plus, Archive, ArchiveRestore } from 'lucide-react';
 import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 import { useLongPress } from '../../hooks/useLongPress';
 import { useHoverTooltip } from '../../hooks/useHoverTooltip';
@@ -69,13 +69,15 @@ interface TaskCardProps {
   projectName?: string;
   isMobile?: boolean;
   onLongPress?: (x: number, y: number) => void;
+  onContextMenu?: (x: number, y: number, taskId: string) => void;
   focused?: boolean;
   ghost?: boolean;
   onMouseDown?: (e: React.MouseEvent) => void;
+  onArchive?: (taskId: string, archive: boolean) => void;
 }
 
 export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
-  { task, projectName, isMobile, onLongPress, focused, ghost, onMouseDown },
+  { task, projectName, isMobile, onLongPress, onContextMenu, focused, ghost, onMouseDown, onArchive },
   ref,
 ) {
   const { navigateToPanel } = usePanelNavigation();
@@ -121,6 +123,7 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
     onMouseDown?.(e);
   }, [onMouseDown, dismissTooltip]);
 
+  const isArchived = !!task.archivedAt;
   const hasMeta = !!(projectName || task.priority || (task.taskType && task.taskType !== 'task'));
   const hasCode = !!(task.branch || task.prUrl || (task.diffStats && (task.diffStats.additions > 0 || task.diffStats.deletions > 0)));
   const hasLabels = !!(task.labels && task.labels.length > 0);
@@ -133,14 +136,19 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
         id={`task-${task.id}`}
         {...(isMobile ? longPressHandlers : {})}
         onMouseDown={!isMobile ? wrappedMouseDown : undefined}
+        onContextMenu={onContextMenu ? (e) => {
+          e.preventDefault();
+          onContextMenu(e.clientX, e.clientY, task.id);
+        } : undefined}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         className={[
-          'relative rounded-lg px-2.5 py-2 cursor-pointer select-none',
+          'group/card relative rounded-lg px-2.5 py-2 cursor-pointer select-none',
           ghost ? 'drag-ghost' : 'transition-all',
           focused
             ? 'bg-[var(--color-accent-glow)] ring-1 ring-accent/50'
             : ghost ? '' : 'hover:bg-[var(--color-bg-tertiary)]',
+          isArchived ? 'opacity-50' : '',
         ].join(' ')}
       >
         {/* Priority accent bar */}
@@ -154,6 +162,19 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
         {/* Pinned indicator */}
         {task.pinned && (
           <Pin size={10} className="absolute top-2 right-2 text-[var(--color-warning)] opacity-70" />
+        )}
+
+        {/* Archive button (hover-only, done/archived tasks) */}
+        {onArchive && (task.status === 'done' || isArchived) && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onArchive(task.id, !isArchived); }}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="absolute top-1.5 right-1.5 p-1 rounded text-dim opacity-0 group-hover/card:opacity-100 hover:!text-accent hover:bg-accent/10 transition-all"
+            title={isArchived ? 'Unarchive' : 'Archive'}
+          >
+            {isArchived ? <ArchiveRestore size={11} /> : <Archive size={11} />}
+          </button>
         )}
 
         {/* Title */}

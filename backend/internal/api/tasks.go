@@ -29,6 +29,10 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		taskStatus := db.TaskStatus(status)
 		filter.Status = &taskStatus
 	}
+	if archived := r.URL.Query().Get("archived"); archived == "true" {
+		t := true
+		filter.Archived = &t
+	}
 
 	tasks, err := s.db.ListTasks(filter)
 	if err != nil {
@@ -146,6 +150,18 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeDBError(w, err, "task")
 		return
+	}
+
+	// Validate archive: only done tasks can be archived
+	if input.SetArchived != nil && *input.SetArchived {
+		effectiveStatus := currentTask.Status
+		if input.Status != nil {
+			effectiveStatus = *input.Status
+		}
+		if effectiveStatus != db.TaskStatusDone {
+			writeError(w, http.StatusBadRequest, "only done tasks can be archived")
+			return
+		}
 	}
 
 	// Auto-create worktree when moving to in_progress
@@ -529,10 +545,58 @@ func (s *Server) handleCreatePR(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 	id := urlParam(r, "id")
 
+	// 1. Get task (need worktree_path, project_id)
+	task, err := s.db.GetTask(id)
+	if err != nil {
+		writeDBError(w, err, "task")
+		return
+	}
+
+	// 2. Get project (need path, teardown_script)
+	project, err := s.db.GetProject(task.ProjectID)
+	if err != nil {
+		writeDBError(w, err, "project")
+		return
+	}
+
+	// 3. Clean up all sessions for the task
+	sessions, _ := s.db.ListSessionsByTask(id)
+	for _, sess := range sessions {
+		s.sessions.mu.Lock()
+		delete(s.sessions.sessions, sess.ID)
+		s.sessions.mu.Unlock()
+		_ = s.sessions.runtime.Stop(sess.ID)
+		removeHookToken(sess.ID)
+		removeNotifyScript(sess.ID)
+		removeSessionLog(sess.ID)
+		s.portSuggest.ForgetSession(sess.ID)
+	}
+
+	// 4. Stop all tunnels for the task
+	for _, t := range s.tunnels.ListForTask(id) {
+		_ = s.tunnels.Stop(t.ID)
+	}
+
+	// 5. Delete worktree if present
+	if task.WorktreePath != nil && *task.WorktreePath != "" {
+		if err := s.worktree.Delete(worktree.DeleteOptions{
+			ProjectPath:    project.Path,
+			WorktreePath:   *task.WorktreePath,
+			DeleteBranch:   true,
+			TeardownScript: ptrToString(project.TeardownScript),
+		}); err != nil {
+			slog.Warn("failed to delete worktree during task deletion", "task_id", id, "error", err)
+		}
+	}
+
+	// 6. Delete task from DB (cascades handle session/label/dep records)
 	if err := s.db.DeleteTask(id); err != nil {
 		writeDBError(w, err, "task")
 		return
 	}
+
+	// 7. Broadcast deletion via WebSocket
+	s.wsHub.BroadcastGlobal("task_deleted", map[string]string{"taskId": id})
 
 	w.WriteHeader(http.StatusNoContent)
 }

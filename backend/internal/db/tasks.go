@@ -34,6 +34,7 @@ type Task struct {
 	CreatedAt    time.Time  `json:"createdAt"`
 	StartedAt    *time.Time `json:"startedAt,omitempty"`
 	CompletedAt  *time.Time `json:"completedAt,omitempty"`
+	ArchivedAt   *time.Time `json:"archivedAt,omitempty"`
 }
 
 type CreateTaskInput struct {
@@ -56,12 +57,14 @@ type UpdateTaskInput struct {
 	PRURL        *string     `json:"prUrl,omitempty"`
 	Pinned       *bool       `json:"pinned,omitempty"`
 	Position     *int        `json:"position,omitempty"`
+	SetArchived *bool `json:"archived,omitempty"` // true=archive now, false=unarchive; nil=unchanged
 }
 
 type TaskFilter struct {
 	ProjectID *string
 	Status    *TaskStatus
 	Statuses  []TaskStatus
+	Archived  *bool // nil or false: exclude archived; true: only archived
 }
 
 // CreateTask creates a new task
@@ -90,7 +93,7 @@ func (db *DB) GetTask(id string) (*Task, error) {
 	row := db.conn.QueryRow(`
 		SELECT id, project_id, title, description, status, task_type, priority,
 		       branch, worktree_path, pr_url, pinned, position,
-		       created_at, started_at, completed_at
+		       created_at, started_at, completed_at, archived_at
 		FROM tasks WHERE id = ?
 	`, id)
 
@@ -106,12 +109,18 @@ func (db *DB) ListTasks(filter TaskFilter) ([]*Task, error) {
 	query := `
 		SELECT tasks.id, tasks.project_id, tasks.title, tasks.description, tasks.status, tasks.task_type, tasks.priority,
 		       tasks.branch, tasks.worktree_path, tasks.pr_url, tasks.pinned, tasks.position,
-		       tasks.created_at, tasks.started_at, tasks.completed_at
+		       tasks.created_at, tasks.started_at, tasks.completed_at, tasks.archived_at
 		FROM tasks
 		JOIN projects ON tasks.project_id = projects.id AND projects.hidden = FALSE
 		WHERE 1=1
 	`
 	var args []any
+
+	if filter.Archived != nil && *filter.Archived {
+		query += " AND tasks.archived_at IS NOT NULL"
+	} else {
+		query += " AND tasks.archived_at IS NULL"
+	}
 
 	if filter.ProjectID != nil {
 		query += " AND project_id = ?"
@@ -258,6 +267,14 @@ func (db *DB) UpdateTask(id string, input UpdateTaskInput) (*Task, error) {
 		query += ", pinned = ?"
 		args = append(args, *input.Pinned)
 	}
+	if input.SetArchived != nil {
+		query += ", archived_at = ?"
+		if *input.SetArchived {
+			args = append(args, time.Now())
+		} else {
+			args = append(args, nil)
+		}
+	}
 
 	// Set position
 	if input.Position != nil {
@@ -314,12 +331,12 @@ func scanTask(scan scanFunc) (*Task, error) {
 	var t Task
 	var description, taskType, priority, branch, worktreePath, prURL sql.NullString
 	var position sql.NullInt64
-	var startedAt, completedAt sql.NullTime
+	var startedAt, completedAt, archivedAt sql.NullTime
 
 	err := scan(
 		&t.ID, &t.ProjectID, &t.Title, &description, &t.Status, &taskType, &priority,
 		&branch, &worktreePath, &prURL, &t.Pinned, &position,
-		&t.CreatedAt, &startedAt, &completedAt,
+		&t.CreatedAt, &startedAt, &completedAt, &archivedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -340,6 +357,7 @@ func scanTask(scan scanFunc) (*Task, error) {
 	t.Labels = make([]*Label, 0)
 	t.StartedAt = TimePtr(startedAt)
 	t.CompletedAt = TimePtr(completedAt)
+	t.ArchivedAt = TimePtr(archivedAt)
 
 	return &t, nil
 }

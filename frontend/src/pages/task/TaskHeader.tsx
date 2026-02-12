@@ -1,9 +1,9 @@
 import { useState, useEffect, type ReactNode } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, GitBranch, Maximize2, Minimize2, Pin, Trash2, X } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronDown, GitBranch, Maximize2, Minimize2, Pin, Trash2, X, AlertTriangle } from 'lucide-react';
 import { useSetHeader } from '../../components/layout/Header';
 import { Breadcrumb } from '../../components/ui/Breadcrumb';
-import { tasksApi, invalidateTaskQueries } from '../../api';
+import { tasksApi, sessionsApi, invalidateTaskQueries } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { Task, Project } from '../../api/types';
 import { usePanelNavigation } from '../../hooks/usePanelNavigation';
@@ -65,6 +65,13 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
   const [editingDesc, setEditingDesc] = useState(false);
   const [descValue, setDescValue] = useState(task.description || '');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Fetch sessions when delete modal is open (for smart warnings)
+  const { data: deleteSessions } = useQuery({
+    queryKey: ['sessions', task.id, 'delete-check'],
+    queryFn: () => sessionsApi.list(task.id),
+    enabled: showDeleteConfirm,
+  });
 
   // Sync when task data refreshes
   useEffect(() => {
@@ -137,6 +144,13 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
       <div className="flex items-center gap-2 shrink-0">
         {actions}
         <IconButton
+          icon={<Trash2 size={14} />}
+          onClick={() => setShowDeleteConfirm(true)}
+          tooltip="Delete task"
+          size="xs"
+          className="text-dim hover:!text-[var(--color-error)]"
+        />
+        <IconButton
           icon={isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           onClick={toggleExpanded}
           tooltip={isExpanded ? 'Collapse panel' : 'Expand panel'}
@@ -150,7 +164,7 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
         />
       </div>
     </div>,
-    `task-header-${task.id}-${task.status}-${task.title}-${project?.name ?? ''}-${expanded}-${isExpanded}`,
+    `task-header-${task.id}-${task.status}-${task.title}-${project?.name ?? ''}-${expanded}-${isExpanded}-${showDeleteConfirm}`,
   );
 
   return (
@@ -280,14 +294,6 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
               >
                 {task.pinned ? 'Unpin' : 'Pin'}
               </Button>
-              <Button
-                variant="danger"
-                size="xs"
-                icon={<Trash2 size={11} />}
-                onClick={() => setShowDeleteConfirm(true)}
-              >
-                Delete
-              </Button>
             </div>
           </div>
         </div>
@@ -315,10 +321,29 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
           </div>
         }
       >
-        <div className="px-5 py-3">
+        <div className="px-5 py-3 space-y-3">
           <p className="text-xs text-dim">
             Delete <strong className="text-[var(--color-text-primary)]">{task.title}</strong>? This cannot be undone.
           </p>
+          {(task.worktreePath || task.branch || (deleteSessions && deleteSessions.length > 0)) && (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-warning)]">
+                <AlertTriangle size={11} />
+                <span className="font-medium">The following will be cleaned up:</span>
+              </div>
+              <ul className="text-[11px] text-dim space-y-1 pl-5 list-disc">
+                {task.worktreePath && (
+                  <li>Worktree at <span className="font-mono text-[10px]">{task.worktreePath}</span></li>
+                )}
+                {task.branch && (
+                  <li>Branch <span className="font-mono text-[10px]">{task.branch}</span></li>
+                )}
+                {deleteSessions && deleteSessions.length > 0 && (
+                  <li>{deleteSessions.length} session{deleteSessions.length !== 1 ? 's' : ''} will be stopped</li>
+                )}
+              </ul>
+            </div>
+          )}
         </div>
       </Modal>
     </>

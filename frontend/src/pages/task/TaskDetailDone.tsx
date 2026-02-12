@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw, Archive, ArchiveRestore } from 'lucide-react';
 import { TaskHeader } from './TaskHeader';
 import { TaskGitMetaBar } from './TaskGitMetaBar';
 import { BaseDiffExplorer } from '../../components/git';
@@ -8,6 +8,7 @@ import { TASK_STATUS } from '../../api/types';
 import type { Task, Project } from '../../api/types';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
+import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 
 interface Props {
   task: Task;
@@ -16,6 +17,8 @@ interface Props {
 
 export function TaskDetailDone({ task, project }: Props) {
   const queryClient = useQueryClient();
+  const { closePanel } = usePanelNavigation();
+  const isArchived = !!task.archivedAt;
 
   const updateTask = useMutation({
     mutationFn: (input: Parameters<typeof tasksApi.update>[1]) =>
@@ -27,21 +30,46 @@ export function TaskDetailDone({ task, project }: Props) {
     updateTask.mutate({ status: TASK_STATUS.IN_PROGRESS });
   };
 
+  const handleToggleArchive = () => {
+    if (!isArchived) {
+      // Archiving: close panel since the task will disappear from the board
+      updateTask.mutate({ archived: true }, {
+        onSuccess: () => {
+          invalidateTaskQueries(queryClient, task.id);
+          closePanel();
+        },
+      });
+    } else {
+      updateTask.mutate({ archived: false });
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       <TaskHeader
         task={task}
         project={project}
         actions={
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<RotateCcw size={12} />}
-            onClick={handleReopen}
-            disabled={updateTask.isPending}
-          >
-            Reopen
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={isArchived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
+              onClick={handleToggleArchive}
+              disabled={updateTask.isPending}
+            >
+              {isArchived ? 'Unarchive' : 'Archive'}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<RotateCcw size={12} />}
+              onClick={handleReopen}
+              disabled={updateTask.isPending}
+            >
+              Reopen
+            </Button>
+          </>
         }
       />
 

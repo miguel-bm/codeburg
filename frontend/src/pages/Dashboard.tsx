@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useSearchParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'motion/react';
-import { X, LayoutGrid, List as ListIcon, Search } from 'lucide-react';
+import { X, LayoutGrid, List as ListIcon, Search, Archive } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
 import { tasksApi, projectsApi, invalidateTaskQueries } from '../api';
 import type { Task, TaskStatus, UpdateTaskResponse } from '../api';
@@ -19,6 +19,7 @@ import { useSidebarFocusStore } from '../stores/sidebarFocus';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import { Modal } from '../components/ui/Modal';
 import { COLUMNS, COLUMN_ICONS, PRIORITY_COLORS, PRIORITY_LABELS } from '../constants/tasks';
 import {
   FilterMenu,
@@ -143,6 +144,8 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [focus, setFocus] = useState<{ col: number; card: number } | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [workflowPrompt, setWorkflowPrompt] = useState<{ taskId: string } | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [searchExpanded, setSearchExpanded] = useState(false);
@@ -186,10 +189,21 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     threshold: 50,
   });
 
-  const { data: tasks, isLoading: tasksLoading } = useQuery({
+  const { data: activeTasks, isLoading: tasksLoading } = useQuery({
     queryKey: ['tasks', selectedProjectId],
     queryFn: () => tasksApi.list(selectedProjectId ? { project: selectedProjectId } : undefined),
   });
+
+  const { data: archivedTasks } = useQuery({
+    queryKey: ['tasks', selectedProjectId, 'archived'],
+    queryFn: () => tasksApi.list({ project: selectedProjectId, archived: true }),
+    enabled: showArchived,
+  });
+
+  const tasks = useMemo(() => {
+    if (!showArchived || !archivedTasks) return activeTasks;
+    return [...(activeTasks ?? []), ...archivedTasks];
+  }, [activeTasks, archivedTasks, showArchived]);
 
   const { data: projects } = useQuery({
     queryKey: ['projects'],
@@ -212,6 +226,28 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
       } else if (data.sessionStarted) {
         navigateToPanel(`/tasks/${data.id}`);
       }
+    },
+  });
+
+  const archiveTaskMutation = useMutation({
+    mutationFn: ({ id, archive }: { id: string; archive: boolean }) =>
+      tasksApi.update(id, { archived: archive }),
+    onSuccess: (data: UpdateTaskResponse, { archive }) => {
+      invalidateTaskQueries(queryClient, data.id);
+      // Auto-enable "show archived" so the user sees the dimmed task
+      if (archive && !showArchived) setShowArchived(true);
+    },
+  });
+
+  const handleArchive = useCallback((taskId: string, archive: boolean) => {
+    archiveTaskMutation.mutate({ id: taskId, archive });
+  }, [archiveTaskMutation]);
+
+  const deleteTaskMutation = useMutation({
+    mutationFn: (id: string) => tasksApi.delete(id),
+    onSuccess: () => {
+      invalidateTaskQueries(queryClient);
+      setPendingDelete(null);
     },
   });
 
@@ -592,6 +628,20 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         </button>
       </div>
 
+      {/* Archive toggle */}
+      <button
+        type="button"
+        onClick={() => setShowArchived((v) => !v)}
+        className={`shrink-0 w-7 h-7 inline-flex items-center justify-center rounded-lg transition-colors ${
+          showArchived
+            ? 'text-accent bg-accent/10'
+            : 'text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
+        }`}
+        title={showArchived ? 'Hide archived tasks' : 'Show archived tasks'}
+      >
+        <Archive size={12} />
+      </button>
+
       {/* Clear — always visible, pinned right */}
       {activeFilterCount > 0 && (
         <div className="ml-auto flex items-center gap-1.5 shrink-0">
@@ -608,7 +658,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         </div>
       )}
     </div>,
-    `dashboard-${view}-${isCompact}-${searchExpanded}-${searchQuery}-${selectedProjectId ?? 'none'}-${Array.from(statusFilter).sort().join('.')}-${Array.from(priorityFilter).sort().join('.')}-${Array.from(typeFilter).sort().join('.')}-${Array.from(labelFilter).sort().join('.')}-${(projects ?? []).length}-${availablePriorities.join('.')}-${availableTaskTypes.join('.')}-${availableLabels.map((label) => label.id).join('.')}`,
+    `dashboard-${view}-${isCompact}-${searchExpanded}-${searchQuery}-${showArchived}-${selectedProjectId ?? 'none'}-${Array.from(statusFilter).sort().join('.')}-${Array.from(priorityFilter).sort().join('.')}-${Array.from(typeFilter).sort().join('.')}-${Array.from(labelFilter).sort().join('.')}-${(projects ?? []).length}-${availablePriorities.join('.')}-${availableTaskTypes.join('.')}-${availableLabels.map((label) => label.id).join('.')}`,
   );
 
   const hasProjects = (projects?.length ?? 0) > 0;
@@ -975,6 +1025,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
                         isMobile
                         onLongPress={(x, y) => setContextMenu({ taskId: task.id, x, y })}
                         focused={focus?.col === activeColumnIndex && focus?.card === cardIdx}
+                        onArchive={handleArchive}
                       />
                     ))}
                     {canCreateTaskInStatus(COLUMNS[activeColumnIndex].id) && (
@@ -1046,6 +1097,8 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
                                       focused={!!(focus?.col === colIdx && focus?.card === cardIdx)}
                                       ghost={isGhost}
                                       onMouseDown={(e) => handleMouseDown(e, task, colIdx, cardIdx)}
+                                      onContextMenu={(x, y, taskId) => setContextMenu({ taskId, x, y })}
+                                      onArchive={handleArchive}
                                     />
                                   </div>
                                 );
@@ -1106,18 +1159,21 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         );
       })()}
 
-      {/* Context Menu for mobile long-press */}
+      {/* Context Menu (right-click on desktop, long-press on mobile) */}
       {contextMenu && (
         <TaskContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
           taskId={contextMenu.taskId}
           currentStatus={tasks?.find((t) => t.id === contextMenu.taskId)?.status ?? TASK_STATUS.BACKLOG}
+          isArchived={!!tasks?.find((t) => t.id === contextMenu.taskId)?.archivedAt}
           onClose={() => setContextMenu(null)}
           onStatusChange={(status) => {
             updateTaskMutation.mutate({ id: contextMenu.taskId, status });
             setContextMenu(null);
           }}
+          onArchive={handleArchive}
+          onDelete={(taskId) => setPendingDelete(taskId)}
         />
       )}
 
@@ -1133,6 +1189,37 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
           onClose={() => setWorkflowPrompt(null)}
         />
       )}
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        open={!!pendingDelete}
+        onClose={() => setPendingDelete(null)}
+        title="Delete task"
+        size="sm"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setPendingDelete(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => pendingDelete && deleteTaskMutation.mutate(pendingDelete)}
+              loading={deleteTaskMutation.isPending}
+            >
+              {deleteTaskMutation.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
+          </div>
+        }
+      >
+        <div className="px-5 py-3">
+          <p className="text-xs text-dim">
+            Delete <strong className="text-[var(--color-text-primary)]">
+              {tasks?.find((t) => t.id === pendingDelete)?.title ?? 'this task'}
+            </strong>? This cannot be undone.
+          </p>
+        </div>
+      </Modal>
 
       {/* Help Overlay */}
       {showHelp && (

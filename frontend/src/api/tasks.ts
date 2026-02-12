@@ -10,10 +10,11 @@ export function invalidateTaskQueries(queryClient: QueryClient, taskId?: string)
 }
 
 export const tasksApi = {
-  list: (params?: { project?: string; status?: TaskStatus }) => {
+  list: (params?: { project?: string; status?: TaskStatus; archived?: boolean }) => {
     const searchParams = new URLSearchParams();
     if (params?.project) searchParams.set('project', params.project);
     if (params?.status) searchParams.set('status', params.status);
+    if (params?.archived) searchParams.set('archived', 'true');
     const query = searchParams.toString();
     return api.get<Task[]>(`/tasks${query ? `?${query}` : ''}`);
   },

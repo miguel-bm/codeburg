@@ -292,4 +292,11 @@ var migrations = []migration{
 			CREATE INDEX idx_sessions_project ON agent_sessions(project_id);
 		`,
 	},
+	{
+		version: 15,
+		sql: `
+			-- Add archived_at timestamp for soft-archiving done tasks
+			ALTER TABLE tasks ADD COLUMN archived_at DATETIME;
+		`,
+	},
 }

@@ -126,6 +126,7 @@ export interface Task {
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
+  archivedAt?: string;
 }
 
 export interface CreateTaskInput {
@@ -147,6 +148,7 @@ export interface UpdateTaskInput {
   prUrl?: string;
   pinned?: boolean;
   position?: number;
+  archived?: boolean;
 }
 
 export interface UpdateTaskResponse extends Task {
