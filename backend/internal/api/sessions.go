@@ -523,6 +523,11 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 			"status":    string(db.SessionStatusCompleted),
 		})
 	}
+	s.wsHub.BroadcastGlobal("sidebar_update", map[string]string{
+		"taskId":    dbSession.TaskID,
+		"sessionId": id,
+		"status":    string(db.SessionStatusCompleted),
+	})
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -573,6 +578,10 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 			"sessionId": id,
 		})
 	}
+	s.wsHub.BroadcastGlobal("sidebar_update", map[string]string{
+		"taskId":    dbSession.TaskID,
+		"sessionId": id,
+	})
 
 	w.WriteHeader(http.StatusNoContent)
 }

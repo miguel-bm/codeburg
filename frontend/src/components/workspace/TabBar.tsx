@@ -3,6 +3,7 @@ import { FileText, Plus, X, XCircle, ArrowRightToLine } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspace';
 import type { WorkspaceTab } from '../../stores/workspace';
 import { useWorkspaceSessions } from '../../hooks/useWorkspaceSessions';
+import { useTabActions } from '../../hooks/useTabActions';
 import { getSessionStatusMeta } from '../../lib/sessionStatus';
 import { fileName } from './editorUtils';
 import { ProviderIcon } from '../session/ProviderIcon';
@@ -62,7 +63,8 @@ function TabLabel({ tab }: { tab: WorkspaceTab }) {
 }
 
 export function TabBar() {
-  const { tabs, activeTabIndex, setActiveTab, closeTab, closeOtherTabs, closeTabsToRight, openNewSession, moveTab } = useWorkspaceStore();
+  const { tabs, activeTabIndex, setActiveTab, openNewSession, moveTab } = useWorkspaceStore();
+  const { closeTab, closeOtherTabs, closeTabsToRight } = useTabActions();
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
   const [contextMenu, setContextMenu] = useState<{ index: number; position: { x: number; y: number } } | null>(null);

@@ -1,29 +1,29 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useWorkspaceStore } from '../stores/workspace';
 import type { WorkspaceTab } from '../stores/workspace';
 import { useWorkspace } from '../components/workspace/WorkspaceContext';
 import { useWorkspaceSessions } from './useWorkspaceSessions';
-import { sessionsApi } from '../api/sessions';
-import type { AgentSession } from '../api/sessions';
+import { useWebSocket } from './useWebSocket';
 
 /**
  * Synchronizes API sessions, workspace tabs, and URL params.
  *
  * (A) Resets tabs when scope changes (switching tasks/projects)
- * (B) Syncs API sessions → tabs (add missing, remove stale)
+ * (B) Syncs API sessions → tabs (add missing, remove stale — no destructive API calls)
  * (C) Activates session from ?session= URL param
- * (D) Stops/deletes sessions when their tabs are closed
+ * (WS) Listens for sidebar_update to invalidate workspace-sessions query
+ *
+ * Session cleanup (stop + delete) is handled exclusively by useTabActions at
+ * explicit user call sites (close button, context menu), never as a side effect.
  */
 export function useWorkspaceSessionSync() {
-  const { scopeId } = useWorkspace();
+  const { scopeId, scopeType } = useWorkspace();
   const { sessions } = useWorkspaceSessions();
   const [searchParams, setSearchParams] = useSearchParams();
   const { openSession, resetTabs } = useWorkspaceStore();
-
-  // Keep refs for subscribe callback (avoids stale closures)
-  const sessionsRef = useRef<AgentSession[]>([]);
-  sessionsRef.current = sessions;
+  const queryClient = useQueryClient();
 
   // Track previous scope to detect changes
   const prevScopeIdRef = useRef<string>(scopeId);
@@ -40,7 +40,7 @@ export function useWorkspaceSessionSync() {
     }
   }, [scopeId, resetTabs]);
 
-  // (B) Sync API sessions → tabs
+  // (B) Sync API sessions → tabs (add-only + remove tabs for server-deleted sessions)
   useEffect(() => {
     if (sessions.length === 0 && !initialSyncDoneRef.current) return;
     initialSyncDoneRef.current = true;
@@ -60,7 +60,7 @@ export function useWorkspaceSessionSync() {
       }
     }
 
-    // Remove tabs for sessions that no longer exist
+    // Remove tabs for sessions no longer in API (already deleted server-side, safe)
     for (const tabSessionId of sessionTabIds) {
       if (!apiSessionIds.has(tabSessionId)) {
         const state = useWorkspaceStore.getState();
@@ -89,37 +89,15 @@ export function useWorkspaceSessionSync() {
     }, { replace: true });
   }, [searchParams, openSession, setSearchParams]);
 
-  // (D) Stop/delete sessions when tabs are closed
-  useEffect(() => {
-    let prevSessionIds = new Set(
-      useWorkspaceStore.getState().tabs
-        .filter((t): t is WorkspaceTab & { type: 'session' } => t.type === 'session')
-        .map((t) => t.sessionId),
-    );
-
-    const unsubscribe = useWorkspaceStore.subscribe((state) => {
-      const currentSessionIds = new Set(
-        state.tabs
-          .filter((t): t is WorkspaceTab & { type: 'session' } => t.type === 'session')
-          .map((t) => t.sessionId),
-      );
-
-      // Find removed session IDs
-      for (const id of prevSessionIds) {
-        if (!currentSessionIds.has(id)) {
-          const session = sessionsRef.current.find((s) => s.id === id);
-          if (session && (session.status === 'running' || session.status === 'waiting_input')) {
-            // Stop then delete
-            sessionsApi.stop(id).finally(() => sessionsApi.delete(id).catch(() => {}));
-          } else {
-            sessionsApi.delete(id).catch(() => {});
-          }
-        }
+  // (WS) Invalidate workspace-sessions query on sidebar_update for near-instant tab sync
+  useWebSocket({
+    onMessage: useCallback((data: unknown) => {
+      const msg = data as { type?: string };
+      if (msg.type === 'sidebar_update') {
+        queryClient.invalidateQueries({
+          queryKey: ['workspace-sessions', scopeType, scopeId],
+        });
       }
-
-      prevSessionIds = currentSessionIds;
-    });
-
-    return unsubscribe;
-  }, []);
+    }, [queryClient, scopeType, scopeId]),
+  });
 }

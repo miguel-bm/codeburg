@@ -38,7 +38,7 @@ export function Header() {
   const isMobile = useMobile();
 
   return (
-    <div className={`flex items-center h-12 px-4 gap-3 bg-canvas transition-opacity duration-150 ${isMobile ? 'pl-14' : ''}`}>
+    <div className={`flex items-center h-12 px-4 gap-3 transition-opacity duration-150 ${isMobile ? 'pl-14' : ''}`}>
       {headerContent}
     </div>
   );
