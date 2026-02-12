@@ -12,6 +12,7 @@ interface MarkdownFieldProps {
   autoFocus?: boolean;
   onKeyDown?: (e: ReactKeyboardEvent<HTMLTextAreaElement>) => void;
   disabled?: boolean;
+  className?: string;
 }
 
 export function MarkdownField({
@@ -24,14 +25,16 @@ export function MarkdownField({
   autoFocus,
   onKeyDown,
   disabled,
+  className = '',
 }: MarkdownFieldProps) {
   const [tab, setTab] = useState<'write' | 'preview'>('write');
 
   const textClass = textSize === 'xs' ? 'text-xs' : 'text-sm';
+  const grow = className.includes('flex-1');
 
   return (
-    <div>
-      <div className="flex items-center gap-1 mb-1.5">
+    <div className={className}>
+      <div className="flex items-center gap-1 mb-1.5 shrink-0">
         <button
           type="button"
           onClick={() => setTab('write')}
@@ -61,15 +64,15 @@ export function MarkdownField({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}
-          rows={rows}
+          rows={grow ? undefined : rows}
           disabled={disabled}
-          className={`w-full p-0 m-0 border-0 bg-transparent ${textClass} text-[var(--color-text-primary)] focus:outline-none resize-y leading-relaxed`}
+          className={`w-full p-0 m-0 border-0 bg-transparent ${textClass} text-[var(--color-text-primary)] focus:outline-none resize-y leading-relaxed ${grow ? 'flex-1' : ''}`}
           style={{ minHeight }}
           placeholder={placeholder}
           autoFocus={autoFocus}
         />
       ) : (
-        <div style={{ minHeight }}>
+        <div className={grow ? 'flex-1 overflow-y-auto' : ''} style={{ minHeight }}>
           {value.trim() ? (
             <MarkdownRenderer className={textClass}>{value}</MarkdownRenderer>
           ) : (

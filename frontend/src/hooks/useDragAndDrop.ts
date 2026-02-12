@@ -124,10 +124,16 @@ export function useDragAndDrop({
   useEffect(() => {
     if (!drag || !enabled) return;
 
+    let frameId: number | null = null;
     const onMouseMove = (e: MouseEvent) => {
       if (hasAdvancedFilters) return; // Disable dragging when filters active
-      const { col, position } = calcDropTarget(e.clientX, e.clientY);
-      setDrag((d) => d ? { ...d, mouseX: e.clientX, mouseY: e.clientY, targetCol: col, targetPosition: position } : null);
+      if (frameId !== null) cancelAnimationFrame(frameId);
+      const { clientX, clientY } = e;
+      frameId = requestAnimationFrame(() => {
+        frameId = null;
+        const { col, position } = calcDropTarget(clientX, clientY);
+        setDrag((d) => d ? { ...d, mouseX: clientX, mouseY: clientY, targetCol: col, targetPosition: position } : null);
+      });
     };
 
     const onMouseUp = (e: MouseEvent) => {
@@ -144,15 +150,15 @@ export function useDragAndDrop({
           const targetStatus = columns[d.targetCol].id;
           const colTasks = getColumnTasks(d.targetCol);
 
+          const targetTask = colTasks[d.targetPosition];
+          const endPosition = colTasks.length > 0 ? colTasks[colTasks.length - 1].position + 1 : 0;
+
           if (sourceStatus !== targetStatus) {
             // Cross-column move
-            const targetTask = colTasks[d.targetPosition];
-            onDrop(d.taskId, targetStatus, targetTask ? targetTask.position : colTasks.length);
+            onDrop(d.taskId, targetStatus, targetTask ? targetTask.position : endPosition);
           } else if (d.targetPosition !== d.sourceCard) {
             // Same-column reorder
-            const targetTask = colTasks[d.targetPosition];
-            const newPosition = targetTask ? targetTask.position : (colTasks.length > 0 ? colTasks[colTasks.length - 1].position + 1 : 0);
-            onReorder(d.taskId, newPosition);
+            onReorder(d.taskId, targetTask ? targetTask.position : endPosition);
           }
         }
         return null;
@@ -164,6 +170,7 @@ export function useDragAndDrop({
     return () => {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
+      if (frameId !== null) cancelAnimationFrame(frameId);
     };
   }, [drag, enabled, hasAdvancedFilters, calcDropTarget, tasks, columns, getColumnTasks, onClick, onDrop, onReorder]);
 

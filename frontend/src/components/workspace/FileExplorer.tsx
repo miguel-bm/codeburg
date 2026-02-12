@@ -405,7 +405,14 @@ export function FileExplorer() {
                           setCreating(null);
                         }
                       }}
-                      autoFocus
+                      ref={(el) => {
+                        if (!el) return;
+                        el.focus();
+                        // Reset horizontal scroll after browser auto-scrolls to input
+                        requestAnimationFrame(() => {
+                          treeContainerRef.current?.scrollTo({ left: 0 });
+                        });
+                      }}
                       placeholder={creating?.type === 'dir' ? 'folder name...' : 'file name...'}
                       className="flex-1 min-w-0 px-1 py-0 text-xs bg-primary border border-accent rounded-sm focus:outline-none"
                       onClick={(e) => e.stopPropagation()}
@@ -465,7 +472,13 @@ export function FileExplorer() {
                         }
                       }}
                       onBlur={() => handleRenameSubmit(node.data.path)}
-                      autoFocus
+                      ref={(el) => {
+                        if (!el) return;
+                        el.focus();
+                        requestAnimationFrame(() => {
+                          treeContainerRef.current?.scrollTo({ left: 0 });
+                        });
+                      }}
                       className="flex-1 min-w-0 px-1 py-0 text-xs bg-primary border border-accent rounded-sm focus:outline-none"
                       onClick={(e) => e.stopPropagation()}
                     />

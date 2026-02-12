@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Archive, ArrowRight, CheckCircle2, Eye, EyeOff, Maximize2, Minimize2, Settings, Trash2, X, Zap } from 'lucide-react';
+import { AlertTriangle, Archive, ArrowRight, CheckCircle2, Eye, EyeOff, KeyRound, Maximize2, Minimize2, Settings, Trash2, X, Zap } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
 import { projectsApi } from '../api';
 import { usePanelNavigation } from '../hooks/usePanelNavigation';
@@ -16,6 +16,7 @@ import { Select } from '../components/ui/Select';
 import type { SelectOption } from '../components/ui/Select';
 import { SettingsShell } from '../components/ui/SettingsShell';
 import type { SettingsShellSection } from '../components/ui/SettingsShell';
+import { SecretsSection } from '../components/project/SecretsSection';
 
 type ProjectSettingsGroup = 'project' | 'automation' | 'danger';
 
@@ -71,6 +72,15 @@ export function ProjectSettings() {
         keywords: ['name', 'path', 'git', 'remote', 'branch'],
         icon: <Settings size={15} />,
         content: <GeneralSection project={project} />,
+      },
+      {
+        id: 'secrets',
+        group: 'project',
+        title: 'Secret files',
+        description: 'Manage secret files copied or symlinked into worktrees',
+        keywords: ['secrets', 'env', 'keys', 'credentials', 'symlink', 'copy'],
+        icon: <KeyRound size={15} />,
+        content: <SecretsSection project={project} />,
       },
       {
         id: 'workflow',

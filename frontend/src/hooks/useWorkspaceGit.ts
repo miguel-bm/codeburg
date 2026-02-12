@@ -6,6 +6,7 @@ export function useWorkspaceGit() {
   const queryClient = useQueryClient();
 
   const statusKey = ['workspace-git-status', scopeType, scopeId];
+  const baseDiffKey = ['workspace-git-basediff', scopeType, scopeId];
 
   const statusQuery = useQuery({
     queryKey: statusKey,
@@ -13,8 +14,16 @@ export function useWorkspaceGit() {
     refetchInterval: 5000,
   });
 
-  const invalidateStatus = () =>
+  const baseDiffQuery = useQuery({
+    queryKey: baseDiffKey,
+    queryFn: () => api.git.diff({ base: true }),
+    refetchInterval: 5000,
+  });
+
+  const invalidateStatus = () => {
     queryClient.invalidateQueries({ queryKey: statusKey });
+    queryClient.invalidateQueries({ queryKey: baseDiffKey });
+  };
 
   const diffQuery = (opts?: { file?: string; staged?: boolean; base?: boolean }) =>
     api.git.diff(opts);
@@ -56,11 +65,23 @@ export function useWorkspaceGit() {
     onSuccess: invalidateStatus,
   });
 
+  // Combined error: first non-null mutation error
+  const error =
+    stageMutation.error ||
+    unstageMutation.error ||
+    commitMutation.error ||
+    stashMutation.error ||
+    revertMutation.error ||
+    pullMutation.error ||
+    pushMutation.error;
+
   return {
     status: statusQuery.data,
     isLoading: statusQuery.isLoading,
     refetch: statusQuery.refetch,
     getDiff: diffQuery,
+    baseDiff: baseDiffQuery.data,
+
     stage: stageMutation.mutateAsync,
     unstage: unstageMutation.mutateAsync,
     revert: revertMutation.mutateAsync,
@@ -68,8 +89,31 @@ export function useWorkspaceGit() {
     pull: pullMutation.mutateAsync,
     push: pushMutation.mutateAsync,
     stash: stashMutation.mutateAsync,
+
     isCommitting: commitMutation.isPending,
     isPulling: pullMutation.isPending,
     isPushing: pushMutation.isPending,
+    isStashing: stashMutation.isPending,
+    isStaging: stageMutation.isPending,
+    isUnstaging: unstageMutation.isPending,
+    isReverting: revertMutation.isPending,
+
+    error,
+    stageError: stageMutation.error,
+    unstageError: unstageMutation.error,
+    commitError: commitMutation.error,
+    stashError: stashMutation.error,
+    revertError: revertMutation.error,
+    pullError: pullMutation.error,
+    pushError: pushMutation.error,
+    clearErrors: () => {
+      stageMutation.reset();
+      unstageMutation.reset();
+      commitMutation.reset();
+      stashMutation.reset();
+      revertMutation.reset();
+      pullMutation.reset();
+      pushMutation.reset();
+    },
   };
 }

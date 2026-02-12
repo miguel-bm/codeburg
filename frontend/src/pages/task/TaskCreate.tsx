@@ -170,6 +170,10 @@ export function TaskCreate() {
   }, [isInProgressCreate, provider]);
 
   useEffect(() => {
+    setBranchDirty(false);
+  }, [projectId]);
+
+  useEffect(() => {
     if (!branchDirty) {
       setBranch(title.trim() ? buildBranchName(title) : '');
     }
@@ -329,7 +333,7 @@ export function TaskCreate() {
       )}
 
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-5">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-5 min-h-full">
           <Field label="Project">
             <ProjectSearchSelect
               projects={sortedProjects}
@@ -352,14 +356,15 @@ export function TaskCreate() {
             />
           </div>
 
-          <div className="px-3 py-2 border border-subtle bg-primary rounded-lg focus-within:border-accent">
+          <div className="flex-1 flex flex-col min-h-[120px] px-3 py-2 border border-subtle bg-primary rounded-lg focus-within:border-accent">
             <MarkdownField
               value={description}
               onChange={setDescription}
               onKeyDown={handleDescriptionKeyDown}
               disabled={createMutation.isPending}
               rows={4}
-              minHeight="88px"
+              minHeight="0"
+              className="flex-1 flex flex-col"
             />
           </div>
 
