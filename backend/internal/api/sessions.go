@@ -372,6 +372,14 @@ func (s *Server) startSessionInternal(params startSessionParams, req StartSessio
 		slog.Warn("failed to reload session after start", "session_id", dbSession.ID, "error", err)
 		return dbSession, nil
 	}
+
+	// Broadcast sidebar update so clients show the new session immediately
+	s.wsHub.BroadcastGlobal("sidebar_update", map[string]string{
+		"taskId":    taskID,
+		"sessionId": dbSession.ID,
+		"status":    string(db.SessionStatusRunning),
+	})
+
 	return updatedSession, nil
 }
 

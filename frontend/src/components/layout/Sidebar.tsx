@@ -13,7 +13,7 @@ import { useSidebarFocusStore } from '../../stores/sidebarFocus';
 import { useSidebarStore, selectIsExpanded } from '../../stores/sidebar';
 import { CreateProjectModal } from '../common/CreateProjectModal';
 import { getSessionStatusMeta } from '../../lib/sessionStatus';
-import { CodeburgIcon } from '../ui/CodeburgIcon';
+import { CodeburgIcon, CodeburgWordmark } from '../ui/CodeburgIcon';
 
 interface FocusableItem {
   type: 'project' | 'task' | 'add-task';
@@ -31,6 +31,9 @@ function countWaiting(data: SidebarData | undefined): number {
   if (!data?.projects) return 0;
   let n = 0;
   for (const p of data.projects) {
+    for (const s of p.sessions) {
+      if (s.status === 'waiting_input') n++;
+    }
     for (const t of p.tasks) {
       for (const s of t.sessions) {
         if (s.status === 'waiting_input') n++;
@@ -280,10 +283,9 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
         <div className="flex items-center gap-2">
           <div
             onClick={handleHomeClick}
-            className="flex items-center gap-2 hover:text-accent transition-colors cursor-pointer text-[var(--color-text-primary)]"
+            className="flex items-center hover:opacity-80 transition-opacity cursor-pointer"
           >
-            <CodeburgIcon size={22} />
-            <h1 className="text-lg font-semibold">Codeburg</h1>
+            <CodeburgWordmark height={22} />
           </div>
           {waitingCount > 0 && (
             <span className="text-xs bg-[var(--color-warning)]/15 text-[var(--color-warning)] animate-pulse font-medium rounded-full px-1.5 py-0.5">
@@ -530,6 +532,14 @@ function SidebarProjectNode({ project, isActive, isFiltered, onProjectClick, onP
             className="overflow-hidden"
           >
             <div className="pb-1">
+              {project.sessions.map((session) => (
+                <SidebarSessionNode
+                  key={session.id}
+                  session={session}
+                  projectId={project.id}
+                  onClose={onClose}
+                />
+              ))}
               {sortedTasks.map((task) => (
                 <SidebarTaskNode key={task.id} task={task} onClose={onClose} keyboardFocused={focusedTaskId === task.id} />
               ))}
@@ -834,15 +844,20 @@ function TaskNodeContextMenu({ x, y, task, onClose, onCopyBranch, onMoveToReview
 
 interface SidebarSessionNodeProps {
   session: SidebarSession;
-  taskId: string;
+  taskId?: string;
+  projectId?: string;
   onClose?: () => void;
 }
 
-function SidebarSessionNode({ session, taskId, onClose }: SidebarSessionNodeProps) {
+function SidebarSessionNode({ session, taskId, projectId, onClose }: SidebarSessionNodeProps) {
   const { navigateToPanel } = usePanelNavigation();
 
   const handleClick = () => {
-    navigateToPanel(`/tasks/${taskId}?session=${session.id}`);
+    if (taskId) {
+      navigateToPanel(`/tasks/${taskId}?session=${session.id}`);
+    } else if (projectId) {
+      navigateToPanel(`/projects/${projectId}?session=${session.id}`);
+    }
     onClose?.();
   };
 
@@ -877,7 +892,10 @@ function CollapsedProjectIndicators({ project }: { project: SidebarProject }) {
     ...project.tasks.filter((t) => t.status === TASK_STATUS.IN_REVIEW),
     ...project.tasks.filter((t) => t.status === TASK_STATUS.IN_PROGRESS),
   ];
-  const sessions = sortedTasks.flatMap((task) => task.sessions);
+  const sessions = [
+    ...project.sessions,
+    ...sortedTasks.flatMap((task) => task.sessions),
+  ];
   const visibleTasks = sortedTasks.slice(0, 4);
   const visibleSessions = sessions.slice(0, 4);
 

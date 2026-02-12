@@ -1,6 +1,8 @@
 import { useCallback, useRef } from 'react';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { useWorkspaceSessions } from '../../hooks/useWorkspaceSessions';
+import { useWorkspaceSessionSync } from '../../hooks/useWorkspaceSessionSync';
+import { useMobile } from '../../hooks/useMobile';
 import { useWorkspace } from './WorkspaceContext';
 import { ActivityBar, ActivityPanelContent } from './ActivityPanel';
 import { TabBar } from './TabBar';
@@ -63,7 +65,9 @@ function TabContent() {
 }
 
 export function Workspace() {
+  useWorkspaceSessionSync();
   const { activePanel, activityPanelWidth, setActivityPanelWidth } = useWorkspaceStore();
+  const isMobile = useMobile();
   const dividerRef = useRef<HTMLDivElement>(null);
 
   const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
@@ -93,25 +97,32 @@ export function Workspace() {
       {/* Activity bar — always visible icon strip */}
       <ActivityBar />
 
-      {/* Activity panel content (toggleable) */}
-      {activePanel && (
+      {isMobile && activePanel ? (
+        /* Mobile: activity panel takes full width */
+        <ActivityPanelContent panel={activePanel} style={{ width: '100%' }} />
+      ) : (
         <>
-          <ActivityPanelContent panel={activePanel} style={{ width: activityPanelWidth }} />
-          <div
-            ref={dividerRef}
-            className="w-1.5 cursor-col-resize hover:bg-accent/40 active:bg-accent/60 transition-colors shrink-0"
-            onMouseDown={handleDividerMouseDown}
-          />
+          {/* Activity panel content (toggleable) */}
+          {activePanel && (
+            <>
+              <ActivityPanelContent panel={activePanel} style={{ width: activityPanelWidth }} />
+              <div
+                ref={dividerRef}
+                className="w-1.5 cursor-col-resize hover:bg-accent/40 active:bg-accent/60 transition-colors shrink-0"
+                onMouseDown={handleDividerMouseDown}
+              />
+            </>
+          )}
+
+          {/* Main area */}
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-primary">
+            <TabBar />
+            <div className="flex-1 overflow-hidden">
+              <TabContent />
+            </div>
+          </div>
         </>
       )}
-
-      {/* Main area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-primary">
-        <TabBar />
-        <div className="flex-1 overflow-hidden">
-          <TabContent />
-        </div>
-      </div>
     </div>
   );
 }

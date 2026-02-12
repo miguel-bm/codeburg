@@ -107,10 +107,14 @@ export function useNotifications() {
     if (previous && newWaitingCount > 0) {
       playNotificationSound();
       if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-        new Notification('Codeburg', {
-          body: `${newWaitingCount} agent${newWaitingCount > 1 ? 's' : ''} waiting for input`,
-          tag: 'codeburg-waiting',
-        });
+        try {
+          new Notification('Codeburg', {
+            body: `${newWaitingCount} agent${newWaitingCount > 1 ? 's' : ''} waiting for input`,
+            tag: 'codeburg-waiting',
+          });
+        } catch {
+          // Mobile browsers (e.g. iOS Safari) disallow the Notification constructor
+        }
       }
     }
 

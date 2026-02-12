@@ -706,7 +706,7 @@ function FileEntry({
       {file.deletions !== undefined && file.deletions > 0 && (
         <span className="text-[10px] text-red-500">-{file.deletions}</span>
       )}
-      <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5">
+      <div className="sm:opacity-0 sm:group-hover:opacity-100 flex items-center gap-0.5">
         {section === 'staged' && onUnstage && (
           <button onClick={(e) => { e.stopPropagation(); onUnstage(); }} className="p-0.5 text-dim hover:text-accent" title="Unstage">
             <Minus size={14} />

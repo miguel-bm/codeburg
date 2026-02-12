@@ -170,6 +170,7 @@ export interface SidebarProject {
   name: string;
   pinned: boolean;
   hidden: boolean;
+  sessions: SidebarSession[];
   tasks: SidebarTask[];
 }
 

@@ -1,41 +1,40 @@
+import { useResolvedTheme } from '../../hooks/useResolvedTheme';
+
 interface CodeburgIconProps {
   size?: number;
   className?: string;
 }
 
+/** Compact logo mark (icon only) */
 export function CodeburgIcon({ size = 24, className = '' }: CodeburgIconProps) {
   return (
-    <svg
+    <img
+      src="/codeburg-logo.svg"
+      alt="Codeburg"
       width={size}
       height={size}
-      viewBox="0 0 32 32"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
       className={className}
-    >
-      {/* Castle outline with 3 battlements, single path */}
-      <path
-        d="M6 29H26Q28 29 28 27V4H22V10H19V4H13V10H10V4H4V27Q4 29 6 29Z"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinejoin="round"
-      />
-      {/* Code bracket < */}
-      <path
-        d="M15 15L10.5 19.5L15 24"
-        stroke="var(--color-accent)"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {/* Code bracket > */}
-      <path
-        d="M17 15L21.5 19.5L17 24"
-        stroke="var(--color-accent)"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    />
+  );
+}
+
+interface CodeburgWordmarkProps {
+  height?: number;
+  className?: string;
+}
+
+/** Full wordmark (icon + "Codeburg" text), theme-aware */
+export function CodeburgWordmark({ height = 24, className = '' }: CodeburgWordmarkProps) {
+  const theme = useResolvedTheme();
+  const src = theme === 'dark' ? '/codeburg-dark.svg' : '/codeburg-light.svg';
+
+  return (
+    <img
+      src={src}
+      alt="Codeburg"
+      height={height}
+      style={{ height, width: 'auto' }}
+      className={className}
+    />
   );
 }

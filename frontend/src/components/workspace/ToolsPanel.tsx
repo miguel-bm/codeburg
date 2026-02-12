@@ -5,7 +5,10 @@ import { useWorkspaceRecipes } from '../../hooks/useWorkspaceRecipes';
 import { useWorkspaceTunnels } from '../../hooks/useWorkspaceTunnels';
 import { useWorkspaceSessions } from '../../hooks/useWorkspaceSessions';
 import { useWorkspaceStore } from '../../stores/workspace';
+import { useLongPress } from '../../hooks/useLongPress';
+import { ContextMenu } from '../ui/ContextMenu';
 import type { Recipe } from '../../api/workspace';
+import type { ContextMenuItem } from '../ui/ContextMenu';
 
 export function ToolsPanel() {
   const { recipes, isLoading: recipesLoading } = useWorkspaceRecipes();
@@ -162,47 +165,100 @@ export function ToolsPanel() {
           <div className="px-2 py-3 text-xs text-dim">No active tunnels</div>
         )}
         {tunnels.map((tunnel) => (
-          <div key={tunnel.id} className="flex items-center gap-1.5 px-2 py-1 text-xs group hover:bg-tertiary">
-            <span className="font-mono text-dim">:{tunnel.port}</span>
-            {tunnel.url && (
-              <>
-                <a
-                  href={tunnel.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="truncate text-accent hover:underline flex-1 text-[11px]"
-                >
-                  {tunnel.url.replace(/^https?:\/\//, '')}
-                </a>
-                <button
-                  onClick={() => copyUrl(tunnel.url)}
-                  className="p-0.5 text-dim hover:text-accent opacity-0 group-hover:opacity-100"
-                  title="Copy URL"
-                >
-                  <Copy size={11} />
-                </button>
-                <a
-                  href={tunnel.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-0.5 text-dim hover:text-accent opacity-0 group-hover:opacity-100"
-                  title="Open"
-                >
-                  <ExternalLink size={11} />
-                </a>
-              </>
-            )}
-            <button
-              onClick={() => stopTunnel(tunnel.id)}
-              className="p-0.5 text-dim hover:text-[var(--color-error)] opacity-0 group-hover:opacity-100"
-              title="Stop"
-            >
-              <Square size={11} />
-            </button>
-          </div>
+          <TunnelEntry
+            key={tunnel.id}
+            tunnel={tunnel}
+            onCopyUrl={() => copyUrl(tunnel.url)}
+            onStop={() => stopTunnel(tunnel.id)}
+          />
         ))}
       </div>
     </div>
+  );
+}
+
+/* ── Tunnel entry with long-press context menu ───────────────────── */
+
+function TunnelEntry({
+  tunnel,
+  onCopyUrl,
+  onStop,
+}: {
+  tunnel: { id: string; port: number; url: string };
+  onCopyUrl: () => void;
+  onStop: () => void;
+}) {
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  const longPressHandlers = useLongPress({
+    onLongPress: () => {
+      if (!rowRef.current) return;
+      const rect = rowRef.current.getBoundingClientRect();
+      setMenuPos({ x: rect.left + rect.width / 2, y: rect.bottom });
+    },
+  });
+
+  const menuItems: ContextMenuItem[] = [
+    ...(tunnel.url
+      ? [
+          { label: 'Copy URL', icon: Copy, onClick: onCopyUrl },
+          { label: 'Open', icon: ExternalLink, onClick: () => window.open(tunnel.url, '_blank') },
+          { label: '', onClick: () => {}, divider: true } as ContextMenuItem,
+        ]
+      : []),
+    { label: 'Stop', icon: Square, onClick: onStop, danger: true },
+  ];
+
+  return (
+    <>
+      <div
+        ref={rowRef}
+        className="flex items-center gap-1.5 px-2 py-1 text-xs group hover:bg-tertiary"
+        {...longPressHandlers}
+      >
+        <span className="font-mono text-dim">:{tunnel.port}</span>
+        {tunnel.url && (
+          <>
+            <a
+              href={tunnel.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="truncate text-accent hover:underline flex-1 text-[11px]"
+            >
+              {tunnel.url.replace(/^https?:\/\//, '')}
+            </a>
+            <button
+              onClick={onCopyUrl}
+              className="p-0.5 text-dim hover:text-accent opacity-0 group-hover:opacity-100"
+              title="Copy URL"
+            >
+              <Copy size={11} />
+            </button>
+            <a
+              href={tunnel.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-0.5 text-dim hover:text-accent opacity-0 group-hover:opacity-100"
+              title="Open"
+            >
+              <ExternalLink size={11} />
+            </a>
+          </>
+        )}
+        <button
+          onClick={onStop}
+          className="p-0.5 text-dim hover:text-[var(--color-error)] opacity-0 group-hover:opacity-100"
+          title="Stop"
+        >
+          <Square size={11} />
+        </button>
+      </div>
+
+      {menuPos && (
+        <ContextMenu items={menuItems} position={menuPos} onClose={() => setMenuPos(null)} />
+      )}
+    </>
   );
 }
 
@@ -251,7 +307,7 @@ function RecipeEntry({
         <button
           onClick={onRun}
           disabled={isRunning}
-          className="p-0.5 text-dim hover:text-accent opacity-0 group-hover:opacity-100 shrink-0 disabled:opacity-50"
+          className="p-0.5 text-dim hover:text-accent sm:opacity-0 sm:group-hover:opacity-100 shrink-0 disabled:opacity-50"
           title={`Run: ${recipe.command}`}
         >
           <Play size={12} />

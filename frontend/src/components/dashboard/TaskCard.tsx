@@ -42,7 +42,7 @@ export function NewTaskPlaceholder({ focused, selected, showOnHover, onClick }: 
       : 'max-h-0 opacity-0 -translate-y-1 mt-0 pointer-events-none group-hover:max-h-16 group-hover:opacity-100 group-hover:translate-y-0 group-hover:mt-2 group-hover:pointer-events-auto'
     : visible
       ? 'max-h-16 opacity-100 translate-y-0 mt-2'
-      : 'max-h-0 opacity-0 -translate-y-1 mt-0 pointer-events-none';
+      : 'max-h-16 opacity-100 translate-y-0 mt-2';
 
   return (
     <div className={`overflow-hidden transition-all duration-150 ease-out ${containerClass}`}>

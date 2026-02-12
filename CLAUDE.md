@@ -23,11 +23,6 @@ Personal system for managing code projects with AI agents.
   git --version
   ```
 
-- **tmux** - Agent session management
-  ```bash
-  tmux -V
-  ```
-
 - **Claude CLI** - AI agent (optional, for agent features)
   ```bash
   claude --version
@@ -136,8 +131,7 @@ codeburg/
 │       ├── api/               # HTTP handlers (Chi router, WebSocket)
 │       ├── db/                # SQLite database + migrations
 │       ├── worktree/          # Git worktree management
-│       ├── tmux/              # Tmux session management
-│       ├── executor/          # Session types (terminal-first)
+│       ├── ptyruntime/        # PTY process management (direct PTY, no tmux)
 │       ├── justfile/          # Justfile parsing and execution
 │       └── tunnel/            # Cloudflared tunnel management
 ├── frontend/
@@ -233,7 +227,7 @@ DELETE /api/sessions/:id                Stop session
 ```
 
 Provider can be `claude` (default), `codex`, or `terminal`. All sessions are terminal-based
-(rendered via xterm.js). Claude/Codex sessions inject the CLI command into the tmux window.
+(rendered via xterm.js over WebSocket connected to in-process PTY).
 Claude Code hooks and Codex notify scripts call back to the hook endpoint to update session status.
 
 ### Justfile
@@ -293,17 +287,20 @@ When a task moves to `in_progress`, Codeburg automatically:
 
 ### Agent Sessions (Terminal-First)
 
-All sessions are terminal-based, rendered via xterm.js connected to tmux windows:
+All sessions are terminal-based, using in-process PTY runtime (creack/pty) with xterm.js frontend:
 
-- **Claude sessions**: Runs `claude` CLI interactively in tmux. Claude Code hooks
+- **Claude sessions**: Runs `claude` CLI in a PTY process. Claude Code hooks
   (`.claude/settings.local.json`) call back to `POST /api/sessions/:id/hook` for
   status tracking (Notification→waiting_input for prompt-style notifications,
   Stop→waiting_input unless `stop_hook_active=true`, SessionEnd→completed).
-- **Codex sessions**: Runs `codex` CLI in tmux. A notify script calls back on
+- **Codex sessions**: Runs `codex` CLI in a PTY process. A notify script calls back on
   `agent-turn-complete` for status tracking.
 - **Terminal sessions**: Plain shell in the task's worktree directory.
+- PTY output buffered in a 2MB ring buffer; WebSocket subscribers get snapshot + live stream.
 - Activity detection at the WebSocket/PTY level resets status to `running` when user types.
 - Multiple sessions per task with live status badges.
+- Sessions do not survive server restarts (PTY processes are in-process). On startup,
+  `Reconcile()` marks all orphaned active sessions as `completed`.
 
 ### Justfile Integration
 
@@ -371,6 +368,5 @@ Common errors and solutions:
 | "repository has no commits" | Empty git repo | Make an initial commit |
 | "base branch 'main' does not exist" | Wrong default branch | Update project's defaultBranch |
 | "worktree already exists" | Worktree wasn't cleaned up | Delete manually or via API |
-| "tmux not available" | tmux not installed | Install tmux |
 | "claude CLI not available" | Claude not installed | Install Claude CLI |
 | Password not resetting | Password is in config, not DB | Delete `~/.codeburg/config.yaml` |

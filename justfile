@@ -64,9 +64,13 @@ lint-fe:
 deploy branch="main":
     ssh codeburg-server '/opt/codeburg/deploy/deploy.sh {{branch}}'
 
-# Deploy after killing all tmux sessions (clean slate)
+# Deploy frontend only (no server restart, sessions stay alive)
+deploy-fe branch="main":
+    ssh codeburg-server '/opt/codeburg/deploy/deploy-fe.sh {{branch}}'
+
+# Deploy after a clean slate (full restart, kills active sessions)
 deploy-clean branch="main":
-    ssh codeburg-server 'tmux kill-session -t codeburg 2>/dev/null; /opt/codeburg/deploy/deploy.sh {{branch}}'
+    ssh codeburg-server '/opt/codeburg/deploy/deploy.sh {{branch}}'
 
 # Commit, push, and deploy in one shot (uses current branch)
 yeet msg:
@@ -74,6 +78,20 @@ yeet msg:
     git commit -m "{{msg}}"
     git push -u origin "$(git branch --show-current)"
     just deploy "$(git branch --show-current)"
+
+# Commit, push, and deploy frontend only (sessions stay alive)
+yeet-fe msg:
+    git add -A
+    git commit -m "{{msg}}"
+    git push -u origin "$(git branch --show-current)"
+    just deploy-fe "$(git branch --show-current)"
+
+# Amend, force push, and deploy frontend only (sessions stay alive)
+stomp-fe:
+    git add -A
+    git commit --amend --no-edit
+    git push --force-with-lease -u origin "$(git branch --show-current)"
+    just deploy-fe "$(git branch --show-current)"
 
 # Amend, force push, and deploy (no new commit)
 stomp:

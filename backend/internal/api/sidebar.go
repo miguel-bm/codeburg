@@ -18,11 +18,12 @@ type SidebarResponse struct {
 }
 
 type SidebarProject struct {
-	ID     string        `json:"id"`
-	Name   string        `json:"name"`
-	Pinned bool          `json:"pinned"`
-	Hidden bool          `json:"hidden"`
-	Tasks  []SidebarTask `json:"tasks"`
+	ID       string           `json:"id"`
+	Name     string           `json:"name"`
+	Pinned   bool             `json:"pinned"`
+	Hidden   bool             `json:"hidden"`
+	Sessions []SidebarSession `json:"sessions"`
+	Tasks    []SidebarTask    `json:"tasks"`
 }
 
 type SidebarTask struct {
@@ -127,12 +128,17 @@ func (s *Server) handleSidebar(w http.ResponseWriter, r *http.Request) {
 
 	// Build lookup maps
 	sessionsByTask := make(map[string][]*db.AgentSession)
+	sessionsByProject := make(map[string][]*db.AgentSession)
 	for _, sess := range sessions {
 		// Filter: only non-terminal sessions
 		if sess.Provider == "terminal" {
 			continue
 		}
-		sessionsByTask[sess.TaskID] = append(sessionsByTask[sess.TaskID], sess)
+		if sess.TaskID == "" {
+			sessionsByProject[sess.ProjectID] = append(sessionsByProject[sess.ProjectID], sess)
+		} else {
+			sessionsByTask[sess.TaskID] = append(sessionsByTask[sess.TaskID], sess)
+		}
 	}
 
 	tasksByProject := make(map[string][]*db.Task)
@@ -213,11 +219,22 @@ func (s *Server) handleSidebar(w http.ResponseWriter, r *http.Request) {
 	var resp SidebarResponse
 	for _, p := range projects {
 		sp := SidebarProject{
-			ID:     p.ID,
-			Name:   p.Name,
-			Pinned: pinnedSet[p.ID],
-			Hidden: p.Hidden,
-			Tasks:  make([]SidebarTask, 0),
+			ID:       p.ID,
+			Name:     p.Name,
+			Pinned:   pinnedSet[p.ID],
+			Hidden:   p.Hidden,
+			Sessions: make([]SidebarSession, 0),
+			Tasks:    make([]SidebarTask, 0),
+		}
+
+		// Project-level sessions (no task)
+		for i, sess := range sessionsByProject[p.ID] {
+			sp.Sessions = append(sp.Sessions, SidebarSession{
+				ID:       sess.ID,
+				Provider: sess.Provider,
+				Status:   sess.Status,
+				Number:   i + 1,
+			})
 		}
 
 		for _, t := range tasksByProject[p.ID] {
