@@ -6,7 +6,7 @@ export type ActivityPanel = 'files' | 'search' | 'git' | 'tools';
 export type WorkspaceTab =
   | { type: 'session'; sessionId: string }
   | { type: 'new_session' }
-  | { type: 'editor'; path: string; dirty: boolean }
+  | { type: 'editor'; path: string; dirty: boolean; line?: number }
   | { type: 'diff'; file?: string; staged?: boolean; base?: boolean };
 
 interface WorkspaceState {
@@ -18,7 +18,7 @@ interface WorkspaceState {
   // Actions
   togglePanel: (panel: ActivityPanel) => void;
   setActivityPanelWidth: (width: number) => void;
-  openFile: (path: string) => void;
+  openFile: (path: string, line?: number) => void;
   openDiff: (file?: string, staged?: boolean, base?: boolean) => void;
   openNewSession: () => void;
   openSession: (sessionId: string) => void;
@@ -44,16 +44,22 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setActivityPanelWidth: (width) =>
         set({ activityPanelWidth: Math.max(180, Math.min(480, width)) }),
 
-      openFile: (path) => {
+      openFile: (path, line) => {
         const { tabs } = get();
         const existing = tabs.findIndex(
           (t) => t.type === 'editor' && t.path === path,
         );
         if (existing >= 0) {
-          set({ activeTabIndex: existing });
+          if (line !== undefined) {
+            const newTabs = [...tabs];
+            newTabs[existing] = { ...newTabs[existing], line } as WorkspaceTab;
+            set({ tabs: newTabs, activeTabIndex: existing });
+          } else {
+            set({ activeTabIndex: existing });
+          }
           return;
         }
-        const newTabs = [...tabs, { type: 'editor' as const, path, dirty: false }];
+        const newTabs = [...tabs, { type: 'editor' as const, path, dirty: false, line }];
         set({ tabs: newTabs, activeTabIndex: newTabs.length - 1 });
       },
 

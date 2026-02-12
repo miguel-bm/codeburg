@@ -10,6 +10,8 @@ import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 import { Button } from '../../components/ui/Button';
 import { IconButton } from '../../components/ui/IconButton';
 import { Modal } from '../../components/ui/Modal';
+import { MarkdownField } from '../../components/ui/MarkdownField';
+import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
 
 interface TaskHeaderProps {
   task: Task;
@@ -197,17 +199,19 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
             </div>
             {editingDesc ? (
               <div className="mt-1">
-                <textarea
-                  value={descValue}
-                  onChange={(e) => setDescValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') { setDescValue(task.description || ''); setEditingDesc(false); }
-                  }}
-                  rows={Math.max(3, descValue.split('\n').length + 1)}
-                  className="w-full bg-transparent border border-accent rounded px-2 py-1.5 text-xs text-[var(--color-text-primary)] focus:outline-none resize-y min-h-[60px] leading-relaxed"
-                  placeholder="Describe the task..."
-                  autoFocus
-                />
+                <div className="border border-accent rounded px-2 py-1.5">
+                  <MarkdownField
+                    value={descValue}
+                    onChange={setDescValue}
+                    textSize="xs"
+                    rows={Math.max(3, descValue.split('\n').length + 1)}
+                    minHeight="60px"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') { setDescValue(task.description || ''); setEditingDesc(false); }
+                    }}
+                    autoFocus
+                  />
+                </div>
                 <div className="flex justify-end gap-2 mt-1.5">
                   <Button
                     variant="secondary"
@@ -231,7 +235,7 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
                 className="mt-1 cursor-text text-xs leading-relaxed min-h-[20px]"
               >
                 {task.description ? (
-                  <p className="text-[var(--color-text-secondary)] whitespace-pre-wrap">{task.description}</p>
+                  <MarkdownRenderer className="text-xs">{task.description}</MarkdownRenderer>
                 ) : (
                   <p className="text-dim italic">Click to add description...</p>
                 )}

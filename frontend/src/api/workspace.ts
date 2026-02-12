@@ -1,6 +1,6 @@
 import { api } from './client';
 import type { AgentSession, StartSessionInput } from './sessions';
-import type { GitStatus, GitDiff, GitCommitResult, GitStashResponse } from './git';
+import type { GitStatus, GitDiff, GitDiffContent, GitCommitResult, GitStashResponse } from './git';
 import type { TunnelInfo } from './tunnels';
 
 // --- Scoped API factories ---
@@ -37,6 +37,13 @@ export function createGitApi(type: WorkspaceScopeType, id: string) {
       if (opts?.base) params.set('base', 'true');
       const qs = params.toString();
       return api.get<GitDiff>(`${prefix}/git/diff${qs ? `?${qs}` : ''}`);
+    },
+
+    diffContent: (opts: { file: string; staged?: boolean; base?: boolean }) => {
+      const params = new URLSearchParams({ file: opts.file });
+      if (opts.staged) params.set('staged', 'true');
+      if (opts.base) params.set('base', 'true');
+      return api.get<GitDiffContent>(`${prefix}/git/diff-content?${params}`);
     },
 
     stage: (files: string[]) => api.post<void>(`${prefix}/git/stage`, { files }),

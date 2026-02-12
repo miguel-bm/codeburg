@@ -30,6 +30,9 @@ import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 import { Button } from '../../components/ui/Button';
 import { IconButton } from '../../components/ui/IconButton';
 import { Toggle } from '../../components/ui/settings';
+import { MarkdownField } from '../../components/ui/MarkdownField';
+import { DEFAULT_LABEL_COLORS } from '../../constants/tasks';
+import { buildBranchName, pickColorFromName } from '../../utils/text';
 import claudeLogo from '../../assets/claude-logo.svg';
 import openaiLogo from '../../assets/openai-logo.svg';
 
@@ -52,27 +55,6 @@ interface PriorityOption {
 
 function parseCreateMode(status: string | null): CreateMode {
   return status === TASK_STATUS.IN_PROGRESS ? TASK_STATUS.IN_PROGRESS : TASK_STATUS.BACKLOG;
-}
-
-function slugifySegment(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-function buildAutoBranchName(title: string): string {
-  const normalized = title.trim().toLowerCase();
-  if (!normalized) return '';
-
-  const colonAsPath = normalized.replace(/\s*:\s*/g, '/');
-  const segments = colonAsPath
-    .split('/')
-    .map((segment) => slugifySegment(segment))
-    .filter(Boolean);
-
-  if (segments.length === 0) return 'task';
-  return segments.join('/').slice(0, 80);
 }
 
 function buildSessionPrompt(title: string, description: string): string {
@@ -100,12 +82,7 @@ function detectTaskTypeFromTitle(title: string): TaskTypeValue | null {
 }
 
 function pickLabelColor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = (hash << 5) - hash + name.charCodeAt(i);
-    hash |= 0;
-  }
-  return DEFAULT_LABEL_COLORS[Math.abs(hash) % DEFAULT_LABEL_COLORS.length];
+  return pickColorFromName(name, DEFAULT_LABEL_COLORS);
 }
 
 const TASK_TYPE_OPTIONS: TaskTypeOption[] = [
@@ -123,10 +100,6 @@ const PRIORITY_OPTIONS: PriorityOption[] = [
   { value: 'high', label: 'P1 · High', color: '#f97316' },
   { value: 'medium', label: 'P2 · Medium', color: '#eab308' },
   { value: 'low', label: 'P3 · Low', color: 'var(--color-text-dim)' },
-];
-
-const DEFAULT_LABEL_COLORS = [
-  '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899',
 ];
 
 export function TaskCreate() {
@@ -158,7 +131,7 @@ export function TaskCreate() {
   });
 
   const sortedProjects = useMemo(
-    () => [...(projects ?? [])].sort((a, b) => a.name.localeCompare(b.name)),
+    () => [...(projects ?? [])].filter((p) => !p.hidden).sort((a, b) => a.name.localeCompare(b.name)),
     [projects],
   );
 
@@ -169,8 +142,11 @@ export function TaskCreate() {
   });
 
   useEffect(() => {
-    if (!projectId && sortedProjects.length > 0) {
-      setProjectId(defaultProjectId || sortedProjects[0].id);
+    if (!projectId && sortedProjects.length === 1) {
+      setProjectId(sortedProjects[0].id);
+    } else if (!projectId && defaultProjectId) {
+      const defaultIsVisible = sortedProjects.some((p) => p.id === defaultProjectId);
+      if (defaultIsVisible) setProjectId(defaultProjectId);
     }
   }, [defaultProjectId, projectId, sortedProjects]);
 
@@ -195,7 +171,7 @@ export function TaskCreate() {
 
   useEffect(() => {
     if (!branchDirty) {
-      setBranch(title.trim() ? buildAutoBranchName(title) : '');
+      setBranch(title.trim() ? buildBranchName(title) : '');
     }
   }, [title, branchDirty]);
 
@@ -376,15 +352,14 @@ export function TaskCreate() {
             />
           </div>
 
-          <div>
-            <textarea
+          <div className="px-3 py-2 border border-subtle bg-primary rounded-lg focus-within:border-accent">
+            <MarkdownField
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={setDescription}
               onKeyDown={handleDescriptionKeyDown}
               disabled={createMutation.isPending}
               rows={4}
-              className="w-full px-3 py-2 text-sm border border-subtle bg-primary text-[var(--color-text-primary)] rounded-lg focus:outline-none focus:border-accent placeholder:text-dim resize-y min-h-[88px]"
-              placeholder="Describe the task..."
+              minHeight="88px"
             />
           </div>
 
@@ -439,7 +414,7 @@ export function TaskCreate() {
                 <button
                   type="button"
                   onClick={() => {
-                    setBranch(title.trim() ? buildAutoBranchName(title) : '');
+                    setBranch(title.trim() ? buildBranchName(title) : '');
                     setBranchDirty(false);
                   }}
                   className="text-[10px] text-dim hover:text-[var(--color-text-primary)] shrink-0"

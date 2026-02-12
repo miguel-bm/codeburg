@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback, forwardRef } from 'react';
-import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import { useSearchParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
 import { GitBranch, Pin, GitPullRequest, X, Plus, Inbox, Play, Eye, CheckCircle2, Clock, Calendar, LayoutGrid, List as ListIcon, Search, ChevronDown, Check, Crosshair, SlidersHorizontal, ChevronRight } from 'lucide-react';
@@ -14,6 +13,8 @@ import { useMobile } from '../hooks/useMobile';
 import { useSwipe } from '../hooks/useSwipe';
 import { useLongPress } from '../hooks/useLongPress';
 import { useKeyboardNav } from '../hooks/useKeyboardNav';
+import { useDragAndDrop } from '../hooks/useDragAndDrop';
+import { useDropdownMenu } from '../hooks/useDropdownMenu';
 import { HelpOverlay } from '../components/common/HelpOverlay';
 import { CreateProjectModal } from '../components/common/CreateProjectModal';
 import { usePanelNavigation } from '../hooks/usePanelNavigation';
@@ -21,6 +22,7 @@ import { useSidebarFocusStore } from '../stores/sidebarFocus';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import { PRIORITY_COLORS, PRIORITY_LABELS } from '../constants/tasks';
 
 const COLUMN_ICONS: Record<string, LucideIcon> = {
   [TASK_STATUS.BACKLOG]: Inbox,
@@ -49,23 +51,6 @@ interface ContextMenu {
   taskId: string;
   x: number;
   y: number;
-}
-
-interface DragState {
-  taskId: string;
-  sourceCol: number;
-  sourceCard: number;
-  sourcePosition: number;
-  mouseX: number;
-  mouseY: number;
-  initialMouseX: number;
-  initialMouseY: number;
-  targetCol: number;
-  targetPosition: number;
-  cardWidth: number;
-  cardHeight: number;
-  cardOffsetX: number;
-  cardOffsetY: number;
 }
 
 const SESSION_KEY = 'codeburg:active-project';
@@ -169,12 +154,10 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   const [showHelp, setShowHelp] = useState(false);
   const [workflowPrompt, setWorkflowPrompt] = useState<{ taskId: string } | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
-  const [drag, setDrag] = useState<DragState | null>(null);
   const columnRefs = useRef<(HTMLDivElement | null)[]>([]);
   const kanbanScrollRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const { navigateToPanel } = usePanelNavigation();
   const isMobile = useMobile();
   const sidebarFocused = useSidebarFocusStore((s) => s.focused);
@@ -477,7 +460,8 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         />
       ) : (
         <div className="flex items-center gap-1.5 min-w-0">
-          <SingleSelectFilterMenu
+          <FilterMenu
+            mode="single"
             label="Project"
             selectedValue={selectedProjectId}
             selectedLabel={activeProjectName}
@@ -496,7 +480,8 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
           />
 
           {view === 'list' && (
-            <MultiSelectFilterMenu
+            <FilterMenu
+              mode="multi"
               label="Status"
               selected={statusFilter}
               items={statusFilterItems}
@@ -512,7 +497,8 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
             />
           )}
 
-          <MultiSelectFilterMenu
+          <FilterMenu
+            mode="multi"
             label="Priority"
             selected={priorityFilter}
             items={priorityFilterItems}
@@ -527,7 +513,8 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
             onReset={() => updateDashboardParams({ [DASHBOARD_PRIORITY_PARAM]: null })}
           />
 
-          <MultiSelectFilterMenu
+          <FilterMenu
+            mode="multi"
             label="Type"
             selected={typeFilter}
             items={typeFilterItems}
@@ -543,7 +530,8 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
             searchable
           />
 
-          <MultiSelectFilterMenu
+          <FilterMenu
+            mode="multi"
             label="Label"
             selected={labelFilter}
             items={labelFilterItems}
@@ -596,6 +584,25 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     (colIdx: number): Task[] => tasksByStatus.get(COLUMNS[colIdx]?.id) ?? [],
     [tasksByStatus],
   );
+
+  const { drag, setDrag, isDragging, handleMouseDown } = useDragAndDrop({
+    columns: COLUMNS,
+    getColumnTasks,
+    tasks,
+    hasAdvancedFilters,
+    enabled: view === 'kanban' && !isMobile,
+    columnRefs,
+    cardRefs,
+    onDrop: useCallback((taskId: string, targetStatus: TaskStatus, position: number) => {
+      updateTaskMutation.mutate({ id: taskId, status: targetStatus, position });
+    }, [updateTaskMutation]),
+    onReorder: useCallback((taskId: string, newPosition: number) => {
+      updateTaskMutation.mutate({ id: taskId, position: newPosition });
+    }, [updateTaskMutation]),
+    onClick: useCallback((task: Task) => {
+      navigateToPanel(`/tasks/${task.id}`);
+    }, [navigateToPanel]),
+  });
 
   const getFocusedTask = useCallback((): Task | null => {
     if (!focus) return null;
@@ -850,132 +857,6 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     }
   }, [view]);
 
-  // --- Custom drag-and-drop (desktop only) ---
-
-  const handleMouseDown = useCallback((e: React.MouseEvent, task: Task, colIdx: number, cardIdx: number) => {
-    if (view !== 'kanban' || hasAdvancedFilters || isMobile || e.button !== 0) return;
-    const cardEl = cardRefs.current.get(task.id);
-    if (!cardEl) return;
-    const rect = cardEl.getBoundingClientRect();
-    setDrag({
-      taskId: task.id,
-      sourceCol: colIdx,
-      sourceCard: cardIdx,
-      sourcePosition: task.position,
-      mouseX: e.clientX,
-      mouseY: e.clientY,
-      initialMouseX: e.clientX,
-      initialMouseY: e.clientY,
-      targetCol: colIdx,
-      targetPosition: task.position,
-      cardWidth: rect.width,
-      cardHeight: rect.height,
-      cardOffsetX: e.clientX - rect.left,
-      cardOffsetY: e.clientY - rect.top,
-    });
-  }, [view, hasAdvancedFilters, isMobile]);
-
-  // Calculate target column and position from mouse position
-  const calcDropTarget = useCallback((mouseX: number, mouseY: number): { col: number; position: number } => {
-    // Find target column
-    let targetCol = 0;
-    for (let i = 0; i < COLUMNS.length; i++) {
-      const colEl = columnRefs.current[i];
-      if (!colEl) continue;
-      const rect = colEl.getBoundingClientRect();
-      if (mouseX >= rect.left && mouseX <= rect.right) {
-        targetCol = i;
-        break;
-      }
-      // If past the last column, use the last
-      if (i === COLUMNS.length - 1) targetCol = i;
-      // If between columns, pick closest
-      if (mouseX < rect.left) {
-        targetCol = i;
-        break;
-      }
-    }
-
-    // Find target position within column
-    const colTasks = getColumnTasks(targetCol);
-    let targetPosition = colTasks.length; // default: end
-
-    for (let i = 0; i < colTasks.length; i++) {
-      const task = colTasks[i];
-      // Skip the dragged card in source column
-      if (drag && task.id === drag.taskId) continue;
-      const cardEl = cardRefs.current.get(task.id);
-      if (!cardEl) continue;
-      const rect = cardEl.getBoundingClientRect();
-      const midY = rect.top + rect.height / 2;
-      if (mouseY < midY) {
-        targetPosition = i;
-        break;
-      }
-    }
-
-    return { col: targetCol, position: targetPosition };
-  }, [getColumnTasks, drag]);
-
-  useEffect(() => {
-    if (!drag || view !== 'kanban' || hasAdvancedFilters) return;
-
-    const onMouseMove = (e: MouseEvent) => {
-      const { col, position } = calcDropTarget(e.clientX, e.clientY);
-      setDrag((d) => d ? { ...d, mouseX: e.clientX, mouseY: e.clientY, targetCol: col, targetPosition: position } : null);
-    };
-
-    const onMouseUp = (e: MouseEvent) => {
-      setDrag((d) => {
-        if (!d) return null;
-        const dist = Math.hypot(e.clientX - d.initialMouseX, e.clientY - d.initialMouseY);
-        if (dist < 5) {
-          // Click — navigate
-          const task = (tasks ?? []).find((t) => t.id === d.taskId);
-          if (task) navigateToPanel(`/tasks/${task.id}`);
-        } else {
-          // Drop — update task
-          const sourceStatus = COLUMNS[d.sourceCol].id;
-          const targetStatus = COLUMNS[d.targetCol].id;
-          const colTasks = getColumnTasks(d.targetCol);
-
-          if (sourceStatus !== targetStatus) {
-            // Cross-column move
-            const targetTask = colTasks[d.targetPosition];
-            updateTaskMutation.mutate({
-              id: d.taskId,
-              status: targetStatus,
-              position: targetTask ? targetTask.position : colTasks.length,
-            });
-          } else if (d.targetPosition !== d.sourceCard) {
-            // Same-column reorder
-            // Map visual index to actual position
-            const targetTask = colTasks[d.targetPosition];
-            const newPosition = targetTask ? targetTask.position : (colTasks.length > 0 ? colTasks[colTasks.length - 1].position + 1 : 0);
-            updateTaskMutation.mutate({
-              id: d.taskId,
-              position: newPosition,
-            });
-          }
-        }
-        return null;
-      });
-    };
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-    return () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
-  }, [drag, view, hasAdvancedFilters, calcDropTarget, tasks, navigate, getColumnTasks, updateTaskMutation]);
-
-  // Is dragging (mouse has moved enough)?
-  const isDragging = view === 'kanban'
-    && !hasAdvancedFilters
-    && drag
-    && Math.hypot(drag.mouseX - drag.initialMouseX, drag.mouseY - drag.initialMouseY) >= 5;
-
   return (
     <>
       {/* Warning Banner */}
@@ -1226,134 +1107,88 @@ interface FilterOptionItem {
   toneColor?: string;
 }
 
-function buildMenuStyle(trigger: HTMLButtonElement | null, preferredWidth = 280): CSSProperties | null {
-  if (!trigger) return null;
-  const rect = trigger.getBoundingClientRect();
-  const viewportPadding = 8;
-  const menuWidth = Math.min(preferredWidth, window.innerWidth - viewportPadding * 2);
-  const left = Math.min(
-    Math.max(rect.left, viewportPadding),
-    window.innerWidth - menuWidth - viewportPadding,
-  );
-  const availableBelow = window.innerHeight - rect.bottom - 10;
-  const availableAbove = rect.top - 10;
-  const openAbove = availableBelow < 240 && availableAbove > availableBelow;
-  const maxHeight = Math.max(180, Math.min(360, openAbove ? availableAbove : availableBelow));
-  const top = openAbove ? Math.max(viewportPadding, rect.top - maxHeight - 8) : rect.bottom + 8;
-  return {
-    position: 'fixed',
-    top,
-    left,
-    width: menuWidth,
-    maxHeight,
-    zIndex: 1200,
-  };
-}
+// --- Unified FilterMenu (single-select & multi-select) ---
 
-interface SingleSelectFilterMenuProps {
+type FilterMenuProps = {
   label: string;
-  selectedValue?: string;
-  selectedLabel: string;
   items: FilterOptionItem[];
-  allLabel: string;
   emptyMessage: string;
-  onSelect: (value: string) => void;
-  onClear: () => void;
-  menuWidth?: number;
   searchable?: boolean;
-}
+  menuWidth?: number;
+} & (
+  | {
+      mode: 'single';
+      selectedValue?: string;
+      selectedLabel: string;
+      allLabel: string;
+      onSelect: (value: string) => void;
+      onClear: () => void;
+    }
+  | {
+      mode: 'multi';
+      selected: Set<string>;
+      onToggle: (value: string) => void;
+      onOnly: (value: string) => void;
+      onReset: () => void;
+    }
+);
 
-function SingleSelectFilterMenu({
-  label,
-  selectedValue,
-  selectedLabel,
-  items,
-  allLabel,
-  emptyMessage,
-  onSelect,
-  onClear,
-  menuWidth = 320,
-  searchable = false,
-}: SingleSelectFilterMenuProps) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
-  const canSearch = searchable || items.length > 8;
-
-  const reposition = useCallback(() => {
-    setMenuStyle(buildMenuStyle(triggerRef.current, menuWidth));
-  }, [menuWidth]);
-
-  useEffect(() => {
-    if (!open) return;
-    reposition();
-    const onEscape = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setOpen(false); };
-    const onOutside = (ev: MouseEvent) => {
-      const target = ev.target as Node;
-      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    window.addEventListener('resize', reposition);
-    window.addEventListener('scroll', reposition, true);
-    window.addEventListener('keydown', onEscape);
-    document.addEventListener('mousedown', onOutside);
-    return () => {
-      window.removeEventListener('resize', reposition);
-      window.removeEventListener('scroll', reposition, true);
-      window.removeEventListener('keydown', onEscape);
-      document.removeEventListener('mousedown', onOutside);
-    };
-  }, [open, reposition]);
-
-  useEffect(() => {
-    if (!open || !canSearch) return;
-    const id = window.setTimeout(() => {
-      searchRef.current?.focus();
-      searchRef.current?.select();
-    }, 0);
-    return () => window.clearTimeout(id);
-  }, [open, canSearch]);
+function FilterMenu(props: FilterMenuProps) {
+  const { label, items, emptyMessage, searchable = false, menuWidth = 300 } = props;
+  const menu = useDropdownMenu({ menuWidth, searchable, searchThreshold: 8 });
+  const canSearch = searchable || items.length > menu.searchThreshold;
 
   const filteredItems = useMemo(() => {
-    if (!query.trim()) return items;
-    const normalized = query.trim().toLowerCase();
-    return items.filter((item) => {
-      return item.label.toLowerCase().includes(normalized)
-        || (item.description ?? '').toLowerCase().includes(normalized);
-    });
-  }, [items, query]);
+    if (!menu.query.trim()) return items;
+    const normalized = menu.query.trim().toLowerCase();
+    return items.filter((item) =>
+      item.label.toLowerCase().includes(normalized)
+      || (item.description ?? '').toLowerCase().includes(normalized),
+    );
+  }, [items, menu.query]);
+
+  const isActive = props.mode === 'single' ? !!props.selectedValue : props.selected.size > 0;
+  const triggerLabel = props.mode === 'single'
+    ? (props.selectedValue ? props.selectedLabel : props.allLabel)
+    : (props.selected.size > 0 ? `${props.selected.size} selected` : 'All');
+
+  const handleReset = () => {
+    if (props.mode === 'single') {
+      props.onClear();
+    } else {
+      props.onReset();
+    }
+    setTimeout(() => menu.close(), 0);
+  };
 
   return (
     <>
       <button
-        ref={triggerRef}
+        ref={menu.triggerRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={menu.toggle}
         className={`inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] transition-colors ${
-          selectedValue
+          isActive
             ? 'bg-accent/10 text-accent'
             : 'bg-transparent text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
         }`}
       >
         <span className="font-medium">{label}</span>
-        <span className={`max-w-[180px] truncate ${selectedValue ? 'text-accent' : 'text-dim'}`}>
-          {selectedValue ? selectedLabel : allLabel}
+        <span className={`${props.mode === 'single' ? 'max-w-[180px] truncate ' : ''}${isActive ? 'text-accent' : 'text-dim'}`}>
+          {triggerLabel}
         </span>
-        <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown size={12} className={`transition-transform ${menu.open ? 'rotate-180' : ''}`} />
       </button>
 
-      {open && menuStyle && createPortal(
+      {menu.open && menu.menuStyle && createPortal(
         <>
           <div
             className="fixed inset-0 z-[1190] animate-fadeIn"
-            onMouseDown={(e) => { e.preventDefault(); setOpen(false); }}
+            onMouseDown={(e) => { e.preventDefault(); menu.close(); }}
           />
           <div
-            ref={menuRef}
-            style={menuStyle}
+            ref={menu.menuRef}
+            style={menu.menuStyle}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
             className="rounded-xl bg-elevated shadow-lg shadow-black/35 overflow-hidden flex flex-col animate-scaleIn"
@@ -1362,10 +1197,7 @@ function SingleSelectFilterMenu({
               <div className="text-xs font-medium">{label}</div>
               <button
                 type="button"
-                onClick={() => {
-                  onClear();
-                  setTimeout(() => setOpen(false), 0);
-                }}
+                onClick={handleReset}
                 className="text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
               >
                 Reset
@@ -1376,15 +1208,15 @@ function SingleSelectFilterMenu({
               <div className="px-3 pb-2">
                 <label className="relative block">
                   <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
-                <input
-                  ref={searchRef}
-                  value={query}
-                  onChange={(ev) => setQuery(ev.target.value)}
-                  placeholder={`Search ${label.toLowerCase()}...`}
-                  className="w-full h-7 rounded-md border border-subtle/30 bg-[var(--color-bg-secondary)]/60 pl-7 pr-2 text-[11px] text-[var(--color-text-primary)] placeholder:text-dim focus:outline-none focus:border-accent/55"
-                />
-              </label>
-            </div>
+                  <input
+                    ref={menu.searchRef}
+                    value={menu.query}
+                    onChange={(ev) => menu.setQuery(ev.target.value)}
+                    placeholder={`Search ${label.toLowerCase()}...`}
+                    className="w-full h-7 rounded-md border border-subtle/30 bg-[var(--color-bg-secondary)]/60 pl-7 pr-2 text-[11px] text-[var(--color-text-primary)] placeholder:text-dim focus:outline-none focus:border-accent/55"
+                  />
+                </label>
+              </div>
             )}
 
             <div className="overflow-y-auto p-1.5">
@@ -1392,191 +1224,21 @@ function SingleSelectFilterMenu({
                 <div className="px-3 py-4 text-xs text-dim text-center">{emptyMessage}</div>
               ) : (
                 filteredItems.map((item) => {
-                  const selected = item.value === selectedValue;
+                  const active = props.mode === 'single'
+                    ? item.value === props.selectedValue
+                    : props.selected.has(item.value);
                   return (
                     <div key={item.value} className="flex items-center gap-1 rounded-md hover:bg-tertiary px-1">
                       <button
                         type="button"
                         onClick={() => {
-                          if (selected) onClear();
-                          else onSelect(item.value);
+                          if (props.mode === 'single') {
+                            if (active) props.onClear();
+                            else props.onSelect(item.value);
+                          } else {
+                            props.onToggle(item.value);
+                          }
                         }}
-                        className={`flex-1 text-left px-1.5 py-2 text-xs rounded-md transition-colors ${
-                          selected ? 'text-accent' : 'text-[var(--color-text-primary)]'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="truncate">{item.label}</span>
-                          {selected && <Check size={12} className="text-accent shrink-0" />}
-                        </div>
-                        {item.description && (
-                          <div className="text-[10px] text-dim mt-0.5 truncate">{item.description}</div>
-                        )}
-                      </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onSelect(item.value);
-                        setTimeout(() => setOpen(false), 0);
-                      }}
-                      className="inline-flex items-center gap-1 px-1.5 py-1 rounded text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
-                    >
-                      <Crosshair size={10} />
-                      only
-                    </button>
-                  </div>
-                );
-                })
-              )}
-            </div>
-          </div>
-        </>,
-        document.body,
-      )}
-    </>
-  );
-}
-
-interface MultiSelectFilterMenuProps {
-  label: string;
-  selected: Set<string>;
-  items: FilterOptionItem[];
-  emptyMessage: string;
-  onToggle: (value: string) => void;
-  onOnly: (value: string) => void;
-  onReset: () => void;
-  searchable?: boolean;
-}
-
-function MultiSelectFilterMenu({
-  label,
-  selected,
-  items,
-  emptyMessage,
-  onToggle,
-  onOnly,
-  onReset,
-  searchable = false,
-}: MultiSelectFilterMenuProps) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
-  const canSearch = searchable || items.length > 7;
-
-  const reposition = useCallback(() => {
-    setMenuStyle(buildMenuStyle(triggerRef.current, 300));
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    reposition();
-    const onEscape = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setOpen(false); };
-    const onOutside = (ev: MouseEvent) => {
-      const target = ev.target as Node;
-      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    window.addEventListener('resize', reposition);
-    window.addEventListener('scroll', reposition, true);
-    window.addEventListener('keydown', onEscape);
-    document.addEventListener('mousedown', onOutside);
-    return () => {
-      window.removeEventListener('resize', reposition);
-      window.removeEventListener('scroll', reposition, true);
-      window.removeEventListener('keydown', onEscape);
-      document.removeEventListener('mousedown', onOutside);
-    };
-  }, [open, reposition]);
-
-  useEffect(() => {
-    if (!open || !canSearch) return;
-    const id = window.setTimeout(() => {
-      searchRef.current?.focus();
-      searchRef.current?.select();
-    }, 0);
-    return () => window.clearTimeout(id);
-  }, [open, canSearch]);
-
-  const filteredItems = useMemo(() => {
-    if (!query.trim()) return items;
-    const normalized = query.trim().toLowerCase();
-    return items.filter((item) => item.label.toLowerCase().includes(normalized));
-  }, [items, query]);
-
-  const selectedCount = selected.size;
-
-  return (
-    <>
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={`inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] transition-colors ${
-          selectedCount > 0
-            ? 'bg-accent/10 text-accent'
-            : 'bg-transparent text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
-        }`}
-      >
-        <span className="font-medium">{label}</span>
-        <span className={`${selectedCount > 0 ? 'text-accent' : 'text-dim'}`}>
-          {selectedCount > 0 ? `${selectedCount} selected` : 'All'}
-        </span>
-        <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-
-      {open && menuStyle && createPortal(
-        <>
-          <div
-            className="fixed inset-0 z-[1190] animate-fadeIn"
-            onMouseDown={(e) => { e.preventDefault(); setOpen(false); }}
-          />
-          <div
-            ref={menuRef}
-            style={menuStyle}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-            className="rounded-xl bg-elevated shadow-lg shadow-black/35 overflow-hidden flex flex-col animate-scaleIn"
-          >
-            <div className="px-3 py-2.5 bg-[var(--color-bg-secondary)]/45 flex items-center justify-between">
-              <div className="text-xs font-medium">{label}</div>
-              <button
-                type="button"
-                onClick={onReset}
-                className="text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
-              >
-                Reset
-              </button>
-            </div>
-
-            {canSearch && (
-              <div className="px-3 pb-2">
-                <label className="relative block">
-                  <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
-                <input
-                  ref={searchRef}
-                  value={query}
-                  onChange={(ev) => setQuery(ev.target.value)}
-                  placeholder={`Search ${label.toLowerCase()}...`}
-                  className="w-full h-7 rounded-md border border-subtle/30 bg-[var(--color-bg-secondary)]/60 pl-7 pr-2 text-[11px] text-[var(--color-text-primary)] placeholder:text-dim focus:outline-none focus:border-accent/55"
-                />
-              </label>
-            </div>
-            )}
-
-            <div className="overflow-y-auto p-1.5">
-              {filteredItems.length === 0 ? (
-                <div className="px-3 py-4 text-xs text-dim text-center">{emptyMessage}</div>
-              ) : (
-                filteredItems.map((item) => {
-                  const active = selected.has(item.value);
-                  return (
-                    <div key={item.value} className="flex items-center gap-1 rounded-md hover:bg-tertiary px-1">
-                      <button
-                        type="button"
-                        onClick={() => onToggle(item.value)}
                         className={`flex-1 text-left px-1.5 py-2 text-xs rounded-md transition-colors ${
                           active ? 'text-accent' : 'text-[var(--color-text-primary)]'
                         }`}
@@ -1597,8 +1259,12 @@ function MultiSelectFilterMenu({
                       <button
                         type="button"
                         onClick={() => {
-                          onOnly(item.value);
-                          setTimeout(() => setOpen(false), 0);
+                          if (props.mode === 'single') {
+                            props.onSelect(item.value);
+                          } else {
+                            props.onOnly(item.value);
+                          }
+                          setTimeout(() => menu.close(), 0);
                         }}
                         className="inline-flex items-center gap-1 px-1.5 py-1 rounded text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
                       >
@@ -1663,35 +1329,7 @@ function CompactFilterPanel({
   onToggleMultiFilter,
   onResetAll,
 }: CompactFilterPanelProps) {
-  const [open, setOpen] = useState(false);
-  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const reposition = useCallback(() => {
-    setMenuStyle(buildMenuStyle(triggerRef.current, 320));
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    reposition();
-    const onEscape = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setOpen(false); };
-    const onOutside = (ev: MouseEvent) => {
-      const target = ev.target as Node;
-      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    window.addEventListener('resize', reposition);
-    window.addEventListener('scroll', reposition, true);
-    window.addEventListener('keydown', onEscape);
-    document.addEventListener('mousedown', onOutside);
-    return () => {
-      window.removeEventListener('resize', reposition);
-      window.removeEventListener('scroll', reposition, true);
-      window.removeEventListener('keydown', onEscape);
-      document.removeEventListener('mousedown', onOutside);
-    };
-  }, [open, reposition]);
+  const menu = useDropdownMenu({ menuWidth: 320 });
 
   const sections: {
     key: string;
@@ -1712,9 +1350,9 @@ function CompactFilterPanel({
   return (
     <>
       <button
-        ref={triggerRef}
+        ref={menu.triggerRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={menu.toggle}
         className={`inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] transition-colors ${
           activeFilterCount > 0
             ? 'bg-accent/10 text-accent'
@@ -1730,15 +1368,15 @@ function CompactFilterPanel({
         )}
       </button>
 
-      {open && menuStyle && createPortal(
+      {menu.open && menu.menuStyle && createPortal(
         <>
           <div
             className="fixed inset-0 z-[1190] animate-fadeIn"
-            onMouseDown={(e) => { e.preventDefault(); setOpen(false); }}
+            onMouseDown={(e) => { e.preventDefault(); menu.close(); }}
           />
           <div
-            ref={menuRef}
-            style={menuStyle}
+            ref={menu.menuRef}
+            style={menu.menuStyle}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
             className="rounded-xl bg-elevated shadow-lg shadow-black/35 overflow-hidden flex flex-col animate-scaleIn"
@@ -1749,7 +1387,7 @@ function CompactFilterPanel({
                 type="button"
                 onClick={() => {
                   onResetAll();
-                  setTimeout(() => setOpen(false), 0);
+                  setTimeout(() => menu.close(), 0);
                 }}
                 className="text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
               >
@@ -1769,7 +1407,7 @@ function CompactFilterPanel({
                         type="button"
                         onClick={() => {
                           onClearProject();
-                          setTimeout(() => setOpen(false), 0);
+                          setTimeout(() => menu.close(), 0);
                         }}
                         className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
                           !selectedProjectId ? 'text-accent' : 'text-[var(--color-text-primary)] hover:bg-tertiary'
@@ -1788,7 +1426,7 @@ function CompactFilterPanel({
                             type="button"
                             onClick={() => {
                               onSelectProject(item.value);
-                              setTimeout(() => setOpen(false), 0);
+                              setTimeout(() => menu.close(), 0);
                             }}
                             className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
                               active ? 'text-accent' : 'text-[var(--color-text-primary)] hover:bg-tertiary'
@@ -2248,20 +1886,6 @@ interface TaskCardProps {
   ghost?: boolean;
   onMouseDown?: (e: React.MouseEvent) => void;
 }
-
-const PRIORITY_COLORS: Record<string, string> = {
-  urgent: 'var(--color-error)',
-  high: '#f97316',
-  medium: '#eab308',
-  low: 'var(--color-text-dim)',
-};
-
-const PRIORITY_LABELS: Record<string, string> = {
-  urgent: 'P0',
-  high: 'P1',
-  medium: 'P2',
-  low: 'P3',
-};
 
 function relativeTime(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();

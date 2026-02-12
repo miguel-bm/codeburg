@@ -51,18 +51,20 @@ export function fileName(path: string): string {
 }
 
 export const darkEditorTheme = EditorView.theme({
-  '&': { backgroundColor: '#070707' },
-  '.cm-scroller': { backgroundColor: '#070707' },
-  '.cm-gutters': { backgroundColor: '#070707', color: '#84848A', borderRight: '1px solid #141415' },
+  '&': { backgroundColor: '#0a0a0b', fontSize: '12px' },
+  '.cm-scroller': { backgroundColor: '#0a0a0b' },
+  '.cm-content': { fontSize: '12px' },
+  '.cm-gutters': { backgroundColor: '#0a0a0b', color: '#84848A', borderRight: '1px solid #141415', fontSize: '12px' },
   '.cm-activeLine': { backgroundColor: '#19283c8c' },
   '.cm-activeLineGutter': { color: '#adadb1', backgroundColor: '#19283c8c' },
   '.cm-selectionBackground, .cm-content ::selection': { backgroundColor: '#009fff4d' },
 }, { dark: true });
 
 export const lightEditorTheme = EditorView.theme({
-  '&': { backgroundColor: '#ffffff' },
-  '.cm-scroller': { backgroundColor: '#ffffff' },
-  '.cm-gutters': { backgroundColor: '#ffffff', color: '#84848A', borderRight: '1px solid #eeeeef' },
+  '&': { backgroundColor: '#fafafa', fontSize: '12px' },
+  '.cm-scroller': { backgroundColor: '#fafafa' },
+  '.cm-content': { fontSize: '12px' },
+  '.cm-gutters': { backgroundColor: '#fafafa', color: '#84848A', borderRight: '1px solid #eeeeef', fontSize: '12px' },
   '.cm-activeLine': { backgroundColor: '#dfebff8c' },
   '.cm-activeLineGutter': { color: '#6C6C71', backgroundColor: '#dfebff8c' },
   '.cm-selectionBackground, .cm-content ::selection': { backgroundColor: '#009fff2e' },

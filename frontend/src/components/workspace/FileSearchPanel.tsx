@@ -70,7 +70,7 @@ export function FileSearchPanel() {
             {result.matches.map((match, i) => (
               <button
                 key={i}
-                onClick={() => openFile(result.file)}
+                onClick={() => openFile(result.file, match.line)}
                 className="w-full text-left px-3 py-0.5 text-[11px] text-dim hover:bg-tertiary hover:text-[var(--color-text-primary)] transition-colors flex items-baseline gap-2"
               >
                 <span className="text-dim/60 tabular-nums shrink-0">{match.line}</span>

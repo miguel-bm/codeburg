@@ -11,7 +11,11 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { IconButton } from '../../components/ui/IconButton';
 import { Modal } from '../../components/ui/Modal';
+import { MarkdownField } from '../../components/ui/MarkdownField';
+import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
 import { usePanelNavigation } from '../../hooks/usePanelNavigation';
+import { DEFAULT_LABEL_COLORS } from '../../constants/tasks';
+import { slugify } from '../../utils/text';
 
 interface Props {
   task: Task;
@@ -33,17 +37,6 @@ const PRIORITIES = [
   { value: 'medium', label: 'Medium', color: '#eab308' },
   { value: 'low', label: 'Low', color: 'var(--color-text-dim)' },
 ];
-
-const DEFAULT_LABEL_COLORS = [
-  '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899',
-];
-
-function slugify(title: string): string {
-  return title.toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 50) || 'task';
-}
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -207,15 +200,13 @@ export function TaskDetailBacklog({ task, project }: Props) {
             >
               {editingDesc ? (
                 <div>
-                  <textarea
+                  <MarkdownField
                     value={descValue}
-                    onChange={(e) => setDescValue(e.target.value)}
+                    onChange={setDescValue}
+                    rows={Math.max(4, descValue.split('\n').length + 1)}
                     onKeyDown={(e) => {
                       if (e.key === 'Escape') { setDescValue(task.description || ''); setEditingDesc(false); }
                     }}
-                    rows={Math.max(4, descValue.split('\n').length + 1)}
-                    className="w-full p-0 m-0 border-0 bg-transparent text-sm text-[var(--color-text-primary)] focus:outline-none resize-y min-h-[80px] leading-relaxed"
-                    placeholder="Describe the task..."
                     autoFocus
                   />
                   <div className="flex justify-end gap-2 mt-2">
@@ -237,7 +228,7 @@ export function TaskDetailBacklog({ task, project }: Props) {
                 </div>
               ) : (
                 task.description ? (
-                  <p className="text-sm text-[var(--color-text-secondary)] whitespace-pre-wrap leading-relaxed">{task.description}</p>
+                  <MarkdownRenderer className="text-sm">{task.description}</MarkdownRenderer>
                 ) : (
                   <p className="text-sm text-dim italic">Click to add description...</p>
                 )

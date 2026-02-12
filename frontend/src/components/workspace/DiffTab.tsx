@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { PatchDiff } from '@pierre/diffs/react';
 import { useWorkspace } from './WorkspaceContext';
-import { useMobile } from '../../hooks/useMobile';
-import { parseDiffFiles, splitDiffIntoFilePatches } from '../git/diffFiles';
+import { DiffContent } from './DiffContent';
+import { parseDiffFiles } from '../git/diffFiles';
+import { useWorkspaceStore } from '../../stores/workspace';
 
 interface DiffTabProps {
   file?: string;
@@ -13,61 +13,140 @@ interface DiffTabProps {
 
 export function DiffTab({ file, staged, base }: DiffTabProps) {
   const { api, scopeType, scopeId } = useWorkspace();
-  const isMobile = useMobile();
+  const { openDiff } = useWorkspaceStore();
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['workspace-diff', scopeType, scopeId, file, staged, base],
-    queryFn: () => api.git.diff({ file, staged, base }),
+  // When a specific file is provided, fetch its diff content
+  const { data: diffContent, isLoading: contentLoading, error: contentError } = useQuery({
+    queryKey: ['workspace-diff-content', scopeType, scopeId, file, staged, base],
+    queryFn: () => api.git.diffContent({ file: file!, staged, base }),
+    enabled: !!file,
   });
 
-  const filePatches = useMemo(
-    () => splitDiffIntoFilePatches(data?.diff || ''),
-    [data?.diff],
+  // When no file specified, show overview from git status
+  const { data: statusData, isLoading: statusLoading } = useQuery({
+    queryKey: ['workspace-git-status', scopeType, scopeId],
+    queryFn: () => api.git.status(),
+    enabled: !file,
+  });
+
+  // Also fetch full diff for overview +/- counts
+  const { data: overviewDiff } = useQuery({
+    queryKey: ['workspace-diff', scopeType, scopeId, undefined, staged, base],
+    queryFn: () => api.git.diff({ staged, base }),
+    enabled: !file,
+  });
+
+  const diffFiles = useMemo(
+    () => parseDiffFiles(overviewDiff?.diff || ''),
+    [overviewDiff?.diff],
   );
-  const fileSummaries = useMemo(
-    () => parseDiffFiles(data?.diff || ''),
-    [data?.diff],
-  );
 
-  const options = useMemo(() => ({
-    diffStyle: isMobile ? 'unified' as const : 'split' as const,
-    diffIndicators: 'bars' as const,
-    hunkSeparators: 'line-info' as const,
-    lineDiffType: 'word' as const,
-    overflow: 'scroll' as const,
-    themeType: 'system' as const,
-  }), [isMobile]);
+  // File-specific diff view
+  if (file) {
+    if (contentLoading) {
+      return <div className="p-4 text-xs text-dim">loading diff...</div>;
+    }
 
-  if (isLoading) {
-    return <div className="p-4 text-xs text-dim">loading diff...</div>;
-  }
+    if (contentError) {
+      return <div className="p-4 text-xs text-[var(--color-error)]">{(contentError as Error).message}</div>;
+    }
 
-  if (error) {
-    return <div className="p-4 text-xs text-[var(--color-error)]">{(error as Error).message}</div>;
-  }
+    if (!diffContent) {
+      return <div className="p-4 text-xs text-dim">no changes</div>;
+    }
 
-  if (!data?.diff) {
-    return <div className="p-4 text-xs text-dim">no changes</div>;
-  }
+    if (diffContent.original === diffContent.modified) {
+      return <div className="p-4 text-xs text-dim">no changes</div>;
+    }
 
-  if (!file && filePatches.length > 1) {
     return (
-      <div className="p-2 min-h-full space-y-3 overflow-auto">
-        {filePatches.map((patch, idx) => (
-          <section key={`${fileSummaries[idx]?.path || 'patch'}-${idx}`} className="border border-subtle rounded-md overflow-hidden">
-            <div className="px-3 py-1.5 bg-secondary border-b border-subtle text-[11px] font-mono text-dim">
-              {fileSummaries[idx]?.path || `file ${idx + 1}`}
-            </div>
-            <PatchDiff patch={patch} options={options} />
-          </section>
-        ))}
+      <div className="h-full overflow-hidden">
+        <DiffContent original={diffContent.original} modified={diffContent.modified} path={file} />
       </div>
     );
   }
 
+  // Overview: file list
+  if (statusLoading) {
+    return <div className="p-4 text-xs text-dim">loading...</div>;
+  }
+
+  const allFiles: { path: string; status: string; additions: number; deletions: number }[] = [];
+
+  if (statusData) {
+    if (staged) {
+      for (const f of statusData.staged) {
+        const stats = diffFiles.find((d) => d.path === f.path);
+        allFiles.push({
+          path: f.path,
+          status: f.status,
+          additions: stats?.additions ?? f.additions ?? 0,
+          deletions: stats?.deletions ?? f.deletions ?? 0,
+        });
+      }
+    } else if (base) {
+      // For base diffs, use parsed diff files directly
+      for (const d of diffFiles) {
+        allFiles.push({ path: d.path, status: 'M', additions: d.additions, deletions: d.deletions });
+      }
+    } else {
+      for (const f of statusData.unstaged) {
+        const stats = diffFiles.find((d) => d.path === f.path);
+        allFiles.push({
+          path: f.path,
+          status: f.status,
+          additions: stats?.additions ?? f.additions ?? 0,
+          deletions: stats?.deletions ?? f.deletions ?? 0,
+        });
+      }
+      for (const f of statusData.untracked) {
+        allFiles.push({ path: f, status: '?', additions: 0, deletions: 0 });
+      }
+    }
+  }
+
+  if (allFiles.length === 0) {
+    return <div className="p-4 text-xs text-dim">no changes</div>;
+  }
+
   return (
-    <div className="p-2 min-h-full overflow-auto">
-      <PatchDiff patch={data.diff} options={options} />
+    <div className="h-full overflow-auto">
+      <div className="px-3 py-2 text-[11px] font-medium text-dim border-b border-subtle bg-secondary">
+        {allFiles.length} changed file{allFiles.length !== 1 ? 's' : ''}
+      </div>
+      {allFiles.map((f) => (
+        <button
+          key={f.path}
+          onClick={() => openDiff(f.path, staged, base)}
+          className="w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-tertiary border-b border-subtle flex items-center gap-2"
+        >
+          <StatusBadge status={f.status} />
+          <span className="font-mono truncate flex-1">{f.path}</span>
+          {(f.additions > 0 || f.deletions > 0) && (
+            <span className="text-[10px] shrink-0">
+              <span className="text-[var(--color-success)]">+{f.additions}</span>
+              {' '}
+              <span className="text-[var(--color-error)]">-{f.deletions}</span>
+            </span>
+          )}
+        </button>
+      ))}
     </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    M: 'text-yellow-500',
+    A: 'text-[var(--color-success)]',
+    D: 'text-[var(--color-error)]',
+    R: 'text-purple-500',
+    '?': 'text-[var(--color-success)]',
+  };
+
+  return (
+    <span className={`text-[10px] font-bold w-3 shrink-0 ${colors[status] || 'text-dim'}`}>
+      {status === '?' ? 'U' : status}
+    </span>
   );
 }

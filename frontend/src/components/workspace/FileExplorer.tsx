@@ -27,6 +27,9 @@ interface ContextMenuState {
   node: FileTreeNodeData | null; // null = empty space
 }
 
+// Temporary node used for inline file/folder creation
+const CREATING_NODE_ID = '__creating__';
+
 export function FileExplorer() {
   const {
     files,
@@ -39,13 +42,16 @@ export function FileExplorer() {
   } = useWorkspaceFiles(undefined, 20);
   const { openFile } = useWorkspaceStore();
   const [searchQuery, setSearchQuery] = useState('');
-  const [showCreateInput, setShowCreateInput] = useState<'file' | 'dir' | null>(null);
-  const [createPath, setCreatePath] = useState('');
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const treeContainerRef = useRef<HTMLDivElement>(null);
   const [treeHeight, setTreeHeight] = useState(400);
+  const treeRef = useRef<any>(null);
+
+  // Inline creation state
+  const [creating, setCreating] = useState<{ type: 'file' | 'dir'; parentPath: string } | null>(null);
+  const [createName, setCreateName] = useState('');
 
   // Measure container height with ResizeObserver so react-arborist gets the right size
   useEffect(() => {
@@ -61,25 +67,88 @@ export function FileExplorer() {
   const tree = useMemo(() => buildFileTree(files), [files]);
   const filtered = useMemo(() => filterFileTree(tree, searchQuery), [tree, searchQuery]);
 
+  // Insert a temporary "creating" node into the tree data when creating
+  const treeData = useMemo(() => {
+    if (!creating) return filtered;
+
+    const tempNode: FileTreeNodeData = {
+      id: CREATING_NODE_ID,
+      name: '',
+      path: CREATING_NODE_ID,
+      type: creating.type,
+      children: creating.type === 'dir' ? [] : undefined,
+    };
+
+    if (!creating.parentPath) {
+      // Insert at root
+      return [tempNode, ...filtered];
+    }
+
+    // Insert as first child of the target folder
+    const insertInto = (nodes: FileTreeNodeData[]): FileTreeNodeData[] => {
+      return nodes.map((node) => {
+        if (node.path === creating.parentPath && node.type === 'dir') {
+          return { ...node, children: [tempNode, ...(node.children || [])] };
+        }
+        if (node.children) {
+          return { ...node, children: insertInto(node.children) };
+        }
+        return node;
+      });
+    };
+
+    return insertInto(filtered);
+  }, [filtered, creating]);
+
   const handleSelect = useCallback(
     (nodes: NodeRendererProps<FileTreeNodeData>['node'][]) => {
       const node = nodes[0];
       if (!node || node.data.type === 'dir') return;
+      if (node.data.id === CREATING_NODE_ID) return;
       openFile(node.data.path);
     },
     [openFile],
   );
 
-  const handleCreate = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!createPath.trim() || !showCreateInput) return;
-      await createEntry({ path: createPath.trim(), type: showCreateInput });
-      setCreatePath('');
-      setShowCreateInput(null);
+  // Get the target folder for inline creation based on current selection
+  const getTargetFolder = useCallback(() => {
+    const tree = treeRef.current;
+    if (!tree) return '';
+    const selected = tree.selectedNodes?.[0];
+    if (!selected) return '';
+    if (selected.data.type === 'dir') return selected.data.path;
+    // Parent of file
+    const path = selected.data.path;
+    const lastSlash = path.lastIndexOf('/');
+    return lastSlash >= 0 ? path.slice(0, lastSlash) : '';
+  }, []);
+
+  const startCreating = useCallback(
+    (type: 'file' | 'dir', parentPath?: string) => {
+      const target = parentPath ?? getTargetFolder();
+      setCreating({ type, parentPath: target });
+      setCreateName('');
+      // Expand the target folder in the tree
+      if (target && treeRef.current) {
+        const node = treeRef.current.get(target);
+        if (node && !node.isOpen) node.open();
+      }
     },
-    [createPath, showCreateInput, createEntry],
+    [getTargetFolder],
   );
+
+  const handleCreateSubmit = useCallback(async () => {
+    if (!creating || !createName.trim()) {
+      setCreating(null);
+      return;
+    }
+    const path = creating.parentPath
+      ? `${creating.parentPath}/${createName.trim()}`
+      : createName.trim();
+    await createEntry({ path, type: creating.type });
+    setCreating(null);
+    setCreateName('');
+  }, [creating, createName, createEntry]);
 
   const handleDelete = useCallback(
     async (path: string) => {
@@ -116,6 +185,24 @@ export function FileExplorer() {
     navigator.clipboard.writeText(path);
   }, []);
 
+  // Drag-and-drop: move files/folders between directories
+  const handleMove = useCallback(
+    async ({ dragIds, parentId }: { dragIds: string[]; parentId: string | null; index: number }) => {
+      for (const dragId of dragIds) {
+        if (dragId === CREATING_NODE_ID) continue;
+        const fileName = dragId.includes('/') ? dragId.slice(dragId.lastIndexOf('/') + 1) : dragId;
+        const newPath = parentId ? `${parentId}/${fileName}` : fileName;
+        if (newPath === dragId) continue;
+        try {
+          await renameEntry({ from: dragId, to: newPath });
+        } catch {
+          // silently ignore
+        }
+      }
+    },
+    [renameEntry],
+  );
+
   const openContextMenu = useCallback(
     (e: React.MouseEvent, node: FileTreeNodeData | null) => {
       e.preventDefault();
@@ -133,12 +220,12 @@ export function FileExplorer() {
           {
             label: 'New File',
             icon: FilePlus2,
-            onClick: () => { setShowCreateInput('file'); setCreatePath(''); },
+            onClick: () => startCreating('file', ''),
           },
           {
             label: 'New Folder',
             icon: FolderPlus,
-            onClick: () => { setShowCreateInput('dir'); setCreatePath(''); },
+            onClick: () => startCreating('dir', ''),
           },
         ];
       }
@@ -148,12 +235,12 @@ export function FileExplorer() {
           {
             label: 'New File',
             icon: FileInput,
-            onClick: () => { setShowCreateInput('file'); setCreatePath(node.path + '/'); },
+            onClick: () => startCreating('file', node.path),
           },
           {
             label: 'New Folder',
             icon: FolderInput,
-            onClick: () => { setShowCreateInput('dir'); setCreatePath(node.path + '/'); },
+            onClick: () => startCreating('dir', node.path),
           },
           {
             label: 'Rename',
@@ -217,7 +304,7 @@ export function FileExplorer() {
         },
       ];
     },
-    [openFile, handleDelete, duplicateEntry, downloadFile, handleCopyPath],
+    [openFile, handleDelete, duplicateEntry, downloadFile, handleCopyPath, startCreating],
   );
 
   // Close context menu on route changes
@@ -240,41 +327,20 @@ export function FileExplorer() {
           />
         </div>
         <button
-          onClick={() => { setShowCreateInput('file'); setCreatePath(''); }}
+          onClick={() => startCreating('file')}
           className="p-1 text-dim hover:text-accent transition-colors"
           title="New file"
         >
           <FilePlus2 size={14} />
         </button>
         <button
-          onClick={() => { setShowCreateInput('dir'); setCreatePath(''); }}
+          onClick={() => startCreating('dir')}
           className="p-1 text-dim hover:text-accent transition-colors"
           title="New folder"
         >
           <FolderPlus size={14} />
         </button>
       </div>
-
-      {/* Create input */}
-      {showCreateInput && (
-        <form onSubmit={handleCreate} className="flex items-center gap-1 px-2 py-1.5 border-b border-subtle bg-accent/5">
-          <input
-            type="text"
-            value={createPath}
-            onChange={(e) => setCreatePath(e.target.value)}
-            placeholder={`New ${showCreateInput} path...`}
-            autoFocus
-            className="flex-1 px-2 py-1 text-xs bg-primary border border-subtle rounded-md focus:border-accent focus:outline-none"
-            onKeyDown={(e) => { if (e.key === 'Escape') setShowCreateInput(null); }}
-          />
-          <button type="submit" className="text-xs text-accent px-2 py-1 hover:bg-accent/10 rounded">
-            Create
-          </button>
-          <button type="button" onClick={() => setShowCreateInput(null)} className="text-xs text-dim px-1 py-1 hover:text-[var(--color-error)]">
-            Cancel
-          </button>
-        </form>
-      )}
 
       {/* File tree */}
       <div
@@ -286,22 +352,71 @@ export function FileExplorer() {
           <div className="flex items-center justify-center h-20 text-xs text-dim">Loading...</div>
         ) : (
           <Tree<FileTreeNodeData>
-            data={filtered}
+            ref={treeRef}
+            data={treeData}
             openByDefault={false}
             width={undefined as unknown as number}
             height={treeHeight}
             rowHeight={26}
             indent={16}
             onSelect={(nodes) => handleSelect(nodes as any)}
+            onMove={handleMove as any}
+            disableDrag={(data) => data.id === CREATING_NODE_ID}
+            disableDrop={(args) => {
+              // Only allow dropping into folders
+              const parent = args.parentNode;
+              if (!parent) return false; // root is ok
+              return parent.data.type !== 'dir';
+            }}
           >
-            {({ node, style }) => {
+            {({ node, style, dragHandle }) => {
+              const isCreatingNode = node.data.id === CREATING_NODE_ID;
               const isDir = node.data.type === 'dir';
               const isRenaming = renamingPath === node.data.path;
               const iconInfo = isDir ? null : getFileIcon(node.data.name);
               const Icon = iconInfo?.icon;
 
+              // Inline creation node
+              if (isCreatingNode) {
+                return (
+                  <div style={style} className="flex items-center gap-1 pr-2 text-xs">
+                    {isDir ? (
+                      <FolderPlus size={14} className="text-accent shrink-0 ml-3.5" />
+                    ) : (
+                      <FilePlus2 size={14} className="text-accent shrink-0 ml-3.5" />
+                    )}
+                    <input
+                      type="text"
+                      value={createName}
+                      onChange={(e) => setCreateName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleCreateSubmit();
+                        }
+                        if (e.key === 'Escape') {
+                          setCreating(null);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (createName.trim()) {
+                          handleCreateSubmit();
+                        } else {
+                          setCreating(null);
+                        }
+                      }}
+                      autoFocus
+                      placeholder={creating?.type === 'dir' ? 'folder name...' : 'file name...'}
+                      className="flex-1 min-w-0 px-1 py-0 text-xs bg-primary border border-accent rounded-sm focus:outline-none"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                );
+              }
+
               return (
                 <div
+                  ref={dragHandle}
                   style={style}
                   className={`flex items-center gap-1 pr-2 text-xs cursor-pointer group transition-colors rounded-sm ${
                     node.isSelected

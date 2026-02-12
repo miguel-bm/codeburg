@@ -20,6 +20,11 @@ export interface GitDiff {
   diff: string;
 }
 
+export interface GitDiffContent {
+  original: string;
+  modified: string;
+}
+
 export interface GitCommitResult {
   hash: string;
   message: string;

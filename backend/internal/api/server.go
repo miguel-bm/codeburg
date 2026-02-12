@@ -218,6 +218,7 @@ func (s *Server) setupRoutes() {
 		// Project git
 		r.Get("/api/projects/{id}/git/status", s.handleProjectGitStatus)
 		r.Get("/api/projects/{id}/git/diff", s.handleProjectGitDiff)
+		r.Get("/api/projects/{id}/git/diff-content", s.handleProjectGitDiffContent)
 		r.Post("/api/projects/{id}/git/stage", s.handleProjectGitStage)
 		r.Post("/api/projects/{id}/git/unstage", s.handleProjectGitUnstage)
 		r.Post("/api/projects/{id}/git/revert", s.handleProjectGitRevert)
@@ -275,6 +276,7 @@ func (s *Server) setupRoutes() {
 		// Git operations
 		r.Get("/api/tasks/{id}/git/status", s.handleGitStatus)
 		r.Get("/api/tasks/{id}/git/diff", s.handleGitDiff)
+		r.Get("/api/tasks/{id}/git/diff-content", s.handleGitDiffContent)
 		r.Post("/api/tasks/{id}/git/stage", s.handleGitStage)
 		r.Post("/api/tasks/{id}/git/unstage", s.handleGitUnstage)
 		r.Post("/api/tasks/{id}/git/revert", s.handleGitRevert)

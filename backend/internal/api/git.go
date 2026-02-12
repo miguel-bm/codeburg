@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -885,4 +887,147 @@ func (s *Server) handleProjectGitStash(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusBadRequest, "invalid action: must be push, pop, or list")
 	}
+}
+
+// --- Diff content endpoints (original + modified strings for side-by-side view) ---
+
+type GitDiffContentResponse struct {
+	Original string `json:"original"`
+	Modified string `json:"modified"`
+}
+
+// gitDiffContent computes the original and modified file content for a diff view.
+func gitDiffContent(workDir string, file string, staged bool, base bool, baseBranch string) (*GitDiffContentResponse, error) {
+	if file == "" {
+		return nil, fmt.Errorf("file parameter is required")
+	}
+
+	absFile := filepath.Join(workDir, file)
+
+	if base {
+		// Diff against merge-base with default branch
+		mergeBaseRef := baseBranch
+		mbOut, err := runGit(workDir, "merge-base", baseBranch, "HEAD")
+		if err == nil {
+			mergeBaseRef = strings.TrimSpace(mbOut)
+		}
+		original, _ := runGit(workDir, "show", mergeBaseRef+":"+file)
+		modified, err := os.ReadFile(absFile)
+		if err != nil {
+			// File might be deleted
+			return &GitDiffContentResponse{Original: original, Modified: ""}, nil
+		}
+		return &GitDiffContentResponse{Original: original, Modified: string(modified)}, nil
+	}
+
+	// Determine file status from porcelain output
+	statusOut, err := runGit(workDir, "status", "--porcelain=v1", "--", file)
+	if err != nil {
+		return nil, fmt.Errorf("git status: %w", err)
+	}
+
+	statusLine := strings.TrimSpace(statusOut)
+	var x, y byte
+	if len(statusLine) >= 2 {
+		x = statusLine[0] // index status
+		y = statusLine[1] // worktree status
+	}
+
+	resp := &GitDiffContentResponse{}
+
+	if staged {
+		// Staged: original = HEAD version, modified = index version
+		if x == 'A' {
+			// New file in index
+			resp.Original = ""
+			out, _ := runGit(workDir, "show", ":0:"+file)
+			resp.Modified = out
+		} else if x == 'D' {
+			// Deleted in index
+			out, _ := runGit(workDir, "show", "HEAD:"+file)
+			resp.Original = out
+			resp.Modified = ""
+		} else {
+			out, _ := runGit(workDir, "show", "HEAD:"+file)
+			resp.Original = out
+			out2, _ := runGit(workDir, "show", ":0:"+file)
+			resp.Modified = out2
+		}
+	} else {
+		// Unstaged changes
+		if x == '?' && y == '?' {
+			// Untracked file
+			resp.Original = ""
+			data, err := os.ReadFile(absFile)
+			if err != nil {
+				return nil, fmt.Errorf("read file: %w", err)
+			}
+			resp.Modified = string(data)
+		} else if y == 'D' {
+			// Deleted in worktree
+			out, _ := runGit(workDir, "show", "HEAD:"+file)
+			resp.Original = out
+			resp.Modified = ""
+		} else {
+			// Modified in worktree — original is HEAD (or index if staged changes exist)
+			out, _ := runGit(workDir, "show", "HEAD:"+file)
+			resp.Original = out
+			data, err := os.ReadFile(absFile)
+			if err != nil {
+				return nil, fmt.Errorf("read file: %w", err)
+			}
+			resp.Modified = string(data)
+		}
+	}
+
+	return resp, nil
+}
+
+func (s *Server) handleGitDiffContent(w http.ResponseWriter, r *http.Request) {
+	workDir, ok := s.resolveTaskWorkDir(w, r)
+	if !ok {
+		return
+	}
+
+	file := r.URL.Query().Get("file")
+	staged := r.URL.Query().Get("staged") == "true"
+	base := r.URL.Query().Get("base") == "true"
+
+	baseBranch := "main"
+	if base {
+		taskID := urlParam(r, "id")
+		task, _ := s.db.GetTask(taskID)
+		if task != nil {
+			project, _ := s.db.GetProject(task.ProjectID)
+			if project != nil {
+				baseBranch = project.DefaultBranch
+			}
+		}
+	}
+
+	resp, err := gitDiffContent(workDir, file, staged, base, baseBranch)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleProjectGitDiffContent(w http.ResponseWriter, r *http.Request) {
+	workDir, ok := s.resolveProjectWorkDir(w, r)
+	if !ok {
+		return
+	}
+
+	file := r.URL.Query().Get("file")
+	staged := r.URL.Query().Get("staged") == "true"
+
+	resp, err := gitDiffContent(workDir, file, staged, false, "")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
