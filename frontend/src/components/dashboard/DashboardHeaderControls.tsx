@@ -92,7 +92,7 @@ export function DashboardHeaderControls({
 }: DashboardHeaderControlsProps) {
   return (
     <div ref={setHeaderHost} className="flex items-center gap-2 w-full">
-      <div className="relative inline-flex items-center rounded-md bg-tertiary p-0.5 shrink-0">
+      <div className="relative isolate inline-flex items-center rounded-md bg-tertiary p-0.5 shrink-0">
         {([
           { key: 'kanban' as DashboardView, icon: LayoutGrid },
           { key: 'list' as DashboardView, icon: ListIcon },

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CornerDownLeft, MessageSquareText, Play, X } from 'lucide-react';
 import type { SessionProvider } from '../../api/sessions';
 import claudeLogo from '../../assets/claude-logo.svg';
@@ -13,34 +13,19 @@ interface NewSessionComposerProps {
   onCancel: () => void;
   isPending?: boolean;
   error?: string;
+  dismissible?: boolean;
 }
 
 interface ProviderOption {
   id: SessionProvider;
   label: string;
   caption: string;
-  detail: string;
 }
 
 const PROVIDERS: ProviderOption[] = [
-  {
-    id: 'claude',
-    label: 'Claude',
-    caption: 'Anthropic',
-    detail: 'Great for longer implementation and codebase navigation.',
-  },
-  {
-    id: 'codex',
-    label: 'Codex',
-    caption: 'OpenAI',
-    detail: 'Fast execution-focused workflow with tool-heavy iteration.',
-  },
-  {
-    id: 'terminal',
-    label: 'Terminal',
-    caption: 'Shell',
-    detail: 'Run commands directly in the task worktree.',
-  },
+  { id: 'claude', label: 'Claude', caption: 'Anthropic' },
+  { id: 'codex', label: 'Codex', caption: 'OpenAI' },
+  { id: 'terminal', label: 'Terminal', caption: 'Shell' },
 ];
 
 function ProviderLogo({ provider }: { provider: SessionProvider }) {
@@ -81,6 +66,7 @@ export function NewSessionComposer({
   onCancel,
   isPending = false,
   error,
+  dismissible = true,
 }: NewSessionComposerProps) {
   const defaultPrompt = useMemo(
     () => (taskDescription ? `${taskTitle}\n\n${taskDescription}` : taskTitle),
@@ -91,16 +77,19 @@ export function NewSessionComposer({
   const [provider, setProvider] = useState<SessionProvider>('claude');
   const [includePrompt, setIncludePrompt] = useState(true);
   const [prompt, setPrompt] = useState(defaultPrompt);
+  const [focusedIndex, setFocusedIndex] = useState(0);
+  const providerRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const promptEnabled = provider !== 'terminal' && includePrompt;
 
   useEffect(() => {
+    if (!dismissible) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCancel();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onCancel]);
+  }, [onCancel, dismissible]);
 
   const description = provider === 'terminal'
     ? 'Starts an interactive shell in this task worktree.'
@@ -130,10 +119,25 @@ export function NewSessionComposer({
   };
 
   const handlePromptKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
       if (!isPending) startSession();
     }
+  };
+
+  const handleProviderKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    let nextIndex = focusedIndex;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      nextIndex = (focusedIndex + 1) % PROVIDERS.length;
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      nextIndex = (focusedIndex - 1 + PROVIDERS.length) % PROVIDERS.length;
+    } else {
+      return;
+    }
+    setFocusedIndex(nextIndex);
+    providerRefs.current[nextIndex]?.focus();
   };
 
   return (
@@ -148,14 +152,16 @@ export function NewSessionComposer({
               Choose provider, set prompt behavior, and launch.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-subtle bg-secondary text-dim transition-colors hover:border-[var(--color-error)]/50 hover:text-[var(--color-error)]"
-            aria-label="Cancel new session"
-          >
-            <X size={14} />
-          </button>
+          {dismissible && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-subtle bg-secondary text-dim transition-colors hover:border-[var(--color-error)]/50 hover:text-[var(--color-error)]"
+              aria-label="Cancel new session"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
 
         {error && (
@@ -168,15 +174,20 @@ export function NewSessionComposer({
           <p className="mb-3 text-xs font-medium uppercase tracking-[0.14em] text-dim">
             Provider
           </p>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
-            {PROVIDERS.map((option) => {
+          <div className="grid grid-cols-3 gap-2 sm:gap-3" role="radiogroup" aria-label="Provider">
+            {PROVIDERS.map((option, index) => {
               const selected = provider === option.id;
               return (
                 <button
                   key={option.id}
+                  ref={(el) => { providerRefs.current[index] = el; }}
                   type="button"
-                  onClick={() => handleProviderSelect(option.id)}
-                  className={`rounded-xl border p-2.5 text-left transition-all sm:p-3 ${
+                  role="radio"
+                  aria-checked={selected}
+                  tabIndex={focusedIndex === index ? 0 : -1}
+                  onClick={() => { setFocusedIndex(index); handleProviderSelect(option.id); }}
+                  onKeyDown={handleProviderKeyDown}
+                  className={`rounded-xl border p-2.5 text-left transition-all sm:p-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                     selected
                       ? 'border-accent bg-accent/10 shadow-accent'
                       : 'border-subtle bg-secondary hover:border-[var(--color-text-secondary)]/50 hover:bg-tertiary'
@@ -192,9 +203,6 @@ export function NewSessionComposer({
                       </span>
                       <span className="hidden text-xs text-dim sm:block">
                         {option.caption}
-                      </span>
-                      <span className="hidden text-xs text-dim sm:block">
-                        {option.detail}
                       </span>
                     </span>
                   </div>
@@ -242,14 +250,16 @@ export function NewSessionComposer({
         <div className="sticky bottom-0 left-0 right-0 mt-6 -mx-4 border-t border-subtle bg-primary/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] text-center backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:pt-2 sm:pb-6">
           <p className="mx-auto max-w-2xl text-xs text-dim">{description}</p>
           <div className="mt-4 flex items-center justify-center gap-3">
-            <button
-              type="button"
-              onClick={onCancel}
-              disabled={isPending}
-              className="rounded-md border border-subtle bg-secondary px-5 py-2 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-tertiary disabled:opacity-50"
-            >
-              Cancel
-            </button>
+            {dismissible && (
+              <button
+                type="button"
+                onClick={onCancel}
+                disabled={isPending}
+                className="rounded-md border border-subtle bg-secondary px-5 py-2 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-tertiary disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            )}
             <button
               type="submit"
               disabled={isPending}
@@ -259,7 +269,7 @@ export function NewSessionComposer({
               {isPending ? 'Starting...' : 'Start Session'}
               <span className="inline-flex items-center gap-1 rounded border border-white/20 bg-white/10 px-1.5 py-0.5 text-[10px]">
                 <CornerDownLeft size={10} />
-                Enter
+                ⇧⏎
               </span>
             </button>
           </div>

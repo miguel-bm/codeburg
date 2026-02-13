@@ -1,13 +1,13 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { ChevronDown, ChevronUp, X, Settings, PanelLeftClose, PanelLeftOpen, FolderOpen } from 'lucide-react';
+import { ChevronDown, ChevronUp, X, Settings, PanelLeftClose, PanelLeftOpen, FolderOpen, BookPlus } from 'lucide-react';
 import { TASK_STATUS } from '../../api';
 import type { SidebarData } from '../../api';
 import { useSidebarData } from '../../hooks/useSidebarData';
 import { useKeyboardNav } from '../../hooks/useKeyboardNav';
 import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 import { useSidebarFocusStore } from '../../stores/sidebarFocus';
-import { useSidebarStore, selectIsExpanded } from '../../stores/sidebar';
+import { useSidebarStore } from '../../stores/sidebar';
 import { CreateProjectModal } from '../common/CreateProjectModal';
 import { CodeburgIcon, CodeburgWordmark } from '../ui/CodeburgIcon';
 import { getDesktopTitleBarInsetTop, isDesktopShell } from '../../platform/runtimeConfig';
@@ -25,7 +25,7 @@ interface SidebarProps {
   collapsed?: boolean;
 }
 
-function countWaiting(data: SidebarData | undefined): number {
+export function countWaiting(data: SidebarData | undefined): number {
   if (!data?.projects) return 0;
   let n = 0;
   for (const p of data.projects) {
@@ -48,7 +48,6 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   const [showCreateProject, setShowCreateProject] = useState(false);
   const { navigateToPanel, closePanel } = usePanelNavigation();
 
-  const isExpanded = useSidebarStore(selectIsExpanded);
   const toggleExpanded = useSidebarStore((s) => s.toggleExpanded);
 
   const activeProjectId = searchParams.get('project') || undefined;
@@ -166,8 +165,12 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
     onClose?.();
   };
 
-  const handleProjectFilterClick = (projectId: string) => {
-    navigate(`/?project=${projectId}`);
+  const handleProjectFilterClick = (projectId: string, isFiltered: boolean) => {
+    if (isFiltered) {
+      navigate('/');
+    } else {
+      navigate(`/?project=${projectId}`);
+    }
     onClose?.();
   };
 
@@ -250,21 +253,28 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
           )}
         </div>
 
-        {/* Footer: expand + settings */}
-        <div className="p-2 flex flex-col items-center gap-1">
+        {/* Footer: new project, settings, expand */}
+        <div className="px-1.5 pb-2 flex flex-col items-center gap-1">
           <button
-            onClick={toggleExpanded}
-            className="p-1.5 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
-            title={isExpanded ? 'collapse sidebar' : 'expand sidebar'}
+            onClick={() => setShowCreateProject(true)}
+            className="p-1 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
+            title="New project"
           >
-            {isExpanded ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
+            <BookPlus size={18} />
           </button>
           <button
             onClick={handleSettingsClick}
-            className={`p-1.5 hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors ${location.pathname === '/settings' ? 'text-accent' : 'text-dim'}`}
-            title="settings"
+            className={`p-1 hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors ${location.pathname === '/settings' ? 'text-accent' : 'text-dim'}`}
+            title="Settings"
           >
-            <Settings size={14} />
+            <Settings size={18} />
+          </button>
+          <button
+            onClick={toggleExpanded}
+            className="p-1 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
+            title="Expand sidebar"
+          >
+            <PanelLeftOpen size={18} />
           </button>
         </div>
 
@@ -361,40 +371,44 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
                 />
               );
             })}
-            {hiddenProjects.length > 0 && (
-              <HiddenProjectsSection
-                projects={hiddenProjects}
-                expanded={showHidden}
-                onToggle={() => setShowHidden((v) => !v)}
-                onProjectClick={handleProjectClick}
-                activeProjectPageId={activeProjectPageId}
-              />
-            )}
           </>
         )}
       </div>
+
+      {/* Hidden projects — sticky above footer, expands upward */}
+      {hiddenProjects.length > 0 && (
+        <HiddenProjectsSection
+          projects={hiddenProjects}
+          expanded={showHidden}
+          onToggle={() => setShowHidden((v) => !v)}
+          onProjectClick={handleProjectClick}
+          activeProjectPageId={activeProjectPageId}
+        />
+      )}
 
       {/* Footer */}
       <div className="p-3 flex gap-2">
         <button
           onClick={() => setShowCreateProject(true)}
-          className="flex-1 px-3 py-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
+          className="flex-1 px-3 py-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors flex items-center justify-center gap-1.5"
+          title="New project"
         >
-          + Project
-        </button>
-        <button
-          onClick={toggleExpanded}
-          className="px-2 py-2 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
-          title={isExpanded ? 'collapse sidebar' : 'expand sidebar'}
-        >
-          {isExpanded ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
+          <BookPlus size={14} />
+          Project
         </button>
         <button
           onClick={handleSettingsClick}
           className={`px-2 py-2 hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors ${location.pathname === '/settings' ? 'text-accent' : 'text-dim'}`}
-          title="settings"
+          title="Settings"
         >
           <Settings size={16} />
+        </button>
+        <button
+          onClick={toggleExpanded}
+          className="px-2 py-2 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
+          title="Collapse sidebar"
+        >
+          <PanelLeftClose size={14} />
         </button>
       </div>
 

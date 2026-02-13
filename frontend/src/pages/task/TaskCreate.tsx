@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { useSetHeader } from '../../components/layout/Header';
+import { Breadcrumb } from '../../components/ui/Breadcrumb';
 import { tasksApi, sessionsApi, invalidateTaskQueries, projectsApi, labelsApi } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { Label } from '../../api/types';
@@ -123,9 +124,7 @@ export function TaskCreate() {
     ? taskType
     : (autoDetectedTaskType ?? taskType);
 
-  const effectiveProvider: WizardProvider = isInProgressCreate
-    ? (provider === 'none' ? 'claude' : provider)
-    : 'none';
+  const effectiveProvider: WizardProvider = isInProgressCreate ? provider : 'none';
 
   const autoBranch = useMemo(
     () => (title.trim() ? buildBranchName(title) : ''),
@@ -151,11 +150,6 @@ export function TaskCreate() {
     const validIds = new Set(projectLabels.map((label) => label.id));
     return pendingLabels.filter((label) => validIds.has(label.id));
   }, [pendingLabels, projectLabels]);
-
-  const sessionPromptPreview = useMemo(
-    () => buildSessionPrompt(title, description),
-    [title, description],
-  );
 
   const createLabelMutation = useMutation({
     mutationFn: (name: string) => labelsApi.create(projectId, { name, color: pickLabelColor(name) }),
@@ -243,19 +237,10 @@ export function TaskCreate() {
 
   useSetHeader(
     <div className="flex items-center justify-between gap-4 w-full">
-      <div className="flex items-center gap-3 min-w-0">
-        <button
-          onClick={handleClose}
-          className="text-dim hover:text-[var(--color-text-primary)] transition-colors min-w-0 truncate text-sm"
-          title={selectedProject?.name || 'back'}
-        >
-          {selectedProject?.name || 'back'}
-        </button>
-        <span className="text-dim shrink-0">/</span>
-        <h1 className="text-sm font-medium text-dim shrink-0">
-          {isInProgressCreate ? 'New in-progress task' : 'New task'}
-        </h1>
-      </div>
+      <Breadcrumb items={[
+        ...(selectedProject ? [{ label: selectedProject.name, href: `/projects/${selectedProject.id}` }] : []),
+        { label: isInProgressCreate ? 'New in-progress task' : 'New task' },
+      ]} />
       <div className="flex items-center gap-2 shrink-0">
         <Button
           variant="primary"
@@ -439,31 +424,16 @@ export function TaskCreate() {
                 </div>
               </div>
 
-              {showPromptToggle && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-3">
+              <div className="h-6 flex items-center">
+                {showPromptToggle && (
+                  <div className="flex items-center justify-between gap-3 w-full">
                     <span className="text-xs text-dim">
                       Use title + description as initial prompt
                     </span>
                     <Toggle checked={includePrompt} onChange={setIncludePrompt} />
                   </div>
-                  {includePrompt ? (
-                    <div className="border border-subtle bg-primary rounded-lg px-3 py-2 text-xs text-dim whitespace-pre-wrap">
-                      {sessionPromptPreview || 'Prompt will be generated from title and description.'}
-                    </div>
-                  ) : (
-                    <div className="border border-subtle bg-primary rounded-lg px-3 py-2 text-xs text-dim">
-                      Session will start interactively with no prompt.
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {effectiveProvider === 'terminal' && (
-                <div className="border border-subtle bg-primary rounded-lg px-3 py-2 text-xs text-dim">
-                  Terminal sessions ignore prompts and start in interactive shell mode.
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
 

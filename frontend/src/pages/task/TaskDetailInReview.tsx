@@ -39,6 +39,7 @@ export function TaskDetailInReview({
   const [warning, setWarning] = useState<string | null>(null);
   const [sessionPanelOpen, setSessionPanelOpen] = useState(false);
   const showComposer = showStartComposer || sessions.length === 0;
+  const composerDismissible = showStartComposer;
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Draggable split between diff (top) and session panel (bottom)
@@ -200,6 +201,7 @@ export function TaskDetailInReview({
                 }}
                 showNewSessionTab={showComposer}
                 onCancelNewSession={showStartComposer ? onHideStartComposer : undefined}
+                showNewButton={!showComposer || sessions.length > 0}
               />
               <div className="flex-1 overflow-hidden">
                 {showComposer ? (
@@ -210,6 +212,7 @@ export function TaskDetailInReview({
                     onCancel={onHideStartComposer}
                     isPending={startSessionPending}
                     error={startSessionError}
+                    dismissible={composerDismissible}
                   />
                 ) : activeSession ? (
                   <SessionView session={activeSession} />
@@ -301,6 +304,7 @@ export function TaskDetailInReview({
                 onNewSession={onShowStartComposer}
                 showNewSessionTab={showComposer}
                 onCancelNewSession={showStartComposer ? onHideStartComposer : undefined}
+                showNewButton={!showComposer || sessions.length > 0}
               />
               <div className="flex-1 overflow-hidden">
                 {showComposer ? (
@@ -311,6 +315,7 @@ export function TaskDetailInReview({
                     onCancel={onHideStartComposer}
                     isPending={startSessionPending}
                     error={startSessionError}
+                    dismissible={composerDismissible}
                   />
                 ) : activeSession ? (
                   <SessionView session={activeSession} />

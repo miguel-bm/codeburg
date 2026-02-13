@@ -15,7 +15,7 @@ interface SidebarProjectNodeProps {
   isActive: boolean;
   isFiltered: boolean;
   onProjectClick: (id: string) => void;
-  onProjectFilterClick: (id: string) => void;
+  onProjectFilterClick: (id: string, isFiltered: boolean) => void;
   onClose?: () => void;
   collapseSignal: number;
   forceCollapsed: boolean;
@@ -80,7 +80,7 @@ export function SidebarProjectNode({ project, isActive, isFiltered, onProjectCli
       <div
         data-sidebar-project={project.id}
         onClick={() => onProjectClick(project.id)}
-        className={`flex items-center gap-2 px-3 py-2 mx-1 text-sm cursor-pointer hover:bg-tertiary rounded-md transition-colors group ${isActive ? 'bg-tertiary' : ''} ${keyboardFocused ? 'bg-accent/10' : ''}`}
+        className={`flex items-center gap-2 px-2 py-1 mx-2 my-0.5 text-sm cursor-pointer hover:bg-tertiary rounded-md transition-colors group ${isActive ? 'bg-tertiary' : ''} ${keyboardFocused ? 'bg-accent/10' : ''}`}
       >
         {hasTasks ? (
           <button
@@ -96,38 +96,37 @@ export function SidebarProjectNode({ project, isActive, isFiltered, onProjectCli
         <span className={`truncate ${isActive ? 'text-accent' : 'text-[var(--color-text-primary)]'}`}>
           {project.name}
         </span>
-        <button
-          onClick={(e) => { e.stopPropagation(); pinMutation.mutate(); }}
-          className={`flex-shrink-0 transition-colors ${
-            project.pinned
-              ? 'text-accent hover:text-[var(--color-text-primary)]'
-              : 'text-transparent group-hover:text-dim hover:!text-accent'
-          }`}
-          title={project.pinned ? 'unpin project' : 'pin project'}
-        >
-          <Pin size={12} />
-        </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); onProjectFilterClick(project.id); }}
-          className={`flex-shrink-0 transition-colors ${
-            isFiltered
-              ? 'text-accent hover:text-[var(--color-text-primary)]'
-              : 'text-transparent group-hover:text-dim hover:!text-accent'
-          }`}
-          title={isFiltered ? 'project filter active' : 'filter dashboard by project'}
-        >
-          <Funnel size={12} />
-        </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); navigateToPanel(`/projects/${project.id}/settings`); onClose?.(); }}
-          className="flex-shrink-0 text-transparent group-hover:text-dim hover:!text-accent transition-colors"
-          title="project settings"
-        >
-          <Settings size={12} />
-        </button>
-        {hasTasks && (
-          <span className="text-xs text-dim ml-auto flex-shrink-0">{sortedTasks.length}</span>
-        )}
+        <div className="flex items-center gap-1.5 ml-auto flex-shrink-0">
+          <button
+            onClick={(e) => { e.stopPropagation(); pinMutation.mutate(); }}
+            className={`transition-colors ${
+              project.pinned
+                ? 'text-accent hover:text-[var(--color-text-primary)]'
+                : 'text-transparent group-hover:text-dim hover:!text-accent'
+            }`}
+            title={project.pinned ? 'unpin project' : 'pin project'}
+          >
+            <Pin size={12} />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onProjectFilterClick(project.id, isFiltered); }}
+            className={`transition-colors ${
+              isFiltered
+                ? 'text-accent hover:text-[var(--color-text-primary)]'
+                : 'text-transparent group-hover:text-dim hover:!text-accent'
+            }`}
+            title={isFiltered ? 'clear project filter' : 'filter dashboard by project'}
+          >
+            <Funnel size={12} />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); navigateToPanel(`/projects/${project.id}/settings`); onClose?.(); }}
+            className="text-transparent group-hover:text-dim hover:!text-accent transition-colors"
+            title="project settings"
+          >
+            <Settings size={12} />
+          </button>
+        </div>
       </div>
 
       {/* Tasks (when expanded) */}
@@ -185,15 +184,11 @@ export function HiddenProjectsSection({ projects, expanded, onToggle, onProjectC
   });
 
   return (
-    <div className="mt-1 border-t border-subtle">
-      <button
-        onClick={onToggle}
-        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-dim hover:text-[var(--color-text-secondary)] transition-colors"
-      >
-        <EyeOff size={12} />
-        <span>Hidden ({projects.length})</span>
-        <ChevronRight size={10} className={`ml-auto transition-transform ${expanded ? 'rotate-90' : ''}`} />
-      </button>
+    <div>
+      {/* Narrow divider */}
+      <div className="mx-5 border-t border-subtle" />
+
+      {/* Expanded list — above toggle so it grows upward */}
       <AnimatePresence initial={false}>
         {expanded && (
           <motion.div
@@ -228,6 +223,16 @@ export function HiddenProjectsSection({ projects, expanded, onToggle, onProjectC
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Toggle button — always at bottom */}
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-dim hover:text-[var(--color-text-secondary)] transition-colors"
+      >
+        <EyeOff size={12} />
+        <span>Hidden ({projects.length})</span>
+        <ChevronRight size={10} className={`ml-auto transition-transform ${expanded ? '-rotate-90' : 'rotate-90'}`} />
+      </button>
     </div>
   );
 }
@@ -245,7 +250,7 @@ function AddTaskButton({ projectId, onOpenWizard, keyboardFocused }: AddTaskButt
     <div
       data-sidebar-add-task={`add-${projectId}`}
       onClick={onOpenWizard}
-      className={`flex items-center gap-1.5 px-6 py-1 mx-1 text-xs cursor-pointer hover:bg-tertiary rounded-md transition-colors ${keyboardFocused ? 'bg-accent/10' : ''}`}
+      className={`flex items-center gap-1.5 px-6 py-1 mx-2 text-xs cursor-pointer hover:bg-tertiary rounded-md transition-colors ${keyboardFocused ? 'bg-accent/10' : ''}`}
     >
       <Plus size={12} className="flex-shrink-0 text-dim" />
       <span className="text-dim hover:text-accent transition-colors">New task</span>
@@ -308,7 +313,7 @@ function SidebarTaskNode({ task, onClose, keyboardFocused }: SidebarTaskNodeProp
         data-sidebar-task={task.id}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        className={`flex items-center gap-1.5 px-6 py-1 mx-1 text-xs cursor-pointer hover:bg-tertiary rounded-md transition-colors group ${keyboardFocused ? 'bg-accent/10' : ''}`}
+        className={`flex items-center gap-1.5 px-6 py-1 mx-2 text-xs cursor-pointer hover:bg-tertiary rounded-md transition-colors group ${keyboardFocused ? 'bg-accent/10' : ''}`}
       >
         <TaskStatusIcon status={task.status} />
         <span className="truncate flex-1 text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-primary)]">
@@ -474,7 +479,7 @@ function SidebarSessionNode({ session, taskId, projectId, onClose }: SidebarSess
   return (
     <div
       onClick={handleClick}
-      className="flex items-center gap-2 pl-11 pr-3 py-1 text-[11px] cursor-pointer hover:bg-tertiary transition-colors"
+      className="flex items-center gap-2 pl-11 pr-3 py-1 mx-2 text-[11px] cursor-pointer hover:bg-tertiary rounded-md transition-colors"
     >
       <StatusDot status={session.status} />
       <span className="text-dim">

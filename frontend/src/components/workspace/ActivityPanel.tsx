@@ -57,7 +57,7 @@ interface ActivityPanelContentProps {
 /** Panel content (file explorer, search, git, tools) — only rendered when a panel is active */
 export function ActivityPanelContent({ panel, style }: ActivityPanelContentProps) {
   return (
-    <div className="flex flex-col py-3 h-full min-h-0" style={style}>
+    <div className="flex flex-col pb-3 h-full min-h-0" style={style}>
       <div className="flex flex-col flex-1 min-h-0 overflow-hidden bg-card rounded-xl border border-[var(--color-card-border)] shadow-[var(--shadow-card)]">
         <div className="flex-1 overflow-hidden">
           {panel === 'files' && <FileExplorer />}

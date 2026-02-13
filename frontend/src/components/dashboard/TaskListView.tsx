@@ -252,7 +252,7 @@ export function TaskListView({
   }
 
   return (
-    <div className="px-3 py-3 h-full overflow-y-auto">
+    <div className="pr-3 pb-3 h-full overflow-y-auto">
       <Card padding="none" className="h-full min-h-0 flex flex-col">
         {tasks.length === 0 ? (
           <div className="flex-1 flex items-center justify-center text-sm text-dim">
@@ -261,8 +261,7 @@ export function TaskListView({
         ) : (
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
             {COLUMNS.map((col) => {
-              const sectionTasks = grouped.get(col.id);
-              if (!sectionTasks || sectionTasks.length === 0) return null;
+              const sectionTasks = grouped.get(col.id) ?? [];
 
               const StatusIcon = COLUMN_ICONS[col.id];
               const isCollapsed = collapsedSections.has(col.id);
@@ -293,9 +292,6 @@ export function TaskListView({
                       </Button>
                     )}
                   </div>
-
-                  {/* Separator */}
-                  <div className="border-b border-subtle/30 mx-2" />
 
                   {/* Task rows */}
                   <AnimatePresence initial={false}>

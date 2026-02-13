@@ -142,7 +142,7 @@ export function DashboardBoardContent({
   }
 
   return (
-    <div ref={kanbanScrollRef} className="px-3 py-3 h-full overflow-x-auto">
+    <div ref={kanbanScrollRef} className="pr-3 pb-3 h-full overflow-x-auto">
       <div className="flex gap-2 h-full min-w-[1200px]">
         {COLUMNS.map((column, colIdx) => {
           const colTasks = getTasksByStatus(column.id);

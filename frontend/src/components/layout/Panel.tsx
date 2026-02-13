@@ -103,7 +103,7 @@ export function Panel({ children }: PanelProps) {
           animate={{ x: 0 }}
           exit={{ x: '100%' }}
           transition={{ duration: 0.2, ease }}
-          className="fixed inset-0 z-10 bg-secondary flex flex-col"
+          className="fixed inset-x-0 top-0 bottom-12 z-10 bg-secondary flex flex-col pb-[env(safe-area-inset-bottom)]"
         >
           <Header />
           <div className="flex-1 overflow-hidden flex flex-col">

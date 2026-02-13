@@ -19,6 +19,24 @@ function TabContent() {
   const activeTab = tabs[activeTabIndex];
 
   if (!activeTab) {
+    if (sessions.length === 0) {
+      const title = task?.title ?? scope.project.name;
+      const description = task?.description;
+      return (
+        <NewSessionComposer
+          taskTitle={title}
+          taskDescription={description}
+          onStart={async (provider, prompt) => {
+            const session = await startSession({ provider, prompt: prompt || undefined });
+            openSession(session.id);
+          }}
+          onCancel={() => {}}
+          isPending={isStarting}
+          error={startError}
+          dismissible={false}
+        />
+      );
+    }
     return (
       <div className="flex-1 flex items-center justify-center text-xs text-dim">
         Open a file or start a session

@@ -12,6 +12,7 @@ interface Props {
   onNewSession: () => void;
   showNewSessionTab?: boolean;
   onCancelNewSession?: () => void;
+  showNewButton?: boolean;
 }
 
 function getStatusDotClass(status: SessionStatus): string {
@@ -27,6 +28,7 @@ export function SessionTabs({
   onNewSession,
   showNewSessionTab = false,
   onCancelNewSession,
+  showNewButton = true,
 }: Props) {
   // Sort by createdAt to get stable 1-indexed numbers
   const sorted = [...sessions].sort(
@@ -95,14 +97,16 @@ export function SessionTabs({
           )}
         </div>
       )}
-      <button
-        onClick={onNewSession}
-        className="inline-flex items-center justify-center h-8 w-8 mx-1 shrink-0 rounded-md transition-colors border-b-2 border-transparent text-dim hover:text-accent hover:bg-[var(--color-accent-glow)]"
-        title="New session"
-        aria-label="New session"
-      >
-        <Plus size={16} />
-      </button>
+      {showNewButton && (
+        <button
+          onClick={onNewSession}
+          className="inline-flex items-center justify-center h-8 w-8 mx-1 shrink-0 rounded-md transition-colors border-b-2 border-transparent text-dim hover:text-accent hover:bg-[var(--color-accent-glow)]"
+          title="New session"
+          aria-label="New session"
+        >
+          <Plus size={16} />
+        </button>
+      )}
     </div>
   );
 }
