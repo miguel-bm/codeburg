@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { FileText, Plus, X, XCircle, ArrowRightToLine } from 'lucide-react';
+import { FileText, Plus, RotateCcw, X, XCircle, ArrowRightToLine } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspace';
 import type { WorkspaceTab } from '../../stores/workspace';
 import { useWorkspaceSessions } from '../../hooks/useWorkspaceSessions';
@@ -10,6 +10,7 @@ import { ProviderIcon } from '../session/ProviderIcon';
 import { useLongPress } from '../../hooks/useLongPress';
 import { ContextMenu } from '../ui/ContextMenu';
 import type { ContextMenuItem } from '../ui/ContextMenu';
+import type { AgentSession } from '../../api/sessions';
 
 function SessionTabLabel({ tab }: { tab: Extract<WorkspaceTab, { type: 'session' }> }) {
   const { sessions } = useWorkspaceSessions();
@@ -63,10 +64,12 @@ function TabLabel({ tab }: { tab: WorkspaceTab }) {
 }
 
 export function TabBar() {
-  const { tabs, activeTabIndex, setActiveTab, openNewSession, moveTab } = useWorkspaceStore();
+  const { tabs, activeTabIndex, setActiveTab, openNewSession, openSession, replaceSessionTab, moveTab } = useWorkspaceStore();
+  const { sessions, startSession, isStarting } = useWorkspaceSessions();
   const { closeTab, closeOtherTabs, closeTabsToRight } = useTabActions();
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
+  const [resumingSessionId, setResumingSessionId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ index: number; position: { x: number; y: number } } | null>(null);
 
   const handleDrop = useCallback((targetIndex: number) => {
@@ -81,6 +84,22 @@ export function TabBar() {
     setDragFrom(null);
     setDragOver(null);
   }, []);
+
+  const handleResumeSession = useCallback(async (session: AgentSession) => {
+    if (session.sessionType !== 'chat') return;
+    setResumingSessionId(session.id);
+    try {
+      const resumed = await startSession({
+        provider: session.provider,
+        sessionType: session.sessionType,
+        resumeSessionId: session.id,
+      });
+      replaceSessionTab(session.id, resumed.id);
+      openSession(resumed.id);
+    } finally {
+      setResumingSessionId(null);
+    }
+  }, [openSession, replaceSessionTab, startSession]);
 
   if (tabs.length === 0) {
     return (
@@ -111,23 +130,33 @@ export function TabBar() {
   return (
     <div className="flex items-center h-9 bg-canvas border-b border-subtle overflow-x-scroll scrollbar-none py-1 gap-0.5 px-1">
       {/* Session tabs */}
-      {sessionTabs.map(({ tab, index }) => (
-        <Tab
-          key={tab.type === 'session' ? tab.sessionId : 'new_session'}
-          tab={tab}
-          storeIndex={index}
-          isActive={activeTabIndex === index}
-          isDragging={dragFrom === index}
-          isDragOver={dragOver === index && dragFrom !== null && dragFrom !== index}
-          onClick={() => setActiveTab(index)}
-          onClose={() => closeTab(index)}
-          onContextMenu={(pos) => setContextMenu({ index, position: pos })}
-          onDragStart={() => setDragFrom(index)}
-          onDragOver={() => setDragOver(index)}
-          onDrop={() => handleDrop(index)}
-          onDragEnd={handleDragEnd}
-        />
-      ))}
+      {sessionTabs.map(({ tab, index }) => {
+        const session = tab.type === 'session'
+          ? sessions.find((s) => s.id === tab.sessionId)
+          : undefined;
+        const canResume = !!session && session.sessionType === 'chat' && session.status === 'completed';
+        const resumePending = !!session && isStarting && resumingSessionId === session.id;
+        return (
+          <Tab
+            key={tab.type === 'session' ? tab.sessionId : 'new_session'}
+            tab={tab}
+            storeIndex={index}
+            isActive={activeTabIndex === index}
+            isDragging={dragFrom === index}
+            isDragOver={dragOver === index && dragFrom !== null && dragFrom !== index}
+            onClick={() => setActiveTab(index)}
+            onClose={() => closeTab(index)}
+            onContextMenu={(pos) => setContextMenu({ index, position: pos })}
+            onDragStart={() => setDragFrom(index)}
+            onDragOver={() => setDragOver(index)}
+            onDrop={() => handleDrop(index)}
+            onDragEnd={handleDragEnd}
+            canResume={canResume}
+            resumePending={resumePending}
+            onResume={session ? () => { void handleResumeSession(session); } : undefined}
+          />
+        );
+      })}
 
       {/* Separator between groups */}
       {sessionTabs.length > 0 && otherTabs.length > 0 && (
@@ -187,6 +216,9 @@ function Tab({
   onDragOver,
   onDrop,
   onDragEnd,
+  canResume,
+  onResume,
+  resumePending,
 }: {
   tab: WorkspaceTab;
   storeIndex: number;
@@ -200,6 +232,9 @@ function Tab({
   onDragOver: () => void;
   onDrop: () => void;
   onDragEnd: () => void;
+  canResume?: boolean;
+  onResume?: () => void;
+  resumePending?: boolean;
 }) {
   const longPress = useLongPress({
     onLongPress: () => {
@@ -252,6 +287,16 @@ function Tab({
       <div className="min-w-0 overflow-hidden">
         <TabLabel tab={tab} />
       </div>
+      {canResume && onResume && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onResume(); }}
+          className="p-0.5 text-dim hover:text-accent opacity-0 group-hover:opacity-100 shrink-0"
+          title={resumePending ? 'Resuming...' : 'Resume from this session'}
+          disabled={resumePending}
+        >
+          <RotateCcw size={11} className={resumePending ? 'animate-spin' : undefined} />
+        </button>
+      )}
       <button
         onClick={(e) => { e.stopPropagation(); onClose(); }}
         className="p-0.5 text-dim hover:text-[var(--color-error)] opacity-0 group-hover:opacity-100 shrink-0"

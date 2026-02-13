@@ -22,6 +22,7 @@ interface WorkspaceState {
   openDiff: (file?: string, staged?: boolean, base?: boolean, commit?: string) => void;
   openNewSession: () => void;
   openSession: (sessionId: string) => void;
+  replaceSessionTab: (oldSessionId: string, newSessionId: string) => void;
   closeTab: (index: number) => void;
   closeOtherTabs: (index: number) => void;
   closeTabsToRight: (index: number) => void;
@@ -114,6 +115,44 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         }
         const newTabs = [...tabs, { type: 'session' as const, sessionId }];
         set({ tabs: newTabs, activeTabIndex: newTabs.length - 1 });
+      },
+
+      replaceSessionTab: (oldSessionId, newSessionId) => {
+        if (!oldSessionId || !newSessionId || oldSessionId === newSessionId) {
+          if (newSessionId) get().openSession(newSessionId);
+          return;
+        }
+
+        const { tabs, activeTabIndex } = get();
+        const oldIdx = tabs.findIndex(
+          (t) => t.type === 'session' && t.sessionId === oldSessionId,
+        );
+        if (oldIdx < 0) {
+          get().openSession(newSessionId);
+          return;
+        }
+
+        const existingNewIdx = tabs.findIndex(
+          (t) => t.type === 'session' && t.sessionId === newSessionId,
+        );
+
+        if (existingNewIdx >= 0) {
+          const filtered = tabs.filter((_t, idx) => idx !== oldIdx);
+          const existingAfterRemoval = existingNewIdx - (oldIdx < existingNewIdx ? 1 : 0);
+
+          let nextActive = activeTabIndex;
+          if (activeTabIndex === oldIdx) {
+            nextActive = existingAfterRemoval;
+          } else if (activeTabIndex > oldIdx) {
+            nextActive = activeTabIndex - 1;
+          }
+          set({ tabs: filtered, activeTabIndex: Math.max(0, nextActive) });
+          return;
+        }
+
+        const nextTabs = [...tabs];
+        nextTabs[oldIdx] = { type: 'session', sessionId: newSessionId };
+        set({ tabs: nextTabs, activeTabIndex: oldIdx });
       },
 
       closeTab: (index) => {

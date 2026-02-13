@@ -66,6 +66,7 @@ type Server struct {
 	worktree          *worktree.Manager
 	wsHub             *WSHub
 	sessions          *SessionManager
+	chat              *ChatManager
 	tunnels           *tunnel.Manager
 	portSuggest       *portsuggest.Manager
 	gitclone          gitclone.Config
@@ -94,6 +95,7 @@ func NewServer(database *db.DB) *Server {
 		worktree:       worktree.NewManager(worktree.DefaultConfig()),
 		wsHub:          wsHub,
 		sessions:       NewSessionManager(),
+		chat:           NewChatManager(database),
 		tunnels:        tunnel.NewManager(),
 		portSuggest:    portsuggest.NewManager(nil),
 		gitclone:       gitclone.DefaultConfig(),
@@ -182,6 +184,7 @@ func (s *Server) setupRoutes() {
 	// WebSocket (public route; JWT required via query/header token or auth message)
 	r.Get("/ws", s.handleWebSocket)
 	r.Get("/ws/terminal", s.handleTerminalWS)
+	r.Get("/ws/chat", s.handleChatWS)
 
 	// Hook endpoint (auth handled inline — accepts scoped hook tokens or full JWTs)
 	r.Post("/api/sessions/{id}/hook", s.handleSessionHook)

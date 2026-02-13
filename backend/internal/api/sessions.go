@@ -102,9 +102,10 @@ func (sm *SessionManager) Reconcile(server *Server) {
 // StartSessionRequest contains the request body for starting a session
 type StartSessionRequest struct {
 	Provider        string `json:"provider"`        // "claude", "codex", "terminal" (default: "claude")
+	SessionType     string `json:"sessionType"`     // "chat" or "terminal" (default: chat for claude/codex, terminal for terminal provider)
 	Prompt          string `json:"prompt"`          // Initial prompt (claude/codex sessions)
 	Model           string `json:"model"`           // Optional model override
-	ResumeSessionID string `json:"resumeSessionId"` // Codeburg session ID to resume (claude only)
+	ResumeSessionID string `json:"resumeSessionId"` // Codeburg session ID to resume
 }
 
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
@@ -235,7 +236,23 @@ func validateSessionRequest(req *StartSessionRequest) error {
 	if req.Model != "" && !isValidModelName(req.Model) {
 		return fmt.Errorf("invalid model name: must start with a letter and contain only letters, digits, hyphens, dots, and colons")
 	}
+	if req.SessionType != "" && req.SessionType != "terminal" && req.SessionType != "chat" {
+		return fmt.Errorf("invalid session type: %s", req.SessionType)
+	}
+	if req.Provider == "terminal" && req.SessionType == "chat" {
+		return fmt.Errorf("terminal provider only supports terminal session type")
+	}
 	return nil
+}
+
+func resolveSessionType(req StartSessionRequest) string {
+	if req.SessionType != "" {
+		return req.SessionType
+	}
+	if req.Provider == "terminal" {
+		return "terminal"
+	}
+	return "chat"
 }
 
 // startSessionParams encapsulates the resolved parameters for starting a session.
@@ -249,16 +266,102 @@ type startSessionParams struct {
 // It handles hook setup and process launch in the PTY runtime.
 func (s *Server) startSessionInternal(params startSessionParams, req StartSessionRequest) (*db.AgentSession, error) {
 	provider := req.Provider
+	sessionType := resolveSessionType(req)
+	workDir := params.WorkDir
+	taskID := params.TaskID
 
-	// Create database session (terminal transport)
+	// Create database session.
 	dbSession, err := s.db.CreateSession(db.CreateSessionInput{
 		TaskID:      params.TaskID,
 		ProjectID:   params.ProjectID,
 		Provider:    provider,
-		SessionType: "terminal",
+		SessionType: sessionType,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create session record")
+		return nil, fmt.Errorf("failed to create session record: %w", err)
+	}
+
+	var resumeSource *db.AgentSession
+	if req.ResumeSessionID != "" {
+		oldSession, resumeErr := s.db.GetSession(req.ResumeSessionID)
+		if resumeErr == nil {
+			resumeSource = oldSession
+		}
+		if resumeSource != nil &&
+			resumeSource.Provider == provider &&
+			resumeSource.ProviderSessionID != nil &&
+			*resumeSource.ProviderSessionID != "" {
+			if _, updateErr := s.db.UpdateSession(dbSession.ID, db.UpdateSessionInput{
+				ProviderSessionID: resumeSource.ProviderSessionID,
+			}); updateErr != nil {
+				slog.Warn("failed to copy provider session id for resume", "session_id", dbSession.ID, "error", updateErr)
+			} else {
+				dbSession.ProviderSessionID = resumeSource.ProviderSessionID
+			}
+		}
+	}
+
+	if sessionType == "chat" && resumeSource != nil {
+		if resumeSource.Provider != provider {
+			slog.Warn("resume source provider mismatch; skipping chat history copy",
+				"session_id", dbSession.ID,
+				"resume_session_id", resumeSource.ID,
+				"resume_provider", resumeSource.Provider,
+				"provider", provider,
+			)
+		} else if copied, copyErr := s.db.CopyAgentMessages(resumeSource.ID, dbSession.ID); copyErr != nil {
+			slog.Warn("failed to copy chat history for resume",
+				"session_id", dbSession.ID,
+				"resume_session_id", resumeSource.ID,
+				"error", copyErr,
+			)
+		} else {
+			slog.Info("copied chat history for resume",
+				"session_id", dbSession.ID,
+				"resume_session_id", resumeSource.ID,
+				"message_count", copied,
+			)
+		}
+	}
+
+	if sessionType == "chat" {
+		if err := s.chat.RegisterSession(dbSession.ID, provider, req.Model); err != nil {
+			_ = s.db.DeleteSession(dbSession.ID)
+			return nil, fmt.Errorf("failed to initialize chat session: %w", err)
+		}
+
+		runningStatus, changed, err := s.applySessionTransition(dbSession.ID, dbSession.Status, sessionlifecycle.EventSessionStarted, taskID, "session_start")
+		if err != nil {
+			s.chat.RemoveSession(dbSession.ID)
+			_ = s.db.DeleteSession(dbSession.ID)
+			return nil, fmt.Errorf("failed to update chat session status: %w", err)
+		}
+		if changed {
+			s.broadcastSessionStatus(taskID, dbSession.ID, runningStatus)
+		}
+
+		initialPrompt := strings.TrimSpace(req.Prompt)
+		if initialPrompt != "" {
+			if err := s.startChatTurn(dbSession.ID, initialPrompt, "session_start"); err != nil {
+				s.chat.RemoveSession(dbSession.ID)
+				_ = s.db.DeleteSession(dbSession.ID)
+				return nil, err
+			}
+		} else {
+			waitingStatus, waitingChanged, waitErr := s.applySessionTransition(dbSession.ID, runningStatus, sessionlifecycle.EventNotificationWaiting, taskID, "session_start")
+			if waitErr != nil {
+				slog.Warn("failed to set chat session waiting_input", "session_id", dbSession.ID, "error", waitErr)
+			} else if waitingChanged {
+				s.broadcastSessionStatus(taskID, dbSession.ID, waitingStatus)
+			}
+		}
+
+		updatedSession, err := s.db.GetSession(dbSession.ID)
+		if err != nil {
+			slog.Warn("failed to reload chat session after start", "session_id", dbSession.ID, "error", err)
+			return dbSession, nil
+		}
+		return updatedSession, nil
 	}
 
 	// Generate a scoped JWT token for hook callbacks
@@ -292,10 +395,9 @@ func (s *Server) startSessionInternal(params startSessionParams, req StartSessio
 	}
 
 	var resumeProviderSessionID string
-	if req.Provider == "claude" && req.ResumeSessionID != "" {
-		oldSession, err := s.db.GetSession(req.ResumeSessionID)
-		if err == nil && oldSession.ProviderSessionID != nil && *oldSession.ProviderSessionID != "" {
-			resumeProviderSessionID = *oldSession.ProviderSessionID
+	if req.Provider == "claude" && resumeSource != nil {
+		if resumeSource.ProviderSessionID != nil && *resumeSource.ProviderSessionID != "" {
+			resumeProviderSessionID = *resumeSource.ProviderSessionID
 			slog.Info("resuming claude session", "session_id", dbSession.ID, "provider_session_id", resumeProviderSessionID)
 		} else {
 			slog.Info("resuming claude session with --continue", "session_id", dbSession.ID)
@@ -308,9 +410,6 @@ func (s *Server) startSessionInternal(params startSessionParams, req StartSessio
 	if originalCommand != command {
 		slog.Warn("provider command not found in service PATH, using login-shell fallback", "session_id", dbSession.ID, "provider", req.Provider, "command", originalCommand)
 	}
-
-	workDir := params.WorkDir
-	taskID := params.TaskID
 
 	startRuntime := func() error {
 		return s.sessions.runtime.Start(dbSession.ID, ptyruntime.StartOptions{
@@ -444,6 +543,20 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if session.SessionType == "chat" {
+		if err := s.startChatTurn(session.ID, strings.TrimSpace(req.Content), "send_message"); err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, ErrChatTurnBusy) {
+				status = http.StatusConflict
+			}
+			writeError(w, status, "failed to send message: "+err.Error())
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]string{"status": "sent"})
+		return
+	}
+
 	// Get the running session (with DB fallback)
 	execSession := s.sessions.getOrRestore(id, s.db)
 	if execSession == nil {
@@ -478,6 +591,136 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "sent"})
 }
 
+func (s *Server) resolveSessionWorkDir(session *db.AgentSession) (string, error) {
+	if session.TaskID != "" {
+		task, err := s.db.GetTask(session.TaskID)
+		if err != nil {
+			return "", fmt.Errorf("get task: %w", err)
+		}
+		project, err := s.db.GetProject(task.ProjectID)
+		if err != nil {
+			return "", fmt.Errorf("get project: %w", err)
+		}
+		workDir := project.Path
+		if task.WorktreePath != nil && *task.WorktreePath != "" {
+			workDir = *task.WorktreePath
+		}
+		return workDir, nil
+	}
+
+	project, err := s.db.GetProject(session.ProjectID)
+	if err != nil {
+		return "", fmt.Errorf("get project: %w", err)
+	}
+	return project.Path, nil
+}
+
+func (s *Server) startChatTurn(sessionID, content, source string) error {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return fmt.Errorf("content is required")
+	}
+
+	session, err := s.db.GetSession(sessionID)
+	if err != nil {
+		return err
+	}
+	if session.SessionType != "chat" {
+		return fmt.Errorf("session is not a chat session")
+	}
+
+	workDir, err := s.resolveSessionWorkDir(session)
+	if err != nil {
+		return err
+	}
+
+	runningStatus, changed, err := s.applySessionTransition(sessionID, session.Status, sessionlifecycle.EventUserMessage, session.TaskID, source)
+	if err != nil {
+		if errors.Is(err, sessionlifecycle.ErrInvalidTransition) {
+			logInvalidSessionTransition(sessionID, session.Status, sessionlifecycle.EventUserMessage, source, err)
+		} else {
+			return err
+		}
+	} else if changed {
+		s.broadcastSessionStatus(session.TaskID, sessionID, runningStatus)
+	}
+
+	resultCh, err := s.chat.StartTurn(StartChatTurnInput{
+		SessionID: sessionID,
+		Provider:  session.Provider,
+		WorkDir:   workDir,
+		Prompt:    content,
+		Model:     "",
+	})
+	if err != nil {
+		return err
+	}
+
+	go s.awaitChatTurnResult(sessionID, source, resultCh)
+
+	s.wsHub.BroadcastToSession(sessionID, "message_sent", map[string]string{
+		"content": content,
+	})
+	return nil
+}
+
+func (s *Server) awaitChatTurnResult(sessionID, source string, resultCh <-chan ChatTurnResult) {
+	result, ok := <-resultCh
+	if !ok {
+		return
+	}
+
+	session, err := s.db.GetSession(sessionID)
+	if err != nil {
+		return
+	}
+
+	if result.Interrupted {
+		waitingStatus, changed, waitErr := s.applySessionTransition(sessionID, session.Status, sessionlifecycle.EventNotificationWaiting, session.TaskID, source+"_interrupt")
+		if waitErr != nil {
+			if errors.Is(waitErr, sessionlifecycle.ErrInvalidTransition) {
+				logInvalidSessionTransition(sessionID, session.Status, sessionlifecycle.EventNotificationWaiting, source+"_interrupt", waitErr)
+			} else {
+				slog.Warn("failed to update chat session status on interrupt", "session_id", sessionID, "error", waitErr)
+			}
+			return
+		}
+		if changed {
+			s.broadcastSessionStatus(session.TaskID, sessionID, waitingStatus)
+		}
+		return
+	}
+
+	if result.Err != nil {
+		errorStatus, changed, applyErr := s.applySessionTransition(sessionID, session.Status, sessionlifecycle.EventRuntimeExitFailure, session.TaskID, source+"_error")
+		if applyErr != nil {
+			if errors.Is(applyErr, sessionlifecycle.ErrInvalidTransition) {
+				logInvalidSessionTransition(sessionID, session.Status, sessionlifecycle.EventRuntimeExitFailure, source+"_error", applyErr)
+			} else {
+				slog.Warn("failed to update chat session status on error", "session_id", sessionID, "error", applyErr)
+			}
+			return
+		}
+		if changed {
+			s.broadcastSessionStatus(session.TaskID, sessionID, errorStatus)
+		}
+		return
+	}
+
+	waitingStatus, changed, waitErr := s.applySessionTransition(sessionID, session.Status, sessionlifecycle.EventAgentTurnComplete, session.TaskID, source+"_complete")
+	if waitErr != nil {
+		if errors.Is(waitErr, sessionlifecycle.ErrInvalidTransition) {
+			logInvalidSessionTransition(sessionID, session.Status, sessionlifecycle.EventAgentTurnComplete, source+"_complete", waitErr)
+		} else {
+			slog.Warn("failed to update chat session status on completion", "session_id", sessionID, "error", waitErr)
+		}
+		return
+	}
+	if changed {
+		s.broadcastSessionStatus(session.TaskID, sessionID, waitingStatus)
+	}
+}
+
 func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 	id := urlParam(r, "id")
 
@@ -499,15 +742,19 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 		completedStatus = db.SessionStatusCompleted
 	}
 
-	// Try to get from in-memory map (with DB fallback)
-	execSession := s.sessions.getOrRestore(id, s.db)
-	if execSession != nil {
-		s.sessions.mu.Lock()
-		delete(s.sessions.sessions, id)
-		s.sessions.mu.Unlock()
-	}
-	if err := s.sessions.runtime.Stop(id); err != nil && !errors.Is(err, ptyruntime.ErrSessionNotFound) {
-		slog.Debug("runtime stop failed", "session_id", id, "error", err)
+	if dbSession.SessionType == "chat" {
+		_ = s.chat.Interrupt(id)
+	} else {
+		// Try to get from in-memory map (with DB fallback)
+		execSession := s.sessions.getOrRestore(id, s.db)
+		if execSession != nil {
+			s.sessions.mu.Lock()
+			delete(s.sessions.sessions, id)
+			s.sessions.mu.Unlock()
+		}
+		if err := s.sessions.runtime.Stop(id); err != nil && !errors.Is(err, ptyruntime.ErrSessionNotFound) {
+			slog.Debug("runtime stop failed", "session_id", id, "error", err)
+		}
 	}
 
 	// Clean up token and script files
@@ -543,15 +790,20 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Stop if still active
-	execSession := s.sessions.getOrRestore(id, s.db)
-	if execSession != nil {
-		s.sessions.mu.Lock()
-		delete(s.sessions.sessions, id)
-		s.sessions.mu.Unlock()
-	}
-	if err := s.sessions.runtime.Stop(id); err != nil && !errors.Is(err, ptyruntime.ErrSessionNotFound) {
-		slog.Debug("runtime stop failed", "session_id", id, "error", err)
+	if dbSession.SessionType == "chat" {
+		_ = s.chat.Interrupt(id)
+		s.chat.RemoveSession(id)
+	} else {
+		// Stop if still active
+		execSession := s.sessions.getOrRestore(id, s.db)
+		if execSession != nil {
+			s.sessions.mu.Lock()
+			delete(s.sessions.sessions, id)
+			s.sessions.mu.Unlock()
+		}
+		if err := s.sessions.runtime.Stop(id); err != nil && !errors.Is(err, ptyruntime.ErrSessionNotFound) {
+			slog.Debug("runtime stop failed", "session_id", id, "error", err)
+		}
 	}
 
 	// Clean up token and script files

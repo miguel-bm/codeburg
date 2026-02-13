@@ -64,6 +64,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 		worktree:       worktree.NewManager(worktree.DefaultConfig()),
 		wsHub:          wsHub,
 		sessions:       NewSessionManager(),
+		chat:           NewChatManager(database),
 		tunnels:        tunnel.NewManager(),
 		portSuggest:    portsuggest.NewManager(nil),
 		gitclone:       gitclone.Config{BaseDir: filepath.Join(tmpDir, "repos")},
@@ -715,6 +716,95 @@ func TestListSessions_InvalidTask(t *testing.T) {
 	resp := env.get("/api/tasks/nonexistent/sessions")
 	if resp.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", resp.Code)
+	}
+}
+
+func TestStartSession_ChatResumeCopiesHistory(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "p", "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Resume Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	source, err := env.server.db.CreateSession(db.CreateSessionInput{
+		TaskID:      task.ID,
+		ProjectID:   project.ID,
+		Provider:    "claude",
+		SessionType: "chat",
+	})
+	if err != nil {
+		t.Fatalf("create source session: %v", err)
+	}
+
+	providerSessionID := "claude-provider-xyz"
+	if _, err := env.server.db.UpdateSession(source.ID, db.UpdateSessionInput{
+		ProviderSessionID: &providerSessionID,
+	}); err != nil {
+		t.Fatalf("update provider session id: %v", err)
+	}
+
+	if _, err := env.server.db.CreateAgentMessage(db.CreateAgentMessageInput{
+		SessionID:   source.ID,
+		Seq:         1,
+		Kind:        "user-text",
+		PayloadJSON: `{"id":"m1","sessionId":"old-session-id","kind":"user-text","text":"hello"}`,
+	}); err != nil {
+		t.Fatalf("create source message 1: %v", err)
+	}
+	if _, err := env.server.db.CreateAgentMessage(db.CreateAgentMessageInput{
+		SessionID:   source.ID,
+		Seq:         2,
+		Kind:        "agent-text",
+		PayloadJSON: `{"id":"m2","sessionId":"old-session-id","kind":"agent-text","text":"hi there"}`,
+	}); err != nil {
+		t.Fatalf("create source message 2: %v", err)
+	}
+
+	resp := env.post("/api/tasks/"+task.ID+"/sessions", map[string]any{
+		"provider":        "claude",
+		"sessionType":     "chat",
+		"resumeSessionId": source.ID,
+	})
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var resumed db.AgentSession
+	decodeResponse(t, resp, &resumed)
+	if resumed.ProviderSessionID == nil || *resumed.ProviderSessionID != providerSessionID {
+		t.Fatalf("expected provider session id %q, got %v", providerSessionID, resumed.ProviderSessionID)
+	}
+
+	copied, err := env.server.db.ListAgentMessagesBySession(resumed.ID)
+	if err != nil {
+		t.Fatalf("list copied messages: %v", err)
+	}
+	if len(copied) != 2 {
+		t.Fatalf("expected 2 copied messages, got %d", len(copied))
+	}
+
+	snapshot, _, cancel, err := env.server.chat.Attach(resumed.ID)
+	if err != nil {
+		t.Fatalf("attach chat session: %v", err)
+	}
+	defer cancel()
+	if len(snapshot) != 2 {
+		t.Fatalf("expected 2 messages in chat snapshot, got %d", len(snapshot))
+	}
+	for _, msg := range snapshot {
+		if msg.SessionID != resumed.ID {
+			t.Fatalf("expected normalized session id %q, got %q", resumed.ID, msg.SessionID)
+		}
 	}
 }
 

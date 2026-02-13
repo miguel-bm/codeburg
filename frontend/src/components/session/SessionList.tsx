@@ -41,7 +41,7 @@ export function SessionList({ sessions, activeSessionId, onSelect, onResume }: S
             <span className="text-xs text-dim">
               {session.provider} · {formatDate(session.createdAt)}
             </span>
-            {onResume && session.provider === 'claude' && session.status === 'completed' && (
+            {onResume && session.sessionType === 'chat' && session.status === 'completed' && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();

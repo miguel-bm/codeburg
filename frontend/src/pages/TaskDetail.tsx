@@ -4,7 +4,7 @@ import { usePanelNavigation } from '../hooks/usePanelNavigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ClipboardList } from 'lucide-react';
 import { tasksApi, projectsApi, sessionsApi, TASK_STATUS } from '../api';
-import type { AgentSession, SessionProvider } from '../api';
+import type { AgentSession, SessionProvider, SessionType } from '../api';
 import { useKeyboardNav } from '../hooks/useKeyboardNav';
 import { HelpOverlay } from '../components/common/HelpOverlay';
 import { useSessionShortcutSettings } from '../stores/keyboard';
@@ -98,8 +98,8 @@ export function TaskDetail() {
   }, [activeSession, orderedSessions, selectSession]);
 
   const startSessionMutation = useMutation({
-    mutationFn: ({ provider, prompt, resumeSessionId }: { provider: SessionProvider; prompt: string; resumeSessionId?: string }) =>
-      sessionsApi.start(id!, { provider, prompt: prompt || undefined, resumeSessionId }),
+    mutationFn: ({ provider, prompt, sessionType, resumeSessionId }: { provider: SessionProvider; prompt: string; sessionType?: SessionType; resumeSessionId?: string }) =>
+      sessionsApi.start(id!, { provider, sessionType, prompt: prompt || undefined, resumeSessionId }),
     onSuccess: (session) => {
       queryClient.invalidateQueries({ queryKey: ['sessions', id] });
       selectSession(session);
@@ -117,8 +117,8 @@ export function TaskDetail() {
     },
   });
 
-  const handleStartSession = (provider: SessionProvider, prompt: string, resumeSessionId?: string) => {
-    startSessionMutation.mutate({ provider, prompt, resumeSessionId });
+  const handleStartSession = (provider: SessionProvider, prompt: string, sessionType?: SessionType, resumeSessionId?: string) => {
+    return startSessionMutation.mutateAsync({ provider, prompt, sessionType, resumeSessionId });
   };
 
   const handleCloseSession = (session: AgentSession) => {

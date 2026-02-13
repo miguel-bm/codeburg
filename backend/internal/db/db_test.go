@@ -590,6 +590,171 @@ func TestListActiveSessions(t *testing.T) {
 	}
 }
 
+func TestAgentMessages_CreateListAndUpdate(t *testing.T) {
+	db := openTestDB(t)
+
+	project, _ := db.CreateProject(CreateProjectInput{Name: "p", Path: "/tmp/p"})
+	task, _ := db.CreateTask(CreateTaskInput{ProjectID: project.ID, Title: "T"})
+	session, _ := db.CreateSession(CreateSessionInput{
+		TaskID:      task.ID,
+		ProjectID:   project.ID,
+		Provider:    "claude",
+		SessionType: "chat",
+	})
+
+	firstPayload := `{"id":"m1","kind":"user-text","text":"hello"}`
+	msg1, err := db.CreateAgentMessage(CreateAgentMessageInput{
+		SessionID:   session.ID,
+		Seq:         1,
+		Kind:        "user-text",
+		PayloadJSON: firstPayload,
+	})
+	if err != nil {
+		t.Fatalf("create agent message 1: %v", err)
+	}
+
+	_, err = db.CreateAgentMessage(CreateAgentMessageInput{
+		SessionID:   session.ID,
+		Seq:         2,
+		Kind:        "agent-text",
+		PayloadJSON: `{"id":"m2","kind":"agent-text","text":"hi"}`,
+	})
+	if err != nil {
+		t.Fatalf("create agent message 2: %v", err)
+	}
+
+	lastSeq, err := db.GetLastAgentMessageSeq(session.ID)
+	if err != nil {
+		t.Fatalf("get last seq: %v", err)
+	}
+	if lastSeq != 2 {
+		t.Fatalf("expected last seq 2, got %d", lastSeq)
+	}
+
+	list, err := db.ListAgentMessagesBySession(session.ID)
+	if err != nil {
+		t.Fatalf("list agent messages: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(list))
+	}
+	if list[0].Seq != 1 || list[1].Seq != 2 {
+		t.Fatalf("unexpected sequence order: %+v", []int64{list[0].Seq, list[1].Seq})
+	}
+	if list[0].Kind != "user-text" {
+		t.Fatalf("expected kind user-text, got %q", list[0].Kind)
+	}
+
+	updatedPayload := `{"id":"m1","kind":"user-text","text":"hello updated"}`
+	if err := db.UpdateAgentMessagePayload(msg1.ID, "user-text", updatedPayload); err != nil {
+		t.Fatalf("update payload: %v", err)
+	}
+
+	after, err := db.ListAgentMessagesBySession(session.ID)
+	if err != nil {
+		t.Fatalf("list after update: %v", err)
+	}
+	if after[0].PayloadJSON != updatedPayload {
+		t.Fatalf("expected updated payload %q, got %q", updatedPayload, after[0].PayloadJSON)
+	}
+}
+
+func TestAgentMessages_CascadeDeleteOnSessionDelete(t *testing.T) {
+	db := openTestDB(t)
+
+	project, _ := db.CreateProject(CreateProjectInput{Name: "p", Path: "/tmp/p"})
+	task, _ := db.CreateTask(CreateTaskInput{ProjectID: project.ID, Title: "T"})
+	session, _ := db.CreateSession(CreateSessionInput{
+		TaskID:      task.ID,
+		ProjectID:   project.ID,
+		Provider:    "codex",
+		SessionType: "chat",
+	})
+
+	if _, err := db.CreateAgentMessage(CreateAgentMessageInput{
+		SessionID:   session.ID,
+		Seq:         1,
+		Kind:        "system",
+		PayloadJSON: `{"id":"m1","kind":"system"}`,
+	}); err != nil {
+		t.Fatalf("create message: %v", err)
+	}
+
+	if err := db.DeleteSession(session.ID); err != nil {
+		t.Fatalf("delete session: %v", err)
+	}
+
+	list, err := db.ListAgentMessagesBySession(session.ID)
+	if err != nil {
+		t.Fatalf("list messages after session delete: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected 0 messages after cascade delete, got %d", len(list))
+	}
+}
+
+func TestAgentMessages_CopyToSession(t *testing.T) {
+	db := openTestDB(t)
+
+	project, _ := db.CreateProject(CreateProjectInput{Name: "p", Path: "/tmp/p"})
+	task, _ := db.CreateTask(CreateTaskInput{ProjectID: project.ID, Title: "T"})
+	source, _ := db.CreateSession(CreateSessionInput{
+		TaskID:      task.ID,
+		ProjectID:   project.ID,
+		Provider:    "claude",
+		SessionType: "chat",
+	})
+	target, _ := db.CreateSession(CreateSessionInput{
+		TaskID:      task.ID,
+		ProjectID:   project.ID,
+		Provider:    "claude",
+		SessionType: "chat",
+	})
+
+	if _, err := db.CreateAgentMessage(CreateAgentMessageInput{
+		SessionID:   source.ID,
+		Seq:         1,
+		Kind:        "user-text",
+		PayloadJSON: `{"id":"m1","sessionId":"old-session","kind":"user-text","text":"hello"}`,
+	}); err != nil {
+		t.Fatalf("create source message 1: %v", err)
+	}
+	if _, err := db.CreateAgentMessage(CreateAgentMessageInput{
+		SessionID:   source.ID,
+		Seq:         2,
+		Kind:        "agent-text",
+		PayloadJSON: `{"id":"m2","sessionId":"old-session","kind":"agent-text","text":"hi"}`,
+	}); err != nil {
+		t.Fatalf("create source message 2: %v", err)
+	}
+
+	copied, err := db.CopyAgentMessages(source.ID, target.ID)
+	if err != nil {
+		t.Fatalf("copy agent messages: %v", err)
+	}
+	if copied != 2 {
+		t.Fatalf("expected 2 copied messages, got %d", copied)
+	}
+
+	sourceList, err := db.ListAgentMessagesBySession(source.ID)
+	if err != nil {
+		t.Fatalf("list source messages: %v", err)
+	}
+	targetList, err := db.ListAgentMessagesBySession(target.ID)
+	if err != nil {
+		t.Fatalf("list target messages: %v", err)
+	}
+	if len(targetList) != len(sourceList) {
+		t.Fatalf("expected %d copied messages, got %d", len(sourceList), len(targetList))
+	}
+	if targetList[0].Seq != 1 || targetList[1].Seq != 2 {
+		t.Fatalf("unexpected copied sequence order: %+v", []int64{targetList[0].Seq, targetList[1].Seq})
+	}
+	if targetList[0].Kind != "user-text" || targetList[1].Kind != "agent-text" {
+		t.Fatalf("unexpected copied kinds: %q, %q", targetList[0].Kind, targetList[1].Kind)
+	}
+}
+
 // --- Preference Tests ---
 
 func TestPreference_SetAndGet(t *testing.T) {

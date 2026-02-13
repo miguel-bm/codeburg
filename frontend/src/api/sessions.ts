@@ -2,13 +2,14 @@ import { api } from './client';
 
 export type SessionStatus = 'idle' | 'running' | 'waiting_input' | 'completed' | 'error';
 export type SessionProvider = 'claude' | 'codex' | 'terminal';
+export type SessionType = 'terminal' | 'chat';
 
 export interface AgentSession {
   id: string;
   taskId?: string;
   projectId: string;
   provider: SessionProvider;
-  sessionType: string;
+  sessionType: SessionType;
   providerSessionId?: string;
   status: SessionStatus;
   tmuxWindow?: string;
@@ -21,6 +22,7 @@ export interface AgentSession {
 
 export interface StartSessionInput {
   provider?: SessionProvider;
+  sessionType?: SessionType;
   prompt?: string;
   model?: string;
   resumeSessionId?: string;

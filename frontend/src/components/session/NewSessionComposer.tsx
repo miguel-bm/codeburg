@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CornerDownLeft, MessageSquareText, Play, X } from 'lucide-react';
-import type { SessionProvider } from '../../api/sessions';
+import type { SessionProvider, SessionType } from '../../api/sessions';
 import claudeLogo from '../../assets/claude-logo.svg';
 import openaiLogo from '../../assets/openai-logo.svg';
 import { Toggle } from '../ui/settings';
@@ -9,7 +9,7 @@ import { useMobile } from '../../hooks/useMobile';
 interface NewSessionComposerProps {
   taskTitle: string;
   taskDescription?: string;
-  onStart: (provider: SessionProvider, prompt: string) => void;
+  onStart: (provider: SessionProvider, prompt: string, sessionType: SessionType) => void;
   onCancel: () => void;
   isPending?: boolean;
   error?: string;
@@ -75,6 +75,7 @@ export function NewSessionComposer({
   const isMobile = useMobile();
 
   const [provider, setProvider] = useState<SessionProvider>('claude');
+  const [sessionType, setSessionType] = useState<SessionType>('chat');
   const [includePrompt, setIncludePrompt] = useState(true);
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [focusedIndex, setFocusedIndex] = useState(0);
@@ -93,16 +94,18 @@ export function NewSessionComposer({
 
   const description = provider === 'terminal'
     ? 'Starts an interactive shell in this task worktree.'
+    : sessionType === 'chat'
+      ? `Starts ${provider} in structured chat mode with rich tool cards.`
     : includePrompt
-      ? `Starts ${provider} with the prompt below.`
-      : `Starts ${provider} interactively with no initial prompt.`;
+      ? `Starts ${provider} in terminal mode with the prompt below.`
+      : `Starts ${provider} in terminal mode with no initial prompt.`;
 
   const startSession = () => {
     if (provider === 'terminal') {
-      onStart('terminal', '');
+      onStart('terminal', '', 'terminal');
       return;
     }
-    onStart(provider, includePrompt ? prompt.trim() : '');
+    onStart(provider, includePrompt ? prompt.trim() : '', sessionType);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -112,7 +115,7 @@ export function NewSessionComposer({
 
   const handleProviderSelect = (id: SessionProvider) => {
     if (id === 'terminal') {
-      if (!isPending) onStart('terminal', '');
+      if (!isPending) onStart('terminal', '', 'terminal');
       return;
     }
     setProvider(id);
@@ -213,6 +216,30 @@ export function NewSessionComposer({
         </section>
 
         <section className="mt-5 flex flex-1 flex-col rounded-xl border border-subtle bg-secondary p-3 sm:mt-6 sm:p-4">
+          {provider !== 'terminal' && (
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="text-xs font-medium uppercase tracking-[0.12em] text-dim">
+                Interface
+              </div>
+              <div className="inline-flex rounded-md border border-subtle bg-primary p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setSessionType('chat')}
+                  className={`px-2 py-1 text-[11px] rounded ${sessionType === 'chat' ? 'bg-accent text-white' : 'text-dim hover:text-[var(--color-text-primary)]'}`}
+                >
+                  Chat UI
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSessionType('terminal')}
+                  className={`px-2 py-1 text-[11px] rounded ${sessionType === 'terminal' ? 'bg-accent text-white' : 'text-dim hover:text-[var(--color-text-primary)]'}`}
+                >
+                  Terminal
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="mb-3 flex items-center justify-between gap-3">
             <div className="inline-flex items-center gap-2 text-sm font-medium">
               <MessageSquareText size={15} className="text-accent" />

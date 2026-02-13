@@ -86,8 +86,63 @@ func buildSessionCommand(req StartSessionRequest, notifyScript, resumeProviderSe
 	}
 }
 
+func buildChatTurnCommand(provider, prompt, model, providerSessionID string) (string, []string, error) {
+	switch provider {
+	case "claude":
+		args := []string{"--print", "--output-format", "stream-json", "--verbose"}
+		if chatAutoApproveEnabled() {
+			args = append(args, "--dangerously-skip-permissions")
+		}
+		if model != "" {
+			args = append(args, "--model", model)
+		}
+		if providerSessionID != "" {
+			args = append(args, "--resume", providerSessionID)
+		}
+		args = append(args, prompt)
+		return "claude", args, nil
+
+	case "codex":
+		if providerSessionID != "" {
+			args := []string{"exec", "resume", "--json"}
+			if chatAutoApproveEnabled() {
+				args = append(args, "--full-auto")
+			}
+			if model != "" {
+				args = append(args, "--model", model)
+			}
+			args = append(args, providerSessionID, prompt)
+			return "codex", args, nil
+		}
+
+		args := []string{"exec", "--json"}
+		if chatAutoApproveEnabled() {
+			args = append(args, "--full-auto")
+		}
+		if model != "" {
+			args = append(args, "--model", model)
+		}
+		args = append(args, prompt)
+		return "codex", args, nil
+
+	default:
+		return "", nil, fmt.Errorf("chat mode not supported for provider %q", provider)
+	}
+}
+
 func unsafeAgentDefaultsEnabled() bool {
 	value := strings.TrimSpace(strings.ToLower(os.Getenv("CODEBURG_UNSAFE_AGENT_DEFAULTS")))
+	return value == "1" || value == "true" || value == "yes" || value == "on"
+}
+
+// chatAutoApproveEnabled controls whether chat sessions run with tool auto-approval.
+// Chat UI currently has no interactive permission grant/deny controls, so default is true.
+// Set CODEBURG_CHAT_AUTO_APPROVE=false to require strict provider-side permissions.
+func chatAutoApproveEnabled() bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv("CODEBURG_CHAT_AUTO_APPROVE")))
+	if value == "" {
+		return true
+	}
 	return value == "1" || value == "true" || value == "yes" || value == "on"
 }
 

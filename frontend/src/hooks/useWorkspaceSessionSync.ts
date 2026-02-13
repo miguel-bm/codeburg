@@ -97,6 +97,18 @@ export function useWorkspaceSessionSync() {
         queryClient.invalidateQueries({
           queryKey: ['workspace-sessions', scopeType, scopeId],
         });
+        queryClient.invalidateQueries({
+          queryKey: ['workspace-files', scopeType, scopeId],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ['workspace-git-status', scopeType, scopeId],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ['workspace-git-basediff', scopeType, scopeId],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ['workspace-git-log', scopeType, scopeId],
+        });
       }
     }, [queryClient, scopeType, scopeId]),
   });

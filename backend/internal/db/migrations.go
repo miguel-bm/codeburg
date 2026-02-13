@@ -299,4 +299,19 @@ var migrations = []migration{
 			ALTER TABLE tasks ADD COLUMN archived_at DATETIME;
 		`,
 	},
+	{
+		version: 16,
+		sql: `
+			-- Structured chat session messages (Claude/Codex chat UI replay)
+			CREATE TABLE agent_messages (
+				id TEXT PRIMARY KEY,
+				session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+				seq INTEGER NOT NULL,
+				kind TEXT NOT NULL,
+				payload_json TEXT NOT NULL,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE INDEX idx_agent_messages_session_seq ON agent_messages(session_id, seq);
+		`,
+	},
 }

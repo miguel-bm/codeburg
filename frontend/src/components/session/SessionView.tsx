@@ -1,15 +1,17 @@
 import { useMemo, useEffect, useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { TerminalView } from './TerminalView';
+import { ChatSessionView } from '../chat';
 import type { AgentSession, SessionStatus } from '../../api/sessions';
 import { getSessionStatusMeta } from '../../lib/sessionStatus';
 
 interface SessionViewProps {
   session: AgentSession;
   showOpenInNewTab?: boolean;
+  onResume?: () => Promise<unknown> | unknown;
 }
 
-export function SessionView({ session, showOpenInNewTab = true }: SessionViewProps) {
+export function SessionView({ session, showOpenInNewTab = true, onResume }: SessionViewProps) {
   const openSessionHref = useMemo(() => {
     return `/tasks/${session.taskId}/session/${session.id}`;
   }, [session.id, session.taskId]);
@@ -21,6 +23,9 @@ export function SessionView({ session, showOpenInNewTab = true }: SessionViewPro
         <div className="flex items-center gap-3">
           <StatusIndicator status={session.status} />
           <span className="text-xs text-dim">{session.provider}</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded border border-subtle text-dim uppercase tracking-[0.08em]">
+            {session.sessionType}
+          </span>
           <span className="text-sm text-dim">
             session: {session.id.slice(0, 8)}...
           </span>
@@ -46,7 +51,11 @@ export function SessionView({ session, showOpenInNewTab = true }: SessionViewPro
 
       {/* Terminal */}
       <div className="flex-1 overflow-hidden">
-        <TerminalView sessionId={session.id} sessionStatus={session.status} />
+        {session.sessionType === 'chat' ? (
+          <ChatSessionView session={session} onResume={onResume} />
+        ) : (
+          <TerminalView sessionId={session.id} sessionStatus={session.status} />
+        )}
       </div>
     </div>
   );

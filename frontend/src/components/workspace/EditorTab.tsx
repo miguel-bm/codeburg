@@ -5,6 +5,7 @@ import { openSearchPanel } from '@codemirror/search';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { Save } from 'lucide-react';
 import { useWorkspaceFiles } from '../../hooks/useWorkspaceFiles';
+import { useSharedWebSocket } from '../../hooks/useSharedWebSocket';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { getLanguageExtension, fileName, darkEditorTheme, lightEditorTheme } from './editorUtils';
 import { getResolvedTheme, subscribeToThemeChange } from '../../lib/theme';
@@ -28,6 +29,9 @@ export function EditorTab({ path, line }: EditorTabProps) {
   const [editorTheme, setEditorTheme] = useState<'dark' | 'light'>(() => getResolvedTheme());
   const cmRef = useRef<ReactCodeMirrorRef>(null);
   const lastScrolledLine = useRef<number | undefined>(undefined);
+  const isDirtyRef = useRef(false);
+  const loadingRef = useRef(true);
+  const savingRef = useRef(false);
 
   useEffect(() => {
     setEditorTheme(getResolvedTheme());
@@ -77,10 +81,45 @@ export function EditorTab({ path, line }: EditorTabProps) {
   }, [line, loading]);
 
   const isDirty = content !== null && originalContent !== null && content !== originalContent;
+  isDirtyRef.current = isDirty;
+  loadingRef.current = loading;
+  savingRef.current = saving;
 
   useEffect(() => {
     markDirty(path, isDirty);
   }, [isDirty, markDirty, path]);
+
+  const refreshFromDisk = useCallback(async () => {
+    if (isDirtyRef.current || loadingRef.current || savingRef.current) return;
+    try {
+      const res = await readFile(path);
+      if (isDirtyRef.current) return;
+      setBinary(res.binary);
+      setTruncated(res.truncated);
+      if (!res.binary) {
+        setContent(res.content);
+        setOriginalContent(res.content);
+      }
+    } catch {
+      // Background refresh is best-effort.
+    }
+  }, [path, readFile]);
+
+  useSharedWebSocket({
+    onMessage: useCallback((data: unknown) => {
+      const msg = data as { type?: string };
+      if (msg.type !== 'sidebar_update') return;
+      void refreshFromDisk();
+    }, [refreshFromDisk]),
+  });
+
+  useEffect(() => {
+    const onWorkspaceRefresh = () => {
+      void refreshFromDisk();
+    };
+    window.addEventListener('codeburg:workspace-refresh', onWorkspaceRefresh);
+    return () => window.removeEventListener('codeburg:workspace-refresh', onWorkspaceRefresh);
+  }, [refreshFromDisk]);
 
   const extensions = useMemo(() => {
     const langExts = getLanguageExtension(path);

@@ -7,7 +7,7 @@ import { NewSessionComposer, SessionView, SessionTabs } from '../../components/s
 import { BaseDiffExplorer } from '../../components/git';
 import { tasksApi, invalidateTaskQueries, gitApi } from '../../api';
 import { TASK_STATUS } from '../../api';
-import type { Task, Project, AgentSession, SessionProvider, UpdateTaskResponse } from '../../api';
+import type { Task, Project, AgentSession, SessionProvider, SessionType, UpdateTaskResponse } from '../../api';
 import { OpenInEditorButton } from '../../components/common/OpenInEditorButton';
 import { useMobile } from '../../hooks/useMobile';
 import { Button } from '../../components/ui/Button';
@@ -18,7 +18,7 @@ interface Props {
   sessions: AgentSession[];
   activeSession: AgentSession | null;
   onSelectSession: (session: AgentSession) => void;
-  onStartSession: (provider: SessionProvider, prompt: string, resumeSessionId?: string) => void;
+  onStartSession: (provider: SessionProvider, prompt: string, sessionType?: SessionType, resumeSessionId?: string) => Promise<AgentSession | void>;
   onCloseSession: (session: AgentSession) => void;
   onShowStartComposer: () => void;
   onHideStartComposer: () => void;
@@ -192,7 +192,7 @@ export function TaskDetailInReview({
                 }}
                 onResume={(session) => {
                   onHideStartComposer();
-                  onStartSession('claude', '', session.id);
+                  void onStartSession(session.provider, '', session.sessionType, session.id);
                 }}
                 onClose={onCloseSession}
                 onNewSession={() => {
@@ -208,14 +208,19 @@ export function TaskDetailInReview({
                   <NewSessionComposer
                     taskTitle={task.title}
                     taskDescription={task.description}
-                    onStart={(provider, prompt) => onStartSession(provider, prompt)}
+                    onStart={(provider, prompt, sessionType) => { void onStartSession(provider, prompt, sessionType); }}
                     onCancel={onHideStartComposer}
                     isPending={startSessionPending}
                     error={startSessionError}
                     dismissible={composerDismissible}
                   />
                 ) : activeSession ? (
-                  <SessionView session={activeSession} />
+                  <SessionView
+                    session={activeSession}
+                    onResume={activeSession.sessionType === 'chat' && activeSession.status === 'completed'
+                      ? () => onStartSession(activeSession.provider, '', activeSession.sessionType, activeSession.id)
+                      : undefined}
+                  />
                 ) : (
                   <div className="flex items-center justify-center h-full text-dim text-sm">
                     Select or start a session
@@ -298,7 +303,7 @@ export function TaskDetailInReview({
                 }}
                 onResume={(session) => {
                   onHideStartComposer();
-                  onStartSession('claude', '', session.id);
+                  void onStartSession(session.provider, '', session.sessionType, session.id);
                 }}
                 onClose={onCloseSession}
                 onNewSession={onShowStartComposer}
@@ -311,14 +316,19 @@ export function TaskDetailInReview({
                   <NewSessionComposer
                     taskTitle={task.title}
                     taskDescription={task.description}
-                    onStart={(provider, prompt) => onStartSession(provider, prompt)}
+                    onStart={(provider, prompt, sessionType) => { void onStartSession(provider, prompt, sessionType); }}
                     onCancel={onHideStartComposer}
                     isPending={startSessionPending}
                     error={startSessionError}
                     dismissible={composerDismissible}
                   />
                 ) : activeSession ? (
-                  <SessionView session={activeSession} />
+                  <SessionView
+                    session={activeSession}
+                    onResume={activeSession.sessionType === 'chat' && activeSession.status === 'completed'
+                      ? () => onStartSession(activeSession.provider, '', activeSession.sessionType, activeSession.id)
+                      : undefined}
+                  />
                 ) : (
                   <div className="flex items-center justify-center h-full text-dim text-sm">
                     Select or start a session

@@ -12,7 +12,7 @@ import { SessionView } from '../session/SessionView';
 import { NewSessionComposer } from '../session/NewSessionComposer';
 
 function TabContent() {
-  const { tabs, activeTabIndex, openSession } = useWorkspaceStore();
+  const { tabs, activeTabIndex, openSession, replaceSessionTab } = useWorkspaceStore();
   const { scope, task } = useWorkspace();
   const { sessions, startSession, isStarting, startError } = useWorkspaceSessions();
 
@@ -26,8 +26,8 @@ function TabContent() {
         <NewSessionComposer
           taskTitle={title}
           taskDescription={description}
-          onStart={async (provider, prompt) => {
-            const session = await startSession({ provider, prompt: prompt || undefined });
+          onStart={async (provider, prompt, sessionType) => {
+            const session = await startSession({ provider, sessionType, prompt: prompt || undefined });
             openSession(session.id);
           }}
           onCancel={() => {}}
@@ -50,7 +50,23 @@ function TabContent() {
       if (!session) {
         return <div className="flex-1 flex items-center justify-center text-xs text-dim">Session not found</div>;
       }
-      return <SessionView session={session} showOpenInNewTab={scope.type === 'task'} />;
+      return (
+        <SessionView
+          session={session}
+          showOpenInNewTab={scope.type === 'task'}
+          onResume={session.sessionType === 'chat' && session.status === 'completed'
+            ? async () => {
+              const resumed = await startSession({
+                provider: session.provider,
+                sessionType: session.sessionType,
+                resumeSessionId: session.id,
+              });
+              replaceSessionTab(session.id, resumed.id);
+              openSession(resumed.id);
+            }
+            : undefined}
+        />
+      );
     }
 
     case 'new_session': {
@@ -60,8 +76,8 @@ function TabContent() {
         <NewSessionComposer
           taskTitle={title}
           taskDescription={description}
-          onStart={async (provider, prompt) => {
-            const session = await startSession({ provider, prompt: prompt || undefined });
+          onStart={async (provider, prompt, sessionType) => {
+            const session = await startSession({ provider, sessionType, prompt: prompt || undefined });
             openSession(session.id);
           }}
           onCancel={() => {

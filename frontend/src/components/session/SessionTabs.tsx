@@ -39,7 +39,7 @@ export function SessionTabs({
     <div className="h-10 flex items-center border-b border-subtle overflow-x-scroll scrollbar-none">
       {sorted.map((session, i) => {
         const isActive = session.id === activeSessionId;
-        const canResume = onResume && session.provider === 'claude' && session.status === 'completed';
+        const canResume = onResume && session.sessionType === 'chat' && session.status === 'completed';
         const canClose = onClose && session.status !== 'idle';
 
         return (
@@ -55,6 +55,11 @@ export function SessionTabs({
             <ProviderIcon provider={session.provider} />
             <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${getStatusDotClass(session.status)}`} />
             <span>#{i + 1}</span>
+            {session.sessionType === 'chat' && (
+              <span className="text-[10px] px-1 py-0.5 rounded border border-subtle text-dim uppercase tracking-[0.08em]">
+                chat
+              </span>
+            )}
             {canResume && (
               <span
                 onClick={(e) => {

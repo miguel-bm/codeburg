@@ -568,11 +568,16 @@ func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, sess := range sessions {
-		s.sessions.mu.Lock()
-		delete(s.sessions.sessions, sess.ID)
-		s.sessions.mu.Unlock()
-		if err := s.sessions.runtime.Stop(sess.ID); err != nil {
-			slog.Warn("failed to stop runtime session during task deletion", "task_id", id, "session_id", sess.ID, "error", err)
+		if sess.SessionType == "chat" {
+			_ = s.chat.Interrupt(sess.ID)
+			s.chat.RemoveSession(sess.ID)
+		} else {
+			s.sessions.mu.Lock()
+			delete(s.sessions.sessions, sess.ID)
+			s.sessions.mu.Unlock()
+			if err := s.sessions.runtime.Stop(sess.ID); err != nil {
+				slog.Warn("failed to stop runtime session during task deletion", "task_id", id, "session_id", sess.ID, "error", err)
+			}
 		}
 		removeHookToken(sess.ID)
 		removeNotifyScript(sess.ID)

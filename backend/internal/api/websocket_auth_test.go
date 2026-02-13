@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/miguel-bm/codeburg/internal/db"
 )
 
 func wsBaseURL(serverURL string) string {
@@ -137,5 +138,44 @@ func TestTerminalWSAcceptsQueryToken(t *testing.T) {
 	resp := env.requestWithToken("GET", u, nil, "")
 	if resp.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for missing session after auth, got %d", resp.Code)
+	}
+}
+
+func TestChatWSRejectsMissingTokenBeforeSessionLookup(t *testing.T) {
+	env := setupTestEnv(t)
+
+	resp := env.get("/ws/chat?session=nonexistent")
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.Code)
+	}
+}
+
+func TestChatWSRejectsNonChatSession(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepo(t)
+	project, err := env.server.db.CreateProject(db.CreateProjectInput{Name: "p", Path: repoPath})
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	task, err := env.server.db.CreateTask(db.CreateTaskInput{ProjectID: project.ID, Title: "t"})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	session, err := env.server.db.CreateSession(db.CreateSessionInput{
+		TaskID:      task.ID,
+		ProjectID:   project.ID,
+		Provider:    "claude",
+		SessionType: "terminal",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	u := "/ws/chat?session=" + session.ID + "&token=" + url.QueryEscape(env.token)
+	resp := env.requestWithToken("GET", u, nil, "")
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.Code)
 	}
 }

@@ -20,9 +20,10 @@ const (
 
 // AgentSession represents an AI agent session for a task.
 // Provider indicates *what* is running (claude, codex, terminal).
-// SessionType indicates *how* the session is delivered — currently always "terminal"
-// (tmux + xterm.js), but reserved for future modes like "chat" (rich UI), "headless"
-// (background/no UI), or "api" (direct API without CLI).
+// SessionType indicates *how* the session is delivered:
+// - "terminal": PTY + xterm.js
+// - "chat": structured message stream rendered in the chat UI
+// Reserved for future modes like "headless" (background/no UI) or "api" (direct API).
 type AgentSession struct {
 	ID                string        `json:"id"`
 	TaskID            string        `json:"taskId,omitempty"`
