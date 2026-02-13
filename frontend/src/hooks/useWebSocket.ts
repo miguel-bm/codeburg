@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { useAuthStore } from '../stores/auth';
+import { buildWsUrl } from '../platform/runtimeConfig';
 
 type MessageHandler = (data: unknown) => void;
 
@@ -59,9 +60,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     connectingRef.current = true;
     setState((s) => ({ ...s, connecting: true, error: null }));
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const url = `${protocol}//${host}/ws`;
+    const url = buildWsUrl('/ws');
 
     const ws = new WebSocket(url);
     wsRef.current = ws;

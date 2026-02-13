@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { FileText, Plus, X, XCircle, ArrowRightToLine } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspace';
 import type { WorkspaceTab } from '../../stores/workspace';
@@ -211,7 +211,7 @@ function Tab({
   });
 
   // Track touch position for long-press menu placement
-  const lastTouchPos = { current: { x: 0, y: 0 } };
+  const lastTouchPos = useRef({ x: 0, y: 0 });
 
   return (
     <div

@@ -8,6 +8,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { SearchAddon } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
 import { useTerminalSettings } from '../stores/terminal';
+import { buildWsUrl } from '../platform/runtimeConfig';
 
 const TERMINAL_THEME = {
   background: '#0a0a0a',
@@ -90,8 +91,7 @@ export function useTerminal(
 
   // Build the WebSocket URL (stable across reconnects)
   const wsUrl = useCallback(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${window.location.host}/ws/terminal?session=${encodeURIComponent(sessionId)}`;
+    return buildWsUrl(`/ws/terminal?session=${encodeURIComponent(sessionId)}`);
   }, [sessionId]);
 
   // Create terminal + initial WS connection

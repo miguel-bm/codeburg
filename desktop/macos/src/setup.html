@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Codeburg Desktop Setup</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(circle at top, #eff6ff 0%, #f8fafc 40%, #eef2ff 100%);
+        color: #0f172a;
+      }
+      .card {
+        width: min(520px, calc(100vw - 48px));
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 18px;
+        box-shadow: 0 30px 80px rgba(15, 23, 42, 0.12);
+        padding: 28px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 1.5rem;
+      }
+      p {
+        margin: 0;
+        color: #334155;
+      }
+      form {
+        margin-top: 20px;
+      }
+      label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #cbd5e1;
+        border-radius: 12px;
+        padding: 11px 13px;
+        font-size: 15px;
+        outline: none;
+      }
+      input:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+      }
+      .actions {
+        margin-top: 16px;
+        display: flex;
+        justify-content: flex-end;
+      }
+      button {
+        border: none;
+        border-radius: 12px;
+        padding: 10px 16px;
+        background: #2563eb;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .hint {
+        margin-top: 10px;
+        font-size: 13px;
+        color: #64748b;
+      }
+      .error {
+        margin-top: 12px;
+        color: #b91c1c;
+        font-size: 14px;
+        min-height: 18px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Connect Codeburg Desktop</h1>
+      <p>Set the server origin for API and terminal websocket traffic.</p>
+      <form id="setup-form">
+        <label for="origin-input">Codeburg Server Origin</label>
+        <input
+          id="origin-input"
+          type="text"
+          required
+          placeholder="https://codeburg.example.com"
+          autocomplete="off"
+        />
+        <div class="hint">Use origin only (no trailing <code>/api</code> path).</div>
+        <div id="error" class="error" role="alert"></div>
+        <div class="actions">
+          <button id="save-button" type="submit">Save and Continue</button>
+        </div>
+      </form>
+    </main>
+    <script>
+      const form = document.getElementById('setup-form');
+      const originInput = document.getElementById('origin-input');
+      const saveButton = document.getElementById('save-button');
+      const errorBox = document.getElementById('error');
+
+      async function bootstrap() {
+        if (!window.codeburgDesktop) {
+          errorBox.textContent = 'Desktop bridge unavailable.';
+          return;
+        }
+        try {
+          const config = await window.codeburgDesktop.getConnectionConfig();
+          originInput.value = config.serverOrigin || 'http://127.0.0.1:8080';
+        } catch (error) {
+          errorBox.textContent = error instanceof Error ? error.message : 'Unable to load connection settings';
+          originInput.value = 'http://127.0.0.1:8080';
+        }
+      }
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        errorBox.textContent = '';
+        saveButton.disabled = true;
+
+        try {
+          await window.codeburgDesktop.saveConnectionConfig(originInput.value);
+          await window.codeburgDesktop.launchApp();
+        } catch (error) {
+          errorBox.textContent = error instanceof Error ? error.message : 'Unable to save connection settings';
+        } finally {
+          saveButton.disabled = false;
+        }
+      });
+
+      bootstrap();
+    </script>
+  </body>
+</html>

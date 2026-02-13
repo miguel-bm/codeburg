@@ -6,6 +6,7 @@ describe('API Client', () => {
 
   beforeEach(() => {
     localStorage.clear();
+    delete window.__CODEBURG_CONFIG__;
   });
 
   afterEach(() => {
@@ -34,6 +35,20 @@ describe('API Client', () => {
       })
     );
     expect(result).toEqual({ id: '1' });
+  });
+
+  it('uses configured API base URL when provided', async () => {
+    window.__CODEBURG_CONFIG__ = {
+      apiHttpBase: 'https://codeburg.example.com/api',
+    };
+    mockFetch(200, { ok: true });
+
+    await api.get('/projects');
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'https://codeburg.example.com/api/projects',
+      expect.any(Object)
+    );
   });
 
   it('makes POST requests with body', async () => {

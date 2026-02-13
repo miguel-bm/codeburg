@@ -1,0 +1,49 @@
+{
+  "name": "codeburg-macos-shell",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Codeburg macOS shell built with Electron",
+  "main": "src/main.js",
+  "scripts": {
+    "postinstall": "node node_modules/electron/install.js",
+    "dev": "cross-env CODEBURG_ELECTRON_DEV=1 ELECTRON_RENDERER_URL=http://localhost:3000 electron .",
+    "start": "electron .",
+    "build:icon": "bash ./scripts/build-icon.sh",
+    "build:frontend": "pnpm --dir ../../frontend build",
+    "sync:frontend": "rm -rf frontend-dist && mkdir -p frontend-dist && cp -R ../../frontend/dist/. frontend-dist/",
+    "dist:dir": "pnpm run build:icon && pnpm run build:frontend && pnpm run sync:frontend && electron-builder --mac --dir",
+    "dist": "pnpm run build:icon && pnpm run build:frontend && pnpm run sync:frontend && electron-builder --mac"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^37.2.6",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.codeburg.desktop",
+    "productName": "Codeburg",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "frontend-dist",
+        "to": "frontend-dist",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "assets/codeburg.icns",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    }
+  }
+}

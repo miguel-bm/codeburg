@@ -12,7 +12,7 @@ export function useWorkspaceSessions() {
   const sessionsQuery = useQuery({
     queryKey,
     queryFn: () => api.sessions.list(),
-    refetchInterval: 5000,
+    refetchInterval: 30_000, // Fallback — real-time via WebSocket sidebar_update
   });
 
   const startMutation = useMutation({

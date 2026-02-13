@@ -3,3 +3,8 @@ backend/codeburg
 
 # OS files
 .DS_Store
+
+# Desktop shell artifacts
+desktop/macos/node_modules/
+desktop/macos/dist/
+desktop/macos/frontend-dist/

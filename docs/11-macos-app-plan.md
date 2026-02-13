@@ -2,6 +2,34 @@
 
 This plan assumes the backend stays on the existing Codeburg server and the macOS app is a client that connects to it.
 
+## Implementation Status (February 12, 2026)
+
+The following parts are now implemented in-repo:
+
+- `M1` shared frontend refactor:
+  - Runtime API/WS config layer (`frontend/src/platform/runtimeConfig.ts`)
+  - Token storage adapter (`frontend/src/platform/authTokenStorage.ts`)
+  - API client, auth store, and websocket hooks migrated to shared adapters
+- `M2` macOS shell scaffold:
+  - Electron shell project at `desktop/macos/`
+  - Preload bridge injects runtime config into frontend via `window.__CODEBURG_CONFIG__`
+  - Preload bridge injects desktop auth-token adapter via `window.__CODEBURG_TOKEN_STORAGE__`
+  - Desktop token persistence uses Electron `safeStorage` (`~/Library/Application Support/Codeburg/auth-token.json`)
+  - First-run setup page persists server origin in app user data
+  - Local static server serves built frontend assets for production shell runs
+  - Native app identity/menu/title bar polish:
+    - Explicit app name (`Codeburg`)
+    - Native macOS menu bar with Preferences shortcut (`Cmd+,`)
+    - `hiddenInset` title bar style with integrated traffic lights
+  - Custom app icon wired for packaged builds (`desktop/macos/assets/codeburg.icns`, generated from frontend logo asset)
+
+Validation completed:
+
+- Frontend tests pass (`pnpm --dir frontend test`)
+- Frontend build passes (`pnpm --dir frontend build`)
+- Electron binary installs and shell launches (`pnpm --dir desktop/macos start`)
+- Packaging smoke passes (`pnpm --dir desktop/macos dist:dir`) producing `desktop/macos/dist/mac-arm64/Codeburg.app`
+
 ## Goals
 
 1. Ship a macOS app with near-parity UI to the web app.

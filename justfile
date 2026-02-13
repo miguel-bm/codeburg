@@ -12,6 +12,10 @@ default:
 dev-fe:
     pnpm --dir frontend dev
 
+# Start macOS shell in dev mode (expects frontend dev server to already be running)
+dev-macos:
+    pnpm --dir desktop/macos dev
+
 # Start backend dev server (port 8080)
 dev-be:
     cd backend && go run ./cmd/codeburg serve
@@ -20,6 +24,15 @@ dev-be:
 
 # Build everything (frontend + backend)
 build: build-fe build-be
+
+# Build frontend assets for macOS desktop shell
+build-macos-fe:
+    pnpm --dir desktop/macos build:frontend
+
+# Build local macOS shell assets (icon + frontend dist)
+build-macos:
+    pnpm --dir desktop/macos build:icon
+    pnpm --dir desktop/macos build:frontend
 
 # Build frontend to dist/
 build-fe:
@@ -45,6 +58,23 @@ test-fe:
 # Run frontend tests in watch mode
 test-fe-watch:
     pnpm --dir frontend test:watch
+
+# Run macOS shell against built frontend assets (optional `origin` override)
+start-macos origin="":
+    if [ -n "{{origin}}" ]; then CODEBURG_SERVER_ORIGIN="{{origin}}" pnpm --dir desktop/macos start; else pnpm --dir desktop/macos start; fi
+
+# Run macOS shell against the production server
+start-macos-prod:
+    CODEBURG_SERVER_ORIGIN="https://codeburg.miscellanics.com" pnpm --dir desktop/macos start
+
+# Build and run macOS shell against the production server
+run-macos-prod:
+    just build-macos
+    CODEBURG_SERVER_ORIGIN="https://codeburg.miscellanics.com" pnpm --dir desktop/macos start
+
+# Build distributable macOS desktop artifacts
+dist-macos:
+    pnpm --dir desktop/macos dist
 
 # --- Database ---
 

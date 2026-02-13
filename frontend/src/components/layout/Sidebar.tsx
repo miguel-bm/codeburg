@@ -14,6 +14,7 @@ import { useSidebarStore, selectIsExpanded } from '../../stores/sidebar';
 import { CreateProjectModal } from '../common/CreateProjectModal';
 import { getSessionStatusMeta } from '../../lib/sessionStatus';
 import { CodeburgIcon, CodeburgWordmark } from '../ui/CodeburgIcon';
+import { getDesktopTitleBarInsetTop, isDesktopShell } from '../../platform/runtimeConfig';
 
 interface FocusableItem {
   type: 'project' | 'task' | 'add-task';
@@ -189,13 +190,18 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   };
 
   const sidebarStyle = width ? { width } : undefined;
+  const desktopTopInset = isDesktopShell() ? getDesktopTitleBarInsetTop() : 0;
+  const sidebarContainerStyle = {
+    ...(sidebarStyle ?? {}),
+    ...(desktopTopInset > 0 ? { paddingTop: `${desktopTopInset}px` } : {}),
+  };
 
   // --- Collapsed mode ---
   if (collapsed) {
     return (
       <aside
         className={`bg-canvas flex flex-col h-full`}
-        style={sidebarStyle}
+        style={sidebarContainerStyle}
       >
         {/* Header: icon logo */}
         <div className="p-2 flex items-center justify-center">
@@ -276,7 +282,7 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   return (
     <aside
       className={`bg-canvas flex flex-col h-full ${width ? '' : 'w-72'}`}
-      style={sidebarStyle}
+      style={sidebarContainerStyle}
     >
       {/* Header */}
       <div className="px-4 pt-4 pb-2 flex items-center justify-between">

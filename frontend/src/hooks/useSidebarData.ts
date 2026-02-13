@@ -9,7 +9,7 @@ export function useSidebarData() {
   return useQuery({
     queryKey: SIDEBAR_QUERY_KEY,
     queryFn: sidebarApi.get,
-    refetchInterval: 10000,
+    refetchInterval: 60_000, // Fallback — real-time via WebSocket sidebar_update
   });
 }
 

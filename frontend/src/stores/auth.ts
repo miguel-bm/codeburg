@@ -2,6 +2,7 @@ import { startAuthentication } from '@simplewebauthn/browser';
 import { create } from 'zustand';
 import { authApi } from '../api';
 import { setOnUnauthorized } from '../api/client';
+import { clearAuthToken, getAuthToken, setAuthToken } from '../platform/authTokenStorage';
 
 declare global {
   interface Window {
@@ -30,12 +31,12 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  isAuthenticated: !!localStorage.getItem('token'),
+  isAuthenticated: !!getAuthToken(),
   isLoading: true,
   needsSetup: null,
   hasPasskeys: false,
   hasTelegram: false,
-  token: localStorage.getItem('token'),
+  token: getAuthToken(),
 
   checkStatus: async () => {
     try {
@@ -52,7 +53,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       if (initData && status.hasTelegram && status.setup) {
         try {
           const { token } = await authApi.telegramAuth(initData);
-          localStorage.setItem('token', token);
+          setAuthToken(token);
           set({ isAuthenticated: true, token });
           return;
         } catch {
@@ -61,14 +62,14 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
 
       // If we have a token, validate it
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       if (token && status.setup) {
         try {
           await authApi.me();
           set({ isAuthenticated: true });
         } catch {
           // Token invalid, clear it
-          localStorage.removeItem('token');
+          clearAuthToken();
           set({ isAuthenticated: false, token: null });
         }
       }
@@ -79,7 +80,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   login: async (password: string) => {
     const { token } = await authApi.login(password);
-    localStorage.setItem('token', token);
+    setAuthToken(token);
     set({ isAuthenticated: true, token });
   },
 
@@ -89,24 +90,24 @@ export const useAuthStore = create<AuthState>((set) => ({
     const optionsJSON = (resp as any).publicKey ?? resp;
     const assertion = await startAuthentication({ optionsJSON });
     const { token } = await authApi.passkeyLoginFinish(assertion);
-    localStorage.setItem('token', token);
+    setAuthToken(token);
     set({ isAuthenticated: true, token });
   },
 
   loginWithTelegram: async (initData: string) => {
     const { token } = await authApi.telegramAuth(initData);
-    localStorage.setItem('token', token);
+    setAuthToken(token);
     set({ isAuthenticated: true, token });
   },
 
   setup: async (password: string) => {
     const { token } = await authApi.setup(password);
-    localStorage.setItem('token', token);
+    setAuthToken(token);
     set({ isAuthenticated: true, needsSetup: false, token });
   },
 
   logout: () => {
-    localStorage.removeItem('token');
+    clearAuthToken();
     set({ isAuthenticated: false, token: null });
   },
 }));

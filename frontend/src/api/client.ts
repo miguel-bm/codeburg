@@ -1,4 +1,5 @@
-const API_BASE = '/api';
+import { getAuthToken } from '../platform/authTokenStorage';
+import { getApiHttpBase } from '../platform/runtimeConfig';
 
 let onUnauthorized: (() => void) | null = null;
 
@@ -24,7 +25,7 @@ async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = localStorage.getItem('token');
+  const token = getAuthToken();
 
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
@@ -35,7 +36,7 @@ async function request<T>(
     (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${getApiHttpBase()}${path}`, {
     ...options,
     headers,
   });
