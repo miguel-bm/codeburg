@@ -126,22 +126,29 @@ export function SettingsShell<TGroup extends string>({
   }, []);
 
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
     if (orderedFilteredSections.length === 0) {
       if (activeSectionId !== '') {
-        setActiveSectionId('');
+        timer = setTimeout(() => setActiveSectionId(''), 0);
       }
-      return;
+      return () => {
+        if (timer) clearTimeout(timer);
+      };
     }
 
     const hasActive = orderedFilteredSections.some((section) => section.id === activeSectionId);
     if (!hasActive) {
-      setActiveSectionId(orderedFilteredSections[0].id);
+      timer = setTimeout(() => setActiveSectionId(orderedFilteredSections[0].id), 0);
     }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
   }, [orderedFilteredSections, activeSectionId]);
 
   useEffect(() => {
     if (!initialSectionId) return;
-    setActiveSectionId(initialSectionId);
+    const timer = setTimeout(() => setActiveSectionId(initialSectionId), 0);
+    return () => clearTimeout(timer);
   }, [initialSectionId]);
 
   useEffect(() => {

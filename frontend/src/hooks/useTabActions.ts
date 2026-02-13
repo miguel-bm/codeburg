@@ -3,8 +3,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useWorkspaceStore } from '../stores/workspace';
 import { useWorkspace } from '../components/workspace/WorkspaceContext';
 import { useWorkspaceSessions } from './useWorkspaceSessions';
-import { sessionsApi } from '../api/sessions';
 import type { AgentSession } from '../api/sessions';
+import { cleanupAgentSession } from '../lib/sessionCleanup';
 
 /**
  * Wraps workspace store close functions with explicit session cleanup.
@@ -31,11 +31,7 @@ export function useTabActions() {
 
   /** Stop (if active) then delete a session */
   const cleanupSession = useCallback((session: AgentSession) => {
-    if (session.status === 'running' || session.status === 'waiting_input') {
-      sessionsApi.stop(session.id).finally(() => sessionsApi.delete(session.id).catch(() => {}));
-    } else {
-      sessionsApi.delete(session.id).catch(() => {});
-    }
+    void cleanupAgentSession(session).catch(() => {});
   }, []);
 
   const closeTab = useCallback(

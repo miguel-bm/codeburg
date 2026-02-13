@@ -2,21 +2,21 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/miguel-bm/codeburg/internal/db"
 	"github.com/miguel-bm/codeburg/internal/ptyruntime"
+	"github.com/miguel-bm/codeburg/internal/sessionlifecycle"
 )
 
 // Guards Claude startup sequence per worktree so hook file write + process start
@@ -75,8 +75,8 @@ func (sm *SessionManager) getOrRestore(sessionID string, database *db.DB) *Sessi
 
 // Reconcile restores in-memory session state from the database on startup.
 // PTY runtimes are in-process and don't survive restart, so active sessions are marked completed.
-func (sm *SessionManager) Reconcile(database *db.DB) {
-	sessions, err := database.ListActiveSessions()
+func (sm *SessionManager) Reconcile(server *Server) {
+	sessions, err := server.db.ListActiveSessions()
 	if err != nil {
 		slog.Error("session reconciliation failed", "error", err)
 		return
@@ -84,8 +84,13 @@ func (sm *SessionManager) Reconcile(database *db.DB) {
 
 	var cleaned int
 	for _, s := range sessions {
-		completedStatus := db.SessionStatusCompleted
-		_, _ = database.UpdateSession(s.ID, db.UpdateSessionInput{Status: &completedStatus})
+		if _, _, err := server.applySessionTransition(s.ID, s.Status, sessionlifecycle.EventReconcileOrphan, s.TaskID, "reconcile"); err != nil {
+			if errors.Is(err, sessionlifecycle.ErrInvalidTransition) {
+				logInvalidSessionTransition(s.ID, s.Status, sessionlifecycle.EventReconcileOrphan, "reconcile", err)
+				continue
+			}
+			slog.Warn("failed to update session during reconciliation", "session_id", s.ID, "error", err)
+		}
 		removeHookToken(s.ID)
 		removeNotifyScript(s.ID)
 		cleaned++
@@ -339,20 +344,35 @@ func (s *Server) startSessionInternal(params startSessionParams, req StartSessio
 	if startErr != nil {
 		removeHookToken(dbSession.ID)
 		removeNotifyScript(dbSession.ID)
-		s.db.DeleteSession(dbSession.ID)
+		if err := s.db.DeleteSession(dbSession.ID); err != nil {
+			slog.Warn("failed to delete session after runtime start failure", "session_id", dbSession.ID, "error", err)
+		}
 		return nil, fmt.Errorf("failed to start runtime process: %w", startErr)
 	}
 
-	// Update status to running
-	runningStatus := db.SessionStatusRunning
-	if _, err := s.db.UpdateSession(dbSession.ID, db.UpdateSessionInput{
-		Status: &runningStatus,
-	}); err != nil {
-		_ = s.sessions.runtime.Stop(dbSession.ID)
+	// Transition idle -> running after successful runtime start.
+	runningStatus, changed, err := s.applySessionTransition(dbSession.ID, dbSession.Status, sessionlifecycle.EventSessionStarted, taskID, "session_start")
+	if err != nil {
+		if stopErr := s.sessions.runtime.Stop(dbSession.ID); stopErr != nil {
+			slog.Warn("failed to stop session runtime after status update failure", "session_id", dbSession.ID, "error", stopErr)
+		}
 		removeHookToken(dbSession.ID)
 		removeNotifyScript(dbSession.ID)
-		_ = s.db.DeleteSession(dbSession.ID)
+		if delErr := s.db.DeleteSession(dbSession.ID); delErr != nil {
+			slog.Warn("failed to delete session after status update failure", "session_id", dbSession.ID, "error", delErr)
+		}
 		return nil, fmt.Errorf("failed to update session status: %w", err)
+	}
+	if !changed {
+		if stopErr := s.sessions.runtime.Stop(dbSession.ID); stopErr != nil {
+			slog.Warn("failed to stop session runtime after no-op status transition", "session_id", dbSession.ID, "error", stopErr)
+		}
+		removeHookToken(dbSession.ID)
+		removeNotifyScript(dbSession.ID)
+		if delErr := s.db.DeleteSession(dbSession.ID); delErr != nil {
+			slog.Warn("failed to delete session after no-op status transition", "session_id", dbSession.ID, "error", delErr)
+		}
+		return nil, fmt.Errorf("failed to update session status: no status change from %s", dbSession.Status)
 	}
 
 	// Store in-memory session
@@ -360,7 +380,7 @@ func (s *Server) startSessionInternal(params startSessionParams, req StartSessio
 		ID:       dbSession.ID,
 		TaskID:   taskID,
 		Provider: provider,
-		Status:   db.SessionStatusRunning,
+		Status:   runningStatus,
 		WorkDir:  workDir,
 	}
 	s.sessions.mu.Lock()
@@ -373,42 +393,10 @@ func (s *Server) startSessionInternal(params startSessionParams, req StartSessio
 		return dbSession, nil
 	}
 
-	// Broadcast sidebar update so clients show the new session immediately
-	s.wsHub.BroadcastGlobal("sidebar_update", map[string]string{
-		"taskId":    taskID,
-		"sessionId": dbSession.ID,
-		"status":    string(db.SessionStatusRunning),
-	})
+	// Broadcast status transition so clients reflect session state immediately.
+	s.broadcastSessionStatus(taskID, dbSession.ID, runningStatus)
 
 	return updatedSession, nil
-}
-
-func withShellFallback(command string, args []string) (string, []string) {
-	if command == "" {
-		return command, args
-	}
-	if _, err := exec.LookPath(command); err == nil {
-		return command, args
-	}
-
-	// Use login shell so user-level PATH customizations are applied.
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/bash"
-	}
-	parts := make([]string, 0, len(args)+1)
-	parts = append(parts, shellQuote(command))
-	for _, arg := range args {
-		parts = append(parts, shellQuote(arg))
-	}
-	return shell, []string{"-lc", strings.Join(parts, " ")}
-}
-
-func shellQuote(s string) string {
-	if s == "" {
-		return "''"
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
 
 func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
@@ -469,11 +457,18 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update status to running
-	runningStatus := db.SessionStatusRunning
-	s.db.UpdateSession(id, db.UpdateSessionInput{
-		Status: &runningStatus,
-	})
+	// Transition waiting_input -> running when user sends a message.
+	runningStatus, changed, err := s.applySessionTransition(id, session.Status, sessionlifecycle.EventUserMessage, session.TaskID, "send_message")
+	if err != nil {
+		if errors.Is(err, sessionlifecycle.ErrInvalidTransition) {
+			logInvalidSessionTransition(id, session.Status, sessionlifecycle.EventUserMessage, "send_message", err)
+		} else {
+			slog.Warn("failed to update session status after send message", "session_id", id, "error", err)
+		}
+	} else if changed {
+		execSession.SetStatus(runningStatus)
+		s.broadcastSessionStatus(session.TaskID, id, runningStatus)
+	}
 
 	// Broadcast to WebSocket subscribers
 	s.wsHub.BroadcastToSession(id, "message_sent", map[string]string{
@@ -493,11 +488,16 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update status
-	completedStatus := db.SessionStatusCompleted
-	s.db.UpdateSession(id, db.UpdateSessionInput{
-		Status: &completedStatus,
-	})
+	// Transition session to completed on explicit stop.
+	completedStatus, changed, err := s.applySessionTransition(id, dbSession.Status, sessionlifecycle.EventStopRequested, dbSession.TaskID, "stop_session")
+	if err != nil {
+		if errors.Is(err, sessionlifecycle.ErrInvalidTransition) {
+			logInvalidSessionTransition(id, dbSession.Status, sessionlifecycle.EventStopRequested, "stop_session", err)
+		} else {
+			slog.Warn("failed to update session status on stop", "session_id", id, "error", err)
+		}
+		completedStatus = db.SessionStatusCompleted
+	}
 
 	// Try to get from in-memory map (with DB fallback)
 	execSession := s.sessions.getOrRestore(id, s.db)
@@ -516,18 +516,10 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 	s.portSuggest.ForgetSession(id)
 
 	// Broadcast to WebSocket
-	s.wsHub.BroadcastToSession(id, "session_stopped", nil)
-	if dbSession.TaskID != "" {
-		s.wsHub.BroadcastToTask(dbSession.TaskID, "session_status_changed", map[string]string{
-			"sessionId": id,
-			"status":    string(db.SessionStatusCompleted),
-		})
+	if changed {
+		s.broadcastSessionStatus(dbSession.TaskID, id, completedStatus)
 	}
-	s.wsHub.BroadcastGlobal("sidebar_update", map[string]string{
-		"taskId":    dbSession.TaskID,
-		"sessionId": id,
-		"status":    string(db.SessionStatusCompleted),
-	})
+	s.wsHub.BroadcastToSession(id, "session_stopped", nil)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -543,8 +535,13 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Mark completed before stopping to avoid race with exit callback status.
-	completedStatus := db.SessionStatusCompleted
-	_, _ = s.db.UpdateSession(id, db.UpdateSessionInput{Status: &completedStatus})
+	if _, _, err := s.applySessionTransition(id, dbSession.Status, sessionlifecycle.EventDeleteRequested, dbSession.TaskID, "delete_session"); err != nil {
+		if errors.Is(err, sessionlifecycle.ErrInvalidTransition) {
+			logInvalidSessionTransition(id, dbSession.Status, sessionlifecycle.EventDeleteRequested, "delete_session", err)
+		} else {
+			slog.Warn("failed to pre-mark session completed before delete", "session_id", id, "error", err)
+		}
+	}
 
 	// Stop if still active
 	execSession := s.sessions.getOrRestore(id, s.db)
@@ -587,141 +584,129 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 }
 
 // setSessionRunning updates a session's status to running if it's currently waiting_input
-func (sm *SessionManager) setSessionRunning(sessionID string, database *db.DB, wsHub *WSHub) {
-	session := sm.getOrRestore(sessionID, database)
+func (sm *SessionManager) setSessionRunning(sessionID string, server *Server) {
+	session := sm.getOrRestore(sessionID, server.db)
 	if session == nil {
 		return
 	}
 
-	if session.CompareAndSetStatus(db.SessionStatusWaitingInput, db.SessionStatusRunning) {
-		runningStatus := db.SessionStatusRunning
-		database.UpdateSession(sessionID, db.UpdateSessionInput{
-			Status: &runningStatus,
-		})
-		wsHub.BroadcastToSession(sessionID, "status_changed", map[string]string{
-			"status": "running",
-		})
+	for {
+		current := session.GetStatus()
+		tr, err := sessionlifecycle.Apply(current, sessionlifecycle.EventUserActivity)
+		if err != nil {
+			logInvalidSessionTransition(sessionID, current, sessionlifecycle.EventUserActivity, "terminal_input", err)
+			return
+		}
+		if !tr.Changed {
+			return
+		}
+		if !session.CompareAndSetStatus(current, tr.To) {
+			continue
+		}
+
+		taskID, newStatus, changed, err := server.applySessionTransitionByID(sessionID, sessionlifecycle.EventUserActivity, "terminal_input")
+		if err != nil {
+			if errors.Is(err, sessionlifecycle.ErrInvalidTransition) {
+				logInvalidSessionTransition(sessionID, current, sessionlifecycle.EventUserActivity, "terminal_input", err)
+			} else {
+				slog.Warn("failed to persist session running status", "session_id", sessionID, "error", err)
+			}
+			return
+		}
+		session.SetStatus(newStatus)
+		if changed {
+			server.broadcastSessionStatus(taskID, sessionID, newStatus)
+		}
+		return
 	}
 }
 
 // StartCleanupLoop runs a background goroutine that detects zombie sessions
 // (sessions in-memory whose runtime process has disappeared) and marks them completed.
-func (sm *SessionManager) StartCleanupLoop(database *db.DB, wsHub *WSHub) {
+func (sm *SessionManager) StartCleanupLoop(ctx context.Context, server *Server) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		// Copy session IDs under read lock
-		sm.mu.RLock()
-		ids := make([]string, 0, len(sm.sessions))
-		for id := range sm.sessions {
-			ids = append(ids, id)
-		}
-		sm.mu.RUnlock()
-
-		var cleaned int
-		for _, id := range ids {
-			sm.mu.RLock()
-			session, ok := sm.sessions[id]
-			sm.mu.RUnlock()
-			if !ok {
-				continue
-			}
-
-			if !sm.runtime.Exists(id) {
-				// Process gone — clean up
-				sm.mu.Lock()
-				delete(sm.sessions, id)
-				sm.mu.Unlock()
-
-				completedStatus := db.SessionStatusCompleted
-				database.UpdateSession(id, db.UpdateSessionInput{Status: &completedStatus})
-				removeHookToken(id)
-				removeNotifyScript(id)
-
-				// Get task ID for broadcast
-				if dbSession, err := database.GetSession(id); err == nil && dbSession.TaskID != "" {
-					wsHub.BroadcastToTask(dbSession.TaskID, "session_status_changed", map[string]string{
-						"sessionId": id,
-						"status":    string(db.SessionStatusCompleted),
-					})
-				}
-				wsHub.BroadcastToSession(id, "session_stopped", nil)
-
-				slog.Info("zombie session cleaned up", "session_id", id, "provider", session.Provider)
-				cleaned++
-			}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
 		}
 
-		slog.Debug("cleanup tick", "checked", len(ids), "cleaned", cleaned)
+		checked, cleaned := sm.cleanupZombieSessions(server)
+		slog.Debug("cleanup tick", "checked", checked, "cleaned", cleaned)
 	}
 }
 
-func buildSessionCommand(req StartSessionRequest, notifyScript, resumeProviderSessionID string) (string, []string) {
-	switch req.Provider {
-	case "claude":
-		args := []string{"--dangerously-skip-permissions"}
-		if req.Model != "" {
-			args = append(args, "--model", req.Model)
+func (sm *SessionManager) cleanupZombieSessions(server *Server) (checked int, cleaned int) {
+	// Copy session IDs under read lock.
+	sm.mu.RLock()
+	ids := make([]string, 0, len(sm.sessions))
+	for id := range sm.sessions {
+		ids = append(ids, id)
+	}
+	sm.mu.RUnlock()
+
+	for _, id := range ids {
+		checked++
+
+		sm.mu.RLock()
+		session, ok := sm.sessions[id]
+		sm.mu.RUnlock()
+		if !ok || sm.runtime.Exists(id) {
+			continue
 		}
-		if req.ResumeSessionID != "" {
-			if resumeProviderSessionID != "" {
-				args = append(args, "--resume", resumeProviderSessionID)
+
+		// Process gone — clean up.
+		sm.mu.Lock()
+		delete(sm.sessions, id)
+		sm.mu.Unlock()
+
+		taskID, status, changed, err := server.applySessionTransitionByID(id, sessionlifecycle.EventZombieRuntimeMissing, "cleanup")
+		if err != nil {
+			if errors.Is(err, sessionlifecycle.ErrInvalidTransition) {
+				logInvalidSessionTransition(id, session.GetStatus(), sessionlifecycle.EventZombieRuntimeMissing, "cleanup", err)
 			} else {
-				args = append(args, "--continue")
+				slog.Warn("failed to persist cleaned zombie session status", "session_id", id, "error", err)
 			}
 		}
-		if req.Prompt != "" {
-			args = append(args, req.Prompt)
-		}
-		return "claude", args
 
-	case "codex":
-		args := []string{"--full-auto"}
-		if req.Model != "" {
-			args = append(args, "--model", req.Model)
-		}
-		if notifyScript != "" {
-			args = append(args, "-c", fmt.Sprintf(`notify=["%s"]`, notifyScript))
-		}
-		if req.Prompt != "" {
-			args = append(args, req.Prompt)
-		}
-		return "codex", args
+		removeHookToken(id)
+		removeNotifyScript(id)
 
-	default: // terminal
-		shell := os.Getenv("SHELL")
-		if shell == "" {
-			shell = "/bin/bash"
+		if changed {
+			server.broadcastSessionStatus(taskID, id, status)
 		}
-		if req.Prompt != "" {
-			return shell, []string{"-lc", req.Prompt}
-		}
-		return shell, []string{"-i"}
+		server.wsHub.BroadcastToSession(id, "session_stopped", nil)
+
+		slog.Info("zombie session cleaned up", "session_id", id, "provider", session.Provider)
+		cleaned++
 	}
+
+	return checked, cleaned
 }
 
 func (s *Server) handleRuntimeExit(taskID string, result ptyruntime.ExitResult) {
-	status := db.SessionStatusCompleted
+	event := sessionlifecycle.EventRuntimeExitSuccess
+	fallbackStatus := db.SessionStatusCompleted
 	if result.ExitCode != 0 {
-		status = db.SessionStatusError
-	}
-	existing, err := s.db.GetSession(result.SessionID)
-	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
-			s.sessions.mu.Lock()
-			delete(s.sessions.sessions, result.SessionID)
-			s.sessions.mu.Unlock()
-			return
-		}
-		slog.Warn("failed to load session on runtime exit", "session_id", result.SessionID, "error", err)
-	}
-	if existing != nil && existing.Status == db.SessionStatusCompleted {
-		status = db.SessionStatusCompleted
+		event = sessionlifecycle.EventRuntimeExitFailure
+		fallbackStatus = db.SessionStatusError
 	}
 
-	if _, err := s.db.UpdateSession(result.SessionID, db.UpdateSessionInput{Status: &status}); err != nil {
-		slog.Warn("failed to update session status on runtime exit", "session_id", result.SessionID, "error", err)
+	resolvedTaskID, status, changed, err := s.applySessionTransitionWithFallback(result.SessionID, fallbackStatus, event, "runtime_exit")
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			changed = false
+		} else if errors.Is(err, sessionlifecycle.ErrInvalidTransition) {
+			logInvalidSessionTransition(result.SessionID, fallbackStatus, event, "runtime_exit", err)
+			status = fallbackStatus
+			changed = false
+		} else {
+			slog.Warn("failed to update session status on runtime exit", "session_id", result.SessionID, "error", err)
+			changed = false
+		}
 	}
 
 	s.sessions.mu.Lock()
@@ -732,20 +717,12 @@ func (s *Server) handleRuntimeExit(taskID string, result ptyruntime.ExitResult) 
 	removeNotifyScript(result.SessionID)
 	s.portSuggest.ForgetSession(result.SessionID)
 
-	s.wsHub.BroadcastToSession(result.SessionID, "status_changed", map[string]string{
-		"status": string(status),
-	})
-	if taskID != "" {
-		s.wsHub.BroadcastToTask(taskID, "session_status_changed", map[string]string{
-			"sessionId": result.SessionID,
-			"status":    string(status),
-		})
+	if resolvedTaskID != "" {
+		taskID = resolvedTaskID
 	}
-	s.wsHub.BroadcastGlobal("sidebar_update", map[string]string{
-		"taskId":    taskID,
-		"sessionId": result.SessionID,
-		"status":    string(status),
-	})
+	if changed {
+		s.broadcastSessionStatus(taskID, result.SessionID, status)
+	}
 }
 
 // writeHookToken writes a scoped token to ~/.codeburg/tokens/{sessionID} and returns the path.
@@ -953,13 +930,4 @@ func removeNotifyScript(sessionID string) {
 		return
 	}
 	os.Remove(filepath.Join(home, ".codeburg", "scripts", sessionID+"-notify.sh"))
-}
-
-// validModelName matches model names safe to interpolate into shell commands.
-// Must start with a letter, then letters, digits, hyphens, dots, colons, or slashes.
-// e.g. "claude-sonnet-4-5-20250929", "gpt-5.2-codex", "o3", "anthropic/claude-3"
-var validModelName = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9\-.:\/_]*$`)
-
-func isValidModelName(name string) bool {
-	return validModelName.MatchString(name)
 }

@@ -31,8 +31,11 @@ export function SecretsSection({ project }: SecretsProps) {
   const [newSource, setNewSource] = useState('');
 
   useEffect(() => {
-    setSecrets(project.secretFiles ?? []);
-    setDirty(false);
+    const timer = setTimeout(() => {
+      setSecrets(project.secretFiles ?? []);
+      setDirty(false);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [project]);
 
   const statusQuery = useQuery({

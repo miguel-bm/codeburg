@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { usePanelNavigation } from '../hooks/usePanelNavigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -8,6 +8,7 @@ import type { AgentSession, SessionProvider } from '../api';
 import { useKeyboardNav } from '../hooks/useKeyboardNav';
 import { HelpOverlay } from '../components/common/HelpOverlay';
 import { useSessionShortcutSettings } from '../stores/keyboard';
+import { cleanupAgentSession } from '../lib/sessionCleanup';
 import { TaskDetailBacklog } from './task/TaskDetailBacklog';
 import { TaskDetailInProgress } from './task/TaskDetailInProgress';
 import { TaskDetailInReview } from './task/TaskDetailInReview';
@@ -18,12 +19,14 @@ export function TaskDetail() {
   const { closePanel } = usePanelNavigation();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const [activeSession, setActiveSession] = useState<AgentSession | null>(null);
-  const [showStartSession, setShowStartSession] = useState(false);
+  const [manualSelection, setManualSelection] = useState<{ taskId: string | null; sessionId: string | null }>({
+    taskId: id ?? null,
+    sessionId: null,
+  });
+  const [showStartSessionTaskId, setShowStartSessionTaskId] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const sessionShortcuts = useSessionShortcutSettings();
   const sessionFromUrl = searchParams.get('session');
-  const [didInitSession, setDidInitSession] = useState(false);
 
   const { data: task, isLoading: taskLoading } = useQuery({
     queryKey: ['task', id],
@@ -45,34 +48,14 @@ export function TaskDetail() {
     refetchIntervalInBackground: false,
   });
 
-  // Reset active session when navigating to a different task
-  useEffect(() => {
-    setActiveSession(null);
-    setShowStartSession(false);
-  }, [id]);
-
   const canOpenSessionComposer = task?.status === TASK_STATUS.IN_PROGRESS || task?.status === TASK_STATUS.IN_REVIEW;
-  const noSessionTabs = canOpenSessionComposer && (sessions?.length ?? 0) === 0;
-  const isSessionComposerVisible = showStartSession || noSessionTabs;
-
-  useEffect(() => {
-    if (!canOpenSessionComposer) setShowStartSession(false);
-  }, [canOpenSessionComposer]);
-
-  // Auto-select session from URL param only (do not override manual selection)
-  useEffect(() => {
-    if (!sessions) return;
-    if (sessionFromUrl) {
-      const match = sessions.find((s) => s.id === sessionFromUrl);
-      if (match) {
-        setActiveSession(match);
-        return;
-      }
-    }
-  }, [sessionFromUrl, sessions, id, activeSession]);
+  const showStartSession = canOpenSessionComposer && showStartSessionTaskId === (id ?? null);
 
   const selectSession = useCallback((session: AgentSession | null) => {
-    setActiveSession(session);
+    setManualSelection({
+      taskId: id ?? null,
+      sessionId: session?.id ?? null,
+    });
     const next = new URLSearchParams(searchParams);
     if (session) {
       next.set('session', session.id);
@@ -80,41 +63,23 @@ export function TaskDetail() {
       next.delete('session');
     }
     setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
-
-  // Initial default: pick the first session once if none selected
-  useEffect(() => {
-    if (didInitSession) return;
-    if (!sessions || sessions.length === 0) return;
-    if (activeSession || sessionFromUrl) {
-      setDidInitSession(true);
-      return;
-    }
-    const sorted = [...sessions].sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-    );
-    selectSession(sorted[0]);
-    setDidInitSession(true);
-  }, [didInitSession, sessions, activeSession, sessionFromUrl, selectSession]);
-
-  // Keep activeSession in sync with polling data
-  useEffect(() => {
-    if (activeSession && sessions) {
-      const updated = sessions.find((s) => s.id === activeSession.id);
-      if (updated && (updated.status !== activeSession.status || updated.lastActivityAt !== activeSession.lastActivityAt)) {
-        setActiveSession(updated);
-      }
-      if (!updated) {
-        setActiveSession(null);
-      }
-    }
-  }, [sessions, activeSession]);
+  }, [id, searchParams, setSearchParams]);
 
   const orderedSessions = useMemo(() => {
     return [...(sessions || [])].sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
     );
   }, [sessions]);
+
+  const manualSessionId = manualSelection.taskId === (id ?? null)
+    ? manualSelection.sessionId
+    : null;
+  const selectedSessionId = sessionFromUrl || manualSessionId || orderedSessions[0]?.id || null;
+  const activeSession = selectedSessionId
+    ? orderedSessions.find((session) => session.id === selectedSessionId) ?? null
+    : null;
+  const noSessionTabs = canOpenSessionComposer && orderedSessions.length === 0;
+  const isSessionComposerVisible = showStartSession || noSessionTabs;
 
   const cycleSession = useCallback((offset: 1 | -1) => {
     if (orderedSessions.length === 0) return;
@@ -138,24 +103,15 @@ export function TaskDetail() {
     onSuccess: (session) => {
       queryClient.invalidateQueries({ queryKey: ['sessions', id] });
       selectSession(session);
-      setShowStartSession(false);
+      setShowStartSessionTaskId(null);
     },
   });
 
-  const stopSessionMutation = useMutation({
-    mutationFn: (sessionId: string) => sessionsApi.stop(sessionId),
-    onSuccess: (_data, sessionId) => {
+  const closeSessionMutation = useMutation({
+    mutationFn: (session: AgentSession) => cleanupAgentSession(session),
+    onSuccess: (_data, session) => {
       queryClient.invalidateQueries({ queryKey: ['sessions', id] });
-      selectSession(null);
-      deleteSessionMutation.mutate(sessionId);
-    },
-  });
-
-  const deleteSessionMutation = useMutation({
-    mutationFn: (sessionId: string) => sessionsApi.delete(sessionId),
-    onSuccess: (_data, deletedId) => {
-      queryClient.invalidateQueries({ queryKey: ['sessions', id] });
-      if (activeSession?.id === deletedId) {
+      if (activeSession?.id === session.id) {
         selectSession(null);
       }
     },
@@ -166,11 +122,7 @@ export function TaskDetail() {
   };
 
   const handleCloseSession = (session: AgentSession) => {
-    if (session.status === 'running' || session.status === 'waiting_input') {
-      stopSessionMutation.mutate(session.id);
-    } else {
-      deleteSessionMutation.mutate(session.id);
-    }
+    closeSessionMutation.mutate(session);
   };
 
   const keyMap: Record<string, () => void> = {
@@ -178,7 +130,7 @@ export function TaskDetail() {
     '?': () => setShowHelp(true),
   };
   if (canOpenSessionComposer) {
-    keyMap.s = () => setShowStartSession(true);
+    keyMap.s = () => setShowStartSessionTaskId(id ?? null);
   }
 
   const nextBindings = Array.from(new Set([
@@ -249,8 +201,8 @@ export function TaskDetail() {
             onSelectSession={selectSession}
             onStartSession={handleStartSession}
             onCloseSession={handleCloseSession}
-            onShowStartComposer={() => setShowStartSession(true)}
-            onHideStartComposer={() => setShowStartSession(false)}
+            onShowStartComposer={() => setShowStartSessionTaskId(id ?? null)}
+            onHideStartComposer={() => setShowStartSessionTaskId(null)}
             showStartComposer={showStartSession}
             startSessionPending={startSessionMutation.isPending}
             startSessionError={startSessionMutation.error?.message}

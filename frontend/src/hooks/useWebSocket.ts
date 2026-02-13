@@ -34,6 +34,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const reconnectAttemptsRef = useRef(0);
   const connectingRef = useRef(false);
   const mountedRef = useRef(true);
+  const connectRef = useRef<() => void>(() => {});
   const [state, setState] = useState<WebSocketState>({
     connected: false,
     connecting: false,
@@ -44,13 +45,17 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const onMessageRef = useRef(onMessage);
   const onConnectRef = useRef(onConnect);
   const onDisconnectRef = useRef(onDisconnect);
-  onMessageRef.current = onMessage;
-  onConnectRef.current = onConnect;
-  onDisconnectRef.current = onDisconnect;
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+    onConnectRef.current = onConnect;
+    onDisconnectRef.current = onDisconnect;
+  }, [onMessage, onConnect, onDisconnect]);
 
   const token = useAuthStore((s) => s.token);
   const tokenRef = useRef(token);
-  tokenRef.current = token;
+  useEffect(() => {
+    tokenRef.current = token;
+  }, [token]);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -60,7 +65,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     connectingRef.current = true;
     setState((s) => ({ ...s, connecting: true, error: null }));
 
-    const url = buildWsUrl('/ws');
+    const token = tokenRef.current;
+    const wsPath = token ? `/ws?token=${encodeURIComponent(token)}` : '/ws';
+    const url = buildWsUrl(wsPath);
 
     const ws = new WebSocket(url);
     wsRef.current = ws;
@@ -69,11 +76,12 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       connectingRef.current = false;
       reconnectAttemptsRef.current = 0;
       setState({ connected: true, connecting: false, error: null });
-      onConnectRef.current?.();
 
-      if (tokenRef.current) {
-        ws.send(JSON.stringify({ type: 'auth', token: tokenRef.current }));
+      if (token) {
+        ws.send(JSON.stringify({ type: 'auth', token }));
       }
+
+      onConnectRef.current?.();
     };
 
     ws.onclose = () => {
@@ -88,7 +96,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         const delay = Math.min(reconnectInterval * Math.pow(2, attempt), 30000);
         reconnectAttemptsRef.current++;
         reconnectTimeoutRef.current = window.setTimeout(() => {
-          connect();
+          connectRef.current();
         }, delay);
       }
     };
@@ -119,6 +127,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     }
   }, []);
 
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
+
   const send = useCallback((message: unknown) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
@@ -139,8 +151,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
   useEffect(() => {
     mountedRef.current = true;
-    connect();
+    const timer = window.setTimeout(() => {
+      connect();
+    }, 0);
     return () => {
+      window.clearTimeout(timer);
       mountedRef.current = false;
       disconnect();
     };

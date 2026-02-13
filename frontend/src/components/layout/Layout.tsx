@@ -20,6 +20,7 @@ interface LayoutProps {
 export function Layout({ children }: LayoutProps) {
   const isMobile = useMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   const store = useSidebarStore();
   const isExpanded = useSidebarStore(selectIsExpanded);
@@ -32,6 +33,7 @@ export function Layout({ children }: LayoutProps) {
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     dragging.current = true;
+    setIsDragging(true);
     startX.current = e.clientX;
     startWidth.current = sidebarWidth;
     document.body.style.cursor = 'col-resize';
@@ -49,6 +51,7 @@ export function Layout({ children }: LayoutProps) {
     const onMouseUp = () => {
       if (!dragging.current) return;
       dragging.current = false;
+      setIsDragging(false);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
@@ -58,6 +61,8 @@ export function Layout({ children }: LayoutProps) {
     return () => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
+      setIsDragging(false);
+      dragging.current = false;
     };
   }, [store]);
 
@@ -104,7 +109,7 @@ export function Layout({ children }: LayoutProps) {
           className="relative flex-shrink-0 overflow-hidden"
           animate={{ width: isExpanded ? sidebarWidth : COLLAPSED_WIDTH }}
           transition={{
-            width: { duration: dragging.current ? 0 : 0.2, ease },
+            width: { duration: isDragging ? 0 : 0.2, ease },
           }}
         >
           <Sidebar width={isExpanded ? sidebarWidth : COLLAPSED_WIDTH} collapsed={!isExpanded} />

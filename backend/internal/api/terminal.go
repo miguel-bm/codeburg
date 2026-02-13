@@ -32,6 +32,12 @@ const (
 // Query params:
 //   - session: codeburg session ID (required)
 func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
+	token := authTokenFromWSRequest(r)
+	if token == "" || !s.auth.ValidateToken(token) {
+		writeError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+
 	sessionID := r.URL.Query().Get("session")
 	if sessionID == "" {
 		http.Error(w, "session parameter required", http.StatusBadRequest)
@@ -44,6 +50,7 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	upgrader := s.wsUpgrader()
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		slog.Error("terminal websocket upgrade error", "error", err)
@@ -173,7 +180,7 @@ func (ts *TerminalSession) handleUserInput(message []byte) {
 		return
 	}
 	ts.lastInput = time.Now()
-	go ts.server.sessions.setSessionRunning(ts.sessionID, ts.server.db, ts.server.wsHub)
+	go ts.server.sessions.setSessionRunning(ts.sessionID, ts.server)
 }
 
 func (ts *TerminalSession) trackActivity() {

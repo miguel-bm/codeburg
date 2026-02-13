@@ -30,6 +30,8 @@ interface AuthState {
   logout: () => void;
 }
 
+type StartAuthenticationOptionsJSON = Parameters<typeof startAuthentication>[0]['optionsJSON'];
+
 export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: !!getAuthToken(),
   isLoading: true,
@@ -87,7 +89,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   loginWithPasskey: async () => {
     const resp = await authApi.passkeyLoginBegin();
     // go-webauthn wraps in { publicKey: {...} }, @simplewebauthn expects the inner object
-    const optionsJSON = (resp as any).publicKey ?? resp;
+    const optionsJSON = (
+      typeof resp === 'object'
+      && resp !== null
+      && 'publicKey' in resp
+    )
+      ? (resp.publicKey as StartAuthenticationOptionsJSON)
+      : (resp as StartAuthenticationOptionsJSON);
     const assertion = await startAuthentication({ optionsJSON });
     const { token } = await authApi.passkeyLoginFinish(assertion);
     setAuthToken(token);

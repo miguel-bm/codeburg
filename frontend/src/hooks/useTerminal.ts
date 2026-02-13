@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useMemo } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
@@ -8,6 +8,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { SearchAddon } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
 import { useTerminalSettings } from '../stores/terminal';
+import { useAuthStore } from '../stores/auth';
 import { buildWsUrl } from '../platform/runtimeConfig';
 
 const TERMINAL_THEME = {
@@ -74,25 +75,42 @@ export function useTerminal(
   const awaitingManualReconnectRef = useRef(false);
   const ignoreNextCarriageReturnRef = useRef(false);
   const sessionStatusRef = useRef(options?.sessionStatus);
+  const debugConfigRef = useRef({
+    enabled: options?.debug === true,
+    onDebugEvent: options?.onDebugEvent,
+  });
 
   const settings = useTerminalSettings();
-  const debugEnabled = options?.debug === true;
+  const token = useAuthStore((s) => s.token);
+
+  useEffect(() => {
+    debugConfigRef.current = {
+      enabled: options?.debug === true,
+      onDebugEvent: options?.onDebugEvent,
+    };
+  }, [options?.debug, options?.onDebugEvent]);
+
   const emitDebug = useCallback((message: string, data?: Record<string, unknown>) => {
-    if (!debugEnabled) return;
+    if (!debugConfigRef.current.enabled) return;
     const payload = data ? ` ${JSON.stringify(data)}` : '';
     const line = `${message}${payload}`;
-    options?.onDebugEvent?.(line);
-    // eslint-disable-next-line no-console
+    debugConfigRef.current.onDebugEvent?.(line);
     console.debug(`[DEBUG][terminal] ${line}`);
-  }, [debugEnabled, options]);
+  }, []);
 
   // Keep ref in sync so closures always see latest status
-  sessionStatusRef.current = options?.sessionStatus;
+  useEffect(() => {
+    sessionStatusRef.current = options?.sessionStatus;
+  }, [options?.sessionStatus]);
 
   // Build the WebSocket URL (stable across reconnects)
   const wsUrl = useCallback(() => {
-    return buildWsUrl(`/ws/terminal?session=${encodeURIComponent(sessionId)}`);
-  }, [sessionId]);
+    let path = `/ws/terminal?session=${encodeURIComponent(sessionId)}`;
+    if (token) {
+      path += `&token=${encodeURIComponent(token)}`;
+    }
+    return buildWsUrl(path);
+  }, [sessionId, token]);
 
   // Create terminal + initial WS connection
   useEffect(() => {
@@ -332,7 +350,7 @@ export function useTerminal(
       term.dispose();
       termRef.current = null;
     };
-  }, [sessionId, containerRef, wsUrl, settings.fontSize, settings.scrollback, settings.cursorStyle, settings.cursorBlink, settings.webLinks, settings.webgl]);
+  }, [sessionId, containerRef, wsUrl, settings.fontSize, settings.scrollback, settings.cursorStyle, settings.cursorBlink, settings.webLinks, settings.webgl, emitDebug]);
 
   // Re-fit on container resize
   useEffect(() => {
@@ -360,18 +378,7 @@ export function useTerminal(
     }
   }, []);
 
-  const actions = useRef<UseTerminalReturn['actions']>({
-    copySelection: () => {},
-    pasteClipboard: () => {},
-    selectAll: () => {},
-    clearSelection: () => {},
-    clear: () => {},
-    reset: () => {},
-    scrollToBottom: () => {},
-    hasSelection: () => false,
-  });
-
-  actions.current.copySelection = () => {
+  const copySelection = useCallback(() => {
     const term = termRef.current;
     if (!term || !term.hasSelection()) return;
     navigator.clipboard.writeText(term.getSelection()).then(() => {
@@ -379,9 +386,9 @@ export function useTerminal(
     }).catch(() => {
       emitDebug('copy:failed');
     });
-  };
+  }, [emitDebug]);
 
-  actions.current.pasteClipboard = () => {
+  const pasteClipboard = useCallback(() => {
     navigator.clipboard.readText().then((text) => {
       if (text && wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(text);
@@ -390,31 +397,42 @@ export function useTerminal(
     }).catch(() => {
       emitDebug('paste:failed');
     });
-  };
+  }, [emitDebug]);
 
-  actions.current.selectAll = () => {
+  const selectAll = useCallback(() => {
     termRef.current?.selectAll();
-  };
+  }, []);
 
-  actions.current.clearSelection = () => {
+  const clearSelection = useCallback(() => {
     termRef.current?.clearSelection();
-  };
+  }, []);
 
-  actions.current.clear = () => {
+  const clear = useCallback(() => {
     termRef.current?.clear();
-  };
+  }, []);
 
-  actions.current.reset = () => {
+  const reset = useCallback(() => {
     termRef.current?.reset();
-  };
+  }, []);
 
-  actions.current.scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     termRef.current?.scrollToBottom();
-  };
+  }, []);
 
-  actions.current.hasSelection = () => {
+  const hasSelection = useCallback(() => {
     return termRef.current?.hasSelection() ?? false;
-  };
+  }, []);
 
-  return { sendInput, actions: actions.current };
+  const actions = useMemo<UseTerminalReturn['actions']>(() => ({
+    copySelection,
+    pasteClipboard,
+    selectAll,
+    clearSelection,
+    clear,
+    reset,
+    scrollToBottom,
+    hasSelection,
+  }), [clear, clearSelection, copySelection, hasSelection, pasteClipboard, reset, scrollToBottom, selectAll]);
+
+  return { sendInput, actions };
 }

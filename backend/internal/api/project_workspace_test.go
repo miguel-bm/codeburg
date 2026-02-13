@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/miguel-bm/codeburg/internal/db"
@@ -96,5 +98,50 @@ func TestProjectWorkspaceProtectsGitPath(t *testing.T) {
 	deleteResp := env.request("DELETE", "/api/projects/"+project.ID+"/file?path=.git", nil)
 	if deleteResp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 deleting protected path, got %d", deleteResp.Code)
+	}
+}
+
+func TestProjectWorkspaceRejectsSymlinkFileEscape(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+	project := createWorkspaceProject(t, env)
+
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "outside.txt")
+	if err := os.WriteFile(outsideFile, []byte("original"), 0644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+
+	linkPath := filepath.Join(project.Path, "link.txt")
+	if err := os.Symlink(outsideFile, linkPath); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	resp := env.request("PUT", "/api/projects/"+project.ID+"/file", map[string]string{
+		"path":    "link.txt",
+		"content": "escaped",
+	})
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 writing through symlink, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestProjectWorkspaceRejectsSymlinkDirectoryEscape(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+	project := createWorkspaceProject(t, env)
+
+	outsideDir := t.TempDir()
+	linkDir := filepath.Join(project.Path, "linkdir")
+	if err := os.Symlink(outsideDir, linkDir); err != nil {
+		t.Fatalf("create symlink dir: %v", err)
+	}
+
+	resp := env.request("PUT", "/api/projects/"+project.ID+"/file", map[string]string{
+		"path":    "linkdir/evil.txt",
+		"content": "escaped",
+	})
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 writing inside symlinked dir, got %d: %s", resp.Code, resp.Body.String())
 	}
 }

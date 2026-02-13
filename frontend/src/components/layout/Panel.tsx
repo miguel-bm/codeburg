@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useCallback, useRef, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { motion } from 'motion/react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -19,6 +19,7 @@ export function Panel({ children }: PanelProps) {
   const isMobile = useMobile();
   const isFullMode = isMobile || isExpanded;
   const dragging = useRef(false);
+  const [isDragging, setIsDragging] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   // Determine the toggle key based on keyboard layout
@@ -66,6 +67,7 @@ export function Panel({ children }: PanelProps) {
     if (!container) return;
 
     dragging.current = true;
+    setIsDragging(true);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
@@ -78,6 +80,7 @@ export function Panel({ children }: PanelProps) {
 
     const onMouseUp = () => {
       dragging.current = false;
+      setIsDragging(false);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       document.removeEventListener('mousemove', onMouseMove);
@@ -130,7 +133,7 @@ export function Panel({ children }: PanelProps) {
           ease,
           ...(!isFullMode ? {
             width: {
-              duration: dragging.current ? 0 : 0.2,
+              duration: isDragging ? 0 : 0.2,
               ease,
             },
           } : {}),

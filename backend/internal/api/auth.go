@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -262,24 +264,63 @@ func (rl *loginRateLimiter) reset(ip string) {
 }
 
 // clientIP extracts the real client IP, checking reverse-proxy headers
-// in order: CF-Connecting-IP (cloudflared), X-Forwarded-For, RemoteAddr.
+// in order: trusted proxy headers (CF-Connecting-IP, X-Forwarded-For), then RemoteAddr.
+// Forwarded headers are only trusted when the direct peer is a trusted proxy
+// (loopback/private/link-local).
 func clientIP(r *http.Request) string {
-	if ip := r.Header.Get("CF-Connecting-IP"); ip != "" {
-		return ip
+	remoteIP := parseRemoteIP(r.RemoteAddr)
+	if remoteIP == "" {
+		return strings.TrimSpace(r.RemoteAddr)
 	}
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// First entry is the original client
-		if i := strings.IndexByte(xff, ','); i > 0 {
-			return strings.TrimSpace(xff[:i])
+
+	if isTrustedProxy(remoteIP) {
+		if ip := normalizeIP(r.Header.Get("CF-Connecting-IP")); ip != "" {
+			return ip
 		}
-		return strings.TrimSpace(xff)
+		if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
+			for _, part := range strings.Split(xff, ",") {
+				if ip := normalizeIP(part); ip != "" {
+					return ip
+				}
+			}
+		}
 	}
-	// Strip port from RemoteAddr
-	addr := r.RemoteAddr
-	if i := strings.LastIndex(addr, ":"); i > 0 {
-		return addr[:i]
+
+	return remoteIP
+}
+
+func parseRemoteIP(remoteAddr string) string {
+	addr := strings.TrimSpace(remoteAddr)
+	if addr == "" {
+		return ""
 	}
-	return addr
+	host, _, err := net.SplitHostPort(addr)
+	if err == nil {
+		return normalizeIP(host)
+	}
+	return normalizeIP(addr)
+}
+
+func normalizeIP(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	s = strings.TrimPrefix(s, "[")
+	s = strings.TrimSuffix(s, "]")
+	ip, err := netip.ParseAddr(s)
+	if err != nil {
+		return ""
+	}
+	return ip.Unmap().String()
+}
+
+func isTrustedProxy(ip string) bool {
+	addr, err := netip.ParseAddr(strings.TrimSpace(ip))
+	if err != nil {
+		return false
+	}
+	return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast()
 }
 
 // HTTP Handlers

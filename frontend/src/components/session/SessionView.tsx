@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect, useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { TerminalView } from './TerminalView';
 import type { AgentSession, SessionStatus } from '../../api/sessions';
@@ -72,8 +72,16 @@ interface ActivityIndicatorProps {
 }
 
 function ActivityIndicator({ lastActivityAt }: ActivityIndicatorProps) {
+  const [now, setNow] = useState(() => Date.now());
   const lastActivity = new Date(lastActivityAt);
-  const secondsAgo = Math.floor((Date.now() - lastActivity.getTime()) / 1000);
+  const secondsAgo = Math.floor((now - lastActivity.getTime()) / 1000);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   if (secondsAgo < 10) {
     return (

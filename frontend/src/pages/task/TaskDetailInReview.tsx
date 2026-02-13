@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Check, Plus } from 'lucide-react';
 import { TaskHeader } from './TaskHeader';
@@ -108,13 +108,10 @@ export function TaskDetailInReview({
 
   // Count active sessions (running or waiting_input)
   const activeSessions = sessions.filter(s => s.status === 'running' || s.status === 'waiting_input');
+  const isSessionPanelOpen = sessions.length === 0 || sessionPanelOpen;
 
   // Auto-open panel when there are active sessions
-  const shouldShowPanel = showComposer || sessionPanelOpen || activeSessions.length > 0;
-
-  useEffect(() => {
-    if (sessions.length === 0) setSessionPanelOpen(true);
-  }, [sessions.length]);
+  const shouldShowPanel = showComposer || isSessionPanelOpen || activeSessions.length > 0;
 
   if (isMobile) {
     return (
@@ -166,20 +163,20 @@ export function TaskDetailInReview({
         <div className="flex items-center border-b border-subtle bg-primary">
           <button
             onClick={() => setSessionPanelOpen(false)}
-            className={`px-4 py-2 text-xs transition-colors ${!sessionPanelOpen ? 'text-accent border-b-2 border-accent' : 'text-dim'}`}
+            className={`px-4 py-2 text-xs transition-colors ${!isSessionPanelOpen ? 'text-accent border-b-2 border-accent' : 'text-dim'}`}
           >
             Diff {diffFileCount > 0 && `(${diffFileCount})`}
           </button>
           <button
             onClick={() => setSessionPanelOpen(true)}
-            className={`px-4 py-2 text-xs transition-colors ${sessionPanelOpen ? 'text-accent border-b-2 border-accent' : 'text-dim'}`}
+            className={`px-4 py-2 text-xs transition-colors ${isSessionPanelOpen ? 'text-accent border-b-2 border-accent' : 'text-dim'}`}
           >
             Sessions {activeSessions.length > 0 && `(${activeSessions.length})`}
           </button>
         </div>
 
         <div className="flex-1 overflow-hidden">
-          {!sessionPanelOpen ? (
+          {!isSessionPanelOpen ? (
             <div className="h-full">
               <BaseDiffExplorer taskId={task.id} onFileCountChange={setDiffFileCount} />
             </div>

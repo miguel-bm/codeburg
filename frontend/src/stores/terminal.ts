@@ -48,8 +48,15 @@ export const useTerminalSettings = create<TerminalSettingsState>((set, get) => (
 
   set: (key, value) => {
     set({ [key]: value });
-    const { set: _set, reset: _reset, ...settings } = get();
-    saveSettings(settings);
+    const state = get();
+    saveSettings({
+      fontSize: state.fontSize,
+      scrollback: state.scrollback,
+      cursorStyle: state.cursorStyle,
+      cursorBlink: state.cursorBlink,
+      webLinks: state.webLinks,
+      webgl: state.webgl,
+    });
   },
 
   reset: () => {

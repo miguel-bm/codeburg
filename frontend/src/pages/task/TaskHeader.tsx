@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, GitBranch, Maximize2, Minimize2, Pin, Trash2, X, AlertTriangle } from 'lucide-react';
 import { useSetHeader } from '../../components/layout/Header';
@@ -12,6 +12,8 @@ import { IconButton } from '../../components/ui/IconButton';
 import { Modal } from '../../components/ui/Modal';
 import { MarkdownField } from '../../components/ui/MarkdownField';
 import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
+import { relativeTime } from '../../utils/text';
+import { useTaskEditorDrafts } from './useTaskEditorDrafts';
 
 interface TaskHeaderProps {
   task: Task;
@@ -20,13 +22,6 @@ interface TaskHeaderProps {
   expandable?: boolean;
 }
 
-export const statusColors: Record<string, string> = {
-  [TASK_STATUS.BACKLOG]: 'bg-[var(--color-status-backlog)]/15 text-[var(--color-status-backlog)]',
-  [TASK_STATUS.IN_PROGRESS]: 'bg-[var(--color-status-in-progress)]/15 text-[var(--color-status-in-progress)]',
-  [TASK_STATUS.IN_REVIEW]: 'bg-[var(--color-status-in-review)]/15 text-[var(--color-status-in-review)]',
-  [TASK_STATUS.DONE]: 'bg-[var(--color-status-done)]/15 text-[var(--color-status-done)]',
-};
-
 const statusTextColorMap: Record<string, string> = {
   [TASK_STATUS.BACKLOG]: 'var(--color-status-backlog)',
   [TASK_STATUS.IN_PROGRESS]: 'var(--color-status-in-progress)',
@@ -34,36 +29,11 @@ const statusTextColorMap: Record<string, string> = {
   [TASK_STATUS.DONE]: 'var(--color-status-done)',
 };
 
-export const statusLabels: Record<string, string> = {
-  [TASK_STATUS.BACKLOG]: 'backlog',
-  [TASK_STATUS.IN_PROGRESS]: 'in progress',
-  [TASK_STATUS.IN_REVIEW]: 'in review',
-  [TASK_STATUS.DONE]: 'done',
-};
-
-export function relativeTime(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  const hours = Math.floor(mins / 60);
-  const days = Math.floor(hours / 24);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  if (days < 7) return `${days}d ago`;
-  if (days < 30) return `${Math.floor(days / 7)}w ago`;
-  return new Date(dateStr).toLocaleDateString();
-}
-
 export function TaskHeader({ task, project, actions, expandable = true }: TaskHeaderProps) {
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const { isExpanded, toggleExpanded, navigateToPanel, closePanel } = usePanelNavigation();
 
-  // Editing state
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [titleValue, setTitleValue] = useState(task.title);
-  const [editingDesc, setEditingDesc] = useState(false);
-  const [descValue, setDescValue] = useState(task.description || '');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Fetch sessions when delete modal is open (for smart warnings)
@@ -72,14 +42,6 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
     queryFn: () => sessionsApi.list(task.id),
     enabled: showDeleteConfirm,
   });
-
-  // Sync when task data refreshes
-  useEffect(() => {
-    if (!editingTitle) setTitleValue(task.title);
-  }, [task.title, editingTitle]);
-  useEffect(() => {
-    if (!editingDesc) setDescValue(task.description || '');
-  }, [task.description, editingDesc]);
 
   const updateTask = useMutation({
     mutationFn: (input: Parameters<typeof tasksApi.update>[1]) =>
@@ -95,23 +57,23 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
     },
   });
 
-  const handleTitleSave = () => {
-    const trimmed = titleValue.trim();
-    if (trimmed && trimmed !== task.title) {
-      updateTask.mutate({ title: trimmed });
-    } else {
-      setTitleValue(task.title);
-    }
-    setEditingTitle(false);
-  };
-
-  const handleDescSave = () => {
-    const trimmed = descValue.trim();
-    if (trimmed !== (task.description || '')) {
-      updateTask.mutate({ description: trimmed || undefined });
-    }
-    setEditingDesc(false);
-  };
+  const {
+    editingTitle,
+    titleDraft,
+    editingDesc,
+    descDraft,
+    setTitleDraft,
+    setDescDraft,
+    startTitleEditing,
+    saveTitle,
+    cancelTitleEditing,
+    startDescEditing,
+    saveDesc,
+    cancelDescEditing,
+  } = useTaskEditorDrafts({
+    task,
+    onUpdate: (input) => updateTask.mutate(input),
+  });
 
   const handleTogglePin = () => {
     updateTask.mutate({ pinned: !task.pinned });
@@ -178,19 +140,19 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
             {editingTitle ? (
               <input
                 type="text"
-                value={titleValue}
-                onChange={(e) => setTitleValue(e.target.value)}
-                onBlur={handleTitleSave}
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onBlur={saveTitle}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleTitleSave();
-                  if (e.key === 'Escape') { setTitleValue(task.title); setEditingTitle(false); }
+                  if (e.key === 'Enter') saveTitle();
+                  if (e.key === 'Escape') cancelTitleEditing();
                 }}
                 className="w-full mt-1 bg-transparent border border-accent rounded px-2 py-1 text-sm font-medium text-[var(--color-text-primary)] focus:outline-none"
                 autoFocus
               />
             ) : (
               <div
-                onClick={() => setEditingTitle(true)}
+                onClick={startTitleEditing}
                 className="mt-1 cursor-text text-sm font-medium text-[var(--color-text-primary)] hover:text-accent transition-colors"
               >
                 {task.title}
@@ -204,7 +166,7 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
               <span className="text-[10px] font-medium uppercase tracking-wider text-dim">Description</span>
               {!editingDesc && (
                 <button
-                  onClick={() => setEditingDesc(true)}
+                  onClick={startDescEditing}
                   className="text-[10px] text-dim hover:text-accent transition-colors"
                 >
                   edit
@@ -215,13 +177,13 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
               <div className="mt-1">
                 <div className="border border-accent rounded px-2 py-1.5">
                   <MarkdownField
-                    value={descValue}
-                    onChange={setDescValue}
+                    value={descDraft}
+                    onChange={setDescDraft}
                     textSize="xs"
-                    rows={Math.max(3, descValue.split('\n').length + 1)}
+                    rows={Math.max(3, descDraft.split('\n').length + 1)}
                     minHeight="60px"
                     onKeyDown={(e) => {
-                      if (e.key === 'Escape') { setDescValue(task.description || ''); setEditingDesc(false); }
+                      if (e.key === 'Escape') cancelDescEditing();
                     }}
                     autoFocus
                   />
@@ -230,14 +192,14 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
                   <Button
                     variant="secondary"
                     size="xs"
-                    onClick={() => { setDescValue(task.description || ''); setEditingDesc(false); }}
+                    onClick={cancelDescEditing}
                   >
                     Cancel
                   </Button>
                   <Button
                     variant="primary"
                     size="xs"
-                    onClick={handleDescSave}
+                    onClick={saveDesc}
                   >
                     Save
                   </Button>
@@ -245,7 +207,7 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
               </div>
             ) : (
               <div
-                onClick={() => setEditingDesc(true)}
+                onClick={startDescEditing}
                 className="mt-1 cursor-text text-xs leading-relaxed min-h-[20px]"
               >
                 {task.description ? (

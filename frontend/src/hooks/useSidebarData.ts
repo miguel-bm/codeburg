@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { sidebarApi } from '../api';
-import { useWebSocket } from './useWebSocket';
+import { useSharedWebSocket } from './useSharedWebSocket';
 
 const SIDEBAR_QUERY_KEY = ['sidebar'] as const;
 
@@ -16,7 +16,7 @@ export function useSidebarData() {
 export function useSidebarRealtimeUpdates() {
   const queryClient = useQueryClient();
 
-  useWebSocket({
+  useSharedWebSocket({
     onMessage: useCallback((data: unknown) => {
       const msg = data as { type?: string };
       if (msg.type === 'sidebar_update') {

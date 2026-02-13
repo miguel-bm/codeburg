@@ -537,7 +537,9 @@ func (s *Server) handleCreatePR(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Store PR URL
-	s.db.UpdateTask(task.ID, db.UpdateTaskInput{PRURL: &prURL})
+	if _, err := s.db.UpdateTask(task.ID, db.UpdateTaskInput{PRURL: &prURL}); err != nil {
+		slog.Warn("failed to store PR URL on task", "task_id", task.ID, "error", err)
+	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"prUrl": prURL})
 }
@@ -560,12 +562,18 @@ func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. Clean up all sessions for the task
-	sessions, _ := s.db.ListSessionsByTask(id)
+	sessions, err := s.db.ListSessionsByTask(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list task sessions")
+		return
+	}
 	for _, sess := range sessions {
 		s.sessions.mu.Lock()
 		delete(s.sessions.sessions, sess.ID)
 		s.sessions.mu.Unlock()
-		_ = s.sessions.runtime.Stop(sess.ID)
+		if err := s.sessions.runtime.Stop(sess.ID); err != nil {
+			slog.Warn("failed to stop runtime session during task deletion", "task_id", id, "session_id", sess.ID, "error", err)
+		}
 		removeHookToken(sess.ID)
 		removeNotifyScript(sess.ID)
 		removeSessionLog(sess.ID)
@@ -574,7 +582,9 @@ func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 
 	// 4. Stop all tunnels for the task
 	for _, t := range s.tunnels.ListForTask(id) {
-		_ = s.tunnels.Stop(t.ID)
+		if err := s.tunnels.Stop(t.ID); err != nil {
+			slog.Warn("failed to stop tunnel during task deletion", "task_id", id, "tunnel_id", t.ID, "error", err)
+		}
 	}
 
 	// 5. Delete worktree if present

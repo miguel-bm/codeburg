@@ -1,10 +1,16 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/miguel-bm/codeburg/internal/api"
 	"github.com/miguel-bm/codeburg/internal/db"
@@ -59,9 +65,33 @@ func runServer(host string, port int) {
 	server := api.NewServer(database)
 	addr := fmt.Sprintf("%s:%d", host, port)
 	slog.Info("starting codeburg server", "addr", addr)
-	if err := server.ListenAndServe(addr); err != nil {
-		slog.Error("server error", "error", err)
-		os.Exit(1)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.ListenAndServe(addr)
+	}()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	select {
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("server error", "error", err)
+			os.Exit(1)
+		}
+	case <-ctx.Done():
+		slog.Info("shutdown signal received, stopping server")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			slog.Error("graceful shutdown failed", "error", err)
+			os.Exit(1)
+		}
+		if err := <-errCh; err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("server error after shutdown", "error", err)
+			os.Exit(1)
+		}
 	}
 }
 

@@ -89,6 +89,34 @@ just migrate   # Run migrations
 ./backend/codeburg serve  # Serves API + frontend from dist/
 ```
 
+### Desktop (macOS)
+
+```bash
+# Build desktop runtime assets (icon + frontend)
+just build-macos
+
+# Start desktop app using saved/default backend target
+just start-macos
+
+# Start desktop app against production server
+just start-macos-prod
+
+# Build and run desktop app against production server
+just run-macos-prod
+
+# Build packaged desktop artifacts (.dmg/.zip/.app in desktop/macos/dist)
+just dist-macos
+```
+
+Desktop notes:
+
+- `start-*` commands launch the app; they do not build frontend/assets.
+- `build-macos` builds required local runtime assets before launch.
+- Passkeys currently do not work in desktop shell due to WebAuthn RP ID/origin mismatch.
+- Desktop shell uses `http://localhost:<port>` (not `127.0.0.1`) to satisfy current CORS rules.
+- macOS icon is generated from `frontend/public/codeburg-logo.svg` via `desktop/macos/scripts/build-icon.sh`.
+- Installing `Codeburg.app` into `/Applications` makes it appear in Launchpad. Signed/notarized distribution is still pending.
+
 ## Testing
 
 ```bash
@@ -147,6 +175,8 @@ codeburg/
 │   │   ├── pages/             # Page components
 │   │   └── stores/            # Zustand stores
 │   └── dist/                  # Production build output
+├── desktop/
+│   └── macos/                 # Electron shell (runtime bridge, packaging, assets)
 ├── deploy/
 │   ├── codeburg.service       # Systemd unit file
 │   ├── cloudflared.yml        # Tunnel config template

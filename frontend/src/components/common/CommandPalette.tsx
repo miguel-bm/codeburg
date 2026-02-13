@@ -311,6 +311,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
 }
 
 // Hook to manage Cmd+K keybinding
+// eslint-disable-next-line react-refresh/only-export-components
 export function useCommandPalette() {
   const [open, setOpen] = useState(false);
 

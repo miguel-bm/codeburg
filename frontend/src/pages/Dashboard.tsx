@@ -1,9 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { createPortal } from 'react-dom';
-import { useSearchParams, useLocation } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { motion } from 'motion/react';
-import { X, LayoutGrid, List as ListIcon, Search, Archive } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
 import { tasksApi, projectsApi, invalidateTaskQueries } from '../api';
 import type { Task, TaskStatus, UpdateTaskResponse } from '../api';
@@ -12,27 +9,19 @@ import { useMobile } from '../hooks/useMobile';
 import { useSwipe } from '../hooks/useSwipe';
 import { useKeyboardNav } from '../hooks/useKeyboardNav';
 import { useDragAndDrop } from '../hooks/useDragAndDrop';
-import { HelpOverlay } from '../components/common/HelpOverlay';
-import { CreateProjectModal } from '../components/common/CreateProjectModal';
 import { usePanelNavigation } from '../hooks/usePanelNavigation';
 import { useSidebarFocusStore } from '../stores/sidebarFocus';
-import { Card } from '../components/ui/Card';
-import { Button } from '../components/ui/Button';
-import { Badge } from '../components/ui/Badge';
-import { Modal } from '../components/ui/Modal';
-import { COLUMNS, COLUMN_ICONS, PRIORITY_COLORS, PRIORITY_LABELS } from '../constants/tasks';
+import { COLUMNS, PRIORITY_COLORS, PRIORITY_LABELS } from '../constants/tasks';
 import {
-  FilterMenu,
-  CompactFilterPanel,
   DASHBOARD_STATUS_PARAM,
   DASHBOARD_PRIORITY_PARAM,
   DASHBOARD_TYPE_PARAM,
   DASHBOARD_LABEL_PARAM,
 } from '../components/dashboard/FilterMenu';
-import { TaskCard, DropPlaceholder, NewTaskPlaceholder } from '../components/dashboard/TaskCard';
-import { TaskListView } from '../components/dashboard/TaskListView';
-import { TaskContextMenu } from '../components/dashboard/TaskContextMenu';
-import { WorkflowPromptModal } from '../components/dashboard/WorkflowPromptModal';
+import { DashboardBoardContent } from '../components/dashboard/DashboardBoardContent';
+import { DashboardHeaderControls } from '../components/dashboard/DashboardHeaderControls';
+import { DashboardOverlays } from '../components/dashboard/DashboardOverlays';
+import { useDashboardFocusSync } from './dashboard/useDashboardFocusSync';
 
 const CREATE_TASK_STATUSES = new Set<TaskStatus>([
   TASK_STATUS.BACKLOG,
@@ -142,7 +131,6 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   const [isCompact, setIsCompact] = useState(false);
   const [activeColumnIndex, setActiveColumnIndex] = useState(0);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
-  const [focus, setFocus] = useState<{ col: number; card: number } | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
@@ -159,16 +147,6 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   const isMobile = useMobile();
   const sidebarFocused = useSidebarFocusStore((s) => s.focused);
   const enterSidebar = useSidebarFocusStore((s) => s.enter);
-
-  // Restore kanban focus when sidebar exits
-  const prevSidebarFocused = useRef(false);
-  useEffect(() => {
-    if (prevSidebarFocused.current && !sidebarFocused) {
-      setFocus({ col: 0, card: 0 });
-      kanbanScrollRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
-    }
-    prevSidebarFocused.current = sidebarFocused;
-  }, [sidebarFocused]);
 
   const clearSearch = useCallback(() => {
     setSearchQuery('');
@@ -449,215 +427,60 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     [availableLabels],
   );
 
+  const handleSelectProject = useCallback((projectId: string) => {
+    updateDashboardParams({ project: projectId });
+  }, [updateDashboardParams]);
+
+  const handleClearProject = useCallback(() => {
+    sessionStorage.removeItem(SESSION_KEY);
+    updateDashboardParams({ project: null });
+  }, [updateDashboardParams]);
+
+  const handleResetFilterParam = useCallback((param: string) => {
+    updateDashboardParams({ [param]: null });
+  }, [updateDashboardParams]);
+
+  const handleToggleShowArchived = useCallback(() => {
+    setShowArchived((value) => !value);
+  }, []);
+
   useSetHeader(
-    <div ref={setHeaderHost} className="flex items-center gap-2 w-full">
-      {/* View toggle — animated sliding indicator, always icon-only */}
-      <div className="relative inline-flex items-center rounded-md bg-tertiary p-0.5 shrink-0">
-        {([{ key: 'kanban' as DashboardView, icon: LayoutGrid }, { key: 'list' as DashboardView, icon: ListIcon }] as const).map((opt) => (
-          <button
-            key={opt.key}
-            type="button"
-            onClick={() => setView(opt.key)}
-            className={`relative inline-flex items-center justify-center w-7 h-6 rounded-[5px] transition-colors ${
-              view === opt.key
-                ? 'text-accent'
-                : 'text-dim hover:text-[var(--color-text-primary)]'
-            }`}
-            title={`${opt.key === 'kanban' ? 'Kanban' : 'List'} view`}
-          >
-            {view === opt.key && (
-              <motion.div
-                layoutId="view-indicator"
-                className="absolute inset-0 rounded-[5px] bg-accent/15"
-                transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-              />
-            )}
-            <opt.icon size={12} className="relative z-[1]" />
-          </button>
-        ))}
-      </div>
-
-      {/* Filters — compact or expanded */}
-      {isCompact ? (
-        <CompactFilterPanel
-          selectedProjectId={selectedProjectId}
-          projectFilterItems={projectFilterItems}
-          showStatusFilter={false}
-          statusFilter={statusFilter}
-          statusFilterItems={statusFilterItems}
-          statusFilterOrder={statusFilterOrder}
-          priorityFilter={priorityFilter}
-          priorityFilterItems={priorityFilterItems}
-          priorityFilterOrder={priorityFilterOrder}
-          typeFilter={typeFilter}
-          typeFilterItems={typeFilterItems}
-          typeFilterOrder={typeFilterOrder}
-          labelFilter={labelFilter}
-          labelFilterItems={labelFilterItems}
-          labelFilterOrder={labelFilterOrder}
-          activeFilterCount={activeFilterCount}
-          onSelectProject={(projectId) => updateDashboardParams({ project: projectId })}
-          onClearProject={() => {
-            sessionStorage.removeItem(SESSION_KEY);
-            updateDashboardParams({ project: null });
-          }}
-          onToggleMultiFilter={toggleMultiFilterValue}
-          onResetAll={clearDashboardFilters}
-        />
-      ) : (
-        <div className="flex items-center gap-1.5 min-w-0">
-          <FilterMenu
-            mode="single"
-            label="Project"
-            selectedValue={selectedProjectId}
-            selectedLabel={activeProjectName}
-            items={projectFilterItems}
-            allLabel="All projects"
-            emptyMessage="No projects found."
-            onSelect={(projectId) => {
-              updateDashboardParams({ project: projectId });
-            }}
-            onClear={() => {
-              sessionStorage.removeItem(SESSION_KEY);
-              updateDashboardParams({ project: null });
-            }}
-            menuWidth={460}
-            searchable
-          />
-
-          <FilterMenu
-            mode="multi"
-            label="Priority"
-            selected={priorityFilter}
-            items={priorityFilterItems}
-            emptyMessage="No priorities found."
-            onToggle={(value) => toggleMultiFilterValue(
-              DASHBOARD_PRIORITY_PARAM,
-              value,
-              priorityFilter,
-              priorityFilterOrder,
-            )}
-            onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_PRIORITY_PARAM, value)}
-            onReset={() => updateDashboardParams({ [DASHBOARD_PRIORITY_PARAM]: null })}
-          />
-
-          <FilterMenu
-            mode="multi"
-            label="Type"
-            selected={typeFilter}
-            items={typeFilterItems}
-            emptyMessage="No task types found."
-            onToggle={(value) => toggleMultiFilterValue(
-              DASHBOARD_TYPE_PARAM,
-              value,
-              typeFilter,
-              typeFilterOrder,
-            )}
-            onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_TYPE_PARAM, value)}
-            onReset={() => updateDashboardParams({ [DASHBOARD_TYPE_PARAM]: null })}
-            searchable
-          />
-
-          <FilterMenu
-            mode="multi"
-            label="Label"
-            selected={labelFilter}
-            items={labelFilterItems}
-            emptyMessage="No labels found."
-            onToggle={(value) => toggleMultiFilterValue(
-              DASHBOARD_LABEL_PARAM,
-              value,
-              labelFilter,
-              labelFilterOrder,
-            )}
-            onOnly={(value) => setOnlyMultiFilterValue(DASHBOARD_LABEL_PARAM, value)}
-            onReset={() => updateDashboardParams({ [DASHBOARD_LABEL_PARAM]: null })}
-            searchable
-          />
-        </div>
-      )}
-
-      {/* Search — expanding inline field */}
-      <div
-        className={`inline-flex h-7 items-center rounded-lg shrink-0 overflow-hidden transition-all duration-200 ease-out ${
-          searchQuery
-            ? 'bg-accent/10'
-            : searchExpanded
-              ? 'bg-tertiary'
-              : ''
-        }`}
-        style={{ width: searchExpanded ? 200 : 28 }}
-      >
-        <button
-          type="button"
-          onClick={() => { if (!searchExpanded) setSearchExpanded(true); }}
-          className={`shrink-0 w-7 h-7 inline-flex items-center justify-center rounded-lg transition-colors ${
-            searchQuery
-              ? 'text-accent'
-              : searchExpanded
-                ? 'text-dim'
-                : 'text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
-          }`}
-        >
-          <Search size={12} />
-        </button>
-        <input
-          ref={searchInputRef}
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Escape') clearSearch(); }}
-          placeholder="Search..."
-          className={`flex-1 min-w-0 h-7 bg-transparent text-[11px] focus:outline-none ${
-            searchQuery
-              ? 'text-accent placeholder:text-accent/50'
-              : 'text-[var(--color-text-primary)] placeholder:text-dim'
-          }`}
-          tabIndex={searchExpanded ? 0 : -1}
-        />
-        <button
-          type="button"
-          onClick={clearSearch}
-          className={`shrink-0 w-6 h-7 inline-flex items-center justify-center transition-colors ${
-            searchQuery
-              ? 'text-accent/60 hover:text-accent'
-              : 'text-dim hover:text-[var(--color-text-primary)]'
-          }`}
-          tabIndex={searchExpanded ? 0 : -1}
-        >
-          <X size={12} />
-        </button>
-      </div>
-
-      {/* Archive toggle */}
-      <button
-        type="button"
-        onClick={() => setShowArchived((v) => !v)}
-        className={`shrink-0 w-7 h-7 inline-flex items-center justify-center rounded-lg transition-colors ${
-          showArchived
-            ? 'text-accent bg-accent/10'
-            : 'text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
-        }`}
-        title={showArchived ? 'Hide archived tasks' : 'Show archived tasks'}
-      >
-        <Archive size={12} />
-      </button>
-
-      {/* Clear — always visible, pinned right */}
-      {activeFilterCount > 0 && (
-        <div className="ml-auto flex items-center gap-1.5 shrink-0">
-          <span className="text-[11px] text-dim">{activeFilterCount}</span>
-          <Button
-            variant="ghost"
-            size="xs"
-            icon={<X size={12} />}
-            onClick={clearDashboardFilters}
-            title="Clear all filters"
-          >
-            Clear
-          </Button>
-        </div>
-      )}
-    </div>,
+    <DashboardHeaderControls
+      setHeaderHost={setHeaderHost}
+      view={view}
+      onSetView={setView}
+      isCompact={isCompact}
+      selectedProjectId={selectedProjectId}
+      activeProjectName={activeProjectName}
+      projectFilterItems={projectFilterItems}
+      statusFilter={statusFilter}
+      statusFilterItems={statusFilterItems}
+      statusFilterOrder={statusFilterOrder}
+      priorityFilter={priorityFilter}
+      priorityFilterItems={priorityFilterItems}
+      priorityFilterOrder={priorityFilterOrder}
+      typeFilter={typeFilter}
+      typeFilterItems={typeFilterItems}
+      typeFilterOrder={typeFilterOrder}
+      labelFilter={labelFilter}
+      labelFilterItems={labelFilterItems}
+      labelFilterOrder={labelFilterOrder}
+      activeFilterCount={activeFilterCount}
+      onSelectProject={handleSelectProject}
+      onClearProject={handleClearProject}
+      onToggleMultiFilter={toggleMultiFilterValue}
+      onSetOnlyMultiFilterValue={setOnlyMultiFilterValue}
+      onResetFilterParam={handleResetFilterParam}
+      onClearDashboardFilters={clearDashboardFilters}
+      searchExpanded={searchExpanded}
+      searchQuery={searchQuery}
+      searchInputRef={searchInputRef}
+      onSetSearchExpanded={setSearchExpanded}
+      onSetSearchQuery={setSearchQuery}
+      onClearSearch={clearSearch}
+      showArchived={showArchived}
+      onToggleShowArchived={handleToggleShowArchived}
+    />,
     `dashboard-${view}-${isCompact}-${searchExpanded}-${searchQuery}-${showArchived}-${selectedProjectId ?? 'none'}-${Array.from(statusFilter).sort().join('.')}-${Array.from(priorityFilter).sort().join('.')}-${Array.from(typeFilter).sort().join('.')}-${Array.from(labelFilter).sort().join('.')}-${(projects ?? []).length}-${availablePriorities.join('.')}-${availableTaskTypes.join('.')}-${availableLabels.map((label) => label.id).join('.')}`,
   );
 
@@ -678,6 +501,31 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     [tasksByStatus],
   );
 
+  const { focus, setFocus, getFocusedTask } = useDashboardFocusSync({
+    panelOpen,
+    tasks,
+    tasksByStatus,
+    selectedProjectId,
+    statusFilter,
+    priorityFilter,
+    typeFilter,
+    labelFilter,
+    getColumnTasks,
+    navigateToPanel,
+    isMobile,
+    setActiveColumnIndex,
+  });
+
+  // Restore kanban focus when sidebar exits
+  const prevSidebarFocused = useRef(false);
+  useEffect(() => {
+    if (prevSidebarFocused.current && !sidebarFocused) {
+      setFocus({ col: 0, card: 0 });
+      kanbanScrollRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
+    }
+    prevSidebarFocused.current = sidebarFocused;
+  }, [sidebarFocused, setFocus]);
+
   const { drag, setDrag, isDragging, handleMouseDown } = useDragAndDrop({
     columns: COLUMNS,
     getColumnTasks,
@@ -696,47 +544,6 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
       navigateToPanel(`/tasks/${task.id}`);
     }, [navigateToPanel]),
   });
-
-  const getFocusedTask = useCallback((): Task | null => {
-    if (!focus) return null;
-    const col = getColumnTasks(focus.col);
-    return col[focus.card] ?? null;
-  }, [focus, getColumnTasks]);
-
-  // Auto-select first task on initial load or when filters change
-  const focusSelectionKey = useMemo(
-    () => [
-      selectedProjectId ?? '',
-      Array.from(statusFilter).sort().join(','),
-      Array.from(priorityFilter).sort().join(','),
-      Array.from(typeFilter).sort().join(','),
-      Array.from(labelFilter).sort().join(','),
-    ].join('|'),
-    [
-      selectedProjectId,
-      statusFilter,
-      priorityFilter,
-      typeFilter,
-      labelFilter,
-    ],
-  );
-  const prevFocusSelectionKey = useRef(focusSelectionKey);
-  const hasInitialized = useRef(false);
-  useEffect(() => {
-    if (!tasks) return;
-    const filtersChanged = prevFocusSelectionKey.current !== focusSelectionKey;
-    prevFocusSelectionKey.current = focusSelectionKey;
-    if (hasInitialized.current && !filtersChanged) return;
-    hasInitialized.current = true;
-    for (let col = 0; col < COLUMNS.length; col++) {
-      const colTasks = tasksByStatus.get(COLUMNS[col].id) ?? [];
-      if (colTasks.length > 0) {
-        setFocus({ col, card: 0 });
-        return;
-      }
-    }
-    setFocus({ col: 0, card: 0 });
-  }, [focusSelectionKey, tasks, tasksByStatus]);
 
   const STATUS_ORDER: TaskStatus[] = COLUMNS.map((c) => c.id);
 
@@ -760,7 +567,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     updateTaskMutation.mutate({ id: task.id, status: STATUS_ORDER[newCol] });
     const maxCard = Math.max(getColumnTasks(newCol).length, 0);
     setFocus({ col: newCol, card: Math.min(focus.card, maxCard) });
-  }, [focus, getFocusedTask, getColumnTasks, updateTaskMutation, STATUS_ORDER]);
+  }, [focus, getFocusedTask, getColumnTasks, setFocus, updateTaskMutation, STATUS_ORDER]);
 
   const moveColumnRight = useCallback(() => {
     if (!focus) return;
@@ -770,7 +577,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     updateTaskMutation.mutate({ id: task.id, status: STATUS_ORDER[newCol] });
     const maxCard = Math.max(getColumnTasks(newCol).length, 0);
     setFocus({ col: newCol, card: Math.min(focus.card, maxCard) });
-  }, [focus, getFocusedTask, getColumnTasks, updateTaskMutation, STATUS_ORDER]);
+  }, [focus, getFocusedTask, getColumnTasks, setFocus, updateTaskMutation, STATUS_ORDER]);
 
   const reorderUp = useCallback(() => {
     if (!focus) return;
@@ -782,7 +589,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     if (!targetTask) return;
     updateTaskMutation.mutate({ id: task.id, position: targetTask.position });
     setFocus({ col: focus.col, card: newPos });
-  }, [focus, getFocusedTask, getColumnTasks, updateTaskMutation]);
+  }, [focus, getFocusedTask, getColumnTasks, setFocus, updateTaskMutation]);
 
   const reorderDown = useCallback(() => {
     if (!focus) return;
@@ -794,7 +601,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     if (!targetTask) return;
     updateTaskMutation.mutate({ id: task.id, position: targetTask.position });
     setFocus({ col: focus.col, card: newPos });
-  }, [focus, getFocusedTask, getColumnTasks, updateTaskMutation]);
+  }, [focus, getFocusedTask, getColumnTasks, setFocus, updateTaskMutation]);
 
   const togglePin = useCallback(() => {
     if (!focus) return;
@@ -816,58 +623,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
       const col = Math.max((f?.col ?? 1) - 1, 0);
       return { col, card: Math.min(f?.card ?? 0, getMaxCard(col)) };
     });
-  }, [focus, enterSidebar, getMaxCard]);
-
-  // --- Bidirectional sync: kanban focus ↔ panel URL ---
-  const location = useLocation();
-  const syncFromUrl = useRef(false); // prevents focus→URL loop
-  const getPanelTaskIdFromPath = useCallback((pathname: string): string | null => {
-    const match = pathname.match(/^\/tasks\/([^/]+)$/);
-    if (!match) return null;
-    const taskId = match[1];
-    if (taskId === 'new' || taskId === 'quick') return null;
-    return taskId;
-  }, []);
-
-  // Reverse sync: panel URL → kanban focus
-  // When the URL changes to /tasks/:id (e.g. clicking a card), highlight that card in the kanban
-  useEffect(() => {
-    if (!panelOpen || !tasks) return;
-    const panelTaskId = getPanelTaskIdFromPath(location.pathname);
-    if (!panelTaskId) return;
-
-    // Find the task in the kanban and set focus to it
-    for (let col = 0; col < COLUMNS.length; col++) {
-      const colTasks = tasksByStatus.get(COLUMNS[col].id) ?? [];
-      const cardIdx = colTasks.findIndex((t) => t.id === panelTaskId);
-      if (cardIdx >= 0) {
-        // Only update if focus doesn't already point here
-        if (!focus || focus.col !== col || focus.card !== cardIdx) {
-          syncFromUrl.current = true;
-          setFocus({ col, card: cardIdx });
-        }
-        return;
-      }
-    }
-  }, [location.pathname, panelOpen, tasks, tasksByStatus, focus, getPanelTaskIdFromPath]);
-
-  // Forward sync: kanban focus → panel URL
-  // When keyboard nav changes focus while panel is open, update the panel to show that task
-  const prevFocus = useRef(focus);
-  useEffect(() => {
-    if (!panelOpen || !focus) { prevFocus.current = focus; return; }
-    const panelTaskId = getPanelTaskIdFromPath(location.pathname);
-    if (!panelTaskId) { prevFocus.current = focus; return; }
-    // Skip if this focus change came from URL sync (avoid loop)
-    if (syncFromUrl.current) { syncFromUrl.current = false; prevFocus.current = focus; return; }
-    const changed = !prevFocus.current || prevFocus.current.col !== focus.col || prevFocus.current.card !== focus.card;
-    prevFocus.current = focus;
-    if (!changed) return;
-    const task = getColumnTasks(focus.col)[focus.card];
-    if (task && task.id !== panelTaskId) {
-      navigateToPanel(`/tasks/${task.id}`, { replace: true });
-    }
-  }, [focus, panelOpen, location.pathname, navigateToPanel, getColumnTasks, getPanelTaskIdFromPath]);
+  }, [focus, enterSidebar, getMaxCard, setFocus]);
 
   useKeyboardNav({
     keyMap: {
@@ -936,296 +692,71 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     enabled: view === 'kanban' && !showCreateProject && !showHelp && !contextMenu && !drag && !sidebarFocused,
   });
 
-  // Sync mobile tab to focus column
-  useEffect(() => {
-    if (focus && isMobile) {
-      setActiveColumnIndex(focus.col);
-    }
-  }, [focus, isMobile]);
-
   useEffect(() => {
     if (view === 'list') {
       setContextMenu(null);
       setDrag(null);
     }
-  }, [view]);
+  }, [setDrag, view]);
 
   return (
     <>
-      {/* Warning Banner */}
-      {warning && (
-        <div className="flex items-center justify-between px-4 py-2 bg-[var(--color-warning,#b8860b)]/10 border-b border-[var(--color-warning,#b8860b)]/30 text-[var(--color-warning,#b8860b)] text-xs">
-          <span>{warning}</span>
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() => setWarning(null)}
-            className="ml-4"
-          >
-            Dismiss
-          </Button>
-        </div>
-      )}
+      <DashboardOverlays
+        warning={warning}
+        onDismissWarning={() => setWarning(null)}
+        isDragging={isDragging}
+        drag={drag}
+        tasks={tasks}
+        selectedProjectId={selectedProjectId}
+        getProjectName={getProjectName}
+        contextMenu={contextMenu}
+        onCloseContextMenu={() => setContextMenu(null)}
+        onContextStatusChange={(taskId, status) => {
+          updateTaskMutation.mutate({ id: taskId, status });
+          setContextMenu(null);
+        }}
+        onArchive={handleArchive}
+        onDeleteFromContext={(taskId) => setPendingDelete(taskId)}
+        showCreateProject={showCreateProject}
+        onCloseCreateProject={() => setShowCreateProject(false)}
+        workflowPrompt={workflowPrompt}
+        onCloseWorkflowPrompt={() => setWorkflowPrompt(null)}
+        pendingDelete={pendingDelete}
+        onCloseDelete={() => setPendingDelete(null)}
+        onConfirmDelete={(taskId) => deleteTaskMutation.mutate(taskId)}
+        deletePending={deleteTaskMutation.isPending}
+        showHelp={showHelp}
+        onCloseHelp={() => setShowHelp(false)}
+      />
 
-      {view === 'list' ? (
-        <TaskListView
-          tasks={listTasks}
-          loading={tasksLoading}
-          selectedProjectId={selectedProjectId}
-          getProjectName={getProjectName}
-          onOpenTask={(taskId) => navigateToPanel(`/tasks/${taskId}`)}
-          canCreateTask={hasProjects}
-          onCreateTask={(status) => {
-            if (hasProjects) navigateToCreate(status);
-          }}
-        />
-      ) : (
-        <>
-          {isMobile ? (
-            // Mobile: Tabbed columns with swipe navigation
-            <div className="flex flex-col h-full">
-              {/* Tab Navigation */}
-              <div className="flex overflow-x-auto">
-                {COLUMNS.map((column, index) => {
-                  const TabIcon = COLUMN_ICONS[column.id];
-                  return (
-                    <button
-                      key={column.id}
-                      onClick={() => setActiveColumnIndex(index)}
-                      className={`flex-1 min-w-0 px-3 py-2 text-xs font-medium transition-colors inline-flex items-center justify-center gap-1 ${
-                        activeColumnIndex === index
-                          ? `${column.color} border-b-2 border-accent`
-                          : 'text-dim hover:text-[var(--color-text-primary)]'
-                      }`}
-                    >
-                      <TabIcon size={12} />
-                      {column.title}
-                      <span className="ml-0.5 text-dim">
-                        {getTasksByStatus(column.id).length}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+      <DashboardBoardContent
+        view={view}
+        listTasks={listTasks}
+        tasksLoading={tasksLoading}
+        selectedProjectId={selectedProjectId}
+        getProjectName={getProjectName}
+        onOpenTask={(taskId) => navigateToPanel(`/tasks/${taskId}`)}
+        canCreateTask={hasProjects}
+        onCreateTask={(status) => {
+          if (hasProjects) navigateToCreate(status);
+        }}
+        isMobile={isMobile}
+        activeColumnIndex={activeColumnIndex}
+        onSetActiveColumnIndex={setActiveColumnIndex}
+        getTasksByStatus={getTasksByStatus}
+        focus={focus}
+        onSetContextMenu={(menu) => setContextMenu(menu)}
+        onArchive={handleArchive}
+        canCreateTaskInStatus={canCreateTaskInStatus}
+        swipeHandlers={swipeHandlers}
+        kanbanScrollRef={kanbanScrollRef}
+        columnRefs={columnRefs}
+        cardRefs={cardRefs}
+        isDragging={isDragging}
+        drag={drag}
+        onTaskMouseDown={handleMouseDown}
+      />
 
-              {/* Swipeable Content */}
-              <div
-                className="flex-1 overflow-y-auto p-2"
-                {...swipeHandlers}
-              >
-                {tasksLoading ? (
-                  <div className="text-center text-dim py-8 text-sm">Loading...</div>
-                ) : (
-                  <div className="space-y-3">
-                    {getTasksByStatus(COLUMNS[activeColumnIndex].id).map((task, cardIdx) => (
-                      <TaskCard
-                        key={task.id}
-                        task={task}
-                        projectName={!selectedProjectId ? getProjectName(task.projectId) : undefined}
-                        isMobile
-                        onLongPress={(x, y) => setContextMenu({ taskId: task.id, x, y })}
-                        focused={focus?.col === activeColumnIndex && focus?.card === cardIdx}
-                        onArchive={handleArchive}
-                      />
-                    ))}
-                    {canCreateTaskInStatus(COLUMNS[activeColumnIndex].id) && (
-                      <NewTaskPlaceholder
-                        focused={focus?.col === activeColumnIndex && focus?.card === getTasksByStatus(COLUMNS[activeColumnIndex].id).length}
-                        onClick={() => { if (hasProjects) navigateToCreate(COLUMNS[activeColumnIndex].id); }}
-                      />
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            // Desktop: Horizontal scrolling kanban with custom DnD
-            <div ref={kanbanScrollRef} className="px-3 py-3 h-full overflow-x-auto">
-              <div className="flex gap-2 h-full min-w-[1200px]">
-                {COLUMNS.map((column, colIdx) => {
-                  const colTasks = getTasksByStatus(column.id);
-                  const ColIcon = COLUMN_ICONS[column.id];
-                  return (
-                    <Card
-                      key={column.id}
-                      padding="none"
-                      className={`group flex-1 min-w-0 flex flex-col transition-all duration-150 ${
-                        focus?.col === colIdx
-                          ? '!border-accent'
-                          : ''
-                      } ${isDragging && drag?.targetCol === colIdx ? 'drag-target-col' : ''}`}
-                    >
-                      <div ref={(el) => { columnRefs.current[colIdx] = el; }} className="flex flex-col h-full">
-                        {/* Column Header */}
-                        <div className="px-4 py-3">
-                          <div className="flex items-center justify-between">
-                            <h3 className={`text-xs font-medium uppercase tracking-wider ${column.color} flex items-center gap-1.5`}>
-                              <ColIcon size={14} className="text-dim" />
-                              {column.title}
-                            </h3>
-                            <Badge variant="count">{colTasks.length}</Badge>
-                          </div>
-                        </div>
-
-                        {/* Tasks */}
-                        <div className="flex-1 p-2 space-y-1 overflow-y-auto">
-                          {tasksLoading ? (
-                            <div className="text-center text-dim py-4 text-sm">
-                              Loading...
-                            </div>
-                          ) : (
-                            <>
-                              {colTasks.map((task, cardIdx) => {
-                                const isGhost = !!(isDragging && drag?.taskId === task.id);
-                                // Show placeholder before this card if it's the drop target.
-                                // Suppress when hovering at the original position: calcDropTarget skips
-                                // the ghost, so "original spot" = targetPosition === sourceCard + 1 in the same column.
-                                const isReturnToOrigin = drag?.sourceCol === colIdx && drag?.sourceCard !== undefined && cardIdx === drag.sourceCard + 1;
-                                const showDropPlaceholder = isDragging && drag?.targetCol === colIdx && drag?.targetPosition === cardIdx && drag?.taskId !== task.id && !isReturnToOrigin;
-                                return (
-                                  <div key={task.id}>
-                                    {showDropPlaceholder && (
-                                      <DropPlaceholder height={drag!.cardHeight} />
-                                    )}
-                                    <TaskCard
-                                      ref={(el) => {
-                                        if (el) cardRefs.current.set(task.id, el);
-                                        else cardRefs.current.delete(task.id);
-                                      }}
-                                      task={task}
-                                      projectName={!selectedProjectId ? getProjectName(task.projectId) : undefined}
-                                      focused={!!(focus?.col === colIdx && focus?.card === cardIdx)}
-                                      ghost={isGhost}
-                                      onMouseDown={(e) => handleMouseDown(e, task, colIdx, cardIdx)}
-                                      onContextMenu={(x, y, taskId) => setContextMenu({ taskId, x, y })}
-                                      onArchive={handleArchive}
-                                    />
-                                  </div>
-                                );
-                              })}
-                              {/* Drop placeholder at end of column (suppress if ghost is the last card) */}
-                              {isDragging && drag?.targetCol === colIdx && drag?.targetPosition >= colTasks.length
-                                && !(drag?.sourceCol === colIdx && drag?.sourceCard === colTasks.length - 1) && (
-                                <DropPlaceholder height={drag!.cardHeight} />
-                              )}
-                              {canCreateTaskInStatus(column.id) && (
-                                <NewTaskPlaceholder
-                                  focused={focus?.col === colIdx && focus?.card === colTasks.length}
-                                  selected={focus?.col === colIdx}
-                                  showOnHover
-                                  onClick={() => { if (hasProjects) navigateToCreate(column.id); }}
-                                />
-                              )}
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </Card>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Drag overlay (portal) */}
-      {isDragging && drag && (() => {
-        const draggedTask = (tasks ?? []).find((t) => t.id === drag.taskId);
-        if (!draggedTask) return null;
-        // Dynamic rotation based on horizontal velocity (clamped)
-        const vx = drag.mouseX - drag.initialMouseX;
-        const rotation = Math.max(-4, Math.min(4, vx * 0.02));
-        return createPortal(
-          <div
-            className="fixed z-[100] pointer-events-none animate-drag-pickup"
-            style={{
-              left: drag.mouseX - drag.cardOffsetX,
-              top: drag.mouseY - drag.cardOffsetY,
-              width: drag.cardWidth,
-              transform: `rotate(${rotation}deg) scale(1.03)`,
-              willChange: 'transform',
-            }}
-          >
-            <div className="bg-card rounded-lg" style={{ boxShadow: '0 12px 28px oklch(0 0 0 / 0.25), 0 4px 10px oklch(0 0 0 / 0.15)' }}>
-              <TaskCard
-                task={draggedTask}
-                projectName={!selectedProjectId ? getProjectName(draggedTask.projectId) : undefined}
-                focused={false}
-              />
-            </div>
-          </div>,
-          document.body,
-        );
-      })()}
-
-      {/* Context Menu (right-click on desktop, long-press on mobile) */}
-      {contextMenu && (
-        <TaskContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          taskId={contextMenu.taskId}
-          currentStatus={tasks?.find((t) => t.id === contextMenu.taskId)?.status ?? TASK_STATUS.BACKLOG}
-          isArchived={!!tasks?.find((t) => t.id === contextMenu.taskId)?.archivedAt}
-          onClose={() => setContextMenu(null)}
-          onStatusChange={(status) => {
-            updateTaskMutation.mutate({ id: contextMenu.taskId, status });
-            setContextMenu(null);
-          }}
-          onArchive={handleArchive}
-          onDelete={(taskId) => setPendingDelete(taskId)}
-        />
-      )}
-
-      {/* Create Project Modal */}
-      {showCreateProject && (
-        <CreateProjectModal onClose={() => setShowCreateProject(false)} />
-      )}
-
-      {/* Workflow Prompt Modal */}
-      {workflowPrompt && (
-        <WorkflowPromptModal
-          taskId={workflowPrompt.taskId}
-          onClose={() => setWorkflowPrompt(null)}
-        />
-      )}
-
-      {/* Delete Confirmation Modal */}
-      <Modal
-        open={!!pendingDelete}
-        onClose={() => setPendingDelete(null)}
-        title="Delete task"
-        size="sm"
-        footer={
-          <div className="flex justify-end gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setPendingDelete(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={() => pendingDelete && deleteTaskMutation.mutate(pendingDelete)}
-              loading={deleteTaskMutation.isPending}
-            >
-              {deleteTaskMutation.isPending ? 'Deleting...' : 'Delete'}
-            </Button>
-          </div>
-        }
-      >
-        <div className="px-5 py-3">
-          <p className="text-xs text-dim">
-            Delete <strong className="text-[var(--color-text-primary)]">
-              {tasks?.find((t) => t.id === pendingDelete)?.title ?? 'this task'}
-            </strong>? This cannot be undone.
-          </p>
-        </div>
-      </Modal>
-
-      {/* Help Overlay */}
-      {showHelp && (
-        <HelpOverlay page="dashboard" onClose={() => setShowHelp(false)} />
-      )}
     </>
   );
 }
-

@@ -25,12 +25,9 @@ export function BaseDiffExplorer({ taskId, onFileCountChange }: BaseDiffExplorer
     onFileCountChange?.(diffFiles.length);
   }, [diffFiles.length, onFileCountChange]);
 
-  useEffect(() => {
-    if (!selectedFile) return;
-    if (!diffFiles.some((file) => file.path === selectedFile)) {
-      setSelectedFile(undefined);
-    }
-  }, [diffFiles, selectedFile]);
+  const effectiveSelectedFile = selectedFile && diffFiles.some((file) => file.path === selectedFile)
+    ? selectedFile
+    : undefined;
 
   if (isMobile) {
     return (
@@ -38,7 +35,7 @@ export function BaseDiffExplorer({ taskId, onFileCountChange }: BaseDiffExplorer
         {diffFiles.length > 0 && (
           <div className="px-3 py-2 border-b border-subtle bg-secondary">
             <select
-              value={selectedFile || ''}
+              value={effectiveSelectedFile || ''}
               onChange={(e) => setSelectedFile(e.target.value || undefined)}
               className="w-full bg-primary border border-subtle rounded-md px-2 py-1 text-xs font-mono text-[var(--color-text-primary)] focus:outline-none focus:border-accent"
             >
@@ -52,7 +49,7 @@ export function BaseDiffExplorer({ taskId, onFileCountChange }: BaseDiffExplorer
           </div>
         )}
         <div className="flex-1 min-h-0 overflow-auto">
-          <DiffView taskId={taskId} base file={selectedFile} />
+          <DiffView taskId={taskId} base file={effectiveSelectedFile} />
         </div>
       </div>
     );
@@ -64,7 +61,7 @@ export function BaseDiffExplorer({ taskId, onFileCountChange }: BaseDiffExplorer
         <div className="w-56 shrink-0 border-r border-subtle overflow-y-auto bg-secondary">
           <button
             onClick={() => setSelectedFile(undefined)}
-            className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${!selectedFile ? 'bg-accent/10 text-accent' : 'text-dim hover:bg-tertiary'}`}
+            className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${!effectiveSelectedFile ? 'bg-accent/10 text-accent' : 'text-dim hover:bg-tertiary'}`}
           >
             All files ({diffFiles.length})
           </button>
@@ -72,7 +69,7 @@ export function BaseDiffExplorer({ taskId, onFileCountChange }: BaseDiffExplorer
             <button
               key={file.path}
               onClick={() => setSelectedFile(file.path)}
-              className={`w-full text-left px-3 py-1.5 text-xs transition-colors truncate ${selectedFile === file.path ? 'bg-accent/10 text-accent' : 'text-dim hover:bg-tertiary'}`}
+              className={`w-full text-left px-3 py-1.5 text-xs transition-colors truncate ${effectiveSelectedFile === file.path ? 'bg-accent/10 text-accent' : 'text-dim hover:bg-tertiary'}`}
               title={file.path}
             >
               <span className="font-mono">{file.path.split('/').pop()}</span>
@@ -83,7 +80,7 @@ export function BaseDiffExplorer({ taskId, onFileCountChange }: BaseDiffExplorer
         </div>
       )}
       <div className="flex-1 min-h-0 overflow-auto">
-        <DiffView taskId={taskId} base file={selectedFile} />
+        <DiffView taskId={taskId} base file={effectiveSelectedFile} />
       </div>
     </div>
   );

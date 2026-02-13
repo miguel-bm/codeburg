@@ -5,7 +5,7 @@ import { useWorkspaceStore } from '../stores/workspace';
 import type { WorkspaceTab } from '../stores/workspace';
 import { useWorkspace } from '../components/workspace/WorkspaceContext';
 import { useWorkspaceSessions } from './useWorkspaceSessions';
-import { useWebSocket } from './useWebSocket';
+import { useSharedWebSocket } from './useSharedWebSocket';
 
 /**
  * Synchronizes API sessions, workspace tabs, and URL params.
@@ -90,7 +90,7 @@ export function useWorkspaceSessionSync() {
   }, [searchParams, openSession, setSearchParams]);
 
   // (WS) Invalidate workspace-sessions query on sidebar_update for near-instant tab sync
-  useWebSocket({
+  useSharedWebSocket({
     onMessage: useCallback((data: unknown) => {
       const msg = data as { type?: string };
       if (msg.type === 'sidebar_update') {

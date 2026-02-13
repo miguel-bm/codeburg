@@ -31,11 +31,9 @@ export function DiffTab({ file, staged, base, commit }: DiffTabProps) {
     enabled: !!file,
   });
 
-  const fileStats = useMemo(() => {
-    if (!file || !fileDiff?.diff) return null;
-    const files = parseDiffFiles(fileDiff.diff);
-    return files[0] ?? null;
-  }, [file, fileDiff?.diff]);
+  const fileStats = !file || !fileDiff?.diff
+    ? null
+    : (parseDiffFiles(fileDiff.diff)[0] ?? null);
 
   // Fetch git status (always needed — for file badge when file is set, for overview otherwise)
   const { data: statusData, isLoading: statusLoading } = useQuery({

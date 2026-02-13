@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Check, Plus, X, Play, Pin, Trash2 } from 'lucide-react';
 import { TaskHeader } from './TaskHeader';
-import { relativeTime } from './TaskHeader';
 import { tasksApi, invalidateTaskQueries, labelsApi } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { Task, Project } from '../../api/types';
@@ -15,7 +14,8 @@ import { MarkdownField } from '../../components/ui/MarkdownField';
 import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
 import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 import { DEFAULT_LABEL_COLORS } from '../../constants/tasks';
-import { slugify } from '../../utils/text';
+import { relativeTime, slugify } from '../../utils/text';
+import { useTaskEditorDrafts } from './useTaskEditorDrafts';
 
 interface Props {
   task: Task;
@@ -59,20 +59,8 @@ export function TaskDetailBacklog({ task, project }: Props) {
   const { navigateToPanel, closePanel } = usePanelNavigation();
   const queryClient = useQueryClient();
 
-  const [titleValue, setTitleValue] = useState(task.title);
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [descValue, setDescValue] = useState(task.description || '');
-  const [editingDesc, setEditingDesc] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showLabelPicker, setShowLabelPicker] = useState(false);
-
-  // Sync when task data refreshes
-  useEffect(() => {
-    if (!editingTitle) setTitleValue(task.title);
-  }, [task.title, editingTitle]);
-  useEffect(() => {
-    if (!editingDesc) setDescValue(task.description || '');
-  }, [task.description, editingDesc]);
 
   const updateTask = useMutation({
     mutationFn: (input: Parameters<typeof tasksApi.update>[1]) =>
@@ -88,23 +76,23 @@ export function TaskDetailBacklog({ task, project }: Props) {
     },
   });
 
-  const handleTitleSave = () => {
-    const trimmed = titleValue.trim();
-    if (trimmed && trimmed !== task.title) {
-      updateTask.mutate({ title: trimmed });
-    } else {
-      setTitleValue(task.title);
-    }
-    setEditingTitle(false);
-  };
-
-  const handleDescSave = () => {
-    const trimmed = descValue.trim();
-    if (trimmed !== (task.description || '')) {
-      updateTask.mutate({ description: trimmed || undefined });
-    }
-    setEditingDesc(false);
-  };
+  const {
+    editingTitle,
+    titleDraft,
+    editingDesc,
+    descDraft,
+    setTitleDraft,
+    setDescDraft,
+    startTitleEditing,
+    saveTitle,
+    cancelTitleEditing,
+    startDescEditing,
+    saveDesc,
+    cancelDescEditing,
+  } = useTaskEditorDrafts({
+    task,
+    onUpdate: (input) => updateTask.mutate(input),
+  });
 
   const handleStartWorking = () => {
     updateTask.mutate({ status: TASK_STATUS.IN_PROGRESS });
@@ -164,7 +152,9 @@ export function TaskDetailBacklog({ task, project }: Props) {
           <div className="flex-1 p-6 space-y-6 min-w-0">
             {/* Title */}
             <div
-              onClick={() => !editingTitle && setEditingTitle(true)}
+              onClick={() => {
+                if (!editingTitle) startTitleEditing();
+              }}
               className={`px-3 py-2 border rounded-lg transition-colors cursor-text ${
                 editingTitle
                   ? 'border-accent shadow-accent'
@@ -174,12 +164,12 @@ export function TaskDetailBacklog({ task, project }: Props) {
               {editingTitle ? (
                 <input
                   type="text"
-                  value={titleValue}
-                  onChange={(e) => setTitleValue(e.target.value)}
-                  onBlur={handleTitleSave}
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onBlur={saveTitle}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleTitleSave();
-                    if (e.key === 'Escape') { setTitleValue(task.title); setEditingTitle(false); }
+                    if (e.key === 'Enter') saveTitle();
+                    if (e.key === 'Escape') cancelTitleEditing();
                   }}
                   className="w-full p-0 m-0 border-0 bg-transparent text-lg font-medium text-[var(--color-text-primary)] focus:outline-none"
                   autoFocus
@@ -191,7 +181,9 @@ export function TaskDetailBacklog({ task, project }: Props) {
 
             {/* Description */}
             <div
-              onClick={() => !editingDesc && setEditingDesc(true)}
+              onClick={() => {
+                if (!editingDesc) startDescEditing();
+              }}
               className={`px-3 py-2 border rounded-lg transition-colors cursor-text min-h-[100px] ${
                 editingDesc
                   ? 'border-accent shadow-accent'
@@ -201,11 +193,11 @@ export function TaskDetailBacklog({ task, project }: Props) {
               {editingDesc ? (
                 <div>
                   <MarkdownField
-                    value={descValue}
-                    onChange={setDescValue}
-                    rows={Math.max(4, descValue.split('\n').length + 1)}
+                    value={descDraft}
+                    onChange={setDescDraft}
+                    rows={Math.max(4, descDraft.split('\n').length + 1)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Escape') { setDescValue(task.description || ''); setEditingDesc(false); }
+                      if (e.key === 'Escape') cancelDescEditing();
                     }}
                     autoFocus
                   />
@@ -213,14 +205,14 @@ export function TaskDetailBacklog({ task, project }: Props) {
                     <Button
                       variant="secondary"
                       size="xs"
-                      onClick={(e) => { e.stopPropagation(); setDescValue(task.description || ''); setEditingDesc(false); }}
+                      onClick={(e) => { e.stopPropagation(); cancelDescEditing(); }}
                     >
                       Cancel
                     </Button>
                     <Button
                       variant="primary"
                       size="xs"
-                      onClick={(e) => { e.stopPropagation(); handleDescSave(); }}
+                      onClick={(e) => { e.stopPropagation(); saveDesc(); }}
                     >
                       Save
                     </Button>

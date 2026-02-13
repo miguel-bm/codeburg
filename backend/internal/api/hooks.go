@@ -9,6 +9,7 @@ import (
 
 	"github.com/miguel-bm/codeburg/internal/db"
 	"github.com/miguel-bm/codeburg/internal/ptyruntime"
+	"github.com/miguel-bm/codeburg/internal/sessionlifecycle"
 )
 
 // HookPayload represents the JSON data from a Claude Code hook or Codex notify callback.
@@ -78,7 +79,7 @@ func (s *Server) handleSessionHook(w http.ResponseWriter, r *http.Request) {
 		eventName = payload.Event
 	}
 	normalizedEvent := normalizeEventName(eventName)
-	var newStatus db.SessionStatus
+	var transitionEvent sessionlifecycle.Event
 	switch normalizedEvent {
 	case "notification":
 		// Notification events include multiple types. We treat these as "waiting for user":
@@ -89,7 +90,7 @@ func (s *Server) handleSessionHook(w http.ResponseWriter, r *http.Request) {
 		// If no type is provided, keep compatibility by assuming waiting_input.
 		switch strings.TrimSpace(strings.ToLower(payload.NotificationType)) {
 		case "", "permission_prompt", "idle_prompt", "elicitation_dialog":
-			newStatus = db.SessionStatusWaitingInput
+			transitionEvent = sessionlifecycle.EventNotificationWaiting
 		default:
 			// Non-interruptive notifications (e.g. auth_success) should not flip session state.
 			w.WriteHeader(http.StatusOK)
@@ -99,15 +100,15 @@ func (s *Server) handleSessionHook(w http.ResponseWriter, r *http.Request) {
 		// Stop fires when Claude finishes responding.
 		// If stop_hook_active is true, Claude is already continuing due to a stop hook.
 		if payload.StopHookActive != nil && *payload.StopHookActive {
-			newStatus = db.SessionStatusRunning
+			transitionEvent = sessionlifecycle.EventStopHookContinue
 		} else {
-			newStatus = db.SessionStatusWaitingInput
+			transitionEvent = sessionlifecycle.EventStopHookWaiting
 		}
 	case "sessionend":
-		newStatus = db.SessionStatusCompleted
+		transitionEvent = sessionlifecycle.EventSessionEnded
 	case "agent_turn_complete":
 		// Codex notify: agent finished a turn, waiting for user
-		newStatus = db.SessionStatusWaitingInput
+		transitionEvent = sessionlifecycle.EventAgentTurnComplete
 	default:
 		// Unknown event, just acknowledge
 		slog.Warn("unknown hook event", "event", eventName, "normalized_event", normalizedEvent, "session_id", sessionID)
@@ -115,8 +116,17 @@ func (s *Server) handleSessionHook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Skip if status hasn't changed
-	if session.Status == newStatus {
+	newStatus, changed, err := s.applySessionTransition(sessionID, session.Status, transitionEvent, session.TaskID, "hook")
+	if err != nil {
+		if errors.Is(err, sessionlifecycle.ErrInvalidTransition) {
+			logInvalidSessionTransition(sessionID, session.Status, transitionEvent, "hook", err)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to update session status")
+		return
+	}
+	if !changed {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -124,17 +134,15 @@ func (s *Server) handleSessionHook(w http.ResponseWriter, r *http.Request) {
 	// Capture provider session ID if present
 	if payload.SessionID != "" {
 		if session.ProviderSessionID == nil || *session.ProviderSessionID == "" {
-			s.db.UpdateSession(sessionID, db.UpdateSessionInput{
+			if _, err := s.db.UpdateSession(sessionID, db.UpdateSessionInput{
 				ProviderSessionID: &payload.SessionID,
-			})
-			slog.Info("captured provider session ID", "session_id", sessionID, "provider_session_id", payload.SessionID)
+			}); err != nil {
+				slog.Warn("failed to capture provider session ID", "session_id", sessionID, "provider_session_id", payload.SessionID, "error", err)
+			} else {
+				slog.Info("captured provider session ID", "session_id", sessionID, "provider_session_id", payload.SessionID)
+			}
 		}
 	}
-
-	// Update DB
-	s.db.UpdateSession(sessionID, db.UpdateSessionInput{
-		Status: &newStatus,
-	})
 
 	// Update in-memory session (with DB fallback)
 	execSession := s.sessions.getOrRestore(sessionID, s.db)
@@ -154,23 +162,8 @@ func (s *Server) handleSessionHook(w http.ResponseWriter, r *http.Request) {
 		removeNotifyScript(sessionID)
 	}
 
-	// Broadcast status change
-	s.wsHub.BroadcastToSession(sessionID, "status_changed", map[string]string{
-		"status": string(newStatus),
-	})
-	if session.TaskID != "" {
-		s.wsHub.BroadcastToTask(session.TaskID, "session_status_changed", map[string]string{
-			"sessionId": sessionID,
-			"status":    string(newStatus),
-		})
-	}
-
-	// Broadcast sidebar update to all clients
-	s.wsHub.BroadcastGlobal("sidebar_update", map[string]string{
-		"taskId":    session.TaskID,
-		"sessionId": sessionID,
-		"status":    string(newStatus),
-	})
+	// Broadcast status transition
+	s.broadcastSessionStatus(session.TaskID, sessionID, newStatus)
 
 	// Invalidate diff stats cache when agent finishes work
 	if newStatus == db.SessionStatusWaitingInput || newStatus == db.SessionStatusCompleted {

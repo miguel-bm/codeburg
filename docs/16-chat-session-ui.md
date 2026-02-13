@@ -1,10 +1,12 @@
-# 14 - Chat Session UI: Structured Output Rendering
+# Chat Session UI: Structured Output Rendering
 
 ## Overview
 
 Replace the raw TUI (xterm.js PTY stream) with a rich chat-style UI for Claude Code and Codex sessions. Instead of streaming terminal escape codes to the browser, spawn the agents in structured-output mode, parse their JSON messages, and render them as markdown, tool calls, diffs, and permission prompts in a React UI.
 
 This document references patterns from the [Happy Coder](https://github.com/nicely-gg/happy) project, which already implements this approach for both Claude and Codex.
+
+The Happy Coder code is available to be read locally at /Users/miguel/Developer/oss/happy
 
 ---
 

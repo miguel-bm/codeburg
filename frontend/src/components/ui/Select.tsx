@@ -99,13 +99,6 @@ export function Select<T extends string = string>({
     };
   }, [open, updateDropdownPosition]);
 
-  // Reset focused index when opening
-  useEffect(() => {
-    if (open) {
-      setFocusedIndex(selectedIndex >= 0 ? selectedIndex : 0);
-    }
-  }, [open, selectedIndex]);
-
   // Scroll focused item into view
   useEffect(() => {
     if (!open || focusedIndex < 0 || !listRef.current) return;
@@ -120,6 +113,7 @@ export function Select<T extends string = string>({
       if (!open) {
         if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
           e.preventDefault();
+          setFocusedIndex(selectedIndex >= 0 ? selectedIndex : 0);
           setOpen(true);
         }
         return;
@@ -148,7 +142,7 @@ export function Select<T extends string = string>({
           break;
       }
     },
-    [open, focusedIndex, options, onChange],
+    [open, focusedIndex, options, onChange, selectedIndex],
   );
 
   const handleSelect = (opt: SelectOption<T>) => {
@@ -162,7 +156,13 @@ export function Select<T extends string = string>({
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen((current) => {
+          const next = !current;
+          if (next) {
+            setFocusedIndex(selectedIndex >= 0 ? selectedIndex : 0);
+          }
+          return next;
+        })}
         onKeyDown={handleKeyDown}
         className={`
           w-full flex items-center justify-between gap-2

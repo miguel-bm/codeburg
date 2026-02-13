@@ -285,7 +285,10 @@ export function TaskTooltip({ task, projectName, x, y }: { task: Task; projectNa
       ny = window.innerHeight - rect.height - 12;
     }
     if (ny < 12) ny = 12;
-    setPos({ x: nx, y: ny });
+    const timer = window.setTimeout(() => {
+      setPos({ x: nx, y: ny });
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [x, y]);
 
   const hasDescription = !!task.description;

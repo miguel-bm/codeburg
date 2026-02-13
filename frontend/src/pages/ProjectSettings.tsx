@@ -149,10 +149,13 @@ function GeneralSection({ project }: { project: Project }) {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    setName(project.name);
-    setGitOrigin(project.gitOrigin ?? '');
-    setDefaultBranch(project.defaultBranch);
-    setDirty(false);
+    const timer = setTimeout(() => {
+      setName(project.name);
+      setGitOrigin(project.gitOrigin ?? '');
+      setDefaultBranch(project.defaultBranch);
+      setDirty(false);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [project]);
 
   const updateMutation = useMutation({
@@ -280,8 +283,11 @@ function WorkflowSection({ project }: { project: Project }) {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    setWorkflow(project.workflow ?? {});
-    setDirty(false);
+    const timer = setTimeout(() => {
+      setWorkflow(project.workflow ?? {});
+      setDirty(false);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [project]);
 
   const updateMutation = useMutation({

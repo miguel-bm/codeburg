@@ -81,7 +81,6 @@ export function DiffContent({ original, modified, path }: DiffContentProps) {
   const [theme, setTheme] = useState<'dark' | 'light'>(() => getResolvedTheme());
 
   useEffect(() => {
-    setTheme(getResolvedTheme());
     return subscribeToThemeChange(({ resolvedTheme }) => {
       setTheme(resolvedTheme);
     });

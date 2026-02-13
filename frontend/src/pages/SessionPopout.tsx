@@ -31,25 +31,33 @@ export function SessionPopout() {
     queryKey: ['session', sessionId],
     queryFn: () => sessionsApi.get(sessionId!),
     enabled: !!sessionId,
-    refetchInterval: 5000,
+    refetchInterval: (query) => {
+      const status = (query.state.data as { status?: SessionStatus } | undefined)?.status;
+      if (status === 'completed' || status === 'error') return false;
+      return 5000;
+    },
     refetchIntervalInBackground: true,
   });
 
   // Mark unseen updates while this tab is in background.
   useEffect(() => {
     if (!session) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
     const previous = previousUpdateRef.current;
     const activityChanged = !!session.lastActivityAt && session.lastActivityAt !== previous.lastActivityAt;
     const enteredWaitingInput = session.status === 'waiting_input' && previous.status !== 'waiting_input';
 
     if (document.hidden && (activityChanged || enteredWaitingInput)) {
-      setUnreadUpdate(true);
+      timer = setTimeout(() => setUnreadUpdate(true), 0);
     }
 
     previousUpdateRef.current = {
       status: session.status,
       lastActivityAt: session.lastActivityAt,
+    };
+    return () => {
+      if (timer) clearTimeout(timer);
     };
   }, [session]);
 
@@ -65,8 +73,9 @@ export function SessionPopout() {
   }, []);
 
   useEffect(() => {
+    const originalTitle = originalTitleRef.current;
     return () => {
-      document.title = originalTitleRef.current;
+      document.title = originalTitle;
     };
   }, []);
 

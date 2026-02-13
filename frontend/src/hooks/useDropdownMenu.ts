@@ -56,15 +56,29 @@ export function useDropdownMenu({
     setMenuStyle(buildMenuStyle(triggerRef.current, menuWidth));
   }, [menuWidth]);
 
+  const close = useCallback(() => {
+    setOpen(false);
+    setQuery('');
+  }, []);
+
+  const toggle = useCallback(() => {
+    setOpen((current) => {
+      if (current) {
+        setQuery('');
+      }
+      return !current;
+    });
+  }, []);
+
   // Open/close side effects: reposition, escape, outside-click
   useEffect(() => {
     if (!open) return;
     reposition();
-    const onEscape = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setOpen(false); };
+    const onEscape = (ev: KeyboardEvent) => { if (ev.key === 'Escape') close(); };
     const onOutside = (ev: MouseEvent) => {
       const target = ev.target as Node;
       if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
-      setOpen(false);
+      close();
     };
     window.addEventListener('resize', reposition);
     window.addEventListener('scroll', reposition, true);
@@ -76,7 +90,7 @@ export function useDropdownMenu({
       window.removeEventListener('keydown', onEscape);
       document.removeEventListener('mousedown', onOutside);
     };
-  }, [open, reposition]);
+  }, [close, open, reposition]);
 
   // Auto-focus search input when opened
   useEffect(() => {
@@ -88,17 +102,8 @@ export function useDropdownMenu({
     return () => window.clearTimeout(id);
   }, [open, searchable]);
 
-  // Reset query when menu closes
-  useEffect(() => {
-    if (!open) setQuery('');
-  }, [open]);
-
-  const toggle = useCallback(() => setOpen((v) => !v), []);
-  const close = useCallback(() => setOpen(false), []);
-
   return {
     open,
-    setOpen,
     toggle,
     close,
     query,

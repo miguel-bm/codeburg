@@ -54,23 +54,27 @@ func setupTestEnv(t *testing.T) *testEnv {
 
 	// Create WebSocket hub
 	wsHub := NewWSHub()
-	go wsHub.Run()
+	wsCtx, wsCancel := context.WithCancel(context.Background())
+	go wsHub.Run(wsCtx)
 
 	// Create server
 	s := &Server{
-		db:          database,
-		auth:        auth,
-		worktree:    worktree.NewManager(worktree.DefaultConfig()),
-		wsHub:       wsHub,
-		sessions:    NewSessionManager(),
-		tunnels:     tunnel.NewManager(),
-		portSuggest: portsuggest.NewManager(nil),
-		gitclone:    gitclone.Config{BaseDir: filepath.Join(tmpDir, "repos")},
-		authLimiter: newLoginRateLimiter(5, 1*time.Minute),
+		db:             database,
+		auth:           auth,
+		worktree:       worktree.NewManager(worktree.DefaultConfig()),
+		wsHub:          wsHub,
+		sessions:       NewSessionManager(),
+		tunnels:        tunnel.NewManager(),
+		portSuggest:    portsuggest.NewManager(nil),
+		gitclone:       gitclone.Config{BaseDir: filepath.Join(tmpDir, "repos")},
+		authLimiter:    newLoginRateLimiter(5, 1*time.Minute),
+		allowedOrigins: []string{"http://localhost:*"},
 	}
 	s.setupRoutes()
 
 	t.Cleanup(func() {
+		wsCancel()
+		wsHub.Stop()
 		database.Close()
 	})
 

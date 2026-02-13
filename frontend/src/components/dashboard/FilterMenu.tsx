@@ -42,17 +42,28 @@ type FilterMenuProps = {
 
 export function FilterMenu(props: FilterMenuProps) {
   const { label, items, emptyMessage, searchable = false, menuWidth = 300 } = props;
-  const menu = useDropdownMenu({ menuWidth, searchable, searchThreshold: 8 });
-  const canSearch = searchable || items.length > menu.searchThreshold;
+  const {
+    open,
+    toggle,
+    close,
+    query,
+    setQuery,
+    menuStyle,
+    triggerRef,
+    menuRef,
+    searchRef,
+    searchThreshold,
+  } = useDropdownMenu({ menuWidth, searchable, searchThreshold: 8 });
+  const canSearch = searchable || items.length > searchThreshold;
 
   const filteredItems = useMemo(() => {
-    if (!menu.query.trim()) return items;
-    const normalized = menu.query.trim().toLowerCase();
+    if (!query.trim()) return items;
+    const normalized = query.trim().toLowerCase();
     return items.filter((item) =>
       item.label.toLowerCase().includes(normalized)
       || (item.description ?? '').toLowerCase().includes(normalized),
     );
-  }, [items, menu.query]);
+  }, [items, query]);
 
   const isActive = props.mode === 'single' ? !!props.selectedValue : props.selected.size > 0;
   const triggerLabel = props.mode === 'single'
@@ -65,15 +76,15 @@ export function FilterMenu(props: FilterMenuProps) {
     } else {
       props.onReset();
     }
-    setTimeout(() => menu.close(), 0);
+    setTimeout(() => close(), 0);
   };
 
   return (
     <>
       <button
-        ref={menu.triggerRef}
+        ref={triggerRef}
         type="button"
-        onClick={menu.toggle}
+        onClick={toggle}
         className={`inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] transition-colors ${
           isActive
             ? 'bg-accent/10 text-accent'
@@ -84,18 +95,18 @@ export function FilterMenu(props: FilterMenuProps) {
         <span className={`${props.mode === 'single' ? 'max-w-[180px] truncate ' : ''}${isActive ? 'text-accent' : 'text-dim'}`}>
           {triggerLabel}
         </span>
-        <ChevronDown size={12} className={`transition-transform ${menu.open ? 'rotate-180' : ''}`} />
+        <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
-      {menu.open && menu.menuStyle && createPortal(
+      {open && menuStyle && createPortal(
         <>
           <div
             className="fixed inset-0 z-[1190] animate-fadeIn"
-            onMouseDown={(e) => { e.preventDefault(); menu.close(); }}
+            onMouseDown={(e) => { e.preventDefault(); close(); }}
           />
           <div
-            ref={menu.menuRef}
-            style={menu.menuStyle}
+            ref={menuRef}
+            style={menuStyle}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
             className="rounded-xl bg-elevated shadow-lg shadow-black/35 overflow-hidden flex flex-col animate-scaleIn"
@@ -116,9 +127,9 @@ export function FilterMenu(props: FilterMenuProps) {
                 <label className="relative block">
                   <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
                   <input
-                    ref={menu.searchRef}
-                    value={menu.query}
-                    onChange={(ev) => menu.setQuery(ev.target.value)}
+                    ref={searchRef}
+                    value={query}
+                    onChange={(ev) => setQuery(ev.target.value)}
                     placeholder={`Search ${label.toLowerCase()}...`}
                     className="w-full h-7 rounded-md border border-subtle/30 bg-[var(--color-bg-secondary)]/60 pl-7 pr-2 text-[11px] text-[var(--color-text-primary)] placeholder:text-dim focus:outline-none focus:border-accent/55"
                   />
@@ -171,7 +182,7 @@ export function FilterMenu(props: FilterMenuProps) {
                           } else {
                             props.onOnly(item.value);
                           }
-                          setTimeout(() => menu.close(), 0);
+                          setTimeout(() => close(), 0);
                         }}
                         className="inline-flex items-center gap-1 px-1.5 py-1 rounded text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
                       >
@@ -236,7 +247,14 @@ export function CompactFilterPanel({
   onToggleMultiFilter,
   onResetAll,
 }: CompactFilterPanelProps) {
-  const menu = useDropdownMenu({ menuWidth: 320 });
+  const {
+    open,
+    toggle,
+    close,
+    menuStyle,
+    triggerRef,
+    menuRef,
+  } = useDropdownMenu({ menuWidth: 320 });
 
   const sections: {
     key: string;
@@ -257,9 +275,9 @@ export function CompactFilterPanel({
   return (
     <>
       <button
-        ref={menu.triggerRef}
+        ref={triggerRef}
         type="button"
-        onClick={menu.toggle}
+        onClick={toggle}
         className={`inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] transition-colors ${
           activeFilterCount > 0
             ? 'bg-accent/10 text-accent'
@@ -275,15 +293,15 @@ export function CompactFilterPanel({
         )}
       </button>
 
-      {menu.open && menu.menuStyle && createPortal(
+      {open && menuStyle && createPortal(
         <>
           <div
             className="fixed inset-0 z-[1190] animate-fadeIn"
-            onMouseDown={(e) => { e.preventDefault(); menu.close(); }}
+            onMouseDown={(e) => { e.preventDefault(); close(); }}
           />
           <div
-            ref={menu.menuRef}
-            style={menu.menuStyle}
+            ref={menuRef}
+            style={menuStyle}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
             className="rounded-xl bg-elevated shadow-lg shadow-black/35 overflow-hidden flex flex-col animate-scaleIn"
@@ -294,7 +312,7 @@ export function CompactFilterPanel({
                 type="button"
                 onClick={() => {
                   onResetAll();
-                  setTimeout(() => menu.close(), 0);
+                  setTimeout(() => close(), 0);
                 }}
                 className="text-[10px] text-dim hover:text-[var(--color-text-primary)] transition-colors"
               >
@@ -314,7 +332,7 @@ export function CompactFilterPanel({
                         type="button"
                         onClick={() => {
                           onClearProject();
-                          setTimeout(() => menu.close(), 0);
+                          setTimeout(() => close(), 0);
                         }}
                         className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
                           !selectedProjectId ? 'text-accent' : 'text-[var(--color-text-primary)] hover:bg-tertiary'
@@ -333,7 +351,7 @@ export function CompactFilterPanel({
                             type="button"
                             onClick={() => {
                               onSelectProject(item.value);
-                              setTimeout(() => menu.close(), 0);
+                              setTimeout(() => close(), 0);
                             }}
                             className={`w-full text-left px-2 py-1.5 text-xs rounded-md transition-colors ${
                               active ? 'text-accent' : 'text-[var(--color-text-primary)] hover:bg-tertiary'

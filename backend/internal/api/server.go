@@ -1,9 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -27,16 +29,9 @@ import (
 	"github.com/miguel-bm/codeburg/internal/worktree"
 )
 
-// allowedOrigins defines which origins may make cross-origin requests.
-// Used by both CORS middleware and WebSocket CheckOrigin.
-// Starts with localhost; the configured origin is appended at startup.
-var allowedOrigins = []string{
-	"http://localhost:*",
-}
-
 // isAllowedOrigin checks whether an origin matches the allowedOrigins list.
 // Supports the "http://localhost:*" wildcard pattern (any port on localhost).
-func isAllowedOrigin(origin string) bool {
+func isAllowedOrigin(allowedOrigins []string, origin string) bool {
 	if origin == "" {
 		return false
 	}
@@ -64,6 +59,9 @@ func isAllowedOrigin(origin string) bool {
 type Server struct {
 	db                *db.DB
 	router            chi.Router
+	bgCtx             context.Context
+	bgCancel          context.CancelFunc
+	bgWG              sync.WaitGroup
 	auth              *AuthService
 	worktree          *worktree.Manager
 	wsHub             *WSHub
@@ -75,33 +73,39 @@ type Server struct {
 	diffStatsCache    sync.Map // taskID -> diffStatsCacheEntry
 	webauthn          *webauthn.WebAuthn
 	challenges        *challengeStore
+	allowedOrigins    []string
 	telegramBotCancel context.CancelFunc
 	telegramBotMu     sync.Mutex
+	httpServer        *http.Server
+	httpServerMu      sync.Mutex
 }
 
 func NewServer(database *db.DB) *Server {
 	wsHub := NewWSHub()
-	go wsHub.Run() // Start the WebSocket hub
+	bgCtx, bgCancel := context.WithCancel(context.Background())
 
 	authSvc := NewAuthService()
 
 	s := &Server{
-		db:          database,
-		auth:        authSvc,
-		worktree:    worktree.NewManager(worktree.DefaultConfig()),
-		wsHub:       wsHub,
-		sessions:    NewSessionManager(),
-		tunnels:     tunnel.NewManager(),
-		portSuggest: portsuggest.NewManager(nil),
-		gitclone:    gitclone.DefaultConfig(),
-		authLimiter: newLoginRateLimiter(5, 1*time.Minute),
-		challenges:  newChallengeStore(),
+		db:             database,
+		auth:           authSvc,
+		bgCtx:          bgCtx,
+		bgCancel:       bgCancel,
+		worktree:       worktree.NewManager(worktree.DefaultConfig()),
+		wsHub:          wsHub,
+		sessions:       NewSessionManager(),
+		tunnels:        tunnel.NewManager(),
+		portSuggest:    portsuggest.NewManager(nil),
+		gitclone:       gitclone.DefaultConfig(),
+		authLimiter:    newLoginRateLimiter(5, 1*time.Minute),
+		challenges:     newChallengeStore(),
+		allowedOrigins: []string{"http://localhost:*"},
 	}
 
 	// Initialize WebAuthn + CORS if origin is configured
 	if config, err := authSvc.loadConfig(); err == nil && config.Auth.Origin != "" {
 		// Add configured origin to allowed CORS origins
-		allowedOrigins = append(allowedOrigins, config.Auth.Origin)
+		s.allowedOrigins = append(s.allowedOrigins, config.Auth.Origin)
 
 		parsed, err := url.Parse(config.Auth.Origin)
 		if err == nil {
@@ -127,11 +131,21 @@ func NewServer(database *db.DB) *Server {
 	// Start Telegram bot if token preference is configured
 	s.startTelegramBot()
 
+	s.bgWG.Add(1)
+	go func() {
+		defer s.bgWG.Done()
+		wsHub.Run(s.bgCtx)
+	}()
+
 	// Restore sessions that survived a server restart
-	s.sessions.Reconcile(database)
+	s.sessions.Reconcile(s)
 
 	// Start background cleanup of zombie sessions
-	go s.sessions.StartCleanupLoop(database, wsHub)
+	s.bgWG.Add(1)
+	go func() {
+		defer s.bgWG.Done()
+		s.sessions.StartCleanupLoop(s.bgCtx, s)
+	}()
 
 	s.setupRoutes()
 	return s
@@ -145,7 +159,7 @@ func (s *Server) setupRoutes() {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestID)
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   allowedOrigins,
+		AllowedOrigins:   s.allowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		ExposedHeaders:   []string{"Link"},
@@ -165,7 +179,7 @@ func (s *Server) setupRoutes() {
 	// Telegram public route (rate-limited internally)
 	r.Post("/api/auth/telegram", s.handleTelegramAuth)
 
-	// WebSocket (public, auth handled in handshake)
+	// WebSocket (public route; JWT required via query/header token or auth message)
 	r.Get("/ws", s.handleWebSocket)
 	r.Get("/ws/terminal", s.handleTerminalWS)
 
@@ -334,6 +348,12 @@ func (s *Server) serveFrontend(r chi.Router) {
 	}
 	if _, err := os.Stat(distPath); os.IsNotExist(err) {
 		slog.Warn("frontend dist not found, skipping static file serving", "path", distPath)
+		r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+			if writeAPIAwareNotFound(w, r) {
+				return
+			}
+			http.NotFound(w, r)
+		})
 		return
 	}
 
@@ -342,6 +362,9 @@ func (s *Server) serveFrontend(r chi.Router) {
 	fsys := http.Dir(absPath)
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		if writeAPIAwareNotFound(w, r) {
+			return
+		}
 		path := r.URL.Path
 
 		// Try to serve the file directly
@@ -370,8 +393,75 @@ func (s *Server) serveFrontend(r chi.Router) {
 	})
 }
 
+func writeAPIAwareNotFound(w http.ResponseWriter, r *http.Request) bool {
+	path := r.URL.Path
+	if path == "/api" || strings.HasPrefix(path, "/api/") {
+		writeError(w, http.StatusNotFound, "endpoint not found")
+		return true
+	}
+	if path == "/ws" || strings.HasPrefix(path, "/ws/") {
+		http.NotFound(w, r)
+		return true
+	}
+	return false
+}
+
 func (s *Server) ListenAndServe(addr string) error {
-	return http.ListenAndServe(addr, s.router)
+	httpServer := &http.Server{
+		Addr:              addr,
+		Handler:           s.router,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	s.httpServerMu.Lock()
+	s.httpServer = httpServer
+	s.httpServerMu.Unlock()
+
+	return httpServer.ListenAndServe()
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.httpServerMu.Lock()
+	httpServer := s.httpServer
+	s.httpServerMu.Unlock()
+
+	var shutdownErr error
+	if httpServer != nil {
+		if err := httpServer.Shutdown(ctx); err != nil {
+			shutdownErr = err
+		}
+	}
+
+	if s.bgCancel != nil {
+		s.bgCancel()
+	}
+	s.wsHub.Stop()
+
+	s.telegramBotMu.Lock()
+	if s.telegramBotCancel != nil {
+		s.telegramBotCancel()
+		s.telegramBotCancel = nil
+	}
+	s.telegramBotMu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		s.bgWG.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		if shutdownErr == nil {
+			shutdownErr = ctx.Err()
+		}
+	}
+
+	return shutdownErr
 }
 
 // startTelegramBot reads the bot token from preferences and the origin from config,
@@ -422,6 +512,8 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+const maxJSONBodyBytes = 1 << 20 // 1 MiB
+
 func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -441,5 +533,27 @@ func writeDBError(w http.ResponseWriter, err error, entity string) {
 }
 
 func decodeJSON(r *http.Request, v any) error {
-	return json.NewDecoder(r.Body).Decode(v)
+	data, err := io.ReadAll(io.LimitReader(r.Body, maxJSONBodyBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return io.EOF
+	}
+	if len(data) > maxJSONBodyBytes {
+		return errors.New("request body too large")
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		return errors.New("invalid request body")
+	}
+
+	return nil
 }

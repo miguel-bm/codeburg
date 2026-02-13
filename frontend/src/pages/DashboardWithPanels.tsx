@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
 import { Outlet, useMatch } from 'react-router-dom';
 import { AnimatePresence } from 'motion/react';
 import { Dashboard } from './Dashboard';
@@ -15,28 +14,24 @@ export function DashboardWithPanels() {
 
   const panelOpen = !isRoot;
   const [panelExiting, setPanelExiting] = useState(false);
-  const cachedContent = useRef<ReactNode>(null);
   const prevPanelOpen = useRef(panelOpen);
 
   // Track panel open→close transitions for hideDashboard in full mode
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
     if (panelOpen) {
-      setPanelExiting(false);
+      timer = setTimeout(() => setPanelExiting(false), 0);
     } else if (prevPanelOpen.current) {
-      setPanelExiting(true);
+      timer = setTimeout(() => setPanelExiting(true), 0);
     }
     prevPanelOpen.current = panelOpen;
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
   }, [panelOpen]);
-
-  // Cache outlet content so it persists during the exit animation
-  const outlet = panelOpen ? <Outlet /> : null;
-  if (outlet) {
-    cachedContent.current = outlet;
-  }
 
   const handleExitComplete = useCallback(() => {
     setPanelExiting(false);
-    cachedContent.current = null;
   }, []);
 
   // On mobile, panel is a full-screen overlay — dashboard always renders underneath.
@@ -60,7 +55,7 @@ export function DashboardWithPanels() {
       <AnimatePresence onExitComplete={handleExitComplete}>
         {panelOpen && (
           <Panel key="panel">
-            {outlet || cachedContent.current}
+            <Outlet />
           </Panel>
         )}
       </AnimatePresence>

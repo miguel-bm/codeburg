@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Tree, type NodeRendererProps } from 'react-arborist';
+import { Tree, type MoveHandler, type NodeApi, type TreeApi } from 'react-arborist';
 import {
   ChevronRight,
   Copy,
@@ -47,7 +47,7 @@ export function FileExplorer() {
   const [renameValue, setRenameValue] = useState('');
   const treeContainerRef = useRef<HTMLDivElement>(null);
   const [treeHeight, setTreeHeight] = useState(400);
-  const treeRef = useRef<any>(null);
+  const treeRef = useRef<TreeApi<FileTreeNodeData> | null>(null);
 
   // Inline creation state
   const [creating, setCreating] = useState<{ type: 'file' | 'dir'; parentPath: string } | null>(null);
@@ -101,7 +101,7 @@ export function FileExplorer() {
   }, [filtered, creating]);
 
   const handleSelect = useCallback(
-    (nodes: NodeRendererProps<FileTreeNodeData>['node'][]) => {
+    (nodes: NodeApi<FileTreeNodeData>[]) => {
       const node = nodes[0];
       if (!node || node.data.type === 'dir') return;
       if (node.data.id === CREATING_NODE_ID) return;
@@ -186,8 +186,8 @@ export function FileExplorer() {
   }, []);
 
   // Drag-and-drop: move files/folders between directories
-  const handleMove = useCallback(
-    async ({ dragIds, parentId }: { dragIds: string[]; parentId: string | null; index: number }) => {
+  const handleMove = useCallback<MoveHandler<FileTreeNodeData>>(
+    async ({ dragIds, parentId }) => {
       for (const dragId of dragIds) {
         if (dragId === CREATING_NODE_ID) continue;
         const fileName = dragId.includes('/') ? dragId.slice(dragId.lastIndexOf('/') + 1) : dragId;
@@ -309,7 +309,8 @@ export function FileExplorer() {
 
   // Close context menu on route changes
   useEffect(() => {
-    setContextMenu(null);
+    const timer = setTimeout(() => setContextMenu(null), 0);
+    return () => clearTimeout(timer);
   }, [files]);
 
   return (
@@ -359,8 +360,8 @@ export function FileExplorer() {
             height={treeHeight}
             rowHeight={26}
             indent={16}
-            onSelect={(nodes) => handleSelect(nodes as any)}
-            onMove={handleMove as any}
+            onSelect={handleSelect}
+            onMove={handleMove}
             disableDrag={(data) => data.id === CREATING_NODE_ID}
             disableDrop={(args) => {
               // Only allow dropping into folders

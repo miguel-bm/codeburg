@@ -1,0 +1,10 @@
+export { AppearanceSection } from './AppearanceSection';
+export { ArchivesSection } from './ArchivesSection';
+export { DangerZone } from './DangerZone';
+export { EditorSection } from './EditorSection';
+export { KeyboardShortcutsSection } from './KeyboardShortcutsSection';
+export { NotificationSection } from './NotificationSection';
+export { PasskeySection } from './PasskeySection';
+export { PasswordSection } from './PasswordSection';
+export { TelegramSection } from './TelegramSection';
+export { TerminalSettingsSection } from './TerminalSettingsSection';
