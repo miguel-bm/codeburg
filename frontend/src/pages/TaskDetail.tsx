@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useRef, useState, useMemo, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { usePanelNavigation } from '../hooks/usePanelNavigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -75,6 +75,8 @@ export function TaskDetail() {
     ? manualSelection.sessionId
     : null;
   const selectedSessionId = sessionFromUrl || manualSessionId || orderedSessions[0]?.id || null;
+  const selectedSessionIdRef = useRef<string | null>(selectedSessionId);
+  selectedSessionIdRef.current = selectedSessionId;
   const activeSession = selectedSessionId
     ? orderedSessions.find((session) => session.id === selectedSessionId) ?? null
     : null;
@@ -111,7 +113,7 @@ export function TaskDetail() {
     mutationFn: (session: AgentSession) => cleanupAgentSession(session),
     onSuccess: (_data, session) => {
       queryClient.invalidateQueries({ queryKey: ['sessions', id] });
-      if (activeSession?.id === session.id) {
+      if (selectedSessionIdRef.current === session.id) {
         selectSession(null);
       }
     },

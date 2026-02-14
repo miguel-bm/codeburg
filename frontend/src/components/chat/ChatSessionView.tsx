@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Command, FileCode2, FolderTree, Loader2, RotateCcw, Send, Square, UserRound } from 'lucide-react';
+import { ArrowDown, AtSign, Command, FileCode2, FolderTree, Loader2, RotateCcw, Send, Slash, Square } from 'lucide-react';
 import type { AgentSession } from '../../api/sessions';
 import type { ChatMessage } from '../../api/chat';
 import { createFilesApi, type FileEntry } from '../../api/workspace';
@@ -25,6 +25,11 @@ interface ComposerSuggestion {
   icon: 'command' | 'file' | 'folder';
 }
 
+interface MessageItemProps {
+  message: ChatMessage;
+  nextKind?: ChatMessage['kind'];
+}
+
 const MAX_SUGGESTIONS = 8;
 const FILE_INDEX_DEPTH = 12;
 const FALLBACK_SLASH_COMMANDS = ['context', 'review', 'security-review', 'cost', 'compact', 'debug', 'help'];
@@ -36,6 +41,21 @@ function canSend(status: AgentSession['status']): boolean {
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean);
+}
+
+function providerDisplayName(provider: AgentSession['provider'] | string): string {
+  if (provider === 'claude') return 'Claude';
+  if (provider === 'codex') return 'Codex';
+  if (provider === 'terminal') return 'Terminal';
+  if (!provider) return 'Assistant';
+  return provider.charAt(0).toUpperCase() + provider.slice(1);
+}
+
+function formatTimeLabel(date?: string): string {
+  if (!date) return '';
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 function extractSlashCommands(messages: ChatMessage[], provider: AgentSession['provider']): string[] {
@@ -106,57 +126,6 @@ function computeVisibleMessages(messages: ChatMessage[]): ChatMessage[] {
   return visible;
 }
 
-function MessageItem({ message }: { message: ChatMessage }) {
-  if (message.kind === 'user-text') {
-    return (
-      <div className="flex justify-end">
-        <div className="max-w-[88%] rounded-2xl rounded-br-md border border-accent/35 bg-accent/10 px-3 py-2 shadow-card">
-          <div className="flex items-start gap-2">
-            <UserRound size={13} className="text-accent mt-0.5 shrink-0" />
-            <MarkdownRenderer className="prose-md text-[13px] [&>p]:text-[13px]">{message.text || ''}</MarkdownRenderer>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (message.kind === 'agent-text') {
-    return (
-      <div className="flex justify-start">
-        <div className="max-w-[92%] rounded-2xl rounded-bl-md border border-subtle bg-card px-3 py-2 shadow-card">
-          <div className="flex items-start gap-2">
-            <Bot size={13} className={`mt-0.5 shrink-0 ${message.isThinking ? 'text-amber-500' : 'text-accent'}`} />
-            <MarkdownRenderer className="prose-md text-[13px] [&>p]:text-[13px]">{message.text || ''}</MarkdownRenderer>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (message.kind === 'tool-call' && message.tool) {
-    return (
-      <div className="flex justify-start">
-        <div className="w-full max-w-[95%]">
-          <ToolCallCard tool={message.tool} />
-        </div>
-      </div>
-    );
-  }
-
-  const isResult = message.kind === 'result';
-  return (
-    <div className="flex justify-center">
-      <div className={`max-w-[94%] rounded-lg border px-2.5 py-1.5 text-[11px] ${
-        isResult
-          ? 'border-[var(--color-success)]/40 bg-[var(--color-success)]/10 text-[var(--color-success)]'
-          : 'border-subtle bg-secondary text-dim'
-      }`}>
-        {message.text || message.kind}
-      </div>
-    </div>
-  );
-}
-
 function suggestionIcon(icon: ComposerSuggestion['icon']) {
   if (icon === 'command') {
     return <Command size={13} className="text-accent" />;
@@ -172,6 +141,76 @@ function findFirstEnabledSuggestionIndex(suggestions: ComposerSuggestion[]): num
   return idx >= 0 ? idx : 0;
 }
 
+function MessageItem({ message, nextKind }: MessageItemProps) {
+  if (message.kind === 'user-text') {
+    const showMeta = nextKind !== 'user-text';
+    const time = formatTimeLabel(message.createdAt);
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[min(90%,46rem)]">
+          <div className="rounded-2xl rounded-br-md border border-[var(--color-border-accent)] bg-accent/10 px-3.5 py-2.5 shadow-card">
+            <MarkdownRenderer className="text-[13px] leading-6 [&_p]:leading-6">{message.text || ''}</MarkdownRenderer>
+          </div>
+          {showMeta && (
+            <div className="mt-1 px-1 text-right text-[10px] text-dim">
+              You{time ? ` · ${time}` : ''}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (message.kind === 'agent-text') {
+    const showMeta = nextKind !== 'agent-text';
+    const time = formatTimeLabel(message.createdAt);
+
+    return (
+      <div className="min-w-0">
+        <MarkdownRenderer className="max-w-none text-[13px] leading-6 [&_p]:leading-6">{message.text || ''}</MarkdownRenderer>
+        {showMeta && (
+          <div className="mt-1 text-[10px] text-dim">{time}</div>
+        )}
+      </div>
+    );
+  }
+
+  if (message.kind === 'tool-call' && message.tool) {
+    return (
+      <div>
+        <ToolCallCard tool={message.tool} />
+      </div>
+    );
+  }
+
+  const isErrorLike = message.kind === 'result' || message.kind === 'system';
+  return (
+    <div className="flex justify-center">
+      <div className={`max-w-[92%] rounded-md border px-2 py-1 text-[11px] ${
+        isErrorLike
+          ? 'border-[var(--color-error)]/35 bg-[var(--color-error)]/10 text-[var(--color-error)]'
+          : 'border-subtle bg-secondary text-dim'
+      }`}>
+        {message.text || message.kind}
+      </div>
+    </div>
+  );
+}
+
+function PendingAssistantRow({ providerLabel }: { providerLabel: string }) {
+  return (
+    <div className="flex items-center gap-2 text-xs text-dim">
+      <Loader2 size={13} className="animate-spin text-accent" />
+      <span>{providerLabel} is working...</span>
+      <span className="inline-flex items-center gap-1">
+        <span className="h-1 w-1 rounded-full bg-accent/80 animate-pulse" />
+        <span className="h-1 w-1 rounded-full bg-accent/65 animate-pulse [animation-delay:140ms]" />
+        <span className="h-1 w-1 rounded-full bg-accent/50 animate-pulse [animation-delay:280ms]" />
+      </span>
+    </div>
+  );
+}
+
 export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
   const isMobile = useMobile();
   const [input, setInput] = useState('');
@@ -182,6 +221,8 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
   const [dismissedTokenKey, setDismissedTokenKey] = useState<string | null>(null);
   const [fileIndex, setFileIndex] = useState<FileEntry[] | null>(null);
   const [filesLoading, setFilesLoading] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -207,6 +248,7 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
   );
 
   const visibleMessages = useMemo(() => computeVisibleMessages(messages), [messages]);
+  const providerLabel = useMemo(() => providerDisplayName(session.provider), [session.provider]);
 
   const slashCommands = useMemo(
     () => extractSlashCommands(messages, session.provider),
@@ -217,7 +259,6 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
     () => findActiveToken(input, selection, ['/', '@']),
     [input, selection],
   );
-
   const tokenKey = activeToken ? `${activeToken.start}:${activeToken.end}:${activeToken.token}` : null;
 
   const suggestions = useMemo<ComposerSuggestion[]>(() => {
@@ -290,21 +331,12 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
     return suggestions;
   }, [dismissedTokenKey, suggestions, tokenKey]);
 
-  const statusLabel = useMemo(() => {
-    if (connecting) return 'Connecting...';
-    if (!connected) return 'Disconnected';
-    if (session.status === 'running') return 'Running';
-    if (session.status === 'waiting_input') return 'Ready';
-    if (session.status === 'completed') return 'Completed';
-    if (session.status === 'error') return 'Error';
-    return 'Idle';
-  }, [connected, connecting, session.status]);
-
   useEffect(() => {
     setFileIndex(null);
     setFilesLoading(false);
     setDismissedTokenKey(null);
     setSelectedSuggestionIndex(0);
+    setShowJumpToLatest(false);
   }, [session.id]);
 
   useEffect(() => {
@@ -334,7 +366,6 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
     }
   }, [fileIndex, filesLoading, projectFilesApi, taskFilesApi]);
 
-  // Warm file index early so @ suggestions are usually instant when typing starts.
   useEffect(() => {
     if (fileIndex !== null || filesLoading) return;
     let cancelled = false;
@@ -361,17 +392,45 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
   }, [selectedSuggestionIndex, visibleSuggestions.length]);
 
   useEffect(() => {
+    const node = textareaRef.current;
+    if (!node) return;
+    const minHeight = isMobile ? 72 : 84;
+    const maxHeight = isMobile ? 170 : 220;
+    if (!input.trim()) {
+      node.style.height = `${minHeight}px`;
+      return;
+    }
+    node.style.height = '0px';
+    const nextHeight = Math.min(maxHeight, Math.max(minHeight, node.scrollHeight));
+    node.style.height = `${nextHeight}px`;
+  }, [input, isMobile]);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const node = listRef.current;
+    if (!node) return;
+    if (typeof node.scrollTo === 'function') {
+      node.scrollTo({ top: node.scrollHeight, behavior });
+    } else {
+      node.scrollTop = node.scrollHeight;
+    }
+    setShowJumpToLatest(false);
+  }, []);
+
+  useEffect(() => {
     const node = listRef.current;
     if (!node) return;
     if (!autoStickRef.current) return;
-    node.scrollTop = node.scrollHeight;
-  }, [visibleMessages]);
+    requestAnimationFrame(() => {
+      scrollToBottom('auto');
+    });
+  }, [visibleMessages, scrollToBottom]);
 
   const handleScroll = () => {
     const node = listRef.current;
     if (!node) return;
     const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
     autoStickRef.current = distanceFromBottom < 80;
+    setShowJumpToLatest(distanceFromBottom > 220);
   };
 
   const applyComposerSuggestion = (suggestion: ComposerSuggestion) => {
@@ -389,6 +448,32 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
     });
   };
 
+  const insertTrigger = (trigger: '/' | '@') => {
+    const node = textareaRef.current;
+    const start = node?.selectionStart ?? selection.start;
+    const end = node?.selectionEnd ?? selection.end;
+    const prev = start > 0 ? input[start - 1] : '';
+    const needsLeadingSpace = prev !== '' && !/\s/.test(prev);
+    const insertValue = `${needsLeadingSpace ? ' ' : ''}${trigger}`;
+    const nextText = `${input.slice(0, start)}${insertValue}${input.slice(end)}`;
+    const cursor = start + insertValue.length;
+
+    setInput(nextText);
+    setDismissedTokenKey(null);
+    setSelection({ start: cursor, end: cursor });
+
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(cursor, cursor);
+    });
+
+    if (trigger === '@') {
+      void loadFileIndex();
+    }
+  };
+
   const submit = async () => {
     const content = input.trim();
     if (!content || sending || !canSend(session.status)) return;
@@ -399,6 +484,7 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
       setSelection({ start: 0, end: 0 });
       setDismissedTokenKey(null);
       autoStickRef.current = true;
+      requestAnimationFrame(() => scrollToBottom('smooth'));
     } finally {
       setSending(false);
     }
@@ -406,6 +492,7 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
 
   const suggestionList = visibleSuggestions;
   const canResume = session.status === 'completed' && typeof onResume === 'function';
+  const showPendingAssistant = session.status === 'running';
   const handleResume = async () => {
     if (!onResume || resuming) return;
     setResuming(true);
@@ -420,50 +507,77 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-primary">
-      <div className="px-3 py-1.5 border-b border-subtle bg-secondary flex items-center justify-between text-xs">
-        <div className="flex items-center gap-2">
-          {connecting ? <Loader2 size={12} className="animate-spin text-accent" /> : <div className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-[var(--color-success)]' : 'bg-[var(--color-error)]'}`} />}
-          <span className="text-dim">{statusLabel}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {canResume && (
-            <button
-              type="button"
-              onClick={() => { void handleResume(); }}
-              disabled={resuming}
-              className="inline-flex items-center gap-1 rounded-md border border-subtle bg-primary px-2 py-1 text-[11px] text-accent hover:bg-accent/10 disabled:opacity-60"
-            >
-              {resuming ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
-              Resume
-            </button>
-          )}
-          {error && <span className="text-[var(--color-error)] truncate max-w-[65%]">{error}</span>}
-        </div>
-      </div>
-
-      <div className="flex-1 min-h-0 relative">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_0%_0%,var(--color-accent-glow),transparent_40%)] opacity-60" />
+      <div className="relative flex-1 min-h-0">
         <div
           ref={listRef}
           onScroll={handleScroll}
-          className="relative h-full overflow-y-auto px-3 py-3 space-y-2.5"
+          className="h-full overflow-y-auto px-3 py-4 sm:px-4 sm:py-5 space-y-4"
         >
           {visibleMessages.length === 0 ? (
-            <div className="h-full grid place-items-center text-xs text-dim">
-              Start by sending a message.
+            <div className="grid h-full place-items-center text-center text-xs text-dim">
+              <div>
+                <p>Start by sending a message.</p>
+                <p className="mt-1">Use <span className="font-mono text-[var(--color-text-secondary)]">/</span> for commands or <span className="font-mono text-[var(--color-text-secondary)]">@</span> for files.</p>
+              </div>
             </div>
           ) : (
-            visibleMessages.map((message) => (
-              <MessageItem key={message.id} message={message} />
+            visibleMessages.map((message, index) => (
+              <MessageItem
+                key={message.id}
+                message={message}
+                nextKind={visibleMessages[index + 1]?.kind}
+              />
             ))
           )}
+          {showPendingAssistant && <PendingAssistantRow providerLabel={providerLabel} />}
         </div>
+
+        {showJumpToLatest && (
+          <button
+            type="button"
+            onClick={() => {
+              autoStickRef.current = true;
+              scrollToBottom('smooth');
+            }}
+            className="absolute bottom-3 right-3 inline-flex items-center gap-1 rounded-full border border-subtle bg-card px-2.5 py-1 text-[11px] text-dim shadow-card hover:text-[var(--color-text-primary)]"
+            title="Jump to latest message"
+          >
+            <ArrowDown size={12} />
+            Latest
+          </button>
+        )}
       </div>
 
-      <div className="border-t border-subtle bg-secondary/95 backdrop-blur px-3 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
-        <div className="relative">
+      <div className="bg-primary px-3 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+        {(canResume || error || (!connected && !connecting)) && (
+          <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-subtle bg-primary px-2.5 py-1.5">
+            <div className="min-w-0 text-xs text-dim truncate">
+              {canResume ? 'Session completed' : !connected && !connecting ? 'Disconnected' : error ?? ''}
+            </div>
+            {canResume && (
+              <button
+                type="button"
+                onClick={() => { void handleResume(); }}
+                disabled={resuming}
+                className="inline-flex items-center gap-1 rounded-md border border-subtle bg-secondary px-2 py-1 text-[11px] text-accent hover:bg-accent/10 disabled:opacity-60"
+              >
+                {resuming ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
+                Resume
+              </button>
+            )}
+          </div>
+        )}
+        <div className={`relative overflow-visible rounded-xl border bg-secondary shadow-card transition-colors ${inputFocused ? 'border-accent shadow-accent' : 'border-subtle'}`}>
           {suggestionList.length > 0 && (
-            <div className="absolute bottom-full left-0 right-0 z-20 mb-2 overflow-hidden rounded-xl border border-subtle bg-card shadow-lg">
+            <div className="absolute bottom-full left-2 right-2 z-20 mb-2 overflow-hidden rounded-xl border border-subtle bg-card shadow-card">
+              <div className="flex items-center justify-between border-b border-subtle px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-dim">
+                <span>{activeToken?.prefix === '@' ? 'Workspace Files' : 'Slash Commands'}</span>
+                {!isMobile && (
+                  <span className="normal-case tracking-normal text-[10px] text-dim">
+                    ↑↓ navigate · Enter apply · Esc dismiss
+                  </span>
+                )}
+              </div>
               <div className="max-h-56 overflow-y-auto py-1">
                 {suggestionList.map((suggestion, index) => {
                   const selected = index === selectedSuggestionIndex;
@@ -495,7 +609,7 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
             </div>
           )}
 
-          <div className="flex items-end gap-2">
+          <div className="px-2 pt-2">
             <textarea
               ref={textareaRef}
               value={input}
@@ -504,6 +618,8 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
                 setSelection({ start: e.target.selectionStart, end: e.target.selectionEnd });
                 setDismissedTokenKey(null);
               }}
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setInputFocused(false)}
               onSelect={(e) => {
                 const target = e.target as HTMLTextAreaElement;
                 setSelection({ start: target.selectionStart, end: target.selectionEnd });
@@ -545,9 +661,7 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
                       applyComposerSuggestion(suggestion);
                       return;
                     }
-                    if (e.key === 'Tab') {
-                      return;
-                    }
+                    if (e.key === 'Tab') return;
                   }
                   if (e.key === 'Escape') {
                     e.preventDefault();
@@ -556,38 +670,69 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
                   }
                 }
 
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  textareaRef.current?.blur();
+                  return;
+                }
+
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   void submit();
                 }
               }}
-              rows={isMobile ? 2 : 3}
-              placeholder="Send a message to this session..."
-              className="flex-1 resize-none rounded-lg border border-subtle bg-primary px-3 py-2 text-sm text-[var(--color-text-primary)] focus:outline-none focus:border-accent"
+              rows={1}
+              placeholder={canSend(session.status) ? 'Describe your next step...' : 'This session is completed'}
+              className="min-h-[72px] max-h-[220px] w-full resize-none bg-transparent px-1 py-1.5 text-sm leading-6 text-[var(--color-text-primary)] focus:outline-none"
               disabled={!canSend(session.status)}
             />
+          </div>
+
+          <div className="flex items-center justify-between px-2 py-1.5">
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => insertTrigger('/')}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-dim hover:text-accent transition-colors"
+                title="Insert slash command trigger"
+                aria-label="Insert slash command trigger"
+              >
+                <Slash size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => insertTrigger('@')}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-dim hover:text-accent transition-colors"
+                title="Insert file reference trigger"
+                aria-label="Insert file reference trigger"
+              >
+                <AtSign size={13} />
+              </button>
+            </div>
 
             <div className="flex items-center gap-1">
               {session.status === 'running' && (
                 <button
                   type="button"
                   onClick={interrupt}
-                  className="h-9 w-9 inline-flex items-center justify-center rounded-md border border-subtle bg-primary text-dim hover:text-[var(--color-error)] hover:border-[var(--color-error)]/50 transition-colors"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-dim hover:text-[var(--color-error)] transition-colors"
                   title="Interrupt"
                   aria-label="Interrupt"
                 >
-                  <Square size={14} />
+                  <Square size={13} />
                 </button>
               )}
+
               <button
                 type="button"
                 onClick={() => { void submit(); }}
                 disabled={sending || !input.trim() || !canSend(session.status)}
-                className="h-9 w-9 inline-flex items-center justify-center rounded-md bg-accent text-white hover:bg-accent-dim disabled:opacity-50 transition-colors"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-accent hover:text-accent-dim disabled:opacity-35 transition-colors"
                 title="Send"
                 aria-label="Send"
               >
-                {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
               </button>
             </div>
           </div>

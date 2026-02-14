@@ -192,7 +192,11 @@ export function TaskDetailInReview({
                 }}
                 onResume={(session) => {
                   onHideStartComposer();
-                  void onStartSession(session.provider, '', session.sessionType, session.id);
+                  void onStartSession(session.provider, '', session.sessionType, session.id)
+                    .then((resumed) => {
+                      if (resumed) onSelectSession(resumed);
+                      onCloseSession(session);
+                    });
                 }}
                 onClose={onCloseSession}
                 onNewSession={() => {
@@ -218,7 +222,11 @@ export function TaskDetailInReview({
                   <SessionView
                     session={activeSession}
                     onResume={activeSession.sessionType === 'chat' && activeSession.status === 'completed'
-                      ? () => onStartSession(activeSession.provider, '', activeSession.sessionType, activeSession.id)
+                      ? async () => {
+                        const resumed = await onStartSession(activeSession.provider, '', activeSession.sessionType, activeSession.id);
+                        if (resumed) onSelectSession(resumed);
+                        onCloseSession(activeSession);
+                      }
                       : undefined}
                   />
                 ) : (
@@ -303,7 +311,11 @@ export function TaskDetailInReview({
                 }}
                 onResume={(session) => {
                   onHideStartComposer();
-                  void onStartSession(session.provider, '', session.sessionType, session.id);
+                  void onStartSession(session.provider, '', session.sessionType, session.id)
+                    .then((resumed) => {
+                      if (resumed) onSelectSession(resumed);
+                      onCloseSession(session);
+                    });
                 }}
                 onClose={onCloseSession}
                 onNewSession={onShowStartComposer}
@@ -326,7 +338,11 @@ export function TaskDetailInReview({
                   <SessionView
                     session={activeSession}
                     onResume={activeSession.sessionType === 'chat' && activeSession.status === 'completed'
-                      ? () => onStartSession(activeSession.provider, '', activeSession.sessionType, activeSession.id)
+                      ? async () => {
+                        const resumed = await onStartSession(activeSession.provider, '', activeSession.sessionType, activeSession.id);
+                        if (resumed) onSelectSession(resumed);
+                        onCloseSession(activeSession);
+                      }
                       : undefined}
                   />
                 ) : (

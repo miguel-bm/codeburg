@@ -65,7 +65,7 @@ function TabLabel({ tab }: { tab: WorkspaceTab }) {
 
 export function TabBar() {
   const { tabs, activeTabIndex, setActiveTab, openNewSession, openSession, replaceSessionTab, moveTab } = useWorkspaceStore();
-  const { sessions, startSession, isStarting } = useWorkspaceSessions();
+  const { sessions, startSession, deleteSession, isStarting } = useWorkspaceSessions();
   const { closeTab, closeOtherTabs, closeTabsToRight } = useTabActions();
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
@@ -96,10 +96,15 @@ export function TabBar() {
       });
       replaceSessionTab(session.id, resumed.id);
       openSession(resumed.id);
+      try {
+        await deleteSession(session.id);
+      } catch {
+        // Best-effort cleanup; resumed session is already active.
+      }
     } finally {
       setResumingSessionId(null);
     }
-  }, [openSession, replaceSessionTab, startSession]);
+  }, [deleteSession, openSession, replaceSessionTab, startSession]);
 
   if (tabs.length === 0) {
     return (

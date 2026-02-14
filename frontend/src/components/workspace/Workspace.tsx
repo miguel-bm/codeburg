@@ -14,7 +14,7 @@ import { NewSessionComposer } from '../session/NewSessionComposer';
 function TabContent() {
   const { tabs, activeTabIndex, openSession, replaceSessionTab } = useWorkspaceStore();
   const { scope, task } = useWorkspace();
-  const { sessions, startSession, isStarting, startError } = useWorkspaceSessions();
+  const { sessions, startSession, deleteSession, isStarting, startError } = useWorkspaceSessions();
 
   const activeTab = tabs[activeTabIndex];
 
@@ -63,6 +63,11 @@ function TabContent() {
               });
               replaceSessionTab(session.id, resumed.id);
               openSession(resumed.id);
+              try {
+                await deleteSession(session.id);
+              } catch {
+                // Best-effort cleanup; resumed session is already active.
+              }
             }
             : undefined}
         />
