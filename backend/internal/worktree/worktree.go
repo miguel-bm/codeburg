@@ -366,8 +366,15 @@ func (m *Manager) createBranchAndWorktree(repoPath, worktreePath, branchName, ba
 			return fmt.Errorf("add worktree with existing branch: %s: %w", string(output), err)
 		}
 	} else {
-		// Create new branch and worktree in one command
-		cmd := exec.Command("git", "worktree", "add", "-b", branchName, worktreePath, baseBranch)
+		// Create branch without inheriting tracking from remote base refs (e.g. origin/main),
+		// then attach the worktree to that local branch.
+		createBranchCmd := exec.Command("git", "branch", "--no-track", branchName, baseBranch)
+		createBranchCmd.Dir = repoPath
+		if output, err := createBranchCmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("create branch: %s: %w", string(output), err)
+		}
+
+		cmd := exec.Command("git", "worktree", "add", worktreePath, branchName)
 		cmd.Dir = repoPath
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("add worktree with new branch: %s: %w", string(output), err)

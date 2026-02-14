@@ -263,6 +263,29 @@ func TestParseNumstat(t *testing.T) {
 	}
 }
 
+func TestSelectPushRemoteFromOutput(t *testing.T) {
+	tests := []struct {
+		name string
+		out  string
+		want string
+	}{
+		{name: "empty", out: "", want: ""},
+		{name: "origin only", out: "origin\n", want: "origin"},
+		{name: "multiple includes origin", out: "upstream\norigin\n", want: "origin"},
+		{name: "multiple without origin", out: "upstream\nbackup\n", want: "upstream"},
+		{name: "whitespace lines", out: "\n origin \n\n", want: "origin"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := selectPushRemoteFromOutput(tt.out)
+			if got != tt.want {
+				t.Fatalf("selectPushRemoteFromOutput() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // --- Handler integration tests (httptest + real git) ---
 
 func TestGitStatus_Basic(t *testing.T) {
