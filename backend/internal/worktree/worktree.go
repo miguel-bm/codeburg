@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -98,13 +99,13 @@ func (m *Manager) Create(opts CreateOptions) (*CreateResult, error) {
 
 	// Check for collision — if branch or worktree dir already exists, append short ID.
 	// Skip this when adopting an existing branch (we *want* it to exist).
-	dirName := branchName
+	dirName := worktreeDirName(branchName)
 	worktreePath := filepath.Join(m.config.BaseDir, opts.ProjectName, dirName)
 	if !opts.AdoptBranch {
 		if m.branchExists(opts.ProjectPath, branchName) || dirExists(worktreePath) {
 			suffix := shortID(opts.TaskID)
 			branchName = branchName + "-" + suffix
-			dirName = branchName
+			dirName = worktreeDirName(branchName)
 			worktreePath = filepath.Join(m.config.BaseDir, opts.ProjectName, dirName)
 		}
 	}
@@ -344,6 +345,12 @@ func (m *Manager) hasCommits(repoPath string) bool {
 	cmd := exec.Command("git", "rev-parse", "HEAD")
 	cmd.Dir = repoPath
 	return cmd.Run() == nil
+}
+
+// worktreeDirName converts a branch ref name to a single safe directory name.
+// This avoids nested worktree paths for branch names like "foo/bar".
+func worktreeDirName(branchName string) string {
+	return url.PathEscape(branchName)
 }
 
 func (m *Manager) branchExists(repoPath, branchName string) bool {
