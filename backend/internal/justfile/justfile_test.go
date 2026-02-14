@@ -1,6 +1,7 @@
 package justfile
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -175,5 +176,21 @@ func TestParseJustList_MultipleHashInDescription(t *testing.T) {
 	}
 	if recipes[0].Description != "Build # with hashes" {
 		t.Errorf("expected 'Build # with hashes', got %q", recipes[0].Description)
+	}
+}
+
+func TestPrependMissingPathEntries(t *testing.T) {
+	got := prependMissingPathEntries("/usr/bin:/bin", []string{"/usr/local/bin", "/usr/bin", "/opt/bin"})
+	if got != "/usr/local/bin:/opt/bin:/usr/bin:/bin" {
+		t.Fatalf("unexpected PATH result: %q", got)
+	}
+
+	parts := strings.Split(got, ":")
+	seen := map[string]bool{}
+	for _, part := range parts {
+		if seen[part] {
+			t.Fatalf("duplicate path entry found: %q", part)
+		}
+		seen[part] = true
 	}
 }

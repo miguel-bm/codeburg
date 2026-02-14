@@ -5,21 +5,16 @@
 set -euo pipefail
 
 BRANCH="${1:-main}"
+TARGET_DIR="/opt/codeburg"
 
 export PATH="/usr/local/go/bin:/usr/local/bin:/usr/bin:$HOME/go/bin:$PATH"
 export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
-cd /opt/codeburg
+cd "$TARGET_DIR"
 
-echo "==> Fetching and checking out '$BRANCH'..."
+echo "==> Fetching '$BRANCH'..."
 git fetch origin
-git checkout "$BRANCH"
-git pull --rebase origin "$BRANCH"
+COMMIT="$(git rev-parse "origin/${BRANCH}^{commit}")"
+echo "==> Deploying frontend commit ${COMMIT} from origin/${BRANCH}..."
 
-echo "==> Installing frontend dependencies..."
-pnpm --dir frontend install --frozen-lockfile
-
-echo "==> Building frontend..."
-pnpm --dir frontend build
-
-echo "==> Done! Frontend updated without server restart."
+"${TARGET_DIR}/deploy/deploy-local-fe.sh" "$COMMIT" "$TARGET_DIR"

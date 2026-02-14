@@ -137,10 +137,11 @@ func (s *Server) handleStreamJustRecipe(w http.ResponseWriter, r *http.Request) 
 	// Parse optional args
 	args := r.URL.Query()["arg"]
 
-	// Build command
-	cmdArgs := append([]string{recipe}, args...)
-	cmd := exec.Command("just", cmdArgs...)
-	cmd.Dir = workDir
+	cmd, err := justMgr.StartRecipe(workDir, recipe, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	// Get output pipes
 	stdout, err := cmd.StdoutPipe()

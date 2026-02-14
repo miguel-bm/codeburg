@@ -95,6 +95,39 @@ This SSHs into the server and runs `/opt/codeburg/deploy/deploy.sh`, which:
 
 Zero-downtime is not a goal (personal tool, restarts take <2 seconds).
 
+## Self-Hosted Deploy (From Inside Codeburg)
+
+When running deploy from a Codeburg terminal session, restarting `codeburg.service` can terminate the in-session process. Use detached self-deploy instead:
+
+```bash
+just deploy-self
+# or: just deploy-self <ref>
+```
+
+This launches a background deploy process (`deploy/deploy-self.sh`) that:
+1. Resolves the requested ref (default `HEAD`) to a commit.
+2. Runs `deploy/deploy-local.sh` in the background with log output in `/tmp/codeburg-self-deploy-*.log`.
+3. Applies that commit to `/opt/codeburg` in detached HEAD mode, builds, migrates, and restarts the service.
+
+Follow progress:
+
+```bash
+tail -f /tmp/codeburg-self-deploy-*.log
+```
+
+For frontend-only updates (no service restart, sessions remain active):
+
+```bash
+just deploy-self-fe
+# or: just deploy-self-fe <ref>
+```
+
+Logs:
+
+```bash
+tail -f /tmp/codeburg-self-deploy-fe-*.log
+```
+
 ## Security
 
 - **No ports exposed**: The VM has no open ports. All traffic flows through the Cloudflare tunnel (outbound connection from VM).

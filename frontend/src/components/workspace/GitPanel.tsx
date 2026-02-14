@@ -217,6 +217,10 @@ export function GitPanel() {
     return <div className="flex items-center justify-center h-20 text-xs text-dim">Loading git status...</div>;
   }
 
+  const branchName = status.branch.trim();
+  const isDetachedHead = branchName === 'HEAD' || branchName.startsWith('HEAD ');
+  const showPublish = !isDetachedHead && !status.hasUpstream;
+  const showSyncCounts = status.ahead > 0 || status.behind > 0;
   const hasChanges = status.staged.length > 0 || status.unstaged.length > 0 || status.untracked.length > 0;
   const totalChanges = status.staged.length + status.unstaged.length + status.untracked.length;
   const baseDiffFiles = parseDiffFiles(baseDiff?.diff || '');
@@ -339,7 +343,7 @@ export function GitPanel() {
             <div className="px-2 py-1.5 border-b border-subtle flex items-center gap-2 text-xs">
               <GitBranch size={12} className="text-dim shrink-0" />
               <span className="font-mono text-dim truncate">{status.branch}</span>
-              {(status.ahead > 0 || status.behind > 0) && (
+              {(showSyncCounts || showPublish) && (
                 <div className="flex items-center gap-1 ml-auto">
                   {status.behind > 0 && (
                     <button
@@ -359,6 +363,17 @@ export function GitPanel() {
                     >
                       <ArrowUp size={10} />
                       {isPushing ? '...' : status.ahead}
+                    </button>
+                  )}
+                  {showPublish && (
+                    <button
+                      onClick={() => push({})}
+                      disabled={isPushing}
+                      className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-tertiary text-dim"
+                      title="Publish branch to remote"
+                    >
+                      <ArrowUp size={10} />
+                      {isPushing ? '...' : 'Publish'}
                     </button>
                   )}
                 </div>

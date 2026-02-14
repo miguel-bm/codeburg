@@ -9,6 +9,8 @@ export interface GitFileStatus {
 
 export interface GitStatus {
   branch: string;
+  upstream?: string;
+  hasUpstream: boolean;
   ahead: number;
   behind: number;
   staged: GitFileStatus[];

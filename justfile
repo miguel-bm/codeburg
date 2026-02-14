@@ -88,6 +88,10 @@ migrate:
 lint-fe:
     pnpm --dir frontend lint
 
+# Check server runtime/tooling requirements for developing Codeburg from within Codeburg
+check-runtime:
+    ./deploy/check-runtime-tooling.sh
+
 # --- Deploy ---
 
 # Deploy to production server (optionally specify branch, default: main)
@@ -101,6 +105,14 @@ deploy-fe branch="main":
 # Deploy after a clean slate (full restart, kills active sessions)
 deploy-clean branch="main":
     ssh codeburg-server '/opt/codeburg/deploy/deploy.sh {{branch}}'
+
+# Deploy the server from the current checkout/ref (safe for running inside Codeburg sessions)
+deploy-self ref="HEAD":
+    ./deploy/deploy-self.sh "{{ref}}" "$(pwd)"
+
+# Deploy frontend only from the current checkout/ref (safe for running inside Codeburg sessions)
+deploy-self-fe ref="HEAD":
+    ./deploy/deploy-self-fe.sh "{{ref}}" "$(pwd)"
 
 # Commit, push, and deploy in one shot (uses current branch)
 yeet msg:
