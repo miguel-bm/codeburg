@@ -31,17 +31,19 @@ type ChatTurnResult struct {
 }
 
 type StartChatTurnInput struct {
-	SessionID string
-	Provider  string
-	WorkDir   string
-	Prompt    string
-	Model     string
+	SessionID   string
+	Provider    string
+	WorkDir     string
+	Prompt      string
+	Model       string
+	AutoApprove bool
 }
 
 type chatSessionState struct {
 	id                string
 	provider          string
 	model             string
+	autoApprove       bool
 	providerSessionID string
 
 	mu       sync.Mutex
@@ -79,9 +81,13 @@ func NewChatManager(database *db.DB) *ChatManager {
 	}
 }
 
-func (m *ChatManager) RegisterSession(sessionID, provider, model string) error {
-	_, err := m.ensureSession(sessionID, provider, model)
-	return err
+func (m *ChatManager) RegisterSession(sessionID, provider, model string, autoApprove bool) error {
+	state, err := m.ensureSession(sessionID, provider, model)
+	if err != nil {
+		return err
+	}
+	state.autoApprove = autoApprove
+	return nil
 }
 
 func (m *ChatManager) RemoveSession(sessionID string) {
@@ -166,11 +172,12 @@ func (m *ChatManager) StartTurn(input StartChatTurnInput) (<-chan ChatTurnResult
 
 	resultCh := make(chan ChatTurnResult, 1)
 	go m.runTurn(state, ctx, StartChatTurnInput{
-		SessionID: input.SessionID,
-		Provider:  state.provider,
-		WorkDir:   input.WorkDir,
-		Prompt:    strings.TrimSpace(input.Prompt),
-		Model:     state.model,
+		SessionID:   input.SessionID,
+		Provider:    state.provider,
+		WorkDir:     input.WorkDir,
+		Prompt:      strings.TrimSpace(input.Prompt),
+		Model:       state.model,
+		AutoApprove: state.autoApprove,
 	}, resultCh)
 	return resultCh, nil
 }
@@ -182,7 +189,7 @@ func (m *ChatManager) runTurn(state *chatSessionState, ctx context.Context, inpu
 	resumeProviderSessionID := state.providerSessionID
 	state.mu.Unlock()
 
-	command, args, err := buildChatTurnCommand(input.Provider, input.Prompt, input.Model, resumeProviderSessionID)
+	command, args, err := buildChatTurnCommand(input.Provider, input.Prompt, input.Model, resumeProviderSessionID, input.AutoApprove)
 	if err != nil {
 		m.finishTurn(state)
 		resultCh <- ChatTurnResult{SessionID: input.SessionID, Err: err}

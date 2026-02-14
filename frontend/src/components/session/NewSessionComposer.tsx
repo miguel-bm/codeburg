@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CornerDownLeft, MessageSquareText, Play, X } from 'lucide-react';
+import { CornerDownLeft, MessageSquareText, Play, ShieldOff, X } from 'lucide-react';
 import type { SessionProvider, SessionType } from '../../api/sessions';
 import claudeLogo from '../../assets/claude-logo.svg';
 import openaiLogo from '../../assets/openai-logo.svg';
@@ -9,11 +9,12 @@ import { useMobile } from '../../hooks/useMobile';
 interface NewSessionComposerProps {
   taskTitle: string;
   taskDescription?: string;
-  onStart: (provider: SessionProvider, prompt: string, sessionType: SessionType) => void;
+  onStart: (provider: SessionProvider, prompt: string, sessionType: SessionType, autoApprove: boolean) => void;
   onCancel: () => void;
   isPending?: boolean;
   error?: string;
   dismissible?: boolean;
+  isProjectScope?: boolean;
 }
 
 interface ProviderOption {
@@ -67,21 +68,21 @@ export function NewSessionComposer({
   isPending = false,
   error,
   dismissible = true,
+  isProjectScope = false,
 }: NewSessionComposerProps) {
   const defaultPrompt = useMemo(
-    () => (taskDescription ? `${taskTitle}\n\n${taskDescription}` : taskTitle),
-    [taskDescription, taskTitle],
+    () => isProjectScope ? '' : (taskDescription ? `${taskTitle}\n\n${taskDescription}` : taskTitle),
+    [taskDescription, taskTitle, isProjectScope],
   );
   const isMobile = useMobile();
 
   const [provider, setProvider] = useState<SessionProvider>('claude');
-  const [sessionType, setSessionType] = useState<SessionType>('chat');
-  const [includePrompt, setIncludePrompt] = useState(true);
+  const [sessionType, setSessionType] = useState<SessionType>('terminal');
+  const [includePrompt, setIncludePrompt] = useState(!isProjectScope);
   const [prompt, setPrompt] = useState(defaultPrompt);
+  const [autoApprove, setAutoApprove] = useState(true);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const providerRefs = useRef<(HTMLButtonElement | null)[]>([]);
-
-  const promptEnabled = provider !== 'terminal' && includePrompt;
 
   useEffect(() => {
     if (!dismissible) return;
@@ -102,10 +103,10 @@ export function NewSessionComposer({
 
   const startSession = () => {
     if (provider === 'terminal') {
-      onStart('terminal', '', 'terminal');
+      onStart('terminal', '', 'terminal', false);
       return;
     }
-    onStart(provider, includePrompt ? prompt.trim() : '', sessionType);
+    onStart(provider, includePrompt ? prompt.trim() : '', sessionType, autoApprove);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -115,7 +116,7 @@ export function NewSessionComposer({
 
   const handleProviderSelect = (id: SessionProvider) => {
     if (id === 'terminal') {
-      if (!isPending) onStart('terminal', '', 'terminal');
+      if (!isPending) onStart('terminal', '', 'terminal', false);
       return;
     }
     setProvider(id);
@@ -240,6 +241,19 @@ export function NewSessionComposer({
             </div>
           )}
 
+          {provider !== 'terminal' && (
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="inline-flex items-center gap-2 text-sm font-medium">
+                <ShieldOff size={15} className="text-accent" />
+                Auto-Approve
+              </div>
+              <div className="inline-flex items-center gap-2">
+                <span className="text-xs text-dim">Skip Permissions</span>
+                <Toggle checked={autoApprove} onChange={setAutoApprove} />
+              </div>
+            </div>
+          )}
+
           <div className="mb-3 flex items-center justify-between gap-3">
             <div className="inline-flex items-center gap-2 text-sm font-medium">
               <MessageSquareText size={15} className="text-accent" />
@@ -257,20 +271,19 @@ export function NewSessionComposer({
             <div className="rounded-lg border border-subtle bg-primary px-3 py-3 text-xs text-dim">
               Terminal sessions ignore initial prompts and start in interactive shell mode.
             </div>
-          ) : promptEnabled ? (
+          ) : (
             <textarea
               value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
+              onChange={(e) => {
+                setPrompt(e.target.value);
+                if (!includePrompt) setIncludePrompt(true);
+              }}
               onKeyDown={handlePromptKeyDown}
               rows={12}
               autoFocus={!isMobile}
-              className="block h-full w-full min-h-44 flex-1 resize-y rounded-lg border border-subtle bg-primary px-3 py-2 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-text-secondary)] focus:outline-none sm:min-h-56"
+              className={`block h-full w-full min-h-44 flex-1 resize-y rounded-lg border border-subtle bg-primary px-3 py-2 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-text-secondary)] focus:outline-none sm:min-h-56 ${!includePrompt ? 'opacity-50' : ''}`}
               placeholder="Describe what the session should do..."
             />
-          ) : (
-            <div className="rounded-lg border border-subtle bg-primary px-3 py-3 text-xs text-dim">
-              Prompt disabled. The provider will start in interactive mode.
-            </div>
           )}
         </section>
 

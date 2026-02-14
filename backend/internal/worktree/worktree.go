@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -348,9 +347,10 @@ func (m *Manager) hasCommits(repoPath string) bool {
 }
 
 // worktreeDirName converts a branch ref name to a single safe directory name.
-// This avoids nested worktree paths for branch names like "foo/bar".
+// Replaces "/" with "-" to keep paths flat (e.g. "feat/foo" → "feat-foo").
+// Collisions with existing dirs are handled by the caller via suffix appending.
 func worktreeDirName(branchName string) string {
-	return url.PathEscape(branchName)
+	return strings.ReplaceAll(branchName, "/", "-")
 }
 
 func (m *Manager) branchExists(repoPath, branchName string) bool {
