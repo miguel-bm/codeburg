@@ -272,12 +272,35 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
       </div>
 
       {/* Hover tooltip (portal) */}
-      {tooltip && <TaskTooltip task={task} projectName={projectName} x={tooltip.x} y={tooltip.y} />}
+      {tooltip && (
+        <TaskTooltip
+          task={task}
+          projectName={projectName}
+          x={tooltip.x}
+          y={tooltip.y}
+          anchorLeft={tooltip.anchorLeft}
+          anchorRight={tooltip.anchorRight}
+        />
+      )}
     </>
   );
 });
 
-export function TaskTooltip({ task, projectName, x, y }: { task: Task; projectName?: string; x: number; y: number }) {
+export function TaskTooltip({
+  task,
+  projectName,
+  x,
+  y,
+  anchorLeft,
+  anchorRight,
+}: {
+  task: Task;
+  projectName?: string;
+  x: number;
+  y: number;
+  anchorLeft?: number;
+  anchorRight?: number;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x, y });
 
@@ -288,8 +311,10 @@ export function TaskTooltip({ task, projectName, x, y }: { task: Task; projectNa
     let nx = x;
     let ny = y;
     if (nx + rect.width > window.innerWidth - 12) {
-      nx = x - rect.width - 16; // flip to left side of card
+      // Flip to left side of the hovered card while preserving an 8px gap.
+      nx = (anchorLeft ?? (anchorRight ?? x) - 8) - rect.width - 8;
     }
+    if (nx < 12) nx = 12;
     if (ny + rect.height > window.innerHeight - 12) {
       ny = window.innerHeight - rect.height - 12;
     }
@@ -298,7 +323,7 @@ export function TaskTooltip({ task, projectName, x, y }: { task: Task; projectNa
       setPos({ x: nx, y: ny });
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [x, y]);
+  }, [x, y, anchorLeft, anchorRight]);
 
   const hasDescription = !!task.description;
   const hasBranch = !!task.branch;

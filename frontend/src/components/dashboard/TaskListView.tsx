@@ -149,7 +149,16 @@ function ListRow({
         </div>
       </button>
 
-      {tooltip && <TaskTooltip task={task} projectName={projectName} x={tooltip.x} y={tooltip.y} />}
+      {tooltip && (
+        <TaskTooltip
+          task={task}
+          projectName={projectName}
+          x={tooltip.x}
+          y={tooltip.y}
+          anchorLeft={tooltip.anchorLeft}
+          anchorRight={tooltip.anchorRight}
+        />
+      )}
     </>
   );
 }

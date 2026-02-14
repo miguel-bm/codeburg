@@ -10,6 +10,8 @@ interface UseHoverTooltipOptions {
 interface TooltipPosition {
   x: number;
   y: number;
+  anchorLeft: number;
+  anchorRight: number;
 }
 
 export function useHoverTooltip(options: UseHoverTooltipOptions = {}) {
@@ -25,7 +27,12 @@ export function useHoverTooltip(options: UseHoverTooltipOptions = {}) {
     if (disabled) return;
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     hoverTimer.current = setTimeout(() => {
-      setTooltip({ x: rect.right + 8, y: rect.top });
+      setTooltip({
+        x: rect.right + 8,
+        y: rect.top,
+        anchorLeft: rect.left,
+        anchorRight: rect.right,
+      });
     }, delay);
   }, [disabled, delay]);
 
