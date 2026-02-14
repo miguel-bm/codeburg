@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, GitBranch, Maximize2, Minimize2, RefreshCw, Settings, Upload, X } from 'lucide-react';
@@ -12,6 +13,7 @@ import { Modal } from '../components/ui/Modal';
 import { WorkspaceProvider, Workspace } from '../components/workspace';
 import type { WorkspaceScope } from '../components/workspace';
 import { projectsApi } from '../api';
+import { useHoverTooltip } from '../hooks/useHoverTooltip';
 import { usePanelNavigation } from '../hooks/usePanelNavigation';
 
 function getRemoteInfo(gitOrigin?: string): { name: string; url: string; icon: React.ReactNode } | null {
@@ -97,18 +99,28 @@ export function ProjectWorkspace() {
 
   const remoteInfo = project ? getRemoteInfo(project.gitOrigin) : null;
   const defaultBranch = project?.defaultBranch || 'main';
-  const syncTooltip = useMemo(() => (
-    `Update local ${defaultBranch}\n\n` +
-    `- Fetches latest refs from origin\n` +
-    `- Fast-forwards local ${defaultBranch} to origin/${defaultBranch}\n` +
-    `- Does not push any commits`
-  ), [defaultBranch]);
-  const pushTooltip = useMemo(() => (
-    `Push ${defaultBranch} to origin\n\n` +
-    `- Pushes local ${defaultBranch} to origin/${defaultBranch}\n` +
-    `- Can be rejected by branch protection/non-fast-forward\n` +
-    `- Opens a confirmation dialog first`
-  ), [defaultBranch]);
+  const syncTooltipTitle = useMemo(() => `Update local ${defaultBranch}`, [defaultBranch]);
+  const syncTooltipLines = useMemo(() => ([
+    'Fetches latest refs from origin',
+    `Fast-forwards local ${defaultBranch} to origin/${defaultBranch}`,
+    'Does not push any commits',
+  ]), [defaultBranch]);
+  const pushTooltipTitle = useMemo(() => `Push ${defaultBranch} to origin`, [defaultBranch]);
+  const pushTooltipLines = useMemo(() => ([
+    `Pushes local ${defaultBranch} to origin/${defaultBranch}`,
+    'Can be rejected by branch protection/non-fast-forward',
+    'Opens a confirmation dialog first',
+  ]), [defaultBranch]);
+  const {
+    tooltip: syncTooltip,
+    handleMouseEnter: handleSyncEnter,
+    handleMouseLeave: handleSyncLeave,
+  } = useHoverTooltip();
+  const {
+    tooltip: pushTooltip,
+    handleMouseEnter: handlePushEnter,
+    handleMouseLeave: handlePushLeave,
+  } = useHoverTooltip();
 
   useEffect(() => {
     if (!feedback) return;
@@ -140,8 +152,9 @@ export function ProjectWorkspace() {
             size="xs"
             icon={<RefreshCw size={13} className={syncDefaultBranchMutation.isPending ? 'animate-spin' : ''} />}
             onClick={() => syncDefaultBranchMutation.mutate()}
+            onMouseEnter={handleSyncEnter}
+            onMouseLeave={handleSyncLeave}
             disabled={syncDefaultBranchMutation.isPending || pushDefaultBranchMutation.isPending}
-            title={syncTooltip}
           >
             <span className="hidden sm:inline">{syncDefaultBranchMutation.isPending ? 'Updating...' : `Update local ${defaultBranch}`}</span>
           </Button>
@@ -153,8 +166,9 @@ export function ProjectWorkspace() {
               pushDefaultBranchMutation.reset();
               setShowPushConfirm(true);
             }}
+            onMouseEnter={handlePushEnter}
+            onMouseLeave={handlePushLeave}
             disabled={syncDefaultBranchMutation.isPending || pushDefaultBranchMutation.isPending}
-            title={pushTooltip}
           >
             <span className="hidden sm:inline">{pushDefaultBranchMutation.isPending ? 'Pushing...' : `Push ${defaultBranch}`}</span>
           </Button>
@@ -203,6 +217,22 @@ export function ProjectWorkspace() {
     <WorkspaceProvider scope={scope}>
       <div className="relative flex flex-col flex-1 h-full min-h-0">
         <Workspace />
+        {syncTooltip && (
+          <HeaderActionTooltip
+            x={syncTooltip.x}
+            y={syncTooltip.y}
+            title={syncTooltipTitle}
+            lines={syncTooltipLines}
+          />
+        )}
+        {pushTooltip && (
+          <HeaderActionTooltip
+            x={pushTooltip.x}
+            y={pushTooltip.y}
+            title={pushTooltipTitle}
+            lines={pushTooltipLines}
+          />
+        )}
         <AnimatePresence>
           {feedback && (
             <motion.div
@@ -284,5 +314,46 @@ export function ProjectWorkspace() {
         </Modal>
       </div>
     </WorkspaceProvider>
+  );
+}
+
+function HeaderActionTooltip({ x, y, title, lines }: { x: number; y: number; title: string; lines: string[] }) {
+  const [pos, setPos] = useState({ x, y });
+  const [el, setEl] = useState<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    let nx = x;
+    let ny = y;
+    if (nx + rect.width > window.innerWidth - 12) {
+      nx = x - rect.width - 16;
+    }
+    if (ny + rect.height > window.innerHeight - 12) {
+      ny = window.innerHeight - rect.height - 12;
+    }
+    if (ny < 12) ny = 12;
+    const timer = window.setTimeout(() => setPos({ x: nx, y: ny }), 0);
+    return () => window.clearTimeout(timer);
+  }, [el, x, y]);
+
+  return createPortal(
+    <div
+      ref={setEl}
+      className="fixed z-[200] bg-elevated border border-subtle rounded-lg shadow-lg w-80 text-xs animate-fadeIn pointer-events-none"
+      style={{ left: pos.x, top: pos.y }}
+    >
+      <div className="px-3 pt-2.5 pb-2 border-b border-subtle/50">
+        <div className="font-medium text-[13px] text-[var(--color-text-primary)] leading-snug">{title}</div>
+      </div>
+      <div className="px-3 py-2 space-y-1.5">
+        {lines.map((line) => (
+          <div key={line} className="text-[11px] text-[var(--color-text-secondary)] leading-relaxed">
+            {line}
+          </div>
+        ))}
+      </div>
+    </div>,
+    document.body,
   );
 }
