@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -149,6 +150,70 @@ func TestCreate_ExplicitBranchName(t *testing.T) {
 
 	if result.BranchName != "custom-branch" {
 		t.Errorf("branch = %q, want %q", result.BranchName, "custom-branch")
+	}
+}
+
+func TestCreate_SlashBranchName_UsesFlatWorktreeDir(t *testing.T) {
+	m := newTestManager(t)
+	repo := createTestGitRepo(t)
+
+	result, err := m.Create(CreateOptions{
+		ProjectPath: repo,
+		ProjectName: "proj",
+		TaskID:      "TASK002A",
+		BranchName:  "foo/bar",
+		BaseBranch:  "main",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.BranchName != "foo/bar" {
+		t.Fatalf("branch = %q, want %q", result.BranchName, "foo/bar")
+	}
+	if filepath.Dir(result.WorktreePath) != filepath.Join(m.config.BaseDir, "proj") {
+		t.Fatalf("worktree path should be one level under project dir, got %q", result.WorktreePath)
+	}
+	if !strings.Contains(filepath.Base(result.WorktreePath), "%2F") {
+		t.Fatalf("worktree dir should encode slash in branch name, got %q", filepath.Base(result.WorktreePath))
+	}
+}
+
+func TestCreate_NoFalseCollisionAfterSlashBranchDelete(t *testing.T) {
+	m := newTestManager(t)
+	repo := createTestGitRepo(t)
+
+	first, err := m.Create(CreateOptions{
+		ProjectPath: repo,
+		ProjectName: "proj",
+		TaskID:      "TASK002B",
+		BranchName:  "foo/bar",
+		BaseBranch:  "main",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.Delete(DeleteOptions{
+		ProjectPath:  repo,
+		WorktreePath: first.WorktreePath,
+		DeleteBranch: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := m.Create(CreateOptions{
+		ProjectPath: repo,
+		ProjectName: "proj",
+		TaskID:      "TASK002C",
+		BranchName:  "foo",
+		BaseBranch:  "main",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.BranchName != "foo" {
+		t.Fatalf("branch should not be suffixed by false dir collision: got %q", second.BranchName)
 	}
 }
 
