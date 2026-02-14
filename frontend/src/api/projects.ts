@@ -1,4 +1,5 @@
 import { api } from './client';
+import { ApiError } from './client';
 import type { Project, CreateProjectInput, UpdateProjectInput, ProjectSecretFile, ArchiveInfo } from './types';
 
 export interface ProjectFileEntry {
@@ -134,7 +135,15 @@ export const projectsApi = {
     api.post<ProjectSyncDefaultBranchResponse>(`/projects/${id}/sync-default-branch`),
 
   pushDefaultBranch: (id: string) =>
-    api.post<ProjectPushDefaultBranchResponse>(`/projects/${id}/push-default-branch`),
+    api.post<ProjectPushDefaultBranchResponse>(`/projects/${id}/push-default-branch`)
+      .catch(async (err: unknown) => {
+        // Backward compatibility: older backends don't have /push-default-branch yet.
+        if (err instanceof ApiError && err.status === 404) {
+          await api.post<void>(`/projects/${id}/git/push`);
+          return { branch: 'main', remote: 'origin/main', updated: true };
+        }
+        throw err;
+      }),
 
   archive: (id: string) =>
     api.post<{ filename: string; path: string }>(`/projects/${id}/archive`),

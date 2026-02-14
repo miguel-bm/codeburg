@@ -78,13 +78,15 @@ export function ProjectWorkspace() {
   const pushDefaultBranchMutation = useMutation({
     mutationFn: () => projectsApi.pushDefaultBranch(id!),
     onSuccess: (data) => {
+      const branch = project?.defaultBranch || data.branch || 'main';
+      const remote = `origin/${branch}`;
       queryClient.invalidateQueries({ queryKey: ['project', id] });
       setShowPushConfirm(false);
       setFeedback({
         type: 'success',
         message: data.updated
-          ? `Pushed ${data.branch} to ${data.remote}.`
-          : `${data.remote} was already up to date.`,
+          ? `Pushed ${branch} to ${remote}.`
+          : `${remote} was already up to date.`,
       });
     },
     onError: (error) => {
