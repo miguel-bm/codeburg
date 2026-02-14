@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { GitBranch, Pin, GitPullRequest, ChevronRight, Plus } from 'lucide-react';
+import { GitBranch, Pin, GitPullRequest, ChevronRight, Plus, Loader2 } from 'lucide-react';
 import { useMobile } from '../../hooks/useMobile';
 import { useHoverTooltip } from '../../hooks/useHoverTooltip';
 import { COLUMNS, COLUMN_ICONS, PRIORITY_COLORS, PRIORITY_LABELS } from '../../constants/tasks';
@@ -15,6 +15,7 @@ import { TASK_STATUS } from '../../api';
 interface TaskListViewProps {
   tasks: Task[];
   loading: boolean;
+  movingTaskIds: Set<string>;
   selectedProjectId?: string;
   getProjectName: (projectId: string) => string;
   onOpenTask: (taskId: string) => void;
@@ -34,11 +35,13 @@ function groupTasksByStatus(tasks: Task[]): Map<TaskStatus, Task[]> {
 
 function ListRow({
   task,
+  isMoving,
   selectedProjectId,
   getProjectName,
   onOpenTask,
 }: {
   task: Task;
+  isMoving?: boolean;
   selectedProjectId?: string;
   getProjectName: (projectId: string) => string;
   onOpenTask: (taskId: string) => void;
@@ -60,7 +63,7 @@ function ListRow({
         onClick={() => onOpenTask(task.id)}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        className="relative w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-[var(--color-bg-tertiary)] transition-colors cursor-pointer group text-left"
+        className={`relative w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors cursor-pointer group text-left ${isMoving ? 'opacity-70' : 'hover:bg-[var(--color-bg-tertiary)]'}`}
       >
         {/* Priority accent bar */}
         {priorityColor && (
@@ -125,6 +128,12 @@ function ListRow({
 
         {/* Right side metadata */}
         <div className="flex items-center gap-4 flex-shrink-0">
+          {isMoving && (
+            <span className="text-[10px] text-dim inline-flex items-center gap-1">
+              <Loader2 size={10} className="animate-spin" />
+              Moving...
+            </span>
+          )}
           {projectName && (
             <span className="text-xs text-dim truncate max-w-[120px] hidden lg:block">{projectName}</span>
           )}
@@ -147,11 +156,13 @@ function ListRow({
 
 function MobileListRow({
   task,
+  isMoving,
   selectedProjectId,
   getProjectName,
   onOpenTask,
 }: {
   task: Task;
+  isMoving?: boolean;
   selectedProjectId?: string;
   getProjectName: (projectId: string) => string;
   onOpenTask: (taskId: string) => void;
@@ -167,7 +178,7 @@ function MobileListRow({
     <button
       type="button"
       onClick={() => onOpenTask(task.id)}
-      className="relative w-full rounded-xl bg-[var(--color-bg-secondary)]/70 px-3 py-2.5 text-left hover:bg-[var(--color-accent-glow)] transition-colors"
+      className={`relative w-full rounded-xl bg-[var(--color-bg-secondary)]/70 px-3 py-2.5 text-left transition-colors ${isMoving ? 'opacity-70' : 'hover:bg-[var(--color-accent-glow)]'}`}
     >
       {/* Priority accent bar */}
       {priorityColor && (
@@ -209,6 +220,12 @@ function MobileListRow({
 
       {/* Bottom: project · priority · time */}
       <div className="mt-1 text-[11px] text-dim flex items-center gap-1.5">
+        {isMoving && (
+          <span className="text-[10px] inline-flex items-center gap-1">
+            <Loader2 size={10} className="animate-spin" />
+            Moving...
+          </span>
+        )}
         <span className="truncate">{selectedProjectId ? 'Current project' : getProjectName(task.projectId)}</span>
         {task.priority && (
           <>
@@ -225,6 +242,7 @@ function MobileListRow({
 export function TaskListView({
   tasks,
   loading,
+  movingTaskIds,
   selectedProjectId,
   getProjectName,
   onOpenTask,
@@ -309,6 +327,7 @@ export function TaskListView({
                               <MobileListRow
                                 key={task.id}
                                 task={task}
+                                isMoving={movingTaskIds.has(task.id)}
                                 selectedProjectId={selectedProjectId}
                                 getProjectName={getProjectName}
                                 onOpenTask={onOpenTask}
@@ -317,6 +336,7 @@ export function TaskListView({
                               <ListRow
                                 key={task.id}
                                 task={task}
+                                isMoving={movingTaskIds.has(task.id)}
                                 selectedProjectId={selectedProjectId}
                                 getProjectName={getProjectName}
                                 onOpenTask={onOpenTask}

@@ -25,6 +25,7 @@ interface DashboardBoardContentProps {
   view: DashboardView;
   listTasks: Task[];
   tasksLoading: boolean;
+  movingTaskIds: Set<string>;
   selectedProjectId?: string;
   getProjectName: (projectId: string) => string;
   onOpenTask: (taskId: string) => void;
@@ -52,6 +53,7 @@ export function DashboardBoardContent({
   view,
   listTasks,
   tasksLoading,
+  movingTaskIds,
   selectedProjectId,
   getProjectName,
   onOpenTask,
@@ -77,6 +79,7 @@ export function DashboardBoardContent({
       <TaskListView
         tasks={listTasks}
         loading={tasksLoading}
+        movingTaskIds={movingTaskIds}
         selectedProjectId={selectedProjectId}
         getProjectName={getProjectName}
         onOpenTask={onOpenTask}
@@ -95,6 +98,7 @@ export function DashboardBoardContent({
         tasksLoading={tasksLoading}
         selectedProjectId={selectedProjectId}
         getProjectName={getProjectName}
+        movingTaskIds={movingTaskIds}
         focus={focus}
         onSetContextMenu={onSetContextMenu}
         onArchive={onArchive}
@@ -147,6 +151,7 @@ export function DashboardBoardContent({
                                 else cardRefs.current.delete(task.id);
                               }}
                               task={task}
+                              isMoving={movingTaskIds.has(task.id)}
                               projectName={!selectedProjectId ? getProjectName(task.projectId) : undefined}
                               focused={!!(focus?.col === colIdx && focus?.card === cardIdx)}
                               ghost={isGhost}
@@ -196,6 +201,7 @@ function MobileKanban({
   tasksLoading,
   selectedProjectId,
   getProjectName,
+  movingTaskIds,
   focus,
   onSetContextMenu,
   onArchive,
@@ -208,6 +214,7 @@ function MobileKanban({
   tasksLoading: boolean;
   selectedProjectId?: string;
   getProjectName: (projectId: string) => string;
+  movingTaskIds: Set<string>;
   focus: { col: number; card: number } | null;
   onSetContextMenu: (menu: { taskId: string; x: number; y: number }) => void;
   onArchive: (taskId: string, archive: boolean) => void;
@@ -298,6 +305,7 @@ function MobileKanban({
                   <TaskCard
                     key={task.id}
                     task={task}
+                    isMoving={movingTaskIds.has(task.id)}
                     projectName={!selectedProjectId ? getProjectName(task.projectId) : undefined}
                     isMobile
                     onLongPress={(x, y) => onSetContextMenu({ taskId: task.id, x, y })}

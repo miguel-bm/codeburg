@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
-import { GitBranch, Pin, GitPullRequest, Calendar, Clock, CheckCircle2, Plus, Archive, ArchiveRestore } from 'lucide-react';
+import { GitBranch, Pin, GitPullRequest, Calendar, Clock, CheckCircle2, Plus, Archive, ArchiveRestore, Loader2 } from 'lucide-react';
 import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 import { useLongPress } from '../../hooks/useLongPress';
 import { useHoverTooltip } from '../../hooks/useHoverTooltip';
@@ -66,6 +66,7 @@ export function NewTaskPlaceholder({ focused, selected, showOnHover, onClick }: 
 
 interface TaskCardProps {
   task: Task;
+  isMoving?: boolean;
   projectName?: string;
   isMobile?: boolean;
   onLongPress?: (x: number, y: number) => void;
@@ -77,7 +78,7 @@ interface TaskCardProps {
 }
 
 export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskCard(
-  { task, projectName, isMobile, onLongPress, onContextMenu, focused, ghost, onMouseDown, onArchive },
+  { task, isMoving, projectName, isMobile, onLongPress, onContextMenu, focused, ghost, onMouseDown, onArchive },
   ref,
 ) {
   const { navigateToPanel } = usePanelNavigation();
@@ -148,6 +149,7 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
           focused
             ? 'bg-[var(--color-accent-glow)] ring-1 ring-accent/50'
             : ghost ? '' : 'hover:bg-[var(--color-bg-tertiary)]',
+          isMoving ? 'opacity-70 pointer-events-none' : '',
           isArchived ? 'opacity-50' : '',
         ].join(' ')}
       >
@@ -181,6 +183,13 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
         <h4 className={`text-[13px] font-medium leading-snug ${priorityColor ? 'pl-1.5' : ''}`}>
           {task.title}
         </h4>
+
+        {isMoving && (
+          <div className={`mt-1 text-[10px] text-dim inline-flex items-center gap-1 ${priorityColor ? 'pl-1.5' : ''}`}>
+            <Loader2 size={10} className="animate-spin" />
+            Moving...
+          </div>
+        )}
 
         {/* Metadata row: project, type, priority label */}
         {hasMeta && (

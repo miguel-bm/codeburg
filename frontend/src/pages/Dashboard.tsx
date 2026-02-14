@@ -135,6 +135,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [workflowPrompt, setWorkflowPrompt] = useState<{ taskId: string } | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const [movingTaskIds, setMovingTaskIds] = useState<Set<string>>(new Set());
   const [searchExpanded, setSearchExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -216,6 +217,26 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   const handleArchive = useCallback((taskId: string, archive: boolean) => {
     archiveTaskMutation.mutate({ id: taskId, archive });
   }, [archiveTaskMutation]);
+
+  const mutateTask = useCallback(
+    (variables: { id: string; status?: TaskStatus; position?: number }) => {
+      setMovingTaskIds((prev) => {
+        const next = new Set(prev);
+        next.add(variables.id);
+        return next;
+      });
+      updateTaskMutation.mutate(variables, {
+        onSettled: () => {
+          setMovingTaskIds((prev) => {
+            const next = new Set(prev);
+            next.delete(variables.id);
+            return next;
+          });
+        },
+      });
+    },
+    [updateTaskMutation],
+  );
 
   const deleteTaskMutation = useMutation({
     mutationFn: (id: string) => tasksApi.delete(id),
@@ -531,11 +552,11 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     columnRefs,
     cardRefs,
     onDrop: useCallback((taskId: string, targetStatus: TaskStatus, position: number) => {
-      updateTaskMutation.mutate({ id: taskId, status: targetStatus, position });
-    }, [updateTaskMutation]),
+      mutateTask({ id: taskId, status: targetStatus, position });
+    }, [mutateTask]),
     onReorder: useCallback((taskId: string, newPosition: number) => {
-      updateTaskMutation.mutate({ id: taskId, position: newPosition });
-    }, [updateTaskMutation]),
+      mutateTask({ id: taskId, position: newPosition });
+    }, [mutateTask]),
     onClick: useCallback((task: Task) => {
       navigateToPanel(`/tasks/${task.id}`);
     }, [navigateToPanel]),
@@ -560,20 +581,20 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     const task = getFocusedTask();
     if (!task || focus.col === 0) return;
     const newCol = focus.col - 1;
-    updateTaskMutation.mutate({ id: task.id, status: STATUS_ORDER[newCol] });
+    mutateTask({ id: task.id, status: STATUS_ORDER[newCol] });
     const maxCard = Math.max(getColumnTasks(newCol).length, 0);
     setFocus({ col: newCol, card: Math.min(focus.card, maxCard) });
-  }, [focus, getFocusedTask, getColumnTasks, setFocus, updateTaskMutation, STATUS_ORDER]);
+  }, [focus, getFocusedTask, getColumnTasks, setFocus, mutateTask, STATUS_ORDER]);
 
   const moveColumnRight = useCallback(() => {
     if (!focus) return;
     const task = getFocusedTask();
     if (!task || focus.col >= COLUMNS.length - 1) return;
     const newCol = focus.col + 1;
-    updateTaskMutation.mutate({ id: task.id, status: STATUS_ORDER[newCol] });
+    mutateTask({ id: task.id, status: STATUS_ORDER[newCol] });
     const maxCard = Math.max(getColumnTasks(newCol).length, 0);
     setFocus({ col: newCol, card: Math.min(focus.card, maxCard) });
-  }, [focus, getFocusedTask, getColumnTasks, setFocus, updateTaskMutation, STATUS_ORDER]);
+  }, [focus, getFocusedTask, getColumnTasks, setFocus, mutateTask, STATUS_ORDER]);
 
   const reorderUp = useCallback(() => {
     if (!focus) return;
@@ -583,9 +604,9 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     const colTasks = getColumnTasks(focus.col);
     const targetTask = colTasks[newPos];
     if (!targetTask) return;
-    updateTaskMutation.mutate({ id: task.id, position: targetTask.position });
+    mutateTask({ id: task.id, position: targetTask.position });
     setFocus({ col: focus.col, card: newPos });
-  }, [focus, getFocusedTask, getColumnTasks, setFocus, updateTaskMutation]);
+  }, [focus, getFocusedTask, getColumnTasks, setFocus, mutateTask]);
 
   const reorderDown = useCallback(() => {
     if (!focus) return;
@@ -595,9 +616,9 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
     const newPos = focus.card + 1;
     const targetTask = colTasks[newPos];
     if (!targetTask) return;
-    updateTaskMutation.mutate({ id: task.id, position: targetTask.position });
+    mutateTask({ id: task.id, position: targetTask.position });
     setFocus({ col: focus.col, card: newPos });
-  }, [focus, getFocusedTask, getColumnTasks, setFocus, updateTaskMutation]);
+  }, [focus, getFocusedTask, getColumnTasks, setFocus, mutateTask]);
 
   const togglePin = useCallback(() => {
     if (!focus) return;
@@ -708,7 +729,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         contextMenu={contextMenu}
         onCloseContextMenu={() => setContextMenu(null)}
         onContextStatusChange={(taskId, status) => {
-          updateTaskMutation.mutate({ id: taskId, status });
+          mutateTask({ id: taskId, status });
           setContextMenu(null);
         }}
         onArchive={handleArchive}
@@ -744,6 +765,7 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         onSetContextMenu={(menu) => setContextMenu(menu)}
         onArchive={handleArchive}
         canCreateTaskInStatus={canCreateTaskInStatus}
+        movingTaskIds={movingTaskIds}
         kanbanScrollRef={kanbanScrollRef}
         columnRefs={columnRefs}
         cardRefs={cardRefs}
