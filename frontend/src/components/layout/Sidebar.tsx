@@ -9,6 +9,7 @@ import { useKeyboardNav } from '../../hooks/useKeyboardNav';
 import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 import { useSidebarFocusStore } from '../../stores/sidebarFocus';
 import { useSidebarStore } from '../../stores/sidebar';
+import { useWorkspaceStore } from '../../stores/workspace';
 import { CreateProjectModal } from '../common/CreateProjectModal';
 import { CodeburgIcon, CodeburgWordmark } from '../ui/CodeburgIcon';
 import { getDesktopTitleBarInsetTop, isDesktopShell } from '../../platform/runtimeConfig';
@@ -55,8 +56,29 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   const activeProjectId = searchParams.get('project') || undefined;
   const projectPageMatch = location.pathname.match(/^\/projects\/([^/]+)(?:\/|$)/);
   const activeProjectPageId = projectPageMatch?.[1];
+  const taskPageMatch = location.pathname.match(/^\/tasks\/([^/]+)(?:\/|$)/);
+  const activeTaskPageId = taskPageMatch?.[1];
+  const activeWorkspaceSessionTabId = useWorkspaceStore((state) => {
+    const activeTab = state.tabs[state.activeTabIndex];
+    return activeTab?.type === 'session' ? activeTab.sessionId : undefined;
+  });
 
   const { data: sidebar, isLoading } = useSidebarData();
+
+  const activeSessionSidebarEntryId = useMemo(() => {
+    if (!activeTaskPageId || !activeWorkspaceSessionTabId || !sidebar?.projects?.length) return undefined;
+    for (const project of sidebar.projects) {
+      const task = project.tasks.find((candidate) => candidate.id === activeTaskPageId);
+      if (!task) continue;
+      const session = task.sessions.find((candidate) => candidate.id === activeWorkspaceSessionTabId);
+      if (!session) return undefined;
+      if (session.provider !== 'claude' && session.provider !== 'codex') return undefined;
+      return session.id;
+    }
+    return undefined;
+  }, [activeTaskPageId, activeWorkspaceSessionTabId, sidebar?.projects]);
+
+  const activeTaskSidebarEntryId = activeSessionSidebarEntryId ? undefined : activeTaskPageId;
 
   const visibleProjects = useMemo(
     () => (sidebar?.projects ?? []).filter((p) => !p.hidden),
@@ -312,6 +334,8 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
             project={project}
             isActive={activeProjectPageId === project.id}
             isFiltered={location.pathname === '/' && activeProjectId === project.id}
+            activeTaskId={activeTaskSidebarEntryId}
+            activeSessionId={activeSessionSidebarEntryId}
             onProjectClick={handleProjectClick}
             onProjectFilterClick={handleProjectFilterClick}
             onClose={onClose}
