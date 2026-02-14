@@ -20,29 +20,33 @@ import { useSharedWebSocket } from './useSharedWebSocket';
  */
 export function useWorkspaceSessionSync() {
   const { scopeId, scopeType } = useWorkspace();
-  const { sessions } = useWorkspaceSessions();
+  const { sessions, isLoading } = useWorkspaceSessions();
   const [searchParams, setSearchParams] = useSearchParams();
   const { openSession, resetTabs } = useWorkspaceStore();
   const queryClient = useQueryClient();
 
   // Track previous scope to detect changes
-  const prevScopeIdRef = useRef<string>(scopeId);
+  const prevScopeRef = useRef<string>(`${scopeType}:${scopeId}`);
 
   // Track whether initial sync has occurred for this scope
   const initialSyncDoneRef = useRef(false);
 
   // (A) Reset tabs on scope change
   useEffect(() => {
-    if (prevScopeIdRef.current !== scopeId) {
+    const currentScope = `${scopeType}:${scopeId}`;
+    if (prevScopeRef.current !== currentScope) {
       resetTabs();
       initialSyncDoneRef.current = false;
-      prevScopeIdRef.current = scopeId;
+      prevScopeRef.current = currentScope;
     }
-  }, [scopeId, resetTabs]);
+  }, [scopeId, scopeType, resetTabs]);
 
   // (B) Sync API sessions → tabs (add-only + remove tabs for server-deleted sessions)
   useEffect(() => {
-    if (sessions.length === 0 && !initialSyncDoneRef.current) return;
+    // Wait for first query resolution in this scope before reconciling tabs.
+    // This prevents stale tabs from previous scopes showing "Session not found"
+    // when the current scope legitimately has zero sessions.
+    if (!initialSyncDoneRef.current && isLoading) return;
     initialSyncDoneRef.current = true;
 
     const currentTabs = useWorkspaceStore.getState().tabs;
@@ -72,14 +76,19 @@ export function useWorkspaceSessionSync() {
         }
       }
     }
-  }, [sessions, openSession]);
+  }, [sessions, isLoading, openSession]);
 
   // (C) Activate session from URL param
   useEffect(() => {
     const sessionId = searchParams.get('session');
     if (!sessionId) return;
 
-    openSession(sessionId);
+    // Defer URL session activation until we know the scope session list.
+    if (isLoading) return;
+
+    if (sessions.some((session) => session.id === sessionId)) {
+      openSession(sessionId);
+    }
 
     // Clear the param to avoid re-triggering
     setSearchParams((prev) => {
@@ -87,7 +96,7 @@ export function useWorkspaceSessionSync() {
       next.delete('session');
       return next;
     }, { replace: true });
-  }, [searchParams, openSession, setSearchParams]);
+  }, [searchParams, sessions, isLoading, openSession, setSearchParams]);
 
   // (WS) Invalidate workspace-sessions query on sidebar_update for near-instant tab sync
   useSharedWebSocket({
