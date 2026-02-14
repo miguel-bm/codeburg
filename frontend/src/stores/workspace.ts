@@ -17,6 +17,7 @@ interface WorkspaceState {
 
   // Actions
   togglePanel: (panel: ActivityPanel) => void;
+  setActivePanel: (panel: ActivityPanel | null) => void;
   setActivityPanelWidth: (width: number) => void;
   openFile: (path: string, line?: number) => void;
   openDiff: (file?: string, staged?: boolean, base?: boolean, commit?: string) => void;
@@ -44,6 +45,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set((s) => ({
           activePanel: s.activePanel === panel ? null : panel,
         })),
+
+      setActivePanel: (panel) => set({ activePanel: panel }),
 
       setActivityPanelWidth: (width) =>
         set({ activityPanelWidth: Math.max(180, Math.min(480, width)) }),

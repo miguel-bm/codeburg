@@ -24,9 +24,10 @@ interface SidebarProjectNodeProps {
   focusedTaskId?: string;
   addTaskFocused?: boolean;
   onOpenWizard: () => void;
+  mobile?: boolean;
 }
 
-export function SidebarProjectNode({ project, isActive, isFiltered, onProjectClick, onProjectFilterClick, onClose, collapseSignal, forceCollapsed, onCollapseToggle, keyboardFocused, focusedTaskId, addTaskFocused, onOpenWizard }: SidebarProjectNodeProps) {
+export function SidebarProjectNode({ project, isActive, isFiltered, onProjectClick, onProjectFilterClick, onClose, collapseSignal, forceCollapsed, onCollapseToggle, keyboardFocused, focusedTaskId, addTaskFocused, onOpenWizard, mobile }: SidebarProjectNodeProps) {
   const { navigateToPanel } = usePanelNavigation();
   const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(() => {
@@ -80,7 +81,7 @@ export function SidebarProjectNode({ project, isActive, isFiltered, onProjectCli
       <div
         data-sidebar-project={project.id}
         onClick={() => onProjectClick(project.id)}
-        className={`flex items-center gap-2 px-2 py-1 mx-2 my-0.5 text-sm cursor-pointer hover:bg-tertiary rounded-md transition-colors group ${isActive ? 'bg-tertiary' : ''} ${keyboardFocused ? 'bg-accent/10' : ''}`}
+        className={`flex items-center gap-2 px-2 mx-2 my-0.5 cursor-pointer hover:bg-tertiary rounded-md transition-colors group ${mobile ? 'py-2 text-base' : 'py-1 text-sm'} ${isActive ? 'bg-tertiary' : ''} ${keyboardFocused ? 'bg-accent/10' : ''}`}
       >
         {hasTasks ? (
           <button
@@ -147,10 +148,11 @@ export function SidebarProjectNode({ project, isActive, isFiltered, onProjectCli
                   session={session}
                   projectId={project.id}
                   onClose={onClose}
+                  mobile={mobile}
                 />
               ))}
               {sortedTasks.map((task) => (
-                <SidebarTaskNode key={task.id} task={task} onClose={onClose} keyboardFocused={focusedTaskId === task.id} />
+                <SidebarTaskNode key={task.id} task={task} onClose={onClose} keyboardFocused={focusedTaskId === task.id} mobile={mobile} />
               ))}
               <AddTaskButton projectId={project.id} onOpenWizard={onOpenWizard} keyboardFocused={addTaskFocused} />
             </div>
@@ -264,9 +266,10 @@ interface SidebarTaskNodeProps {
   task: SidebarTask;
   onClose?: () => void;
   keyboardFocused?: boolean;
+  mobile?: boolean;
 }
 
-function SidebarTaskNode({ task, onClose, keyboardFocused }: SidebarTaskNodeProps) {
+function SidebarTaskNode({ task, onClose, keyboardFocused, mobile }: SidebarTaskNodeProps) {
   const { navigateToPanel } = usePanelNavigation();
   const queryClient = useQueryClient();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -313,7 +316,7 @@ function SidebarTaskNode({ task, onClose, keyboardFocused }: SidebarTaskNodeProp
         data-sidebar-task={task.id}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        className={`flex items-center gap-1.5 px-6 py-1 mx-2 text-xs cursor-pointer hover:bg-tertiary rounded-md transition-colors group ${keyboardFocused ? 'bg-accent/10' : ''}`}
+        className={`flex items-center gap-1.5 px-6 mx-2 cursor-pointer hover:bg-tertiary rounded-md transition-colors group ${mobile ? 'py-1.5 text-sm' : 'py-1 text-xs'} ${keyboardFocused ? 'bg-accent/10' : ''}`}
       >
         <TaskStatusIcon status={task.status} />
         <span className="truncate flex-1 text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-primary)]">
@@ -357,6 +360,7 @@ function SidebarTaskNode({ task, onClose, keyboardFocused }: SidebarTaskNodeProp
           session={session}
           taskId={task.id}
           onClose={onClose}
+          mobile={mobile}
         />
       ))}
 
@@ -462,9 +466,10 @@ interface SidebarSessionNodeProps {
   taskId?: string;
   projectId?: string;
   onClose?: () => void;
+  mobile?: boolean;
 }
 
-function SidebarSessionNode({ session, taskId, projectId, onClose }: SidebarSessionNodeProps) {
+function SidebarSessionNode({ session, taskId, projectId, onClose, mobile }: SidebarSessionNodeProps) {
   const { navigateToPanel } = usePanelNavigation();
 
   const handleClick = () => {
@@ -479,7 +484,7 @@ function SidebarSessionNode({ session, taskId, projectId, onClose }: SidebarSess
   return (
     <div
       onClick={handleClick}
-      className="flex items-center gap-2 pl-11 pr-3 py-1 mx-2 text-[11px] cursor-pointer hover:bg-tertiary rounded-md transition-colors"
+      className={`flex items-center gap-2 pl-11 pr-3 mx-2 cursor-pointer hover:bg-tertiary rounded-md transition-colors ${mobile ? 'py-1.5 text-xs' : 'py-1 text-[11px]'}`}
     >
       <StatusDot status={session.status} />
       <span className="text-dim">

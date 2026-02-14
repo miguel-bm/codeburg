@@ -4,6 +4,7 @@ import { useWorkspaceStore } from '../../stores/workspace';
 import type { WorkspaceTab } from '../../stores/workspace';
 import { useWorkspaceSessions } from '../../hooks/useWorkspaceSessions';
 import { useTabActions } from '../../hooks/useTabActions';
+import { useMobile } from '../../hooks/useMobile';
 import { getSessionStatusMeta } from '../../lib/sessionStatus';
 import { fileName } from './editorUtils';
 import { ProviderIcon } from '../session/ProviderIcon';
@@ -67,6 +68,7 @@ export function TabBar() {
   const { tabs, activeTabIndex, setActiveTab, openNewSession, openSession, replaceSessionTab, moveTab } = useWorkspaceStore();
   const { sessions, startSession, deleteSession, isStarting } = useWorkspaceSessions();
   const { closeTab, closeOtherTabs, closeTabsToRight } = useTabActions();
+  const isMobile = useMobile();
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
   const [resumingSessionId, setResumingSessionId] = useState<string | null>(null);
@@ -156,6 +158,7 @@ export function TabBar() {
             onDragOver={() => setDragOver(index)}
             onDrop={() => handleDrop(index)}
             onDragEnd={handleDragEnd}
+            hideClose={isMobile}
             canResume={canResume}
             resumePending={resumePending}
             onResume={session ? () => { void handleResumeSession(session); } : undefined}
@@ -184,6 +187,7 @@ export function TabBar() {
           onDragOver={() => setDragOver(index)}
           onDrop={() => handleDrop(index)}
           onDragEnd={handleDragEnd}
+          hideClose={isMobile}
         />
       ))}
 
@@ -221,6 +225,7 @@ function Tab({
   onDragOver,
   onDrop,
   onDragEnd,
+  hideClose,
   canResume,
   onResume,
   resumePending,
@@ -237,6 +242,7 @@ function Tab({
   onDragOver: () => void;
   onDrop: () => void;
   onDragEnd: () => void;
+  hideClose?: boolean;
   canResume?: boolean;
   onResume?: () => void;
   resumePending?: boolean;
@@ -302,12 +308,14 @@ function Tab({
           <RotateCcw size={11} className={resumePending ? 'animate-spin' : undefined} />
         </button>
       )}
-      <button
-        onClick={(e) => { e.stopPropagation(); onClose(); }}
-        className="p-0.5 text-dim hover:text-[var(--color-error)] opacity-0 group-hover:opacity-100 shrink-0"
-      >
-        <X size={11} />
-      </button>
+      {!hideClose && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onClose(); }}
+          className="p-0.5 text-dim hover:text-[var(--color-error)] opacity-0 group-hover:opacity-100 shrink-0"
+        >
+          <X size={11} />
+        </button>
+      )}
     </div>
   );
 }

@@ -172,8 +172,10 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 			warnings, err := s.autoCreateWorktree(currentTask, &input)
 			if err != nil {
 				slog.Warn("failed to auto-create worktree", "task_id", id, "error", err)
+				worktreeWarnings = append(worktreeWarnings, "failed to create worktree: "+err.Error())
+			} else {
+				worktreeWarnings = warnings
 			}
-			worktreeWarnings = warnings
 		}
 	}
 
@@ -283,7 +285,10 @@ func (s *Server) autoCreateWorktree(task *db.Task, input *db.UpdateTaskInput) (w
 		return nil, fmt.Errorf("get project: %w", err)
 	}
 
-	adoptBranch := task.Branch != nil && *task.Branch != ""
+	branchName := strings.TrimSpace(ptrToString(task.Branch))
+	// A non-empty task branch name does not always mean "adopt existing branch".
+	// Treat it as adopt mode only when the ref actually exists locally or remotely.
+	adoptBranch := branchName != "" && (gitRefExists(project.Path, branchName) || gitRefExists(project.Path, "origin/"+branchName))
 
 	result, err := s.worktree.Create(worktree.CreateOptions{
 		ProjectPath:  project.Path,
@@ -291,7 +296,7 @@ func (s *Server) autoCreateWorktree(task *db.Task, input *db.UpdateTaskInput) (w
 		ProjectName:  project.Name,
 		TaskID:       task.ID,
 		TaskTitle:    task.Title,
-		BranchName:   ptrToString(task.Branch),
+		BranchName:   branchName,
 		BaseBranch:   project.DefaultBranch,
 		AdoptBranch:  adoptBranch,
 		SymlinkPaths: project.SymlinkPaths,
@@ -307,6 +312,15 @@ func (s *Server) autoCreateWorktree(task *db.Task, input *db.UpdateTaskInput) (w
 	input.Branch = &result.BranchName
 
 	return result.Warnings, nil
+}
+
+func gitRefExists(repoPath, ref string) bool {
+	if strings.TrimSpace(ref) == "" {
+		return false
+	}
+	cmd := exec.Command("git", "rev-parse", "--verify", ref)
+	cmd.Dir = repoPath
+	return cmd.Run() == nil
 }
 
 // handleProgressToReview implements the in_progress → in_review workflow.

@@ -567,7 +567,7 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
             )}
           </div>
         )}
-        <div className={`relative overflow-visible rounded-xl border bg-secondary shadow-card transition-colors ${inputFocused ? 'border-accent shadow-accent' : 'border-subtle'}`}>
+        <div className={`relative overflow-visible rounded-xl border bg-secondary shadow-card transition-colors ${inputFocused ? 'border-accent shadow-accent' : 'border-transparent'}`}>
           {suggestionList.length > 0 && (
             <div className="absolute bottom-full left-2 right-2 z-20 mb-2 overflow-hidden rounded-xl border border-subtle bg-card shadow-card">
               <div className="flex items-center justify-between border-b border-subtle px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-dim">

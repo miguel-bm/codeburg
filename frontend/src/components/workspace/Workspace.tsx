@@ -5,6 +5,7 @@ import { useWorkspaceSessionSync } from '../../hooks/useWorkspaceSessionSync';
 import { useMobile } from '../../hooks/useMobile';
 import { useWorkspace } from './WorkspaceContext';
 import { ActivityBar, ActivityPanelContent } from './ActivityPanel';
+import { MobileBottomBar } from './MobileBottomBar';
 import { TabBar } from './TabBar';
 import { EditorTab } from './EditorTab';
 import { DiffTab } from './DiffTab';
@@ -131,37 +132,53 @@ export function Workspace() {
     document.addEventListener('mouseup', onMouseUp);
   }, [activityPanelWidth, setActivityPanelWidth]);
 
+  if (isMobile) {
+    return (
+      <div className="flex flex-col flex-1 h-full overflow-hidden bg-canvas">
+        {/* Content area — full width */}
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          {activePanel ? (
+            <ActivityPanelContent panel={activePanel} mobile />
+          ) : (
+            <>
+              <TabBar />
+              <div className="flex-1 overflow-hidden">
+                <TabContent />
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Bottom navigation bar */}
+        <MobileBottomBar />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-1 h-full overflow-hidden bg-canvas">
       {/* Activity bar — always visible icon strip */}
       <ActivityBar />
 
-      {isMobile && activePanel ? (
-        /* Mobile: activity panel takes full width */
-        <ActivityPanelContent panel={activePanel} style={{ width: '100%' }} />
-      ) : (
+      {/* Activity panel content (toggleable) */}
+      {activePanel && (
         <>
-          {/* Activity panel content (toggleable) */}
-          {activePanel && (
-            <>
-              <ActivityPanelContent panel={activePanel} style={{ width: activityPanelWidth }} />
-              <div
-                ref={dividerRef}
-                className="w-1.5 cursor-col-resize hover:bg-accent/40 active:bg-accent/60 transition-colors shrink-0"
-                onMouseDown={handleDividerMouseDown}
-              />
-            </>
-          )}
-
-          {/* Main area */}
-          <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-primary">
-            <TabBar />
-            <div className="flex-1 overflow-hidden">
-              <TabContent />
-            </div>
-          </div>
+          <ActivityPanelContent panel={activePanel} style={{ width: activityPanelWidth }} />
+          <div
+            ref={dividerRef}
+            className="w-1.5 cursor-col-resize hover:bg-accent/40 active:bg-accent/60 transition-colors shrink-0"
+            onMouseDown={handleDividerMouseDown}
+          />
         </>
       )}
+
+      {/* Main area */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-primary">
+        <TabBar />
+        <div className="flex-1 overflow-hidden">
+          <TabContent />
+        </div>
+      </div>
     </div>
   );
 }

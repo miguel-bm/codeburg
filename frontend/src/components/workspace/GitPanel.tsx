@@ -19,7 +19,7 @@ import {
   Hammer,
 } from 'lucide-react';
 import { useWorkspaceGit } from '../../hooks/useWorkspaceGit';
-import { useWorkspaceStore } from '../../stores/workspace';
+import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
 import { parseDiffFiles } from '../git/diffFiles';
 import { ContextMenu } from '../ui/ContextMenu';
 import { Modal } from '../ui/Modal';
@@ -86,7 +86,7 @@ interface ConfirmAction {
 
 export function GitPanel() {
   const git = useWorkspaceGit();
-  const { openDiff } = useWorkspaceStore();
+  const { openDiff } = useWorkspaceNav();
   const [commitMsg, setCommitMsg] = useState('');
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     branch: true,

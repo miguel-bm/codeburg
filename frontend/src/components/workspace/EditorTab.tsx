@@ -126,6 +126,7 @@ export function EditorTab({ path, line }: EditorTabProps) {
     return [
       ...langExts,
       EditorView.lineWrapping,
+      ...(editorTheme === 'dark' ? [oneDark] : []),
       editorTheme === 'dark' ? darkEditorTheme : lightEditorTheme,
     ];
   }, [path, editorTheme]);
@@ -201,13 +202,12 @@ export function EditorTab({ path, line }: EditorTabProps) {
       </div>
 
       {/* CodeMirror */}
-      <div className="flex-1 overflow-auto" style={{ backgroundColor: editorTheme === 'dark' ? '#0a0a0b' : '#ffffff' }}>
+      <div className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--color-inset)' }}>
         <CodeMirror
           ref={cmRef}
           value={content ?? ''}
           onChange={(val) => setContent(val)}
           extensions={extensions}
-          theme={editorTheme === 'dark' ? oneDark : undefined}
           height="100%"
           style={{ height: '100%' }}
           readOnly={truncated}

@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp, X, Settings, PanelLeftClose, PanelLeftOpen, Fol
 import { TASK_STATUS } from '../../api';
 import type { SidebarData } from '../../api';
 import { useSidebarData } from '../../hooks/useSidebarData';
+import { useMobile } from '../../hooks/useMobile';
 import { useKeyboardNav } from '../../hooks/useKeyboardNav';
 import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 import { useSidebarFocusStore } from '../../stores/sidebarFocus';
@@ -47,6 +48,7 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   const [searchParams] = useSearchParams();
   const [showCreateProject, setShowCreateProject] = useState(false);
   const { navigateToPanel, closePanel } = usePanelNavigation();
+  const isMobile = useMobile();
 
   const toggleExpanded = useSidebarStore((s) => s.toggleExpanded);
 
@@ -286,6 +288,101 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   }
 
   // --- Expanded mode ---
+  const projectTree = isLoading ? (
+    <div className="p-3 space-y-3">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="animate-pulse">
+          <div className="h-4 bg-tertiary w-24 mb-2" />
+          <div className="h-3 bg-tertiary w-36 ml-3" />
+        </div>
+      ))}
+    </div>
+  ) : !visibleProjects.length && !hiddenProjects.length ? (
+    <div className="px-4 py-8 text-sm text-dim text-center flex flex-col items-center gap-2">
+      <FolderOpen size={32} className="text-dim" />
+      No projects yet
+    </div>
+  ) : (
+    <>
+      {visibleProjects.map((project) => {
+        const focusedItem = sidebarFocused ? focusableItems[sidebarIndex] : null;
+        return (
+          <SidebarProjectNode
+            key={project.id}
+            project={project}
+            isActive={activeProjectPageId === project.id}
+            isFiltered={location.pathname === '/' && activeProjectId === project.id}
+            onProjectClick={handleProjectClick}
+            onProjectFilterClick={handleProjectFilterClick}
+            onClose={onClose}
+            collapseSignal={collapseSignal}
+            forceCollapsed={allCollapsed}
+            onCollapseToggle={handleCollapseToggle}
+            keyboardFocused={focusedItem?.type === 'project' && focusedItem.id === project.id}
+            focusedTaskId={focusedItem?.type === 'task' && focusedItem.projectId === project.id ? focusedItem.id : undefined}
+            addTaskFocused={focusedItem?.type === 'add-task' && focusedItem.projectId === project.id}
+            onOpenWizard={() => {
+              navigateToPanel(`/tasks/new?project=${project.id}&status=${TASK_STATUS.IN_PROGRESS}`);
+              onClose?.();
+            }}
+            mobile={isMobile}
+          />
+        );
+      })}
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <aside className="bg-canvas flex flex-col h-full w-full">
+        {/* Header — simple title, no logo */}
+        <div className="px-4 pt-3 pb-2 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Projects</h2>
+          {sidebar?.projects && sidebar.projects.length > 0 && (
+            <button
+              onClick={toggleCollapseAll}
+              className="p-1 text-dim hover:text-[var(--color-text-secondary)] rounded-md transition-colors"
+              title={allCollapsed ? 'expand all' : 'collapse all'}
+            >
+              {allCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+            </button>
+          )}
+        </div>
+
+        {/* Scrollable tree */}
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+          {projectTree}
+        </div>
+
+        {/* Hidden projects */}
+        {hiddenProjects.length > 0 && (
+          <HiddenProjectsSection
+            projects={hiddenProjects}
+            expanded={showHidden}
+            onToggle={() => setShowHidden((v) => !v)}
+            onProjectClick={handleProjectClick}
+            activeProjectPageId={activeProjectPageId}
+          />
+        )}
+
+        {/* Footer — New Project button, padded for MobileTabBar */}
+        <div className="p-3 pb-16">
+          <button
+            onClick={() => setShowCreateProject(true)}
+            className="w-full px-3 py-2.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors flex items-center justify-center gap-1.5"
+          >
+            <BookPlus size={14} />
+            New Project
+          </button>
+        </div>
+
+        {showCreateProject && (
+          <CreateProjectModal onClose={() => setShowCreateProject(false)} />
+        )}
+      </aside>
+    );
+  }
+
   return (
     <aside
       className={`bg-canvas flex flex-col h-full ${width ? '' : 'w-72'}`}
@@ -331,48 +428,7 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
 
       {/* Scrollable tree */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
-        {isLoading ? (
-          <div className="p-3 space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="animate-pulse">
-                <div className="h-4 bg-tertiary w-24 mb-2" />
-                <div className="h-3 bg-tertiary w-36 ml-3" />
-              </div>
-            ))}
-          </div>
-        ) : !visibleProjects.length && !hiddenProjects.length ? (
-          <div className="px-4 py-8 text-sm text-dim text-center flex flex-col items-center gap-2">
-            <FolderOpen size={32} className="text-dim" />
-            No projects yet
-          </div>
-        ) : (
-          <>
-            {visibleProjects.map((project) => {
-              const focusedItem = sidebarFocused ? focusableItems[sidebarIndex] : null;
-              return (
-                <SidebarProjectNode
-                  key={project.id}
-                  project={project}
-                  isActive={activeProjectPageId === project.id}
-                  isFiltered={location.pathname === '/' && activeProjectId === project.id}
-                  onProjectClick={handleProjectClick}
-                  onProjectFilterClick={handleProjectFilterClick}
-                  onClose={onClose}
-                  collapseSignal={collapseSignal}
-                  forceCollapsed={allCollapsed}
-                  onCollapseToggle={handleCollapseToggle}
-                  keyboardFocused={focusedItem?.type === 'project' && focusedItem.id === project.id}
-                  focusedTaskId={focusedItem?.type === 'task' && focusedItem.projectId === project.id ? focusedItem.id : undefined}
-                  addTaskFocused={focusedItem?.type === 'add-task' && focusedItem.projectId === project.id}
-                  onOpenWizard={() => {
-                    navigateToPanel(`/tasks/new?project=${project.id}&status=${TASK_STATUS.IN_PROGRESS}`);
-                    onClose?.();
-                  }}
-                />
-              );
-            })}
-          </>
-        )}
+        {projectTree}
       </div>
 
       {/* Hidden projects — sticky above footer, expands upward */}

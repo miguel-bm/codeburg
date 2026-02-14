@@ -16,7 +16,7 @@ import {
   Clipboard,
 } from 'lucide-react';
 import { useWorkspaceFiles } from '../../hooks/useWorkspaceFiles';
-import { useWorkspaceStore } from '../../stores/workspace';
+import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
 import { buildFileTree, filterFileTree } from './fileTreeUtils';
 import { getFileIcon } from './fileIcons';
 import { ContextMenu, type ContextMenuItem } from '../ui/ContextMenu';
@@ -40,7 +40,7 @@ export function FileExplorer() {
     downloadFile,
     isLoading,
   } = useWorkspaceFiles(undefined, 20);
-  const { openFile } = useWorkspaceStore();
+  const { openFile } = useWorkspaceNav();
   const [searchQuery, setSearchQuery] = useState('');
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);

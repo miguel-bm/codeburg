@@ -6,7 +6,6 @@ import { tasksApi, projectsApi, invalidateTaskQueries } from '../api';
 import type { Task, TaskStatus, UpdateTaskResponse } from '../api';
 import { TASK_STATUS } from '../api';
 import { useMobile } from '../hooks/useMobile';
-import { useSwipe } from '../hooks/useSwipe';
 import { useKeyboardNav } from '../hooks/useKeyboardNav';
 import { useDragAndDrop } from '../hooks/useDragAndDrop';
 import { usePanelNavigation } from '../hooks/usePanelNavigation';
@@ -160,12 +159,6 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
       return () => clearTimeout(id);
     }
   }, [searchExpanded]);
-
-  const swipeHandlers = useSwipe({
-    onSwipeLeft: () => setActiveColumnIndex((i) => Math.min(i + 1, COLUMNS.length - 1)),
-    onSwipeRight: () => setActiveColumnIndex((i) => Math.max(i - 1, 0)),
-    threshold: 50,
-  });
 
   const { data: activeTasks, isLoading: tasksLoading } = useQuery({
     queryKey: ['tasks', selectedProjectId],
@@ -748,7 +741,6 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         onSetContextMenu={(menu) => setContextMenu(menu)}
         onArchive={handleArchive}
         canCreateTaskInStatus={canCreateTaskInStatus}
-        swipeHandlers={swipeHandlers}
         kanbanScrollRef={kanbanScrollRef}
         columnRefs={columnRefs}
         cardRefs={cardRefs}

@@ -1713,6 +1713,173 @@ func TestUpdateTask_WorkflowAsk(t *testing.T) {
 	}
 }
 
+func TestUpdateTask_InProgress_WithNewBranchName_CreatesWorktree(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+	env.server.worktree = worktree.NewManager(worktree.Config{BaseDir: t.TempDir()})
+
+	repoPath := createTestGitRepo(t)
+	if out, err := exec.Command("git", "-C", repoPath, "branch", "-M", "main").CombinedOutput(); err != nil {
+		t.Fatalf("set default branch to main: %v (%s)", err, string(out))
+	}
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "wt-new-" + db.NewID(), "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	const branchName = "my-new-branch"
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title":  "Worktree New Branch Task",
+		"branch": branchName,
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	resp := env.patch("/api/tasks/"+task.ID, map[string]string{
+		"status": "in_progress",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var updated db.Task
+	decodeResponse(t, resp, &updated)
+
+	if updated.WorktreePath == nil || *updated.WorktreePath == "" {
+		t.Fatalf("expected worktreePath to be set, got %+v", updated.WorktreePath)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(*updated.WorktreePath) })
+
+	if updated.Branch == nil || *updated.Branch != branchName {
+		t.Fatalf("expected branch %q, got %+v", branchName, updated.Branch)
+	}
+	if !env.server.worktree.Exists(*updated.WorktreePath) {
+		t.Fatalf("expected worktree directory to exist at %s", *updated.WorktreePath)
+	}
+
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = *updated.WorktreePath
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git rev-parse in worktree failed: %v (%s)", err, string(out))
+	}
+	if got := strings.TrimSpace(string(out)); got != branchName {
+		t.Fatalf("expected HEAD branch %q in worktree, got %q", branchName, got)
+	}
+}
+
+func TestUpdateTask_InProgress_WithExistingBranch_AdoptsBranch(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+	env.server.worktree = worktree.NewManager(worktree.Config{BaseDir: t.TempDir()})
+
+	repoPath := createTestGitRepo(t)
+	if out, err := exec.Command("git", "-C", repoPath, "branch", "-M", "main").CombinedOutput(); err != nil {
+		t.Fatalf("set default branch to main: %v (%s)", err, string(out))
+	}
+	const branchName = "existing-branch"
+	if out, err := exec.Command("git", "-C", repoPath, "branch", branchName).CombinedOutput(); err != nil {
+		t.Fatalf("create existing branch: %v (%s)", err, string(out))
+	}
+
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "wt-adopt-" + db.NewID(), "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title":  "Worktree Adopt Branch Task",
+		"branch": branchName,
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	resp := env.patch("/api/tasks/"+task.ID, map[string]string{
+		"status": "in_progress",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var updated db.Task
+	decodeResponse(t, resp, &updated)
+
+	if updated.WorktreePath == nil || *updated.WorktreePath == "" {
+		t.Fatalf("expected worktreePath to be set, got %+v", updated.WorktreePath)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(*updated.WorktreePath) })
+
+	if updated.Branch == nil || *updated.Branch != branchName {
+		t.Fatalf("expected adopted branch %q, got %+v", branchName, updated.Branch)
+	}
+
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = *updated.WorktreePath
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git rev-parse in worktree failed: %v (%s)", err, string(out))
+	}
+	if got := strings.TrimSpace(string(out)); got != branchName {
+		t.Fatalf("expected HEAD branch %q in worktree, got %q", branchName, got)
+	}
+}
+
+func TestUpdateTask_InProgress_WorktreeCreateFailure_ReturnsWarning(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+	env.server.worktree = worktree.NewManager(worktree.Config{BaseDir: t.TempDir()})
+
+	repoPath := createTestGitRepo(t)
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "wt-fail-" + db.NewID(), "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	// Force failure: set an invalid default branch for worktree creation.
+	invalidBranch := "definitely-does-not-exist"
+	_, err := env.server.db.UpdateProject(project.ID, db.UpdateProjectInput{
+		DefaultBranch: &invalidBranch,
+	})
+	if err != nil {
+		t.Fatalf("update project default branch: %v", err)
+	}
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Worktree Failure Warning Task",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	resp := env.patch("/api/tasks/"+task.ID, map[string]string{
+		"status": "in_progress",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var updated updateTaskResponse
+	decodeResponse(t, resp, &updated)
+
+	if updated.Status != db.TaskStatusInProgress {
+		t.Fatalf("expected status in_progress, got %q", updated.Status)
+	}
+	if updated.WorktreePath != nil && *updated.WorktreePath != "" {
+		t.Fatalf("expected no worktreePath on failure, got %q", *updated.WorktreePath)
+	}
+	if len(updated.WorktreeWarning) == 0 {
+		t.Fatalf("expected worktreeWarning to include failure reason")
+	}
+	if !strings.Contains(updated.WorktreeWarning[0], "failed to create worktree:") {
+		t.Fatalf("expected failure warning prefix, got %q", updated.WorktreeWarning[0])
+	}
+	if !strings.Contains(updated.WorktreeWarning[0], "base branch") {
+		t.Fatalf("expected warning to include base branch failure detail, got %q", updated.WorktreeWarning[0])
+	}
+}
+
 func TestUpdateTask_StatusInReview(t *testing.T) {
 	env := setupTestEnv(t)
 	env.setup("testpass123")

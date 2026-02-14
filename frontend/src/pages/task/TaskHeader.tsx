@@ -33,6 +33,8 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const { isExpanded, toggleExpanded, navigateToPanel, closePanel } = usePanelNavigation();
+  const hasMissingWorktree =
+    task.status === TASK_STATUS.IN_PROGRESS && (!task.worktreePath || task.worktreePath.trim() === '');
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -93,6 +95,15 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
             <span className="truncate">{task.branch}</span>
           </span>
         )}
+        {hasMissingWorktree && (
+          <span
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-[var(--color-warning)]/35 bg-[var(--color-warning)]/12 text-[var(--color-warning)] text-[10px] font-medium uppercase tracking-wider shrink-0"
+            title="This task is in progress but has no worktree."
+          >
+            <AlertTriangle size={10} />
+            No worktree
+          </span>
+        )}
         {expandable && (
           <button
             onClick={() => setExpanded(!expanded)}
@@ -126,7 +137,7 @@ export function TaskHeader({ task, project, actions, expandable = true }: TaskHe
         />
       </div>
     </div>,
-    `task-header-${task.id}-${task.status}-${task.title}-${project?.name ?? ''}-${expanded}-${isExpanded}-${showDeleteConfirm}`,
+    `task-header-${task.id}-${task.status}-${task.title}-${task.worktreePath ?? ''}-${project?.name ?? ''}-${expanded}-${isExpanded}-${showDeleteConfirm}`,
   );
 
   return (

@@ -1,11 +1,11 @@
 import { useState, useCallback } from 'react';
 import { Search, ToggleLeft, ToggleRight } from 'lucide-react';
 import { useWorkspaceFiles } from '../../hooks/useWorkspaceFiles';
-import { useWorkspaceStore } from '../../stores/workspace';
+import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
 
 export function FileSearchPanel() {
   const { search, searchResults, isSearching } = useWorkspaceFiles();
-  const { openFile } = useWorkspaceStore();
+  const { openFile } = useWorkspaceNav();
   const [query, setQuery] = useState('');
   const [useRegex, setUseRegex] = useState(false);
 

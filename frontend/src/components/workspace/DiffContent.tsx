@@ -1,5 +1,5 @@
 import { useEffect, useRef, useMemo, useState } from 'react';
-import { MergeView } from '@codemirror/merge';
+import { MergeView, unifiedMergeView } from '@codemirror/merge';
 import { EditorView } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { oneDark } from '@codemirror/theme-one-dark';
@@ -14,11 +14,15 @@ const githubDiffDark = EditorView.theme({
     backgroundColor: 'rgba(248, 81, 73, 0.10)',
   },
   // Added lines (side b): green background
-  '&.cm-merge-b .cm-changedLine, .cm-inlineChangedLine': {
+  '&.cm-merge-b .cm-changedLine, .cm-inlineChangedLine, .cm-insertedLine': {
     backgroundColor: 'rgba(63, 185, 80, 0.10)',
   },
+  // Unified deleted lines
+  '.cm-deletedLine': {
+    backgroundColor: 'rgba(248, 81, 73, 0.12)',
+  },
   // Changed text within deleted lines: stronger red bg
-  '&.cm-merge-a .cm-changedText, .cm-deletedChunk .cm-deletedText': {
+  '&.cm-merge-a .cm-changedText, .cm-deletedChunk .cm-deletedText, .cm-deletedLine .cm-deletedText': {
     background: 'rgba(248, 81, 73, 0.30)',
     borderRadius: '2px',
   },
@@ -45,10 +49,13 @@ const githubDiffLight = EditorView.theme({
   '&.cm-merge-a .cm-changedLine, .cm-deletedChunk': {
     backgroundColor: 'rgba(255, 129, 130, 0.12)',
   },
-  '&.cm-merge-b .cm-changedLine, .cm-inlineChangedLine': {
+  '&.cm-merge-b .cm-changedLine, .cm-inlineChangedLine, .cm-insertedLine': {
     backgroundColor: 'rgba(46, 160, 67, 0.10)',
   },
-  '&.cm-merge-a .cm-changedText, .cm-deletedChunk .cm-deletedText': {
+  '.cm-deletedLine': {
+    backgroundColor: 'rgba(255, 129, 130, 0.14)',
+  },
+  '&.cm-merge-a .cm-changedText, .cm-deletedChunk .cm-deletedText, .cm-deletedLine .cm-deletedText': {
     background: 'rgba(255, 129, 130, 0.35)',
     borderRadius: '2px',
   },
@@ -76,7 +83,7 @@ interface DiffContentProps {
 
 export function DiffContent({ original, modified, path }: DiffContentProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const viewRef = useRef<MergeView | null>(null);
+  const viewRef = useRef<{ destroy: () => void } | null>(null);
   const isMobile = useMobile();
   const [theme, setTheme] = useState<'dark' | 'light'>(() => getResolvedTheme());
 
@@ -89,17 +96,16 @@ export function DiffContent({ original, modified, path }: DiffContentProps) {
   const extensions = useMemo(() => {
     const langExts = getLanguageExtension(path);
     const themeExt = theme === 'dark' ? darkEditorTheme : lightEditorTheme;
-    const baseTheme = theme === 'dark' ? oneDark : [];
     const diffTheme = theme === 'dark' ? githubDiffDark : githubDiffLight;
     return [
       ...langExts,
+      ...(theme === 'dark' ? [oneDark] : []),
       themeExt,
-      baseTheme,
       diffTheme,
       EditorView.lineWrapping,
       EditorState.readOnly.of(true),
       EditorView.editable.of(false),
-    ].flat();
+    ];
   }, [path, theme]);
 
   useEffect(() => {
@@ -112,25 +118,45 @@ export function DiffContent({ original, modified, path }: DiffContentProps) {
       viewRef.current = null;
     }
 
-    const mergeView = new MergeView({
-      a: {
-        doc: original,
-        extensions,
-      },
-      b: {
-        doc: modified,
-        extensions,
-      },
-      parent: el,
-      collapseUnchanged: { margin: 3, minSize: 4 },
-      highlightChanges: true,
-      gutter: true,
-    });
-
-    viewRef.current = mergeView;
+    if (isMobile) {
+      const unifiedView = new EditorView({
+        state: EditorState.create({
+          doc: modified,
+          extensions: [
+            ...extensions,
+            unifiedMergeView({
+              original,
+              collapseUnchanged: { margin: 2, minSize: 4 },
+              highlightChanges: true,
+              allowInlineDiffs: true,
+              gutter: true,
+              mergeControls: false,
+            }),
+          ],
+        }),
+        parent: el,
+      });
+      viewRef.current = unifiedView;
+    } else {
+      const mergeView = new MergeView({
+        a: {
+          doc: original,
+          extensions,
+        },
+        b: {
+          doc: modified,
+          extensions,
+        },
+        parent: el,
+        collapseUnchanged: { margin: 3, minSize: 4 },
+        highlightChanges: true,
+        gutter: true,
+      });
+      viewRef.current = mergeView;
+    }
 
     return () => {
-      mergeView.destroy();
+      viewRef.current?.destroy();
       viewRef.current = null;
     };
   }, [original, modified, extensions, isMobile]);
@@ -139,7 +165,7 @@ export function DiffContent({ original, modified, path }: DiffContentProps) {
     <div
       ref={containerRef}
       className="h-full overflow-auto"
-      style={{ backgroundColor: theme === 'dark' ? '#0a0a0b' : '#fafafa' }}
+      style={{ backgroundColor: 'var(--color-inset)' }}
     />
   );
 }
