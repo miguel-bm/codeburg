@@ -13,7 +13,7 @@ import { buildWsUrl } from '../platform/runtimeConfig';
 
 const TERMINAL_THEME = {
   background: '#0a0a0a',
-  foreground: '#e0e0e0',
+  foreground: '#f5f5f5',
   cursor: '#22c55e',
   cursorAccent: '#0a0a0a',
   selectionBackground: '#22c55e33',
@@ -24,7 +24,7 @@ const TERMINAL_THEME = {
   blue: '#3b82f6',
   magenta: '#a855f7',
   cyan: '#06b6d4',
-  white: '#e0e0e0',
+  white: '#f5f5f5',
   brightBlack: '#525252',
   brightRed: '#f87171',
   brightGreen: '#4ade80',
