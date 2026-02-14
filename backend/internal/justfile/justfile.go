@@ -28,6 +28,7 @@ func NewManager() *Manager {
 // Available checks if just is installed
 func (m *Manager) Available() bool {
 	cmd := exec.Command("just", "--version")
+	applyRuntimeEnv(cmd)
 	return cmd.Run() == nil
 }
 
@@ -50,6 +51,7 @@ func (m *Manager) ListRecipes(dir string) ([]Recipe, error) {
 	// Use just --list to get recipes
 	cmd := exec.Command("just", "--list", "--unsorted")
 	cmd.Dir = dir
+	applyRuntimeEnv(cmd)
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("list recipes: %w", err)
@@ -112,6 +114,7 @@ func (m *Manager) Run(dir string, recipe string, args ...string) (*RunResult, er
 	cmdArgs := append([]string{recipe}, args...)
 	cmd := exec.Command("just", cmdArgs...)
 	cmd.Dir = dir
+	applyRuntimeEnv(cmd)
 
 	output, err := cmd.CombinedOutput()
 	result := &RunResult{
@@ -135,6 +138,54 @@ func (m *Manager) StartRecipe(dir string, recipe string, args ...string) (*exec.
 	cmdArgs := append([]string{recipe}, args...)
 	cmd := exec.Command("just", cmdArgs...)
 	cmd.Dir = dir
+	applyRuntimeEnv(cmd)
 
 	return cmd, nil
+}
+
+func applyRuntimeEnv(cmd *exec.Cmd) {
+	home := os.Getenv("HOME")
+	pathEntries := []string{
+		"/usr/local/go/bin",
+		"/usr/local/bin",
+		"/usr/bin",
+	}
+	if home != "" {
+		pathEntries = append(pathEntries, filepath.Join(home, "go", "bin"))
+	}
+
+	pathValue := prependMissingPathEntries(os.Getenv("PATH"), pathEntries)
+	cmd.Env = append(os.Environ(),
+		"PATH="+pathValue,
+		"GOTOOLCHAIN=auto",
+		"COREPACK_ENABLE_DOWNLOAD_PROMPT=0",
+	)
+}
+
+func prependMissingPathEntries(pathValue string, entries []string) string {
+	var existing []string
+	if pathValue != "" {
+		existing = strings.Split(pathValue, string(os.PathListSeparator))
+	}
+
+	seen := make(map[string]struct{}, len(existing))
+	for _, entry := range existing {
+		if entry != "" {
+			seen[entry] = struct{}{}
+		}
+	}
+
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry := entries[i]
+		if entry == "" {
+			continue
+		}
+		if _, ok := seen[entry]; ok {
+			continue
+		}
+		existing = append([]string{entry}, existing...)
+		seen[entry] = struct{}{}
+	}
+
+	return strings.Join(existing, string(os.PathListSeparator))
 }

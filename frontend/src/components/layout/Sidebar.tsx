@@ -284,21 +284,21 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
             className="p-1 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
             title="New project"
           >
-            <BookPlus size={18} />
+            <BookPlus size={15} />
           </button>
           <button
             onClick={handleSettingsClick}
             className={`p-1 hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors ${location.pathname === '/settings' ? 'text-accent' : 'text-dim'}`}
             title="Settings"
           >
-            <Settings size={18} />
+            <Settings size={15} />
           </button>
           <button
             onClick={toggleExpanded}
             className="p-1 text-dim hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors"
             title="Expand sidebar"
           >
-            <PanelLeftOpen size={18} />
+            <PanelLeftOpen size={15} />
           </button>
         </div>
 

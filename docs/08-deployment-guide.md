@@ -247,6 +247,40 @@ This should SSH into the server, pull, build, and restart. You're done!
 just deploy
 ```
 
+### Deploy From Current Server Worktree/Branch (Inside Codeburg)
+
+Use this when you are developing Codeburg on the server itself (for example in a task worktree) and want to deploy the current `HEAD` without SSH-ing from another machine:
+
+```bash
+just deploy-self
+# optional ref override:
+just deploy-self task-abc123
+```
+
+This runs detached in the background so service restart does not interrupt deployment. Logs are written to `/tmp/codeburg-self-deploy-*.log`.
+
+```bash
+tail -f /tmp/codeburg-self-deploy-*.log
+```
+
+If you only need frontend changes (no backend rebuild/restart, sessions stay alive):
+
+```bash
+just deploy-self-fe
+# optional ref override:
+just deploy-self-fe task-abc123
+```
+
+Logs are written to `/tmp/codeburg-self-deploy-fe-*.log`.
+
+### Check Runtime Tooling (tsc/vite/vitest/etc.)
+
+```bash
+just check-runtime
+```
+
+This verifies required server commands (`go`, `node`, `pnpm`, `just`, etc.) and checks frontend tool binaries through `pnpm exec` (`tsc`, `vite`, `vitest`, `eslint`).
+
 ### Check Server Status
 
 ```bash
