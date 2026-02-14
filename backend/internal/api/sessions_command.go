@@ -36,11 +36,11 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
 
-func buildSessionCommand(req StartSessionRequest, notifyScript, resumeProviderSessionID string) (string, []string) {
+func buildSessionCommand(req StartSessionRequest, notifyScript, resumeProviderSessionID string, autoApprove bool) (string, []string) {
 	switch req.Provider {
 	case "claude":
 		args := []string{}
-		if unsafeAgentDefaultsEnabled() {
+		if autoApprove {
 			args = append(args, "--dangerously-skip-permissions")
 		}
 		if req.Model != "" {
@@ -60,8 +60,8 @@ func buildSessionCommand(req StartSessionRequest, notifyScript, resumeProviderSe
 
 	case "codex":
 		args := []string{}
-		if unsafeAgentDefaultsEnabled() {
-			args = append(args, "--full-auto")
+		if autoApprove {
+			args = append(args, "--dangerously-bypass-approvals-and-sandbox")
 		}
 		if req.Model != "" {
 			args = append(args, "--model", req.Model)
@@ -89,11 +89,11 @@ func buildSessionCommand(req StartSessionRequest, notifyScript, resumeProviderSe
 	}
 }
 
-func buildChatTurnCommand(provider, prompt, model, providerSessionID string) (string, []string, error) {
+func buildChatTurnCommand(provider, prompt, model, providerSessionID string, autoApprove bool) (string, []string, error) {
 	switch provider {
 	case "claude":
 		args := []string{"--print", "--output-format", "stream-json", "--verbose"}
-		if chatAutoApproveEnabled() {
+		if autoApprove {
 			args = append(args, "--dangerously-skip-permissions")
 		}
 		if model != "" {
@@ -108,7 +108,7 @@ func buildChatTurnCommand(provider, prompt, model, providerSessionID string) (st
 	case "codex":
 		if providerSessionID != "" {
 			args := []string{"exec", "resume", "--json"}
-			if chatAutoApproveEnabled() {
+			if autoApprove {
 				args = append(args, "--full-auto")
 			}
 			if model != "" {
@@ -119,7 +119,7 @@ func buildChatTurnCommand(provider, prompt, model, providerSessionID string) (st
 		}
 
 		args := []string{"exec", "--json"}
-		if chatAutoApproveEnabled() {
+		if autoApprove {
 			args = append(args, "--full-auto")
 		}
 		if model != "" {
@@ -131,22 +131,6 @@ func buildChatTurnCommand(provider, prompt, model, providerSessionID string) (st
 	default:
 		return "", nil, fmt.Errorf("chat mode not supported for provider %q", provider)
 	}
-}
-
-func unsafeAgentDefaultsEnabled() bool {
-	value := strings.TrimSpace(strings.ToLower(os.Getenv("CODEBURG_UNSAFE_AGENT_DEFAULTS")))
-	return value == "1" || value == "true" || value == "yes" || value == "on"
-}
-
-// chatAutoApproveEnabled controls whether chat sessions run with tool auto-approval.
-// Chat UI currently has no interactive permission grant/deny controls, so default is true.
-// Set CODEBURG_CHAT_AUTO_APPROVE=false to require strict provider-side permissions.
-func chatAutoApproveEnabled() bool {
-	value := strings.TrimSpace(strings.ToLower(os.Getenv("CODEBURG_CHAT_AUTO_APPROVE")))
-	if value == "" {
-		return true
-	}
-	return value == "1" || value == "true" || value == "yes" || value == "on"
 }
 
 // validModelName matches model names safe to interpolate into shell commands.

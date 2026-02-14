@@ -106,6 +106,7 @@ type StartSessionRequest struct {
 	Prompt          string `json:"prompt"`          // Initial prompt (claude/codex sessions)
 	Model           string `json:"model"`           // Optional model override
 	ResumeSessionID string `json:"resumeSessionId"` // Codeburg session ID to resume
+	AutoApprove     *bool  `json:"autoApprove"`     // Skip permission prompts (nil = true)
 }
 
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
@@ -245,6 +246,13 @@ func validateSessionRequest(req *StartSessionRequest) error {
 	return nil
 }
 
+func resolveAutoApprove(req StartSessionRequest) bool {
+	if req.AutoApprove != nil {
+		return *req.AutoApprove
+	}
+	return true
+}
+
 func resolveSessionType(req StartSessionRequest) string {
 	if req.SessionType != "" {
 		return req.SessionType
@@ -324,8 +332,10 @@ func (s *Server) startSessionInternal(params startSessionParams, req StartSessio
 		}
 	}
 
+	autoApprove := resolveAutoApprove(req)
+
 	if sessionType == "chat" {
-		if err := s.chat.RegisterSession(dbSession.ID, provider, req.Model); err != nil {
+		if err := s.chat.RegisterSession(dbSession.ID, provider, req.Model, autoApprove); err != nil {
 			_ = s.db.DeleteSession(dbSession.ID)
 			return nil, fmt.Errorf("failed to initialize chat session: %w", err)
 		}
@@ -404,7 +414,7 @@ func (s *Server) startSessionInternal(params startSessionParams, req StartSessio
 		}
 	}
 
-	command, args := buildSessionCommand(req, notifyScript, resumeProviderSessionID)
+	command, args := buildSessionCommand(req, notifyScript, resumeProviderSessionID, autoApprove)
 	originalCommand := command
 	command, args = withShellFallback(command, args)
 	if originalCommand != command {

@@ -27,8 +27,9 @@ function TabContent() {
         <NewSessionComposer
           taskTitle={title}
           taskDescription={description}
-          onStart={async (provider, prompt, sessionType) => {
-            const session = await startSession({ provider, sessionType, prompt: prompt || undefined });
+          isProjectScope={!task}
+          onStart={async (provider, prompt, sessionType, autoApprove) => {
+            const session = await startSession({ provider, sessionType, prompt: prompt || undefined, autoApprove });
             openSession(session.id);
           }}
           onCancel={() => {}}
@@ -82,8 +83,9 @@ function TabContent() {
         <NewSessionComposer
           taskTitle={title}
           taskDescription={description}
-          onStart={async (provider, prompt, sessionType) => {
-            const session = await startSession({ provider, sessionType, prompt: prompt || undefined });
+          isProjectScope={!task}
+          onStart={async (provider, prompt, sessionType, autoApprove) => {
+            const session = await startSession({ provider, sessionType, prompt: prompt || undefined, autoApprove });
             openSession(session.id);
           }}
           onCancel={() => {

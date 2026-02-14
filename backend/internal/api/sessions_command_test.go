@@ -14,39 +14,32 @@ func containsArg(args []string, want string) bool {
 	return false
 }
 
-func TestBuildSessionCommand_SafeDefaults(t *testing.T) {
-	t.Setenv("CODEBURG_UNSAFE_AGENT_DEFAULTS", "")
-
-	_, claudeArgs := buildSessionCommand(StartSessionRequest{Provider: "claude"}, "", "")
+func TestBuildSessionCommand_AutoApproveOff(t *testing.T) {
+	_, claudeArgs := buildSessionCommand(StartSessionRequest{Provider: "claude"}, "", "", false)
 	if containsArg(claudeArgs, "--dangerously-skip-permissions") {
-		t.Fatalf("expected claude safe defaults, got args %v", claudeArgs)
+		t.Fatalf("expected claude without auto-approve flag, got args %v", claudeArgs)
 	}
 
-	_, codexArgs := buildSessionCommand(StartSessionRequest{Provider: "codex"}, "", "")
-	if containsArg(codexArgs, "--full-auto") {
-		t.Fatalf("expected codex safe defaults, got args %v", codexArgs)
+	_, codexArgs := buildSessionCommand(StartSessionRequest{Provider: "codex"}, "", "", false)
+	if containsArg(codexArgs, "--dangerously-bypass-approvals-and-sandbox") {
+		t.Fatalf("expected codex without auto-approve flag, got args %v", codexArgs)
 	}
 }
 
-func TestBuildSessionCommand_UnsafeDefaultsOptIn(t *testing.T) {
-	t.Setenv("CODEBURG_UNSAFE_AGENT_DEFAULTS", "true")
-
-	_, claudeArgs := buildSessionCommand(StartSessionRequest{Provider: "claude"}, "", "")
+func TestBuildSessionCommand_AutoApproveOn(t *testing.T) {
+	_, claudeArgs := buildSessionCommand(StartSessionRequest{Provider: "claude"}, "", "", true)
 	if !containsArg(claudeArgs, "--dangerously-skip-permissions") {
-		t.Fatalf("expected claude unsafe opt-in flag, got args %v", claudeArgs)
+		t.Fatalf("expected claude auto-approve flag, got args %v", claudeArgs)
 	}
 
-	_, codexArgs := buildSessionCommand(StartSessionRequest{Provider: "codex"}, "", "")
-	if !containsArg(codexArgs, "--full-auto") {
-		t.Fatalf("expected codex unsafe opt-in flag, got args %v", codexArgs)
+	_, codexArgs := buildSessionCommand(StartSessionRequest{Provider: "codex"}, "", "", true)
+	if !containsArg(codexArgs, "--dangerously-bypass-approvals-and-sandbox") {
+		t.Fatalf("expected codex auto-approve flag, got args %v", codexArgs)
 	}
 }
 
 func TestBuildChatTurnCommand_Claude(t *testing.T) {
-	t.Setenv("CODEBURG_UNSAFE_AGENT_DEFAULTS", "")
-	t.Setenv("CODEBURG_CHAT_AUTO_APPROVE", "")
-
-	command, args, err := buildChatTurnCommand("claude", "fix tests", "claude-sonnet", "provider-session-1")
+	command, args, err := buildChatTurnCommand("claude", "fix tests", "claude-sonnet", "provider-session-1", true)
 	if err != nil {
 		t.Fatalf("buildChatTurnCommand: %v", err)
 	}
@@ -68,10 +61,7 @@ func TestBuildChatTurnCommand_Claude(t *testing.T) {
 }
 
 func TestBuildChatTurnCommand_CodexResume(t *testing.T) {
-	t.Setenv("CODEBURG_UNSAFE_AGENT_DEFAULTS", "")
-	t.Setenv("CODEBURG_CHAT_AUTO_APPROVE", "")
-
-	command, args, err := buildChatTurnCommand("codex", "continue", "gpt-5-codex", "session-123")
+	command, args, err := buildChatTurnCommand("codex", "continue", "gpt-5-codex", "session-123", true)
 	if err != nil {
 		t.Fatalf("buildChatTurnCommand: %v", err)
 	}
@@ -89,11 +79,8 @@ func TestBuildChatTurnCommand_CodexResume(t *testing.T) {
 	}
 }
 
-func TestBuildChatTurnCommand_ChatAutoApproveOptOut(t *testing.T) {
-	t.Setenv("CODEBURG_UNSAFE_AGENT_DEFAULTS", "")
-	t.Setenv("CODEBURG_CHAT_AUTO_APPROVE", "false")
-
-	_, claudeArgs, err := buildChatTurnCommand("claude", "hi", "", "")
+func TestBuildChatTurnCommand_AutoApproveOff(t *testing.T) {
+	_, claudeArgs, err := buildChatTurnCommand("claude", "hi", "", "", false)
 	if err != nil {
 		t.Fatalf("buildChatTurnCommand(claude): %v", err)
 	}
@@ -101,7 +88,7 @@ func TestBuildChatTurnCommand_ChatAutoApproveOptOut(t *testing.T) {
 		t.Fatalf("expected claude chat auto-approval disabled, got args %v", claudeArgs)
 	}
 
-	_, codexArgs, err := buildChatTurnCommand("codex", "hi", "", "")
+	_, codexArgs, err := buildChatTurnCommand("codex", "hi", "", "", false)
 	if err != nil {
 		t.Fatalf("buildChatTurnCommand(codex): %v", err)
 	}
@@ -131,7 +118,7 @@ func TestBuildSessionCommand_TerminalPromptKeepsShellOpen(t *testing.T) {
 	command, args := buildSessionCommand(StartSessionRequest{
 		Provider: "terminal",
 		Prompt:   "just test",
-	}, "", "")
+	}, "", "", false)
 
 	if command != "/bin/zsh" {
 		t.Fatalf("expected shell command /bin/zsh, got %q", command)
