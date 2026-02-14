@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -174,8 +173,8 @@ func TestCreate_SlashBranchName_UsesFlatWorktreeDir(t *testing.T) {
 	if filepath.Dir(result.WorktreePath) != filepath.Join(m.config.BaseDir, "proj") {
 		t.Fatalf("worktree path should be one level under project dir, got %q", result.WorktreePath)
 	}
-	if !strings.Contains(filepath.Base(result.WorktreePath), "%2F") {
-		t.Fatalf("worktree dir should encode slash in branch name, got %q", filepath.Base(result.WorktreePath))
+	if base := filepath.Base(result.WorktreePath); base != "foo-bar" {
+		t.Fatalf("worktree dir should replace slash with hyphen, got %q", base)
 	}
 }
 

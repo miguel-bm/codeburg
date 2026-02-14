@@ -26,6 +26,7 @@ export interface StartSessionInput {
   prompt?: string;
   model?: string;
   resumeSessionId?: string;
+  autoApprove?: boolean;
 }
 
 export const sessionsApi = {
