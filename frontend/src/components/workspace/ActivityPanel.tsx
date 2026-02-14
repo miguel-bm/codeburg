@@ -3,6 +3,8 @@ import { motion } from 'motion/react';
 import type { ActivityPanel as ActivityPanelType } from '../../stores/workspace';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { useWorkspaceRefresh } from '../../hooks/useWorkspaceRefresh';
+import { useHoverTooltip } from '../../hooks/useHoverTooltip';
+import { HoverInfoTooltip } from '../ui/HoverInfoTooltip';
 import { FileExplorer } from './FileExplorer';
 import { FileSearchPanel } from './FileSearchPanel';
 import { GitPanel } from './GitPanel';
@@ -19,6 +21,7 @@ const PANELS: { id: ActivityPanelType; icon: typeof FolderOpen; label: string }[
 export function ActivityBar() {
   const { activePanel, togglePanel } = useWorkspaceStore();
   const { refreshState, refreshWorkspace, refreshTooltip } = useWorkspaceRefresh();
+  const { tooltip, handleMouseEnter, handleMouseLeave } = useHoverTooltip();
 
   return (
     <div className="flex flex-col items-center justify-between gap-0.5 py-2 px-1 shrink-0 h-full">
@@ -52,6 +55,8 @@ export function ActivityBar() {
 
       <button
         onClick={refreshWorkspace}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
         disabled={refreshState === 'loading'}
         className={`inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors mb-1 ${
           refreshState === 'done'
@@ -60,7 +65,6 @@ export function ActivityBar() {
               ? 'text-[var(--color-error)] bg-tertiary'
               : 'text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary'
         } ${refreshState === 'loading' ? 'text-accent cursor-wait' : ''}`}
-        title={refreshTooltip}
         aria-label="Refresh workspace"
       >
         {refreshState === 'done' ? (
@@ -71,6 +75,8 @@ export function ActivityBar() {
           <RefreshCw size={14} className={refreshState === 'loading' ? 'animate-spin' : ''} />
         )}
       </button>
+
+      {tooltip && <HoverInfoTooltip x={tooltip.x} y={tooltip.y} text={refreshTooltip} />}
     </div>
   );
 }

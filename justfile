@@ -108,11 +108,11 @@ deploy-clean branch="main":
 
 # Deploy the server from the current checkout/ref (safe for running inside Codeburg sessions)
 deploy-self ref="HEAD":
-    ./deploy/deploy-self.sh "{{ref}}" "$(pwd)"
+    CODEBURG_DEPLOY_FOLLOW=1 CODEBURG_DEPLOY_HOLD=1 ./deploy/deploy-self.sh "{{ref}}" "$(pwd)"
 
 # Deploy frontend only from the current checkout/ref (safe for running inside Codeburg sessions)
 deploy-self-fe ref="HEAD":
-    ./deploy/deploy-self-fe.sh "{{ref}}" "$(pwd)"
+    CODEBURG_DEPLOY_FOLLOW=1 CODEBURG_DEPLOY_HOLD=1 ./deploy/deploy-self-fe.sh "{{ref}}" "$(pwd)"
 
 # Commit, push, and deploy in one shot (uses current branch)
 yeet msg:

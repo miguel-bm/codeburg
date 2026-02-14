@@ -3,7 +3,9 @@ import { motion } from 'motion/react';
 import type { ActivityPanel } from '../../stores/workspace';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { useWorkspaceRefresh } from '../../hooks/useWorkspaceRefresh';
+import { useHoverTooltip } from '../../hooks/useHoverTooltip';
 import { haptic } from '../../lib/haptics';
+import { HoverInfoTooltip } from '../ui/HoverInfoTooltip';
 
 const TABS: { id: ActivityPanel | null; icon: typeof FolderOpen; label: string }[] = [
   { id: null, icon: MonitorPlay, label: 'Sessions' },
@@ -16,6 +18,7 @@ const TABS: { id: ActivityPanel | null; icon: typeof FolderOpen; label: string }
 export function MobileWorkspaceNav() {
   const { activePanel, setActivePanel } = useWorkspaceStore();
   const { refreshState, refreshWorkspace, refreshTooltip } = useWorkspaceRefresh();
+  const { tooltip, handleMouseEnter, handleMouseLeave } = useHoverTooltip();
 
   return (
     <div className="flex items-center gap-1 px-2 py-1.5 bg-canvas border-b border-subtle shrink-0 overflow-x-auto scrollbar-none">
@@ -48,6 +51,8 @@ export function MobileWorkspaceNav() {
       {/* Refresh button */}
       <button
         onClick={() => { haptic(); refreshWorkspace(); }}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
         disabled={refreshState === 'loading'}
         className={`flex items-center justify-center w-7 h-7 rounded-md shrink-0 transition-colors ${
           refreshState === 'done'
@@ -58,7 +63,6 @@ export function MobileWorkspaceNav() {
                 ? 'text-accent'
                 : 'text-dim hover:text-[var(--color-text-secondary)] hover:bg-tertiary'
         }`}
-        title={refreshTooltip}
         aria-label="Refresh workspace"
       >
         {refreshState === 'done' ? (
@@ -69,6 +73,8 @@ export function MobileWorkspaceNav() {
           <RefreshCw size={14} className={refreshState === 'loading' ? 'animate-spin' : ''} />
         )}
       </button>
+
+      {tooltip && <HoverInfoTooltip x={tooltip.x} y={tooltip.y} text={refreshTooltip} />}
     </div>
   );
 }

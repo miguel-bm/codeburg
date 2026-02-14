@@ -325,12 +325,13 @@ function HeaderActionTooltip({ x, y, title, lines }: { x: number; y: number; tit
     if (!el) return;
     const rect = el.getBoundingClientRect();
     let nx = x;
-    let ny = y;
+    let ny = y + 30; // default: below hovered button
     if (nx + rect.width > window.innerWidth - 12) {
       nx = x - rect.width - 16;
     }
+    if (nx < 12) nx = 12;
     if (ny + rect.height > window.innerHeight - 12) {
-      ny = window.innerHeight - rect.height - 12;
+      ny = y - rect.height - 10; // fallback: above button
     }
     if (ny < 12) ny = 12;
     const timer = window.setTimeout(() => setPos({ x: nx, y: ny }), 0);

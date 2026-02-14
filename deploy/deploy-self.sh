@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Launch a detached deploy so restarting codeburg.service does not kill deployment.
 # Usage: deploy-self.sh [ref] [source-dir]
+# Optional env:
+#   CODEBURG_DEPLOY_FOLLOW=1|0|auto   (default: auto; auto follows when running in a TTY)
+#   CODEBURG_DEPLOY_HOLD=1|0          (default: 0; when 1, wait for Enter before exiting)
 set -euo pipefail
 
 REF="${1:-HEAD}"
@@ -36,3 +39,44 @@ PID=$!
 echo "==> Deploy launched in background (pid ${PID})"
 echo "==> Follow progress:"
 echo "    tail -f ${LOG_FILE}"
+
+FOLLOW_MODE="${CODEBURG_DEPLOY_FOLLOW:-auto}"
+HOLD_MODE="${CODEBURG_DEPLOY_HOLD:-0}"
+
+should_follow=0
+case "$FOLLOW_MODE" in
+    1|true|yes) should_follow=1 ;;
+    0|false|no) should_follow=0 ;;
+    auto)
+        if [[ -t 1 ]]; then
+            should_follow=1
+        fi
+        ;;
+esac
+
+if [[ "$should_follow" -eq 1 ]]; then
+    echo "==> Streaming deploy log in this terminal..."
+    if tail --help 2>/dev/null | grep -q -- '--pid'; then
+        tail --pid="$PID" -n +1 -f "$LOG_FILE" || true
+    else
+        tail -n +1 -f "$LOG_FILE" &
+        TAIL_PID=$!
+        while kill -0 "$PID" 2>/dev/null; do
+            sleep 1
+        done
+        kill "$TAIL_PID" 2>/dev/null || true
+        wait "$TAIL_PID" 2>/dev/null || true
+    fi
+
+    if wait "$PID"; then
+        echo "==> Self-deploy finished successfully."
+    else
+        status=$?
+        echo "==> Self-deploy failed (exit ${status}). See ${LOG_FILE}"
+    fi
+fi
+
+if [[ "$HOLD_MODE" == "1" && -t 0 ]]; then
+    echo
+    read -r -p "Deploy complete. Press Enter to close this session..." _
+fi
