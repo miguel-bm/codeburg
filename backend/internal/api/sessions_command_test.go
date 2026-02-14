@@ -1,6 +1,9 @@
 package api
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func containsArg(args []string, want string) bool {
 	for _, arg := range args {
@@ -119,5 +122,27 @@ func TestResolveSessionType_Defaults(t *testing.T) {
 	}
 	if got := resolveSessionType(StartSessionRequest{Provider: "claude", SessionType: "terminal"}); got != "terminal" {
 		t.Fatalf("expected explicit session type to win, got %q", got)
+	}
+}
+
+func TestBuildSessionCommand_TerminalPromptKeepsShellOpen(t *testing.T) {
+	t.Setenv("SHELL", "/bin/zsh")
+
+	command, args := buildSessionCommand(StartSessionRequest{
+		Provider: "terminal",
+		Prompt:   "just test",
+	}, "", "")
+
+	if command != "/bin/zsh" {
+		t.Fatalf("expected shell command /bin/zsh, got %q", command)
+	}
+	if len(args) != 2 || args[0] != "-lc" {
+		t.Fatalf("expected args [-lc <command>], got %v", args)
+	}
+	if !strings.Contains(args[1], "just test") {
+		t.Fatalf("expected prompt command in shell expression, got %q", args[1])
+	}
+	if !strings.Contains(args[1], "exec '/bin/zsh' -i") {
+		t.Fatalf("expected interactive shell handoff after prompt, got %q", args[1])
 	}
 }

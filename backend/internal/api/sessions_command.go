@@ -80,7 +80,10 @@ func buildSessionCommand(req StartSessionRequest, notifyScript, resumeProviderSe
 			shell = "/bin/bash"
 		}
 		if req.Prompt != "" {
-			return shell, []string{"-lc", req.Prompt}
+			// Run the requested command first, then replace this process with an
+			// interactive shell so the terminal session stays open for follow-up input.
+			command := fmt.Sprintf("%s; exec %s -i", req.Prompt, shellQuote(shell))
+			return shell, []string{"-lc", command}
 		}
 		return shell, []string{"-i"}
 	}
