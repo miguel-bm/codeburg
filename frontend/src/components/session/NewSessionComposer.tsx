@@ -84,8 +84,6 @@ export function NewSessionComposer({
   const [focusedIndex, setFocusedIndex] = useState(0);
   const providerRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const promptEnabled = provider !== 'terminal' && includePrompt;
-
   useEffect(() => {
     if (!dismissible) return;
     const onKeyDown = (e: KeyboardEvent) => {
