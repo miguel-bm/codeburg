@@ -83,6 +83,9 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
 ) {
   const { navigateToPanel } = usePanelNavigation();
   const internalRef = useRef<HTMLDivElement>(null);
+  const archiveTimerRef = useRef<number | null>(null);
+  const resetArchiveTimerRef = useRef<number | null>(null);
+  const [isArchivingOut, setIsArchivingOut] = useState(false);
   const { tooltip, handleMouseEnter, handleMouseLeave, dismiss: dismissTooltip } = useHoverTooltip({
     disabled: !!isMobile || !!ghost,
   });
@@ -118,6 +121,13 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
     }
   }, [focused]);
 
+  useEffect(() => {
+    return () => {
+      if (archiveTimerRef.current) window.clearTimeout(archiveTimerRef.current);
+      if (resetArchiveTimerRef.current) window.clearTimeout(resetArchiveTimerRef.current);
+    };
+  }, []);
+
   // Suppress tooltip on mousedown (drag start)
   const wrappedMouseDown = useCallback((e: React.MouseEvent) => {
     dismissTooltip();
@@ -146,6 +156,7 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
         className={[
           'group/card relative rounded-lg px-2.5 py-2 cursor-pointer select-none',
           ghost ? 'drag-ghost' : 'transition-all',
+          isArchivingOut ? 'opacity-0 scale-[0.97] pointer-events-none' : '',
           focused
             ? 'bg-[var(--color-accent-glow)] ring-1 ring-accent/50'
             : ghost ? '' : 'hover:bg-[var(--color-bg-tertiary)]',
@@ -170,12 +181,29 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
         {onArchive && (task.status === 'done' || isArchived) && (
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); onArchive(task.id, !isArchived); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              const archive = !isArchived;
+              if (!archive) {
+                onArchive(task.id, archive);
+                return;
+              }
+              if (archiveTimerRef.current) window.clearTimeout(archiveTimerRef.current);
+              if (resetArchiveTimerRef.current) window.clearTimeout(resetArchiveTimerRef.current);
+              setIsArchivingOut(true);
+              archiveTimerRef.current = window.setTimeout(() => {
+                onArchive(task.id, archive);
+              }, 170);
+              // Safety reset when backend/archive action fails and card remains mounted.
+              resetArchiveTimerRef.current = window.setTimeout(() => {
+                setIsArchivingOut(false);
+              }, 1500);
+            }}
             onMouseDown={(e) => e.stopPropagation()}
-            className="absolute top-1.5 right-1.5 p-1 rounded text-dim opacity-0 group-hover/card:opacity-100 hover:!text-accent hover:bg-accent/10 transition-all"
+            className="absolute bottom-1.5 left-1.5 p-1.5 rounded-md bg-[var(--color-bg-primary)]/65 text-dim opacity-0 group-hover/card:opacity-100 hover:!text-accent hover:bg-[var(--color-bg-primary)]/85 transition-all backdrop-blur-[1px]"
             title={isArchived ? 'Unarchive' : 'Archive'}
           >
-            {isArchived ? <ArchiveRestore size={11} /> : <Archive size={11} />}
+            {isArchived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
           </button>
         )}
 

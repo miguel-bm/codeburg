@@ -207,10 +207,27 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
   const archiveTaskMutation = useMutation({
     mutationFn: ({ id, archive }: { id: string; archive: boolean }) =>
       tasksApi.update(id, { archived: archive }),
-    onSuccess: (data: UpdateTaskResponse, { archive }) => {
+    onMutate: async ({ id, archive }) => {
+      const activeKey = ['tasks', selectedProjectId] as const;
+      const previousActive = queryClient.getQueryData<Task[]>(activeKey);
+
+      if (archive) {
+        queryClient.setQueryData<Task[]>(
+          activeKey,
+          (current) => (current ?? []).filter((task) => task.id !== id),
+        );
+      }
+
+      return { previousActive };
+    },
+    onError: (_error, _variables, context) => {
+      const activeKey = ['tasks', selectedProjectId] as const;
+      if (context?.previousActive) {
+        queryClient.setQueryData(activeKey, context.previousActive);
+      }
+    },
+    onSuccess: (data: UpdateTaskResponse) => {
       invalidateTaskQueries(queryClient, data.id);
-      // Auto-enable "show archived" so the user sees the dimmed task
-      if (archive && !showArchived) setShowArchived(true);
     },
   });
 

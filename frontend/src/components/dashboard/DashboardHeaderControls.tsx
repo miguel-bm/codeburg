@@ -49,7 +49,6 @@ interface DashboardHeaderControlsProps {
   onSetSearchExpanded: (expanded: boolean) => void;
   onSetSearchQuery: (query: string) => void;
   onClearSearch: () => void;
-
   showArchived: boolean;
   onToggleShowArchived: () => void;
 }
