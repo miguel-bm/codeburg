@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, GitBranch, Maximize2, Minimize2, RefreshCw, Settings, Upload, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useSetHeader } from '../components/layout/Header';
 import { OpenInEditorButton } from '../components/common/OpenInEditorButton';
 import { Breadcrumb } from '../components/ui/Breadcrumb';
@@ -95,6 +96,25 @@ export function ProjectWorkspace() {
   });
 
   const remoteInfo = project ? getRemoteInfo(project.gitOrigin) : null;
+  const defaultBranch = project?.defaultBranch || 'main';
+  const syncTooltip = useMemo(() => (
+    `Update local ${defaultBranch}\n\n` +
+    `- Fetches latest refs from origin\n` +
+    `- Fast-forwards local ${defaultBranch} to origin/${defaultBranch}\n` +
+    `- Does not push any commits`
+  ), [defaultBranch]);
+  const pushTooltip = useMemo(() => (
+    `Push ${defaultBranch} to origin\n\n` +
+    `- Pushes local ${defaultBranch} to origin/${defaultBranch}\n` +
+    `- Can be rejected by branch protection/non-fast-forward\n` +
+    `- Opens a confirmation dialog first`
+  ), [defaultBranch]);
+
+  useEffect(() => {
+    if (!feedback) return;
+    const t = setTimeout(() => setFeedback(null), 4200);
+    return () => clearTimeout(t);
+  }, [feedback]);
 
   useSetHeader(
     project ? (
@@ -103,7 +123,7 @@ export function ProjectWorkspace() {
           <Breadcrumb items={[{ label: project.name }]} />
           <span className="items-center gap-1 text-xs text-dim font-mono min-w-0 hidden sm:flex" title={project.defaultBranch || 'main'}>
             <GitBranch size={11} className="shrink-0" />
-            <span className="truncate">{project.defaultBranch || 'main'}</span>
+            <span className="truncate">{defaultBranch}</span>
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -121,9 +141,9 @@ export function ProjectWorkspace() {
             icon={<RefreshCw size={13} className={syncDefaultBranchMutation.isPending ? 'animate-spin' : ''} />}
             onClick={() => syncDefaultBranchMutation.mutate()}
             disabled={syncDefaultBranchMutation.isPending || pushDefaultBranchMutation.isPending}
-            title={`Fetch and fast-forward local ${project.defaultBranch || 'main'} from remote`}
+            title={syncTooltip}
           >
-            <span className="hidden sm:inline">{syncDefaultBranchMutation.isPending ? 'Updating...' : `Update local ${project.defaultBranch || 'main'}`}</span>
+            <span className="hidden sm:inline">{syncDefaultBranchMutation.isPending ? 'Updating...' : `Update local ${defaultBranch}`}</span>
           </Button>
           <Button
             variant="secondary"
@@ -134,9 +154,9 @@ export function ProjectWorkspace() {
               setShowPushConfirm(true);
             }}
             disabled={syncDefaultBranchMutation.isPending || pushDefaultBranchMutation.isPending}
-            title={`Push ${project.defaultBranch || 'main'} to origin`}
+            title={pushTooltip}
           >
-            <span className="hidden sm:inline">{pushDefaultBranchMutation.isPending ? 'Pushing...' : `Push ${project.defaultBranch || 'main'}`}</span>
+            <span className="hidden sm:inline">{pushDefaultBranchMutation.isPending ? 'Pushing...' : `Push ${defaultBranch}`}</span>
           </Button>
           <Button
             variant="secondary"
@@ -181,23 +201,42 @@ export function ProjectWorkspace() {
 
   return (
     <WorkspaceProvider scope={scope}>
-      <div className="flex flex-col flex-1 h-full min-h-0">
-        {feedback && (
-          <div className={`mx-3 mt-3 mb-2 flex items-center justify-between rounded-md border px-3 py-2 text-xs ${
-            feedback.type === 'success'
-              ? 'bg-[var(--color-success)]/10 border-[var(--color-success)]/30 text-[var(--color-success)]'
-              : 'bg-[var(--color-error)]/10 border-[var(--color-error)]/30 text-[var(--color-error)]'
-          }`}>
-            <span className="flex items-center gap-2">
-              {feedback.type === 'success' ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
-              {feedback.message}
-            </span>
-            <button onClick={() => setFeedback(null)} className="ml-3 hover:text-[var(--color-text-primary)] transition-colors">
-              Dismiss
-            </button>
-          </div>
-        )}
+      <div className="relative flex flex-col flex-1 h-full min-h-0">
         <Workspace />
+        <AnimatePresence>
+          {feedback && (
+            <motion.div
+              initial={{ opacity: 0, y: -10, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -10, scale: 0.98 }}
+              transition={{ duration: 0.18 }}
+              className={`pointer-events-auto absolute top-3 right-3 z-40 max-w-[460px] rounded-xl border backdrop-blur px-3 py-2.5 shadow-lg ${
+                feedback.type === 'success'
+                  ? 'bg-[var(--color-success)]/12 border-[var(--color-success)]/30 text-[var(--color-success)]'
+                  : 'bg-[var(--color-error)]/12 border-[var(--color-error)]/35 text-[var(--color-error)]'
+              }`}
+            >
+              <div className="flex items-start gap-2.5">
+                <div className="pt-0.5">
+                  {feedback.type === 'success' ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] uppercase tracking-wide opacity-80 mb-0.5">
+                    {feedback.type === 'success' ? 'Git Updated' : 'Git Action Failed'}
+                  </div>
+                  <div className="text-xs leading-snug break-words text-[var(--color-text-primary)]">{feedback.message}</div>
+                </div>
+                <button
+                  onClick={() => setFeedback(null)}
+                  className="shrink-0 mt-0.5 rounded p-0.5 text-dim hover:text-[var(--color-text-primary)] hover:bg-[var(--color-card)] transition-colors"
+                  title="Dismiss"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <Modal
           open={showPushConfirm}
           onClose={() => {
