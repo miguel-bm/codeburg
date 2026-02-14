@@ -26,6 +26,8 @@ type GitFileEntry struct {
 
 type GitStatusResponse struct {
 	Branch    string         `json:"branch"`
+	Upstream  string         `json:"upstream,omitempty"`
+	HasUpstream bool         `json:"hasUpstream"`
 	Ahead     int            `json:"ahead"`
 	Behind    int            `json:"behind"`
 	Staged    []GitFileEntry `json:"staged"`
@@ -367,6 +369,8 @@ func parseBranchLine(line string, resp *GitStatusResponse) {
 	// Extract branch name (before "...")
 	if idx := strings.Index(header, "..."); idx >= 0 {
 		resp.Branch = header[:idx]
+		resp.Upstream = header[idx+3:]
+		resp.HasUpstream = strings.TrimSpace(resp.Upstream) != ""
 	} else {
 		resp.Branch = header
 	}
