@@ -123,6 +123,56 @@ func runGit(dir string, args ...string) (string, error) {
 	return string(out), nil
 }
 
+func selectPushRemote(workDir string) (string, error) {
+	out, err := runGit(workDir, "remote")
+	if err != nil {
+		return "", err
+	}
+	remote := selectPushRemoteFromOutput(out)
+	if remote == "" {
+		return "", fmt.Errorf("no git remote configured")
+	}
+	return remote, nil
+}
+
+func selectPushRemoteFromOutput(out string) string {
+	names := make([]string, 0, 2)
+	scanner := bufio.NewScanner(strings.NewReader(out))
+	for scanner.Scan() {
+		name := strings.TrimSpace(scanner.Text())
+		if name == "" {
+			continue
+		}
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	for _, name := range names {
+		if name == "origin" {
+			return "origin"
+		}
+	}
+	return names[0]
+}
+
+func gitPushCurrentBranch(workDir string, force bool) error {
+	remote, err := selectPushRemote(workDir)
+	if err != nil {
+		return err
+	}
+
+	args := []string{"push"}
+	if force {
+		args = append(args, "--force-with-lease")
+	}
+	// Push current branch to branch of the same name on the selected remote and
+	// set upstream so future push/pull calls behave consistently.
+	args = append(args, "-u", remote, "HEAD")
+	_, err = runGit(workDir, args...)
+	return err
+}
+
 func (s *Server) handleListBranches(w http.ResponseWriter, r *http.Request) {
 	projectID := urlParam(r, "id")
 
@@ -618,11 +668,7 @@ func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
 	// Body is optional — ignore decode errors for backwards compat
 	_ = decodeJSON(r, &req)
 
-	args := []string{"push"}
-	if req.Force {
-		args = append(args, "--force-with-lease")
-	}
-	if _, err := runGit(workDir, args...); err != nil {
+	if err := gitPushCurrentBranch(workDir, req.Force); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -981,11 +1027,7 @@ func (s *Server) handleProjectGitPush(w http.ResponseWriter, r *http.Request) {
 	var req GitPushRequest
 	_ = decodeJSON(r, &req)
 
-	args := []string{"push"}
-	if req.Force {
-		args = append(args, "--force-with-lease")
-	}
-	if _, err := runGit(workDir, args...); err != nil {
+	if err := gitPushCurrentBranch(workDir, req.Force); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

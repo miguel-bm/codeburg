@@ -238,6 +238,35 @@ func TestCreate_DefaultBaseBranch(t *testing.T) {
 	}
 }
 
+func TestCreate_RemoteBaseDoesNotInheritUpstreamTracking(t *testing.T) {
+	m := newTestManager(t)
+	repo := createTestGitRepo(t)
+	remote := t.TempDir()
+
+	gitExec(t, remote, "init", "--bare")
+	gitExec(t, repo, "remote", "add", "origin", remote)
+	gitExec(t, repo, "push", "-u", "origin", "main")
+	gitExec(t, repo, "config", "branch.autoSetupMerge", "always")
+
+	result, err := m.Create(CreateOptions{
+		ProjectPath: repo,
+		ProjectName: "proj",
+		TaskID:      "TASK009",
+		BranchName:  "task-no-upstream-inherit",
+		BaseBranch:  "main",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// New task branch should not implicitly track origin/main.
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	cmd.Dir = result.WorktreePath
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("expected no upstream branch, got %q", string(out))
+	}
+}
+
 func TestCreate_WithSymlinks(t *testing.T) {
 	m := newTestManager(t)
 	repo := createTestGitRepo(t)
