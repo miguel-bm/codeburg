@@ -14,6 +14,8 @@ interface SidebarProjectNodeProps {
   project: SidebarProject;
   isActive: boolean;
   isFiltered: boolean;
+  activeTaskId?: string;
+  activeSessionId?: string;
   onProjectClick: (id: string) => void;
   onProjectFilterClick: (id: string, isFiltered: boolean) => void;
   onClose?: () => void;
@@ -27,7 +29,7 @@ interface SidebarProjectNodeProps {
   mobile?: boolean;
 }
 
-export function SidebarProjectNode({ project, isActive, isFiltered, onProjectClick, onProjectFilterClick, onClose, collapseSignal, forceCollapsed, onCollapseToggle, keyboardFocused, focusedTaskId, addTaskFocused, onOpenWizard, mobile }: SidebarProjectNodeProps) {
+export function SidebarProjectNode({ project, isActive, isFiltered, activeTaskId, activeSessionId, onProjectClick, onProjectFilterClick, onClose, collapseSignal, forceCollapsed, onCollapseToggle, keyboardFocused, focusedTaskId, addTaskFocused, onOpenWizard, mobile }: SidebarProjectNodeProps) {
   const { navigateToPanel } = usePanelNavigation();
   const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(() => {
@@ -147,12 +149,13 @@ export function SidebarProjectNode({ project, isActive, isFiltered, onProjectCli
                   key={session.id}
                   session={session}
                   projectId={project.id}
+                  isActive={activeSessionId === session.id}
                   onClose={onClose}
                   mobile={mobile}
                 />
               ))}
               {sortedTasks.map((task) => (
-                <SidebarTaskNode key={task.id} task={task} onClose={onClose} keyboardFocused={focusedTaskId === task.id} mobile={mobile} />
+                <SidebarTaskNode key={task.id} task={task} onClose={onClose} keyboardFocused={focusedTaskId === task.id} mobile={mobile} isActive={activeTaskId === task.id} activeSessionId={activeSessionId} />
               ))}
               <AddTaskButton projectId={project.id} onOpenWizard={onOpenWizard} keyboardFocused={addTaskFocused} />
             </div>
@@ -267,9 +270,11 @@ interface SidebarTaskNodeProps {
   onClose?: () => void;
   keyboardFocused?: boolean;
   mobile?: boolean;
+  isActive?: boolean;
+  activeSessionId?: string;
 }
 
-function SidebarTaskNode({ task, onClose, keyboardFocused, mobile }: SidebarTaskNodeProps) {
+function SidebarTaskNode({ task, onClose, keyboardFocused, mobile, isActive, activeSessionId }: SidebarTaskNodeProps) {
   const { navigateToPanel } = usePanelNavigation();
   const queryClient = useQueryClient();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -316,10 +321,10 @@ function SidebarTaskNode({ task, onClose, keyboardFocused, mobile }: SidebarTask
         data-sidebar-task={task.id}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        className={`flex items-center gap-1.5 px-6 mx-2 cursor-pointer hover:bg-tertiary rounded-md transition-colors group ${mobile ? 'py-1.5 text-sm' : 'py-1 text-xs'} ${keyboardFocused ? 'bg-accent/10' : ''}`}
+        className={`flex items-center gap-1.5 px-6 mx-2 cursor-pointer hover:bg-tertiary rounded-md transition-colors group ${mobile ? 'py-1.5 text-sm' : 'py-1 text-xs'} ${isActive ? 'bg-accent/15' : ''} ${keyboardFocused ? 'bg-accent/10' : ''}`}
       >
         <TaskStatusIcon status={task.status} />
-        <span className="truncate flex-1 text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-primary)]">
+        <span className={`truncate flex-1 ${isActive ? 'text-accent' : 'text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-primary)]'}`}>
           {task.title}
         </span>
         {branchCopied && (
@@ -359,6 +364,7 @@ function SidebarTaskNode({ task, onClose, keyboardFocused, mobile }: SidebarTask
           key={session.id}
           session={session}
           taskId={task.id}
+          isActive={activeSessionId === session.id}
           onClose={onClose}
           mobile={mobile}
         />
@@ -467,9 +473,10 @@ interface SidebarSessionNodeProps {
   projectId?: string;
   onClose?: () => void;
   mobile?: boolean;
+  isActive?: boolean;
 }
 
-function SidebarSessionNode({ session, taskId, projectId, onClose, mobile }: SidebarSessionNodeProps) {
+function SidebarSessionNode({ session, taskId, projectId, onClose, mobile, isActive }: SidebarSessionNodeProps) {
   const { navigateToPanel } = usePanelNavigation();
 
   const handleClick = () => {
@@ -484,10 +491,10 @@ function SidebarSessionNode({ session, taskId, projectId, onClose, mobile }: Sid
   return (
     <div
       onClick={handleClick}
-      className={`flex items-center gap-2 pl-11 pr-3 mx-2 cursor-pointer hover:bg-tertiary rounded-md transition-colors ${mobile ? 'py-1.5 text-xs' : 'py-1 text-[11px]'}`}
+      className={`flex items-center gap-2 pl-11 pr-3 mx-2 cursor-pointer hover:bg-tertiary rounded-md transition-colors ${mobile ? 'py-1.5 text-xs' : 'py-1 text-[11px]'} ${isActive ? 'bg-accent/15' : ''}`}
     >
       <StatusDot status={session.status} />
-      <span className="text-dim">
+      <span className={isActive ? 'text-accent' : 'text-dim'}>
         {session.provider} #{session.number}
       </span>
     </div>
