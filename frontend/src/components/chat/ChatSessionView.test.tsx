@@ -47,7 +47,10 @@ function makeMessage(partial: Partial<ChatMessage> & Pick<ChatMessage, 'id' | 'k
     id: partial.id,
     kind: partial.kind,
     provider: partial.provider ?? 'claude',
+    role: partial.role,
     text: partial.text,
+    isThinking: partial.isThinking,
+    tool: partial.tool,
     data: partial.data,
     createdAt: partial.createdAt ?? new Date().toISOString(),
   };
@@ -97,5 +100,55 @@ describe('ChatSessionView', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /resume/i }));
     await waitFor(() => expect(onResume).toHaveBeenCalledTimes(1));
+  });
+
+  it('shows subagent badge for tagged agent messages', () => {
+    useChatSessionMock.mockReturnValue({
+      messages: [
+        makeMessage({
+          id: 'm1',
+          kind: 'agent-text',
+          text: 'Subagent output',
+          data: { subagentId: 'sub-1', subagentTitle: 'Search docs' },
+        }),
+      ],
+      connected: true,
+      connecting: false,
+      error: null,
+      sendMessage: vi.fn(),
+      interrupt: vi.fn(),
+    });
+
+    render(<ChatSessionView session={makeSession('waiting_input')} />);
+
+    expect(screen.getByText('Subagent: Search docs')).toBeInTheDocument();
+    expect(screen.getByText('Subagent output')).toBeInTheDocument();
+  });
+
+  it('hides tool-call messages flagged as hidden', () => {
+    useChatSessionMock.mockReturnValue({
+      messages: [
+        makeMessage({
+          id: 'm1',
+          kind: 'tool-call',
+          data: { hidden: true },
+          tool: { callId: 'c1', name: 'Task', state: 'running' },
+        }),
+        makeMessage({
+          id: 'm2',
+          kind: 'tool-call',
+          tool: { callId: 'c2', name: 'Bash', state: 'running' },
+        }),
+      ],
+      connected: true,
+      connecting: false,
+      error: null,
+      sendMessage: vi.fn(),
+      interrupt: vi.fn(),
+    });
+
+    render(<ChatSessionView session={makeSession('waiting_input')} />);
+
+    expect(screen.getAllByText('tool')).toHaveLength(1);
   });
 });

@@ -53,6 +53,16 @@ type chatSessionState struct {
 
 	running bool
 	cancel  context.CancelFunc
+
+	// Claude Task/subagent normalization state (per active turn).
+	claudeUUIDToProviderSubagent      map[string]string
+	claudePromptToProviderSubagents   map[string][]string
+	claudeProviderToSessionSubagent   map[string]string
+	claudeSessionSubagentTitles       map[string]string
+	claudeBufferedSubagentPayloads    map[string][]map[string]any
+	claudeHiddenParentTaskToolCallIDs map[string]bool
+	claudeStartedSubagents            map[string]bool
+	claudeActiveSubagents             map[string]bool
 }
 
 type ChatManager struct {
@@ -143,6 +153,7 @@ func (m *ChatManager) StartTurn(input StartChatTurnInput) (<-chan ChatTurnResult
 	ctx, cancel := context.WithCancel(context.Background())
 	state.running = true
 	state.cancel = cancel
+	resetClaudeTurnTrackingLocked(state)
 	state.mu.Unlock()
 
 	m.appendMessage(state, ChatMessage{
@@ -308,6 +319,17 @@ func (m *ChatManager) handleProviderLine(state *chatSessionState, provider strin
 
 func (m *ChatManager) handleClaudePayload(state *chatSessionState, payload map[string]any) {
 	msgType := asString(payload["type"])
+	providerSubagent := resolveClaudeProviderSubagent(state, payload)
+	rememberClaudeSubagentForMessage(state, payload, providerSubagent)
+	sessionSubagentID := ""
+	if providerSubagent != "" {
+		sessionSubagentID = state.claudeProviderToSessionSubagent[providerSubagent]
+		if sessionSubagentID == "" {
+			bufferClaudeSubagentPayload(state, providerSubagent, payload)
+			return
+		}
+	}
+
 	switch msgType {
 	case "system":
 		if sessionID := asString(payload["session_id"]); sessionID != "" {
@@ -332,11 +354,17 @@ func (m *ChatManager) handleClaudePayload(state *chatSessionState, payload map[s
 				if text == "" {
 					continue
 				}
+				data := map[string]any(nil)
+				if sessionSubagentID != "" {
+					m.markClaudeSubagentStarted(state, sessionSubagentID)
+					data = claudeSubagentData(state, sessionSubagentID)
+				}
 				m.appendMessage(state, ChatMessage{
 					Kind:      ChatMessageKindAgentText,
 					Provider:  "claude",
 					Role:      "assistant",
 					Text:      text,
+					Data:      data,
 					CreatedAt: time.Now().UTC(),
 				})
 			case "thinking":
@@ -347,12 +375,18 @@ func (m *ChatManager) handleClaudePayload(state *chatSessionState, payload map[s
 				if thinking == "" {
 					continue
 				}
+				data := map[string]any(nil)
+				if sessionSubagentID != "" {
+					m.markClaudeSubagentStarted(state, sessionSubagentID)
+					data = claudeSubagentData(state, sessionSubagentID)
+				}
 				m.appendMessage(state, ChatMessage{
 					Kind:       ChatMessageKindAgentText,
 					Provider:   "claude",
 					Role:       "assistant",
 					Text:       thinking,
 					IsThinking: true,
+					Data:       data,
 					CreatedAt:  time.Now().UTC(),
 				})
 			case "tool_use":
@@ -362,7 +396,32 @@ func (m *ChatManager) handleClaudePayload(state *chatSessionState, payload map[s
 				}
 				name := asString(block["name"])
 				title := name
-				m.startToolCall(state, "claude", callID, name, title, "", block["input"])
+				if strings.EqualFold(name, "Task") {
+					sessionSubagentForTask := ensureClaudeSessionSubagent(state, callID)
+					prompt := claudeTaskPrompt(block["input"])
+					if prompt != "" {
+						queueClaudeTaskPromptSubagent(state, prompt, callID)
+					}
+					taskTitle := claudeTaskTitle(block["input"])
+					if taskTitle == "" {
+						taskTitle = prompt
+					}
+					if taskTitle != "" {
+						state.claudeSessionSubagentTitles[sessionSubagentForTask] = taskTitle
+					}
+					state.claudeHiddenParentTaskToolCallIDs[callID] = true
+					buffered := consumeClaudeBufferedSubagentPayloads(state, callID)
+					for _, bufferedPayload := range buffered {
+						m.handleClaudePayload(state, bufferedPayload)
+					}
+					continue
+				}
+				data := map[string]any(nil)
+				if sessionSubagentID != "" {
+					m.markClaudeSubagentStarted(state, sessionSubagentID)
+					data = claudeSubagentData(state, sessionSubagentID)
+				}
+				m.startToolCall(state, "claude", callID, name, title, "", block["input"], data)
 			}
 		}
 
@@ -376,12 +435,14 @@ func (m *ChatManager) handleClaudePayload(state *chatSessionState, payload map[s
 		switch blocks := msgObj["content"].(type) {
 		case string:
 			text := strings.TrimSpace(blocks)
-			if text != "" {
+			if text != "" && sessionSubagentID != "" {
+				m.markClaudeSubagentStarted(state, sessionSubagentID)
 				m.appendMessage(state, ChatMessage{
-					Kind:      ChatMessageKindUserText,
+					Kind:      ChatMessageKindAgentText,
 					Provider:  "claude",
-					Role:      "user",
+					Role:      "assistant",
 					Text:      text,
+					Data:      claudeSubagentData(state, sessionSubagentID),
 					CreatedAt: time.Now().UTC(),
 				})
 			}
@@ -394,19 +455,28 @@ func (m *ChatManager) handleClaudePayload(state *chatSessionState, payload map[s
 				switch asString(block["type"]) {
 				case "text":
 					text := asString(block["text"])
-					if text == "" {
+					if text == "" || sessionSubagentID == "" {
 						continue
 					}
+					m.markClaudeSubagentStarted(state, sessionSubagentID)
 					m.appendMessage(state, ChatMessage{
-						Kind:      ChatMessageKindUserText,
+						Kind:      ChatMessageKindAgentText,
 						Provider:  "claude",
-						Role:      "user",
+						Role:      "assistant",
 						Text:      text,
+						Data:      claudeSubagentData(state, sessionSubagentID),
 						CreatedAt: time.Now().UTC(),
 					})
 				case "tool_result":
 					callID := asString(block["tool_use_id"])
 					if callID == "" {
+						continue
+					}
+					if state.claudeHiddenParentTaskToolCallIDs[callID] {
+						if sessionSubagentForTask := state.claudeProviderToSessionSubagent[callID]; sessionSubagentForTask != "" {
+							m.markClaudeSubagentStopped(state, sessionSubagentForTask)
+						}
+						delete(state.claudeHiddenParentTaskToolCallIDs, callID)
 						continue
 					}
 					result := block["content"]
@@ -424,6 +494,7 @@ func (m *ChatManager) handleClaudePayload(state *chatSessionState, payload map[s
 		// Claude result envelopes commonly repeat the assistant text on success.
 		// Keep them only for explicit errors.
 		if !isErr {
+			resetClaudeTurnTracking(state)
 			return
 		}
 		text := firstNonEmpty(asString(payload["result"]), asString(payload["subtype"]), "error")
@@ -434,6 +505,7 @@ func (m *ChatManager) handleClaudePayload(state *chatSessionState, payload map[s
 			Data:      cloneMap(payload),
 			CreatedAt: time.Now().UTC(),
 		})
+		resetClaudeTurnTracking(state)
 
 	case "control_request":
 		m.appendMessage(state, ChatMessage{
@@ -497,7 +569,7 @@ func (m *ChatManager) handleCodexPayload(state *chatSessionState, payload map[st
 		if command != "" {
 			title = "Run `" + command + "`"
 		}
-		m.startToolCall(state, "codex", callID, "CodexBash", title, command, cloneMap(item))
+		m.startToolCall(state, "codex", callID, "CodexBash", title, command, cloneMap(item), nil)
 
 	case "item.completed":
 		item, _ := payload["item"].(map[string]any)
@@ -606,7 +678,7 @@ func (m *ChatManager) handleCodexPayload(state *chatSessionState, payload map[st
 		if description == "" {
 			description = cmdSummary
 		}
-		m.startToolCall(state, "codex", callID, "CodexBash", title, description, cloneMap(payload))
+		m.startToolCall(state, "codex", callID, "CodexBash", title, description, cloneMap(payload), nil)
 
 	case "exec_command_end":
 		callID := firstNonEmpty(asString(payload["call_id"]), asString(payload["callId"]))
@@ -636,7 +708,7 @@ func (m *ChatManager) handleCodexPayload(state *chatSessionState, payload map[st
 				description = fmt.Sprintf("Applying patch to %d files", fileCount)
 			}
 		}
-		m.startToolCall(state, "codex", callID, "CodexPatch", "Apply patch", description, cloneMap(payload))
+		m.startToolCall(state, "codex", callID, "CodexPatch", "Apply patch", description, cloneMap(payload), nil)
 
 	case "patch_apply_end":
 		callID := firstNonEmpty(asString(payload["call_id"]), asString(payload["callId"]))
@@ -708,10 +780,11 @@ func (m *ChatManager) handleCodexPayload(state *chatSessionState, payload map[st
 	}
 }
 
-func (m *ChatManager) startToolCall(state *chatSessionState, provider, callID, name, title, description string, input any) {
+func (m *ChatManager) startToolCall(state *chatSessionState, provider, callID, name, title, description string, input any, data map[string]any) {
 	msg, _ := m.appendMessage(state, ChatMessage{
 		Kind:     ChatMessageKindToolCall,
 		Provider: provider,
+		Data:     data,
 		Tool: &ChatToolCall{
 			CallID:      callID,
 			Name:        name,
@@ -797,6 +870,217 @@ func (m *ChatManager) finishToolCall(state *chatSessionState, provider, callID s
 		default:
 		}
 	}
+}
+
+func resetClaudeTurnTrackingLocked(state *chatSessionState) {
+	state.claudeUUIDToProviderSubagent = make(map[string]string)
+	state.claudePromptToProviderSubagents = make(map[string][]string)
+	state.claudeProviderToSessionSubagent = make(map[string]string)
+	state.claudeSessionSubagentTitles = make(map[string]string)
+	state.claudeBufferedSubagentPayloads = make(map[string][]map[string]any)
+	state.claudeHiddenParentTaskToolCallIDs = make(map[string]bool)
+	state.claudeStartedSubagents = make(map[string]bool)
+	state.claudeActiveSubagents = make(map[string]bool)
+}
+
+func resetClaudeTurnTracking(state *chatSessionState) {
+	state.mu.Lock()
+	resetClaudeTurnTrackingLocked(state)
+	state.mu.Unlock()
+}
+
+func ensureClaudeSessionSubagent(state *chatSessionState, providerSubagentID string) string {
+	if providerSubagentID == "" {
+		return ""
+	}
+	if state.claudeProviderToSessionSubagent == nil {
+		state.claudeProviderToSessionSubagent = make(map[string]string)
+	}
+	if existing := state.claudeProviderToSessionSubagent[providerSubagentID]; existing != "" {
+		return existing
+	}
+	created := db.NewID()
+	state.claudeProviderToSessionSubagent[providerSubagentID] = created
+	return created
+}
+
+func normalizeClaudePrompt(prompt string) string {
+	return strings.TrimSpace(prompt)
+}
+
+func queueClaudeTaskPromptSubagent(state *chatSessionState, prompt, providerSubagentID string) {
+	prompt = normalizeClaudePrompt(prompt)
+	if prompt == "" || providerSubagentID == "" {
+		return
+	}
+	if state.claudePromptToProviderSubagents == nil {
+		state.claudePromptToProviderSubagents = make(map[string][]string)
+	}
+	queue := state.claudePromptToProviderSubagents[prompt]
+	for _, existing := range queue {
+		if existing == providerSubagentID {
+			return
+		}
+	}
+	state.claudePromptToProviderSubagents[prompt] = append(queue, providerSubagentID)
+}
+
+func consumeClaudeTaskPromptSubagent(state *chatSessionState, prompt string) string {
+	prompt = normalizeClaudePrompt(prompt)
+	if prompt == "" || state.claudePromptToProviderSubagents == nil {
+		return ""
+	}
+	queue := state.claudePromptToProviderSubagents[prompt]
+	if len(queue) == 0 {
+		return ""
+	}
+	consumed := queue[0]
+	if len(queue) == 1 {
+		delete(state.claudePromptToProviderSubagents, prompt)
+	} else {
+		state.claudePromptToProviderSubagents[prompt] = queue[1:]
+	}
+	return consumed
+}
+
+func consumeSinglePendingClaudeTaskSubagent(state *chatSessionState) string {
+	if len(state.claudePromptToProviderSubagents) != 1 {
+		return ""
+	}
+	for prompt := range state.claudePromptToProviderSubagents {
+		return consumeClaudeTaskPromptSubagent(state, prompt)
+	}
+	return ""
+}
+
+func claudeSidechainRootPrompt(payload map[string]any) string {
+	if asString(payload["type"]) != "user" {
+		return ""
+	}
+	msgObj, _ := payload["message"].(map[string]any)
+	if msgObj == nil {
+		return ""
+	}
+	if content, ok := msgObj["content"].(string); ok {
+		return normalizeClaudePrompt(content)
+	}
+	return ""
+}
+
+func resolveClaudeProviderSubagent(state *chatSessionState, payload map[string]any) string {
+	explicitSubagent := firstNonEmpty(asString(payload["parent_tool_use_id"]), asString(payload["parentToolUseId"]))
+	if explicitSubagent != "" {
+		return explicitSubagent
+	}
+
+	parentUUID := firstNonEmpty(asString(payload["parentUuid"]), asString(payload["parentUUID"]), asString(payload["parent_uuid"]))
+	if parentUUID != "" {
+		if inherited := state.claudeUUIDToProviderSubagent[parentUUID]; inherited != "" {
+			return inherited
+		}
+	}
+
+	prompt := claudeSidechainRootPrompt(payload)
+	if prompt != "" {
+		if matched := consumeClaudeTaskPromptSubagent(state, prompt); matched != "" {
+			return matched
+		}
+	}
+
+	sidechainHint := asBool(payload["isSidechain"]) || asBool(payload["is_sidechain"])
+	if sidechainHint && parentUUID == "" {
+		return consumeSinglePendingClaudeTaskSubagent(state)
+	}
+	return ""
+}
+
+func rememberClaudeSubagentForMessage(state *chatSessionState, payload map[string]any, providerSubagentID string) {
+	if providerSubagentID == "" {
+		return
+	}
+	uuid := asString(payload["uuid"])
+	if uuid == "" {
+		return
+	}
+	if state.claudeUUIDToProviderSubagent == nil {
+		state.claudeUUIDToProviderSubagent = make(map[string]string)
+	}
+	state.claudeUUIDToProviderSubagent[uuid] = providerSubagentID
+}
+
+func bufferClaudeSubagentPayload(state *chatSessionState, providerSubagentID string, payload map[string]any) {
+	if providerSubagentID == "" {
+		return
+	}
+	if state.claudeBufferedSubagentPayloads == nil {
+		state.claudeBufferedSubagentPayloads = make(map[string][]map[string]any)
+	}
+	state.claudeBufferedSubagentPayloads[providerSubagentID] = append(
+		state.claudeBufferedSubagentPayloads[providerSubagentID],
+		cloneMap(payload),
+	)
+}
+
+func consumeClaudeBufferedSubagentPayloads(state *chatSessionState, providerSubagentID string) []map[string]any {
+	if providerSubagentID == "" || state.claudeBufferedSubagentPayloads == nil {
+		return nil
+	}
+	buffered := state.claudeBufferedSubagentPayloads[providerSubagentID]
+	delete(state.claudeBufferedSubagentPayloads, providerSubagentID)
+	return buffered
+}
+
+func claudeTaskPrompt(input any) string {
+	obj, _ := input.(map[string]any)
+	if obj == nil {
+		return ""
+	}
+	return normalizeClaudePrompt(asString(obj["prompt"]))
+}
+
+func claudeTaskTitle(input any) string {
+	obj, _ := input.(map[string]any)
+	if obj == nil {
+		return ""
+	}
+	return firstNonEmpty(asString(obj["description"]), asString(obj["title"]), asString(obj["subagent_type"]))
+}
+
+func (m *ChatManager) markClaudeSubagentStarted(state *chatSessionState, sessionSubagentID string) {
+	if sessionSubagentID == "" {
+		return
+	}
+	if state.claudeStartedSubagents == nil {
+		state.claudeStartedSubagents = make(map[string]bool)
+	}
+	if state.claudeActiveSubagents == nil {
+		state.claudeActiveSubagents = make(map[string]bool)
+	}
+	state.claudeStartedSubagents[sessionSubagentID] = true
+	state.claudeActiveSubagents[sessionSubagentID] = true
+}
+
+func (m *ChatManager) markClaudeSubagentStopped(state *chatSessionState, sessionSubagentID string) {
+	if sessionSubagentID == "" {
+		return
+	}
+	if state.claudeActiveSubagents == nil {
+		return
+	}
+	delete(state.claudeActiveSubagents, sessionSubagentID)
+}
+
+func claudeSubagentData(state *chatSessionState, sessionSubagentID string) map[string]any {
+	if sessionSubagentID == "" {
+		return nil
+	}
+	data := map[string]any{
+		"subagentId": sessionSubagentID,
+	}
+	if title := state.claudeSessionSubagentTitles[sessionSubagentID]; title != "" {
+		data["subagentTitle"] = title
+	}
+	return data
 }
 
 func (m *ChatManager) appendMessage(state *chatSessionState, msg ChatMessage) (ChatMessage, error) {
@@ -903,12 +1187,20 @@ func (m *ChatManager) ensureSession(sessionID, provider, model string) (*chatSes
 	}
 
 	state := &chatSessionState{
-		id:                sessionID,
-		provider:          firstNonEmpty(provider, dbSession.Provider),
-		model:             model,
-		toolByID:          make(map[string]int),
-		subs:              make(map[uint64]chan ChatMessage),
-		providerSessionID: firstNonEmpty(stringPtrValue(dbSession.ProviderSessionID), ""),
+		id:                                sessionID,
+		provider:                          firstNonEmpty(provider, dbSession.Provider),
+		model:                             model,
+		toolByID:                          make(map[string]int),
+		subs:                              make(map[uint64]chan ChatMessage),
+		providerSessionID:                 firstNonEmpty(stringPtrValue(dbSession.ProviderSessionID), ""),
+		claudeUUIDToProviderSubagent:      make(map[string]string),
+		claudePromptToProviderSubagents:   make(map[string][]string),
+		claudeProviderToSessionSubagent:   make(map[string]string),
+		claudeSessionSubagentTitles:       make(map[string]string),
+		claudeBufferedSubagentPayloads:    make(map[string][]map[string]any),
+		claudeHiddenParentTaskToolCallIDs: make(map[string]bool),
+		claudeStartedSubagents:            make(map[string]bool),
+		claudeActiveSubagents:             make(map[string]bool),
 	}
 
 	for _, row := range messages {

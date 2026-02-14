@@ -74,7 +74,12 @@ function extractSlashCommands(messages: ChatMessage[], provider: AgentSession['p
 }
 
 function shouldRenderMessage(message: ChatMessage): boolean {
-  if (message.kind === 'user-text' || message.kind === 'agent-text' || message.kind === 'tool-call') {
+  if (message.kind === 'user-text' || message.kind === 'agent-text') {
+    return true;
+  }
+
+  if (message.kind === 'tool-call') {
+    if (message.data?.hidden === true) return false;
     return true;
   }
 
@@ -98,6 +103,13 @@ function shouldRenderMessage(message: ChatMessage): boolean {
   }
 
   return false;
+}
+
+function subagentLabel(message: ChatMessage): string | null {
+  const id = typeof message.data?.subagentId === 'string' ? message.data.subagentId.trim() : '';
+  if (!id) return null;
+  const title = typeof message.data?.subagentTitle === 'string' ? message.data.subagentTitle.trim() : '';
+  return title || id;
 }
 
 function computeVisibleMessages(messages: ChatMessage[]): ChatMessage[] {
@@ -142,6 +154,7 @@ function findFirstEnabledSuggestionIndex(suggestions: ComposerSuggestion[]): num
 }
 
 function MessageItem({ message, nextKind }: MessageItemProps) {
+  const subagent = subagentLabel(message);
   if (message.kind === 'user-text') {
     const showMeta = nextKind !== 'user-text';
     const time = formatTimeLabel(message.createdAt);
@@ -167,6 +180,11 @@ function MessageItem({ message, nextKind }: MessageItemProps) {
 
     return (
       <div className="min-w-0">
+        {subagent && (
+          <div className="mb-1 inline-flex items-center rounded-md border border-subtle bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-dim">
+            Subagent: {subagent}
+          </div>
+        )}
         <MarkdownRenderer className="max-w-none text-[13px] leading-6 [&_p]:leading-6">{message.text || ''}</MarkdownRenderer>
         {showMeta && (
           <div className="mt-1 text-[10px] text-dim">{time}</div>
@@ -178,6 +196,11 @@ function MessageItem({ message, nextKind }: MessageItemProps) {
   if (message.kind === 'tool-call' && message.tool) {
     return (
       <div>
+        {subagent && (
+          <div className="mb-1 inline-flex items-center rounded-md border border-subtle bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-dim">
+            Subagent: {subagent}
+          </div>
+        )}
         <ToolCallCard tool={message.tool} />
       </div>
     );

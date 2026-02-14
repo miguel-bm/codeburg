@@ -321,17 +321,12 @@ export function useTerminal(
           return false;
         }
       }
-      // Cmd+V / Ctrl+V: paste from clipboard
+      // Cmd+V / Ctrl+V: allow native paste handling
       if ((event.metaKey || event.ctrlKey) && event.code === 'KeyV' && event.type === 'keydown') {
-        navigator.clipboard.readText().then((text) => {
-          if (text && wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(text);
-            emitDebug('paste:clipboard', { length: text.length });
-          }
-        }).catch(() => {
-          emitDebug('paste:failed');
-        });
-        return false;
+        // Let xterm/browser handle native paste; manually sending text here
+        // duplicates input because xterm also emits paste via onData.
+        emitDebug('paste:keyboard');
+        return true;
       }
       return true;
     });
@@ -378,6 +373,20 @@ export function useTerminal(
     }
   }, []);
 
+  const pasteText = useCallback((text: string) => {
+    if (!text) return;
+    const term = termRef.current;
+    if (term) {
+      // Use xterm paste path to preserve bracketed paste semantics and
+      // ensure a single onData emission for pasted text.
+      term.paste(text);
+      return;
+    }
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(text);
+    }
+  }, []);
+
   const copySelection = useCallback(() => {
     const term = termRef.current;
     if (!term || !term.hasSelection()) return;
@@ -390,14 +399,14 @@ export function useTerminal(
 
   const pasteClipboard = useCallback(() => {
     navigator.clipboard.readText().then((text) => {
-      if (text && wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(text);
+      if (text) {
+        pasteText(text);
         emitDebug('paste:clipboard', { length: text.length });
       }
     }).catch(() => {
       emitDebug('paste:failed');
     });
-  }, [emitDebug]);
+  }, [emitDebug, pasteText]);
 
   const selectAll = useCallback(() => {
     termRef.current?.selectAll();

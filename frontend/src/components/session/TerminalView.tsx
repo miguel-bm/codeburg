@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useTerminal } from '../../hooks/useTerminal';
 import { useMobile } from '../../hooks/useMobile';
+import { useVirtualKeyboard } from '../../hooks/useVirtualKeyboard';
 import { TerminalToolbar } from '../terminal/TerminalToolbar';
 import { TerminalContextMenu } from '../terminal/TerminalContextMenu';
 
@@ -25,6 +26,7 @@ export function TerminalView({ sessionId, sessionStatus }: TerminalViewProps) {
   };
   const { sendInput, actions } = useTerminal(terminalRef, sessionId, { sessionStatus, debug: debugEnabled, onDebugEvent: pushDebug });
   const isMobile = useMobile();
+  const { keyboardVisible } = useVirtualKeyboard();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -54,7 +56,7 @@ export function TerminalView({ sessionId, sessionStatus }: TerminalViewProps) {
           </div>
         )}
       </div>
-      {isMobile && <TerminalToolbar onInput={sendInput} />}
+      {isMobile && keyboardVisible && <TerminalToolbar onInput={sendInput} />}
       {menu && (
         <TerminalContextMenu
           x={menu.x}

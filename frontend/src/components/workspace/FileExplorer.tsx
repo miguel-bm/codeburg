@@ -21,6 +21,7 @@ import { buildFileTree, filterFileTree } from './fileTreeUtils';
 import { getFileIcon } from './fileIcons';
 import { ContextMenu, type ContextMenuItem } from '../ui/ContextMenu';
 import type { FileTreeNodeData } from './editorUtils';
+import { useWorkspaceStore } from '../../stores/workspace';
 
 interface ContextMenuState {
   position: { x: number; y: number };
@@ -41,6 +42,10 @@ export function FileExplorer() {
     isLoading,
   } = useWorkspaceFiles(undefined, 20);
   const { openFile } = useWorkspaceNav();
+  const activeEditorPath = useWorkspaceStore((state) => {
+    const activeTab = state.tabs[state.activeTabIndex];
+    return activeTab?.type === 'editor' ? activeTab.path : null;
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
@@ -48,6 +53,7 @@ export function FileExplorer() {
   const treeContainerRef = useRef<HTMLDivElement>(null);
   const [treeHeight, setTreeHeight] = useState(400);
   const treeRef = useRef<TreeApi<FileTreeNodeData> | null>(null);
+  const suppressSelectRef = useRef(false);
 
   // Inline creation state
   const [creating, setCreating] = useState<{ type: 'file' | 'dir'; parentPath: string } | null>(null);
@@ -102,6 +108,7 @@ export function FileExplorer() {
 
   const handleSelect = useCallback(
     (nodes: NodeApi<FileTreeNodeData>[]) => {
+      if (suppressSelectRef.current) return;
       const node = nodes[0];
       if (!node || node.data.type === 'dir') return;
       if (node.data.id === CREATING_NODE_ID) return;
@@ -312,6 +319,26 @@ export function FileExplorer() {
     const timer = setTimeout(() => setContextMenu(null), 0);
     return () => clearTimeout(timer);
   }, [files]);
+
+  // Keep tree highlight synced with the active editor tab and auto-expand to it.
+  useEffect(() => {
+    const tree = treeRef.current;
+    if (!tree) return;
+
+    suppressSelectRef.current = true;
+    if (!activeEditorPath) {
+      tree.deselectAll();
+      queueMicrotask(() => {
+        suppressSelectRef.current = false;
+      });
+      return;
+    }
+
+    tree.select(activeEditorPath, { focus: false });
+    queueMicrotask(() => {
+      suppressSelectRef.current = false;
+    });
+  }, [activeEditorPath, treeData]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

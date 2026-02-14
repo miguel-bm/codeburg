@@ -21,6 +21,7 @@ import {
 import { useWorkspaceGit } from '../../hooks/useWorkspaceGit';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
 import { parseDiffFiles } from '../git/diffFiles';
+import { useWorkspaceStore } from '../../stores/workspace';
 import { ContextMenu } from '../ui/ContextMenu';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
@@ -87,6 +88,10 @@ interface ConfirmAction {
 export function GitPanel() {
   const git = useWorkspaceGit();
   const { openDiff } = useWorkspaceNav();
+  const activeDiffTab = useWorkspaceStore((state) => {
+    const activeTab = state.tabs[state.activeTabIndex];
+    return activeTab?.type === 'diff' ? activeTab : null;
+  });
   const [commitMsg, setCommitMsg] = useState('');
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     branch: true,
@@ -176,6 +181,37 @@ export function GitPanel() {
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }, [splitFraction]);
+
+  const activeDiffFile = activeDiffTab?.file;
+  const isBaseDiffTab = activeDiffTab?.base === true && !activeDiffTab.commit;
+  const isStagedDiffTab = activeDiffTab?.staged === true && !activeDiffTab.base && !activeDiffTab.commit;
+  const isUnstagedDiffTab = !!activeDiffTab && activeDiffTab.base !== true && activeDiffTab.staged !== true && !activeDiffTab.commit;
+
+  // Keep the relevant section open when a diff tab becomes active from the tab strip.
+  useEffect(() => {
+    if (!status || !activeDiffFile || activeDiffTab?.commit) return;
+    const branchDiffFiles = parseDiffFiles(baseDiff?.diff || '');
+
+    setExpandedSections((current) => {
+      let target: string | null = null;
+      if (activeDiffTab.base) {
+        target = 'branch';
+      } else if (activeDiffTab.staged) {
+        target = 'staged';
+      } else if (status.untracked.includes(activeDiffFile)) {
+        target = 'untracked';
+      } else if (status.unstaged.some((f) => f.path === activeDiffFile)) {
+        target = 'unstaged';
+      } else if (status.staged.some((f) => f.path === activeDiffFile)) {
+        target = 'staged';
+      } else if (branchDiffFiles.some((f) => f.path === activeDiffFile)) {
+        target = 'branch';
+      }
+
+      if (!target || current[target]) return current;
+      return { ...current, [target]: true };
+    });
+  }, [activeDiffFile, activeDiffTab?.base, activeDiffTab?.staged, activeDiffTab?.commit, status, baseDiff?.diff]);
 
   if (!status) {
     return <div className="flex items-center justify-center h-20 text-xs text-dim">Loading git status...</div>;
@@ -339,7 +375,9 @@ export function GitPanel() {
               <button
                 onClick={() => openDiff(undefined, undefined, true)}
                 disabled={!baseDiff?.diff}
-                className="text-[10px] text-dim hover:text-[var(--color-text-primary)] disabled:opacity-40 flex items-center gap-0.5"
+                className={`text-[10px] disabled:opacity-40 flex items-center gap-0.5 ${
+                  isBaseDiffTab && !activeDiffFile ? 'text-accent' : 'text-dim hover:text-[var(--color-text-primary)]'
+                }`}
                 title="Open full branch diff"
               >
                 <ExternalLink size={10} />
@@ -348,18 +386,23 @@ export function GitPanel() {
             }
           >
             {baseDiffFiles.length > 0 ? (
-              baseDiffFiles.map((f) => (
-                <div
-                  key={f.path}
-                  className="flex items-center gap-1 px-2 py-0.5 group hover:bg-tertiary cursor-pointer text-xs"
-                  onClick={() => openDiff(f.path, undefined, true)}
-                >
-                  <span className="w-4 text-center text-[10px] font-mono text-dim">&Delta;</span>
-                  <span className="flex-1 truncate">{f.path}</span>
-                  {f.additions > 0 && <span className="text-[10px] text-green-500">+{f.additions}</span>}
-                  {f.deletions > 0 && <span className="text-[10px] text-red-500">-{f.deletions}</span>}
-                </div>
-              ))
+              baseDiffFiles.map((f) => {
+                const isActive = isBaseDiffTab && activeDiffFile === f.path;
+                return (
+                  <div
+                    key={f.path}
+                    className={`flex items-center gap-1 px-2 py-0.5 group cursor-pointer text-xs ${
+                      isActive ? 'bg-accent/10 text-accent' : 'hover:bg-tertiary'
+                    }`}
+                    onClick={() => openDiff(f.path, undefined, true)}
+                  >
+                    <span className="w-4 text-center text-[10px] font-mono text-dim">&Delta;</span>
+                    <span className="flex-1 truncate">{f.path}</span>
+                    {f.additions > 0 && <span className="text-[10px] text-green-500">+{f.additions}</span>}
+                    {f.deletions > 0 && <span className="text-[10px] text-red-500">-{f.deletions}</span>}
+                  </div>
+                );
+              })
             ) : (
               <div className="px-2 py-2 text-[11px] text-dim">No branch changes</div>
             )}
@@ -393,6 +436,7 @@ export function GitPanel() {
                   section="staged"
                   onUnstage={() => unstage([f.path])}
                   onClick={() => openDiff(f.path, true)}
+                  active={isStagedDiffTab && activeDiffFile === f.path}
                 />
               ))}
             </Section>
@@ -439,6 +483,7 @@ export function GitPanel() {
                   onStage={() => stage([f.path])}
                   onRevert={() => confirmRevert([f.path], [], f.path)}
                   onClick={() => openDiff(f.path, false)}
+                  active={isUnstagedDiffTab && activeDiffFile === f.path}
                 />
               ))}
             </Section>
@@ -485,6 +530,7 @@ export function GitPanel() {
                   onStage={() => stage([path])}
                   onRevert={() => confirmRevert([], [path], path)}
                   onClick={() => openDiff(path, false)}
+                  active={isUnstagedDiffTab && activeDiffFile === path}
                 />
               ))}
             </Section>
@@ -506,7 +552,12 @@ export function GitPanel() {
           </div>
           {commits.length > 0 ? (
             commits.map((c) => (
-              <CommitEntry key={c.hash} commit={c} onOpenDiff={(hash) => openDiff(undefined, undefined, undefined, hash)} />
+              <CommitEntry
+                key={c.hash}
+                commit={c}
+                onOpenDiff={(hash) => openDiff(undefined, undefined, undefined, hash)}
+                isActive={activeDiffTab?.commit === c.hash}
+              />
             ))
           ) : (
             <div className="px-2 py-3 text-[11px] text-dim">No commits</div>
@@ -548,7 +599,15 @@ export function GitPanel() {
 
 /* ── Commit entry with hover tooltip ─────────────────────────────── */
 
-function CommitEntry({ commit, onOpenDiff }: { commit: GitLogEntry; onOpenDiff: (hash: string) => void }) {
+function CommitEntry({
+  commit,
+  onOpenDiff,
+  isActive,
+}: {
+  commit: GitLogEntry;
+  onOpenDiff: (hash: string) => void;
+  isActive?: boolean;
+}) {
   const [tooltip, setTooltip] = useState<{ x: number; y: number } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const rowRef = useRef<HTMLDivElement>(null);
@@ -574,7 +633,9 @@ function CommitEntry({ commit, onOpenDiff }: { commit: GitLogEntry; onOpenDiff: 
     <>
       <div
         ref={rowRef}
-        className="flex items-center gap-1.5 px-2 py-1 group hover:bg-tertiary cursor-pointer text-xs"
+        className={`flex items-center gap-1.5 px-2 py-1 group cursor-pointer text-xs ${
+          isActive ? 'bg-accent/10 text-accent' : 'hover:bg-tertiary'
+        }`}
         onMouseEnter={showTooltip}
         onMouseLeave={hideTooltip}
         onClick={() => onOpenDiff(commit.hash)}
@@ -686,6 +747,7 @@ function FileEntry({
   onUnstage,
   onRevert,
   onClick,
+  active,
 }: {
   file: GitFileStatus;
   section: 'staged' | 'unstaged' | 'untracked';
@@ -693,9 +755,15 @@ function FileEntry({
   onUnstage?: () => void;
   onRevert?: () => void;
   onClick: () => void;
+  active?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-1 px-2 py-0.5 group hover:bg-tertiary cursor-pointer text-xs" onClick={onClick}>
+    <div
+      className={`flex items-center gap-1 px-2 py-0.5 group cursor-pointer text-xs ${
+        active ? 'bg-accent/10 text-accent' : 'hover:bg-tertiary'
+      }`}
+      onClick={onClick}
+    >
       <span className={`w-4 text-center text-[10px] font-mono ${statusColor(file.status)}`}>
         {statusLabel(file.status)}
       </span>
