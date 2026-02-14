@@ -4,6 +4,7 @@ import { Card } from '../ui/Card';
 import { COLUMNS, COLUMN_ICONS } from '../../constants/tasks';
 import { DropPlaceholder, NewTaskPlaceholder, TaskCard } from './TaskCard';
 import { TaskListView } from './TaskListView';
+import { haptic } from '../../lib/haptics';
 import type { Task, TaskStatus } from '../../api';
 import type { DragState } from '../../hooks/useDragAndDrop';
 
@@ -264,7 +265,7 @@ function MobileKanban({
           return (
             <button
               key={column.id}
-              onClick={() => onSetActiveColumnIndex(index)}
+              onClick={() => { haptic(); onSetActiveColumnIndex(index); }}
               className={`flex-1 min-w-0 px-2 py-2 text-[11px] font-medium transition-colors inline-flex items-center justify-center gap-1 border-b-2 ${
                 isActive
                   ? `${column.color} border-accent`

@@ -1,11 +1,12 @@
-import { useState, useCallback, useRef } from 'react';
-import { FileText, Plus, RotateCcw, X, XCircle, ArrowRightToLine } from 'lucide-react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { FileText, Plus, RotateCcw, X, XCircle, ArrowRightToLine, ChevronDown } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspace';
 import type { WorkspaceTab } from '../../stores/workspace';
 import { useWorkspaceSessions } from '../../hooks/useWorkspaceSessions';
 import { useTabActions } from '../../hooks/useTabActions';
 import { useMobile } from '../../hooks/useMobile';
 import { getSessionStatusMeta } from '../../lib/sessionStatus';
+import { haptic } from '../../lib/haptics';
 import { fileName } from './editorUtils';
 import { ProviderIcon } from '../session/ProviderIcon';
 import { useLongPress } from '../../hooks/useLongPress';
@@ -65,10 +66,121 @@ function TabLabel({ tab }: { tab: WorkspaceTab }) {
 }
 
 export function TabBar() {
+  const isMobile = useMobile();
+
+  if (isMobile) {
+    return <MobileTabBar />;
+  }
+
+  return <DesktopTabBar />;
+}
+
+function MobileTabBar() {
+  const { tabs, activeTabIndex, setActiveTab, openNewSession } = useWorkspaceStore();
+  const { closeTab } = useTabActions();
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('touchstart', handleClick as EventListener);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('touchstart', handleClick as EventListener);
+    };
+  }, [dropdownOpen]);
+
+  const activeTab = tabs[activeTabIndex];
+
+  if (tabs.length === 0) {
+    return (
+      <div className="flex items-center h-9 px-2 bg-canvas border-b border-subtle">
+        <button
+          onClick={openNewSession}
+          className="flex items-center gap-1 text-xs text-dim hover:text-accent px-1.5 py-0.5 rounded hover:bg-tertiary"
+        >
+          <Plus size={12} />
+          <span>New Session</span>
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative flex items-center h-9 bg-canvas border-b border-subtle px-1" ref={dropdownRef}>
+      {/* Active tab indicator + dropdown trigger */}
+      <button
+        onClick={() => { haptic(); setDropdownOpen((prev) => !prev); }}
+        className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md bg-accent/15 text-accent min-w-0 max-w-[70%]"
+      >
+        <div className="min-w-0 overflow-hidden">
+          {activeTab ? <TabLabel tab={activeTab} /> : <span className="text-dim">No tab</span>}
+        </div>
+        <ChevronDown size={12} className={`shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {/* Tab count badge */}
+      {tabs.length > 1 && (
+        <span className="ml-1.5 text-[10px] text-dim tabular-nums">{tabs.length}</span>
+      )}
+
+      <div className="flex-1" />
+
+      {/* New session button */}
+      <button
+        onClick={openNewSession}
+        className="flex items-center justify-center w-7 h-7 text-dim hover:text-accent hover:bg-tertiary rounded shrink-0"
+        title="New Session"
+      >
+        <Plus size={13} />
+      </button>
+
+      {/* Dropdown */}
+      {dropdownOpen && (
+        <div className="absolute top-full left-0 right-0 z-30 mt-0.5 mx-1 rounded-lg border border-subtle bg-card shadow-card overflow-hidden">
+          <div className="max-h-64 overflow-y-auto py-1">
+            {tabs.map((tab, index) => {
+              const isActive = index === activeTabIndex;
+              return (
+                <div
+                  key={tab.type === 'session' ? tab.sessionId : tab.type === 'editor' ? `editor:${tab.path}` : tab.type === 'diff' ? `diff:${tab.file}:${tab.staged}:${tab.commit}` : `tab:${index}`}
+                  className={`flex items-center gap-2 px-3 py-2 text-xs ${
+                    isActive ? 'bg-accent/10 text-accent' : 'text-[var(--color-text-primary)]'
+                  }`}
+                >
+                  <button
+                    className="flex-1 min-w-0 text-left"
+                    onClick={() => { haptic(); setActiveTab(index); setDropdownOpen(false); }}
+                  >
+                    <TabLabel tab={tab} />
+                  </button>
+                  <button
+                    onClick={() => { closeTab(index); if (tabs.length <= 1) setDropdownOpen(false); }}
+                    className="p-1 text-dim hover:text-[var(--color-error)] shrink-0 rounded"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DesktopTabBar() {
   const { tabs, activeTabIndex, setActiveTab, openNewSession, openSession, replaceSessionTab, moveTab } = useWorkspaceStore();
   const { sessions, startSession, deleteSession, isStarting } = useWorkspaceSessions();
   const { closeTab, closeOtherTabs, closeTabsToRight } = useTabActions();
-  const isMobile = useMobile();
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
   const [resumingSessionId, setResumingSessionId] = useState<string | null>(null);
@@ -158,7 +270,6 @@ export function TabBar() {
             onDragOver={() => setDragOver(index)}
             onDrop={() => handleDrop(index)}
             onDragEnd={handleDragEnd}
-            hideClose={isMobile}
             canResume={canResume}
             resumePending={resumePending}
             onResume={session ? () => { void handleResumeSession(session); } : undefined}
@@ -187,7 +298,6 @@ export function TabBar() {
           onDragOver={() => setDragOver(index)}
           onDrop={() => handleDrop(index)}
           onDragEnd={handleDragEnd}
-          hideClose={isMobile}
         />
       ))}
 
@@ -225,7 +335,6 @@ function Tab({
   onDragOver,
   onDrop,
   onDragEnd,
-  hideClose,
   canResume,
   onResume,
   resumePending,
@@ -242,7 +351,6 @@ function Tab({
   onDragOver: () => void;
   onDrop: () => void;
   onDragEnd: () => void;
-  hideClose?: boolean;
   canResume?: boolean;
   onResume?: () => void;
   resumePending?: boolean;
@@ -308,14 +416,12 @@ function Tab({
           <RotateCcw size={11} className={resumePending ? 'animate-spin' : undefined} />
         </button>
       )}
-      {!hideClose && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onClose(); }}
-          className="p-0.5 text-dim hover:text-[var(--color-error)] opacity-0 group-hover:opacity-100 shrink-0"
-        >
-          <X size={11} />
-        </button>
-      )}
+      <button
+        onClick={(e) => { e.stopPropagation(); onClose(); }}
+        className="p-0.5 text-dim hover:text-[var(--color-error)] opacity-0 group-hover:opacity-100 shrink-0"
+      >
+        <X size={11} />
+      </button>
     </div>
   );
 }

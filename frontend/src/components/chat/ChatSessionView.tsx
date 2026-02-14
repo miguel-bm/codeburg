@@ -7,6 +7,7 @@ import { useChatSession } from '../../hooks/useChatSession';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { ToolCallCard } from './ToolCallCard';
 import { useMobile } from '../../hooks/useMobile';
+import { useVirtualKeyboard } from '../../hooks/useVirtualKeyboard';
 import { applySuggestionToText, findActiveToken, fuzzyScore, type InputSelection } from './chatAutocomplete';
 
 interface ChatSessionViewProps {
@@ -236,6 +237,7 @@ function PendingAssistantRow({ providerLabel }: { providerLabel: string }) {
 
 export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
   const isMobile = useMobile();
+  const { keyboardVisible } = useVirtualKeyboard();
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [resuming, setResuming] = useState(false);
@@ -417,8 +419,8 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
   useEffect(() => {
     const node = textareaRef.current;
     if (!node) return;
-    const minHeight = isMobile ? 72 : 84;
-    const maxHeight = isMobile ? 170 : 220;
+    const minHeight = isMobile ? 48 : 84;
+    const maxHeight = isMobile ? 120 : 220;
     if (!input.trim()) {
       node.style.height = `${minHeight}px`;
       return;
@@ -571,7 +573,7 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
         )}
       </div>
 
-      <div className="bg-primary px-3 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+      <div className={`bg-primary px-3 pt-2 ${isMobile && keyboardVisible ? 'pb-1' : 'pb-[calc(0.75rem+env(safe-area-inset-bottom))]'}`}>
         {(canResume || error || (!connected && !connecting)) && (
           <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-subtle bg-primary px-2.5 py-1.5">
             <div className="min-w-0 text-xs text-dim truncate">
@@ -707,7 +709,9 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
               }}
               rows={1}
               placeholder={canSend(session.status) ? 'Describe your next step...' : 'This session is completed'}
-              className="min-h-[72px] max-h-[220px] w-full resize-none bg-transparent px-1 py-1.5 text-sm leading-6 text-[var(--color-text-primary)] focus:outline-none"
+              className={`w-full resize-none bg-transparent px-1 py-1.5 text-sm leading-6 text-[var(--color-text-primary)] focus:outline-none ${
+                isMobile ? 'min-h-[48px] max-h-[120px]' : 'min-h-[72px] max-h-[220px]'
+              }`}
               disabled={!canSend(session.status)}
             />
           </div>

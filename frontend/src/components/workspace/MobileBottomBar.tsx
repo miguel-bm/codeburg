@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import type { ActivityPanel } from '../../stores/workspace';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { useWorkspaceRefresh } from '../../hooks/useWorkspaceRefresh';
+import { haptic } from '../../lib/haptics';
 
 const TABS: { id: ActivityPanel | null; icon: typeof FolderOpen; label: string }[] = [
   { id: null, icon: MonitorPlay, label: 'Sessions' },
@@ -12,61 +13,65 @@ const TABS: { id: ActivityPanel | null; icon: typeof FolderOpen; label: string }
   { id: 'tools', icon: Wrench, label: 'Tools' },
 ];
 
-export function MobileBottomBar() {
+export function MobileWorkspaceNav() {
   const { activePanel, setActivePanel } = useWorkspaceStore();
   const { refreshState, refreshWorkspace, refreshTooltip } = useWorkspaceRefresh();
 
   return (
-    <div className="flex items-center justify-around bg-canvas border-t border-subtle shrink-0 pb-[env(safe-area-inset-bottom)]">
+    <div className="flex items-center gap-1 px-2 py-1.5 bg-canvas border-b border-subtle shrink-0 overflow-x-auto scrollbar-none">
       {TABS.map(({ id, icon: Icon, label }) => {
         const isActive = activePanel === id;
         return (
           <button
             key={id ?? 'sessions'}
-            onClick={() => setActivePanel(id)}
-            className={`relative flex flex-col items-center justify-center gap-0.5 py-2 px-3 min-w-0 flex-1 transition-colors ${
-              isActive ? 'text-accent' : 'text-dim'
+            onClick={() => { haptic(); setActivePanel(id); }}
+            className={`relative flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs whitespace-nowrap transition-colors shrink-0 ${
+              isActive
+                ? 'bg-accent/15 text-accent'
+                : 'text-dim hover:text-[var(--color-text-secondary)] hover:bg-tertiary'
             }`}
             aria-label={label}
           >
             {isActive && (
               <motion.div
-                layoutId="mobile-bottom-bar-indicator"
-                className="absolute top-0 left-2 right-2 h-0.5 rounded-full bg-accent"
+                layoutId="mobile-workspace-nav-indicator"
+                className="absolute inset-0 rounded-md bg-accent/15"
                 transition={{ type: 'spring', stiffness: 500, damping: 35 }}
               />
             )}
-            <Icon size={18} />
-            <span className="text-[10px] leading-none">{label}</span>
+            <Icon size={14} className="relative" />
+            <span className="relative">{label}</span>
           </button>
         );
       })}
 
       {/* Refresh button */}
       <button
-        onClick={refreshWorkspace}
+        onClick={() => { haptic(); refreshWorkspace(); }}
         disabled={refreshState === 'loading'}
-        className={`relative flex flex-col items-center justify-center gap-0.5 py-2 px-3 min-w-0 flex-1 transition-colors ${
+        className={`flex items-center justify-center w-7 h-7 rounded-md shrink-0 transition-colors ${
           refreshState === 'done'
             ? 'text-[var(--color-success)]'
             : refreshState === 'error'
               ? 'text-[var(--color-error)]'
               : refreshState === 'loading'
                 ? 'text-accent'
-                : 'text-dim'
+                : 'text-dim hover:text-[var(--color-text-secondary)] hover:bg-tertiary'
         }`}
         title={refreshTooltip}
         aria-label="Refresh workspace"
       >
         {refreshState === 'done' ? (
-          <Check size={18} />
+          <Check size={14} />
         ) : refreshState === 'error' ? (
-          <AlertCircle size={18} />
+          <AlertCircle size={14} />
         ) : (
-          <RefreshCw size={18} className={refreshState === 'loading' ? 'animate-spin' : ''} />
+          <RefreshCw size={14} className={refreshState === 'loading' ? 'animate-spin' : ''} />
         )}
-        <span className="text-[10px] leading-none">Refresh</span>
       </button>
     </div>
   );
 }
+
+/** @deprecated Use MobileWorkspaceNav instead */
+export const MobileBottomBar = MobileWorkspaceNav;

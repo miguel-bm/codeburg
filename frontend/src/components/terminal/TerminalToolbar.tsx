@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, CornerDownLeft } from 'lucide-react';
+import { haptic } from '../../lib/haptics';
 
 interface TerminalToolbarProps {
   onInput: (data: string) => void;
@@ -23,6 +24,7 @@ export function TerminalToolbar({ onInput }: TerminalToolbarProps) {
   const [flash, setFlash] = useState<string | null>(null);
 
   const handlePress = useCallback((id: string, data: string) => {
+    haptic();
     onInput(data);
     setFlash(id);
     setTimeout(() => setFlash(null), 100);

@@ -5,7 +5,7 @@ import { useWorkspaceSessionSync } from '../../hooks/useWorkspaceSessionSync';
 import { useMobile } from '../../hooks/useMobile';
 import { useWorkspace } from './WorkspaceContext';
 import { ActivityBar, ActivityPanelContent } from './ActivityPanel';
-import { MobileBottomBar } from './MobileBottomBar';
+import { MobileWorkspaceNav } from './MobileBottomBar';
 import { TabBar } from './TabBar';
 import { EditorTab } from './EditorTab';
 import { DiffTab } from './DiffTab';
@@ -135,6 +135,9 @@ export function Workspace() {
   if (isMobile) {
     return (
       <div className="flex flex-col flex-1 h-full overflow-hidden bg-canvas">
+        {/* Top navigation bar */}
+        <MobileWorkspaceNav />
+
         {/* Content area — full width */}
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {activePanel ? (
@@ -148,9 +151,6 @@ export function Workspace() {
             </>
           )}
         </div>
-
-        {/* Bottom navigation bar */}
-        <MobileBottomBar />
       </div>
     );
   }

@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { usePanelStore, PANEL_WIDTH_MIN, PANEL_WIDTH_MAX, PANEL_WIDTH_DEFAULT } from '../../stores/panel';
 import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 import { useMobile } from '../../hooks/useMobile';
+import { useVirtualKeyboard } from '../../hooks/useVirtualKeyboard';
 import { useKeyboardNav } from '../../hooks/useKeyboardNav';
 import { useSessionShortcutSettings, resolveLayout } from '../../stores/keyboard';
 import { HeaderProvider, Header } from './Header';
@@ -95,6 +96,8 @@ export function Panel({ children }: PanelProps) {
   const ease: [number, number, number, number] = [0.4, 0, 0.2, 1];
 
   // Mobile: full-screen overlay
+  const { keyboardVisible, keyboardHeight } = useVirtualKeyboard();
+
   if (isMobile) {
     return (
       <HeaderProvider>
@@ -103,7 +106,8 @@ export function Panel({ children }: PanelProps) {
           animate={{ x: 0 }}
           exit={{ x: '100%' }}
           transition={{ duration: 0.2, ease }}
-          className="fixed inset-x-0 top-0 bottom-12 z-10 bg-secondary flex flex-col pb-[env(safe-area-inset-bottom)]"
+          className={`fixed inset-x-0 top-0 z-10 bg-secondary flex flex-col ${keyboardVisible ? '' : 'pb-[env(safe-area-inset-bottom)]'}`}
+          style={{ bottom: keyboardVisible ? keyboardHeight : 48 }}
         >
           <Header />
           <div className="flex-1 overflow-hidden flex flex-col">

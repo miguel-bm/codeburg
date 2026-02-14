@@ -1,4 +1,5 @@
 import { LayoutDashboard, FolderOpen, Settings } from 'lucide-react';
+import { haptic } from '../../lib/haptics';
 
 type Tab = 'home' | 'projects' | 'settings';
 
@@ -31,7 +32,7 @@ export function MobileTabBar({ activeTab, onHome, onProjects, onSettings, waitin
           return (
             <button
               key={key}
-              onClick={handlers[key]}
+              onClick={() => { haptic(); handlers[key](); }}
               className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
                 isActive ? 'text-accent' : 'text-dim'
               }`}
