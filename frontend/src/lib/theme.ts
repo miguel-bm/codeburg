@@ -69,6 +69,17 @@ function watchSystemThemeChanges() {
   systemThemeListenerAttached = true;
 }
 
+const THEME_COLOR_DARK = '#1f1f24';
+const THEME_COLOR_LIGHT = '#ebebed';
+
+function updateThemeColorMeta(resolved: ResolvedTheme) {
+  if (typeof document === 'undefined') return;
+  const color = resolved === 'dark' ? THEME_COLOR_DARK : THEME_COLOR_LIGHT;
+  // Update all theme-color meta tags (there may be multiple with media queries)
+  const metas = document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]');
+  metas.forEach((meta) => { meta.content = color; });
+}
+
 export function getThemePreference(): ThemePreference {
   if (typeof window === 'undefined') return 'system';
   try {
@@ -109,6 +120,7 @@ export function applyTheme(preference: ThemePreference, options: ApplyThemeOptio
   }
 
   root.style.colorScheme = resolvedTheme;
+  updateThemeColorMeta(resolvedTheme);
   dispatchThemeChange({ preference, resolvedTheme });
 }
 
