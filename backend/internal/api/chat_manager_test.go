@@ -335,6 +335,27 @@ func TestChatManager_CodexEventEnvelope(t *testing.T) {
 	}
 }
 
+func TestChatManager_CodexSessionMetaCapturesProviderSessionID(t *testing.T) {
+	manager, state := setupChatManagerState(t, "codex")
+
+	manager.handleCodexPayload(state, map[string]any{
+		"type": "session_meta",
+		"id":   "codex-session-123",
+	})
+
+	if state.providerSessionID != "codex-session-123" {
+		t.Fatalf("expected provider session id to update, got %q", state.providerSessionID)
+	}
+
+	sessionRow, err := manager.db.GetSession(state.id)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if sessionRow.ProviderSessionID == nil || *sessionRow.ProviderSessionID != "codex-session-123" {
+		t.Fatalf("expected persisted provider session id, got %v", sessionRow.ProviderSessionID)
+	}
+}
+
 func TestChatManager_EnsureSessionRewritesSessionIDFromStoredPayload(t *testing.T) {
 	manager, state := setupChatManagerState(t, "claude")
 

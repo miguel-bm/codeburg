@@ -532,7 +532,8 @@ func (m *ChatManager) handleCodexPayload(state *chatSessionState, payload map[st
 		// response_item envelopes can duplicate event_msg content; use event_msg payloads.
 		return
 	case "session_meta", "turn_context", "token_count":
-		return
+		// Keep handling below so session/thread metadata can still capture
+		// provider session IDs needed for turn-to-turn resume.
 	}
 
 	if id := firstNonEmpty(
@@ -542,6 +543,15 @@ func (m *ChatManager) handleCodexPayload(state *chatSessionState, payload map[st
 		asString(payload["conversationId"]),
 	); id != "" {
 		m.updateProviderSessionID(state, id)
+	}
+	if (msgType == "session_meta" || msgType == "thread.started") && state.providerSessionID == "" {
+		if id := firstNonEmpty(
+			asString(payload["thread_id"]),
+			asString(payload["threadId"]),
+			asString(payload["id"]),
+		); id != "" {
+			m.updateProviderSessionID(state, id)
+		}
 	}
 
 	switch msgType {
