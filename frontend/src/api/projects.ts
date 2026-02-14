@@ -68,6 +68,12 @@ export interface ProjectSyncDefaultBranchResponse {
   updated: boolean;
 }
 
+export interface ProjectPushDefaultBranchResponse {
+  branch: string;
+  remote: string;
+  updated: boolean;
+}
+
 export const projectsApi = {
   list: () => api.get<Project[]>('/projects'),
 
@@ -126,6 +132,9 @@ export const projectsApi = {
 
   syncDefaultBranch: (id: string) =>
     api.post<ProjectSyncDefaultBranchResponse>(`/projects/${id}/sync-default-branch`),
+
+  pushDefaultBranch: (id: string) =>
+    api.post<ProjectPushDefaultBranchResponse>(`/projects/${id}/push-default-branch`),
 
   archive: (id: string) =>
     api.post<{ filename: string; path: string }>(`/projects/${id}/archive`),

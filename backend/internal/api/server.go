@@ -214,6 +214,7 @@ func (s *Server) setupRoutes() {
 		r.Patch("/api/projects/{id}", s.handleUpdateProject)
 		r.Delete("/api/projects/{id}", s.handleDeleteProject)
 		r.Post("/api/projects/{id}/sync-default-branch", s.handleSyncProjectDefaultBranch)
+		r.Post("/api/projects/{id}/push-default-branch", s.handlePushProjectDefaultBranch)
 		r.Get("/api/projects/{id}/files", s.handleListProjectFiles)
 		r.Post("/api/projects/{id}/files", s.handleCreateProjectFileEntry)
 		r.Get("/api/projects/{id}/file", s.handleReadProjectFile)

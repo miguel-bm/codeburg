@@ -179,6 +179,25 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Run in_review -> done workflow before status update so failures can block completion.
+	handledReviewToDone := false
+	if input.Status != nil && *input.Status == db.TaskStatusDone && currentTask.Status == db.TaskStatusInReview {
+		project, err := s.db.GetProject(currentTask.ProjectID)
+		if err != nil {
+			writeDBError(w, err, "project")
+			return
+		}
+		wfResp := updateTaskResponse{Task: currentTask}
+		if project.Workflow != nil {
+			s.handleReviewToDone(currentTask, project, project.Workflow.ReviewToDone, &wfResp)
+		}
+		if wfResp.WorkflowError != nil {
+			writeError(w, http.StatusConflict, *wfResp.WorkflowError)
+			return
+		}
+		handledReviewToDone = true
+	}
+
 	task, err := s.db.UpdateTask(id, input)
 	if err != nil {
 		writeDBError(w, err, "task")
@@ -193,7 +212,9 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 	// Check for workflow automation on status transitions
 	resp := updateTaskResponse{Task: task, WorktreeWarning: worktreeWarnings}
 	if input.Status != nil && *input.Status != currentTask.Status {
-		s.dispatchWorkflow(currentTask, task, &resp)
+		if !handledReviewToDone {
+			s.dispatchWorkflow(currentTask, task, &resp)
+		}
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -444,6 +465,15 @@ func (s *Server) handleReviewToDone(task *db.Task, project *db.Project, cfg *db.
 			resp.WorkflowError = &wfErr
 			slog.Error("workflow: merge branch failed", "task_id", task.ID, "error", err)
 			return
+		}
+		pushAfterMerge := cfg.PushAfterMerge == nil || *cfg.PushAfterMerge
+		if pushAfterMerge {
+			if _, err := runGit(project.Path, "push", "origin", baseBranch); err != nil {
+				wfErr := fmt.Sprintf("failed to push %s after merge: %v", baseBranch, err)
+				resp.WorkflowError = &wfErr
+				slog.Error("workflow: push base branch failed", "task_id", task.ID, "branch", baseBranch, "error", err)
+				return
+			}
 		}
 		// Delete branch if configured
 		deleteBranch := cfg.DeleteBranch == nil || *cfg.DeleteBranch

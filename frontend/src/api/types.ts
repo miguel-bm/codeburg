@@ -16,6 +16,7 @@ export interface ReviewToDoneConfig {
   mergeStrategy?: 'merge' | 'squash' | 'rebase';
   deleteBranch?: boolean;
   cleanupWorktree?: boolean;
+  pushAfterMerge?: boolean;
 }
 
 export interface ProjectWorkflow {

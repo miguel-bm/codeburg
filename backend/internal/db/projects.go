@@ -34,6 +34,7 @@ type ReviewToDoneConfig struct {
 	MergeStrategy   string `json:"mergeStrategy,omitempty"` // "merge"|"squash"|"rebase"
 	DeleteBranch    *bool  `json:"deleteBranch,omitempty"`
 	CleanupWorktree *bool  `json:"cleanupWorktree,omitempty"`
+	PushAfterMerge  *bool  `json:"pushAfterMerge,omitempty"`
 }
 
 // SecretFileConfig defines how a secret file should be materialized in task worktrees.

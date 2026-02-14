@@ -198,6 +198,9 @@ export function Dashboard({ panelOpen = false }: DashboardProps) {
         navigateToPanel(`/tasks/${data.id}`);
       }
     },
+    onError: (error) => {
+      setWarning(error instanceof Error ? error.message : 'Failed to update task');
+    },
   });
 
   const archiveTaskMutation = useMutation({

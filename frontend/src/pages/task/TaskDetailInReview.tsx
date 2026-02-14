@@ -11,6 +11,7 @@ import type { Task, Project, AgentSession, SessionProvider, SessionType, UpdateT
 import { OpenInEditorButton } from '../../components/common/OpenInEditorButton';
 import { useMobile } from '../../hooks/useMobile';
 import { Button } from '../../components/ui/Button';
+import { Modal } from '../../components/ui/Modal';
 
 interface Props {
   task: Task;
@@ -37,6 +38,7 @@ export function TaskDetailInReview({
   const isMobile = useMobile();
   const [diffFileCount, setDiffFileCount] = useState(0);
   const [warning, setWarning] = useState<string | null>(null);
+  const [showDoneConfirm, setShowDoneConfirm] = useState(false);
   const [sessionPanelOpen, setSessionPanelOpen] = useState(false);
   const showComposer = showStartComposer || sessions.length === 0;
   const composerDismissible = showStartComposer;
@@ -81,6 +83,9 @@ export function TaskDetailInReview({
         setWarning((prev) => prev ? `${prev}; ${data.workflowError}` : data.workflowError!);
       }
     },
+    onError: (error) => {
+      setWarning(error instanceof Error ? error.message : 'Failed to update task');
+    },
   });
 
   const createPR = useMutation({
@@ -100,6 +105,7 @@ export function TaskDetailInReview({
   };
 
   const handleMarkDone = () => {
+    setShowDoneConfirm(false);
     updateTask.mutate({ status: TASK_STATUS.DONE });
   };
 
@@ -136,8 +142,9 @@ export function TaskDetailInReview({
                 variant="primary"
                 size="sm"
                 icon={<Check size={12} />}
-                onClick={handleMarkDone}
+                onClick={() => setShowDoneConfirm(true)}
                 disabled={updateTask.isPending}
+                loading={updateTask.isPending}
               >
                 Done
               </Button>
@@ -238,6 +245,48 @@ export function TaskDetailInReview({
             </div>
           )}
         </div>
+
+        <Modal
+          open={showDoneConfirm}
+          onClose={() => setShowDoneConfirm(false)}
+          title="Move task to Done?"
+          size="sm"
+          footer={(
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowDoneConfirm(false)}
+                disabled={updateTask.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleMarkDone}
+                loading={updateTask.isPending}
+                disabled={updateTask.isPending}
+              >
+                Confirm
+              </Button>
+            </div>
+          )}
+        >
+          <div className="px-5 py-3 space-y-2">
+            <p className="text-sm text-dim">
+              This will run the <span className="font-medium text-[var(--color-text-primary)]">In Review to Done</span> workflow before completing the status change.
+            </p>
+            <p className="text-xs text-dim">
+              Action: <span className="font-mono">{project?.workflow?.reviewToDone?.action ?? 'nothing'}</span>
+            </p>
+            {updateTask.isError && (
+              <p className="text-xs text-[var(--color-error)]">
+                {updateTask.error instanceof Error ? updateTask.error.message : 'Failed to move task to done'}
+              </p>
+            )}
+          </div>
+        </Modal>
       </div>
     );
   }
@@ -264,8 +313,9 @@ export function TaskDetailInReview({
               variant="primary"
               size="sm"
               icon={<Check size={12} />}
-              onClick={handleMarkDone}
+              onClick={() => setShowDoneConfirm(true)}
               disabled={updateTask.isPending}
+              loading={updateTask.isPending}
             >
               Done
             </Button>
@@ -364,6 +414,48 @@ export function TaskDetailInReview({
           </button>
         )}
       </div>
+
+      <Modal
+        open={showDoneConfirm}
+        onClose={() => setShowDoneConfirm(false)}
+        title="Move task to Done?"
+        size="sm"
+        footer={(
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setShowDoneConfirm(false)}
+              disabled={updateTask.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleMarkDone}
+              loading={updateTask.isPending}
+              disabled={updateTask.isPending}
+            >
+              Confirm
+            </Button>
+          </div>
+        )}
+      >
+        <div className="px-5 py-3 space-y-2">
+          <p className="text-sm text-dim">
+            This will run the <span className="font-medium text-[var(--color-text-primary)]">In Review to Done</span> workflow before completing the status change.
+          </p>
+          <p className="text-xs text-dim">
+            Action: <span className="font-mono">{project?.workflow?.reviewToDone?.action ?? 'nothing'}</span>
+          </p>
+          {updateTask.isError && (
+            <p className="text-xs text-[var(--color-error)]">
+              {updateTask.error instanceof Error ? updateTask.error.message : 'Failed to move task to done'}
+            </p>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

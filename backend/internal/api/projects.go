@@ -45,6 +45,12 @@ type syncProjectDefaultBranchResponse struct {
 	Updated bool   `json:"updated"`
 }
 
+type pushProjectDefaultBranchResponse struct {
+	Branch  string `json:"branch"`
+	Remote  string `json:"remote"`
+	Updated bool   `json:"updated"`
+}
+
 var checkedOutAtPathPattern = regexp.MustCompile(`checked out at '([^']+)'`)
 
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
@@ -300,6 +306,50 @@ func (s *Server) handleSyncProjectDefaultBranch(w http.ResponseWriter, r *http.R
 		Branch:  branch,
 		Remote:  remoteRef,
 		Updated: beforeHash == "" || beforeHash != afterHash,
+	})
+}
+
+func (s *Server) handlePushProjectDefaultBranch(w http.ResponseWriter, r *http.Request) {
+	id := urlParam(r, "id")
+
+	project, err := s.db.GetProject(id)
+	if err != nil {
+		writeDBError(w, err, "project")
+		return
+	}
+
+	branch := strings.TrimSpace(project.DefaultBranch)
+	if branch == "" {
+		branch = "main"
+	}
+	remoteRef := "origin/" + branch
+
+	beforeHash := ""
+	if out, err := runGit(project.Path, "rev-parse", "--verify", remoteRef); err == nil {
+		beforeHash = strings.TrimSpace(out)
+	}
+
+	if _, err := runGit(project.Path, "rev-parse", "--verify", branch); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("local branch %q not found", branch))
+		return
+	}
+
+	if _, err := runGit(project.Path, "push", "origin", branch); err != nil {
+		writeError(w, http.StatusConflict, fmt.Sprintf("failed to push %s: %v", branch, err))
+		return
+	}
+
+	afterHash := ""
+	if out, err := runGit(project.Path, "rev-parse", "--verify", remoteRef); err == nil {
+		afterHash = strings.TrimSpace(out)
+	}
+
+	updated := beforeHash == "" || afterHash == "" || beforeHash != afterHash
+
+	writeJSON(w, http.StatusOK, pushProjectDefaultBranchResponse{
+		Branch:  branch,
+		Remote:  remoteRef,
+		Updated: updated,
 	})
 }
 

@@ -256,7 +256,7 @@ const P2R_OPTIONS: SelectOption<ProgressToReviewConfig['action']>[] = [
 
 const R2D_OPTIONS: SelectOption<ReviewToDoneConfig['action']>[] = [
   { value: 'nothing', label: 'Do nothing' },
-  { value: 'merge_branch', label: 'Merge branch', description: 'Merge the task branch directly into the base branch' },
+  { value: 'merge_branch', label: 'Merge branch', description: 'Merge the task branch directly into the base branch, with optional push' },
   { value: 'merge_pr', label: 'Merge PR', description: 'Merge the associated pull request' },
 ];
 
@@ -436,6 +436,15 @@ function WorkflowSection({ project }: { project: Project }) {
                 />
               </div>
               <div className="space-y-0">
+                {r2d.action === 'merge_branch' && (
+                  <FieldRow>
+                    <FieldLabel label="Push base branch after merge" />
+                    <Toggle
+                      checked={r2d.pushAfterMerge ?? true}
+                      onChange={(v) => updateReviewToDone({ pushAfterMerge: v })}
+                    />
+                  </FieldRow>
+                )}
                 <FieldRow>
                   <FieldLabel label="Delete branch after merge" />
                   <Toggle

@@ -32,6 +32,9 @@ export function TaskDetailInProgress({ task, project }: Props) {
         setWarning((prev) => prev ? `${prev}; ${data.workflowError}` : data.workflowError!);
       }
     },
+    onError: (error) => {
+      setWarning(error instanceof Error ? error.message : 'Failed to update task');
+    },
   });
 
   const doMoveToReview = () => {

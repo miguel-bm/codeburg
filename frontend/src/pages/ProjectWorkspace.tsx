@@ -1,11 +1,13 @@
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Funnel, GitBranch, Maximize2, Minimize2, RefreshCw, Settings, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, GitBranch, Maximize2, Minimize2, RefreshCw, Settings, Upload, X } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
 import { OpenInEditorButton } from '../components/common/OpenInEditorButton';
 import { Breadcrumb } from '../components/ui/Breadcrumb';
 import { Button } from '../components/ui/Button';
 import { IconButton } from '../components/ui/IconButton';
+import { Modal } from '../components/ui/Modal';
 import { WorkspaceProvider, Workspace } from '../components/workspace';
 import type { WorkspaceScope } from '../components/workspace';
 import { projectsApi } from '../api';
@@ -48,6 +50,8 @@ export function ProjectWorkspace() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const { isExpanded, toggleExpanded, navigateToPanel, closePanel } = usePanelNavigation();
+  const [showPushConfirm, setShowPushConfirm] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const { data: project, isLoading: projectLoading } = useQuery({
     queryKey: ['project', id],
@@ -57,8 +61,34 @@ export function ProjectWorkspace() {
 
   const syncDefaultBranchMutation = useMutation({
     mutationFn: () => projectsApi.syncDefaultBranch(id!),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['project', id] });
+      setFeedback({
+        type: 'success',
+        message: data.updated
+          ? `Updated local ${data.branch} from ${data.remote}.`
+          : `Local ${data.branch} is already up to date with ${data.remote}.`,
+      });
+    },
+    onError: (error) => {
+      setFeedback({ type: 'error', message: error instanceof Error ? error.message : 'Failed to update local branch' });
+    },
+  });
+
+  const pushDefaultBranchMutation = useMutation({
+    mutationFn: () => projectsApi.pushDefaultBranch(id!),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+      setShowPushConfirm(false);
+      setFeedback({
+        type: 'success',
+        message: data.updated
+          ? `Pushed ${data.branch} to ${data.remote}.`
+          : `${data.remote} was already up to date.`,
+      });
+    },
+    onError: (error) => {
+      setFeedback({ type: 'error', message: error instanceof Error ? error.message : 'Failed to push default branch' });
     },
   });
 
@@ -88,19 +118,23 @@ export function ProjectWorkspace() {
             size="xs"
             icon={<RefreshCw size={13} className={syncDefaultBranchMutation.isPending ? 'animate-spin' : ''} />}
             onClick={() => syncDefaultBranchMutation.mutate()}
-            disabled={syncDefaultBranchMutation.isPending}
-            title={`Fetch and fast-forward ${project.defaultBranch || 'main'} from remote`}
+            disabled={syncDefaultBranchMutation.isPending || pushDefaultBranchMutation.isPending}
+            title={`Fetch and fast-forward local ${project.defaultBranch || 'main'} from remote`}
           >
-            <span className="hidden sm:inline">{syncDefaultBranchMutation.isPending ? 'Syncing...' : `Sync ${project.defaultBranch || 'main'}`}</span>
+            <span className="hidden sm:inline">{syncDefaultBranchMutation.isPending ? 'Updating...' : `Update local ${project.defaultBranch || 'main'}`}</span>
           </Button>
           <Button
             variant="secondary"
             size="xs"
-            icon={<Funnel size={13} />}
-            onClick={() => navigateToPanel(`/?project=${project.id}`)}
-            title="Filter dashboard by this project"
+            icon={<Upload size={13} />}
+            onClick={() => {
+              pushDefaultBranchMutation.reset();
+              setShowPushConfirm(true);
+            }}
+            disabled={syncDefaultBranchMutation.isPending || pushDefaultBranchMutation.isPending}
+            title={`Push ${project.defaultBranch || 'main'} to origin`}
           >
-            <span className="hidden sm:inline">Filter</span>
+            <span className="hidden sm:inline">{pushDefaultBranchMutation.isPending ? 'Pushing...' : `Push ${project.defaultBranch || 'main'}`}</span>
           </Button>
           <Button
             variant="secondary"
@@ -123,7 +157,7 @@ export function ProjectWorkspace() {
         </div>
       </div>
     ) : null,
-    `project-workspace-${id ?? 'none'}-${project?.name ?? ''}-${syncDefaultBranchMutation.isPending}-${isExpanded}-${project?.defaultBranch ?? ''}-${remoteInfo?.url ?? ''}`,
+    `project-workspace-${id ?? 'none'}-${project?.name ?? ''}-${syncDefaultBranchMutation.isPending}-${pushDefaultBranchMutation.isPending}-${isExpanded}-${project?.defaultBranch ?? ''}-${remoteInfo?.url ?? ''}`,
   );
 
   if (projectLoading) {
@@ -146,7 +180,67 @@ export function ProjectWorkspace() {
   return (
     <WorkspaceProvider scope={scope}>
       <div className="flex flex-col flex-1 h-full min-h-0">
+        {feedback && (
+          <div className={`mx-3 mt-3 mb-2 flex items-center justify-between rounded-md border px-3 py-2 text-xs ${
+            feedback.type === 'success'
+              ? 'bg-[var(--color-success)]/10 border-[var(--color-success)]/30 text-[var(--color-success)]'
+              : 'bg-[var(--color-error)]/10 border-[var(--color-error)]/30 text-[var(--color-error)]'
+          }`}>
+            <span className="flex items-center gap-2">
+              {feedback.type === 'success' ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+              {feedback.message}
+            </span>
+            <button onClick={() => setFeedback(null)} className="ml-3 hover:text-[var(--color-text-primary)] transition-colors">
+              Dismiss
+            </button>
+          </div>
+        )}
         <Workspace />
+        <Modal
+          open={showPushConfirm}
+          onClose={() => {
+            if (pushDefaultBranchMutation.isPending) return;
+            pushDefaultBranchMutation.reset();
+            setShowPushConfirm(false);
+          }}
+          title={`Push ${project.defaultBranch || 'main'} to origin?`}
+          size="sm"
+          footer={(
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  pushDefaultBranchMutation.reset();
+                  setShowPushConfirm(false);
+                }}
+                disabled={pushDefaultBranchMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => pushDefaultBranchMutation.mutate()}
+                loading={pushDefaultBranchMutation.isPending}
+                disabled={pushDefaultBranchMutation.isPending}
+              >
+                Push
+              </Button>
+            </div>
+          )}
+        >
+          <div className="px-5 py-3 space-y-2">
+            <p className="text-sm text-dim">
+              This pushes <span className="font-mono text-[var(--color-text-primary)]">{project.defaultBranch || 'main'}</span> from your local repository to <span className="font-mono text-[var(--color-text-primary)]">origin/{project.defaultBranch || 'main'}</span>.
+            </p>
+            {pushDefaultBranchMutation.isError && (
+              <p className="text-xs text-[var(--color-error)]">
+                {pushDefaultBranchMutation.error instanceof Error ? pushDefaultBranchMutation.error.message : 'Failed to push branch'}
+              </p>
+            )}
+          </div>
+        </Modal>
       </div>
     </WorkspaceProvider>
   );
