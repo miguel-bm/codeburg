@@ -20,18 +20,20 @@ type Handlers struct {
 }
 
 type IncomingMessage struct {
-	ChatID      int64
-	UserID      int64
-	Username    string
-	FirstName   string
-	LastName    string
-	Text        string
-	IsCommand   bool
-	Command     string
-	CommandRaw  string
-	Args        string
-	VoiceFileID string
-	AudioFileID string
+	ChatID           int64
+	UserID           int64
+	Username         string
+	FirstName        string
+	LastName         string
+	Text             string
+	IsCommand        bool
+	Command          string
+	CommandRaw       string
+	Args             string
+	ReplyToMessageID int64
+	ReplyToText      string
+	VoiceFileID      string
+	AudioFileID      string
 }
 
 // Bot long-polls Telegram updates and delegates messages to configured handlers.
@@ -93,13 +95,15 @@ type update struct {
 }
 
 type message struct {
-	Chat       chat            `json:"chat"`
-	From       *user           `json:"from,omitempty"`
-	Text       string          `json:"text"`
-	Entities   []messageEntity `json:"entities,omitempty"`
-	WebAppData *messageWebApp  `json:"web_app_data,omitempty"`
-	Voice      *voice          `json:"voice,omitempty"`
-	Audio      *audio          `json:"audio,omitempty"`
+	MessageID      int64           `json:"message_id"`
+	Chat           chat            `json:"chat"`
+	From           *user           `json:"from,omitempty"`
+	Text           string          `json:"text"`
+	Entities       []messageEntity `json:"entities,omitempty"`
+	WebAppData     *messageWebApp  `json:"web_app_data,omitempty"`
+	ReplyToMessage *message        `json:"reply_to_message,omitempty"`
+	Voice          *voice          `json:"voice,omitempty"`
+	Audio          *audio          `json:"audio,omitempty"`
 }
 
 type user struct {
@@ -240,6 +244,10 @@ func parseIncomingMessage(m *message) IncomingMessage {
 	if m.Audio != nil {
 		out.AudioFileID = strings.TrimSpace(m.Audio.FileID)
 	}
+	if m.ReplyToMessage != nil {
+		out.ReplyToMessageID = m.ReplyToMessage.MessageID
+		out.ReplyToText = strings.TrimSpace(m.ReplyToMessage.Text)
+	}
 	if out.Text == "" || !strings.HasPrefix(out.Text, "/") {
 		return out
 	}
@@ -281,46 +289,70 @@ func (b *Bot) sendStartMessage(ctx context.Context, chatID int64) {
 }
 
 func (b *Bot) SendMessage(ctx context.Context, chatID int64, text string) error {
+	_, err := b.SendMessageWithOptions(ctx, chatID, text, SendMessageOptions{})
+	return err
+}
+
+type SendMessageOptions struct {
+	ParseMode string
+}
+
+func (b *Bot) SendMessageWithOptions(ctx context.Context, chatID int64, text string, opts SendMessageOptions) (int64, error) {
 	payload := map[string]any{
 		"chat_id": chatID,
 		"text":    text,
 	}
-	return b.sendJSON(ctx, "sendMessage", payload)
+	if strings.TrimSpace(opts.ParseMode) != "" {
+		payload["parse_mode"] = strings.TrimSpace(opts.ParseMode)
+	}
+	raw, err := b.sendJSON(ctx, "sendMessage", payload)
+	if err != nil {
+		return 0, err
+	}
+	var parsed struct {
+		Result struct {
+			MessageID int64 `json:"message_id"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return 0, err
+	}
+	return parsed.Result.MessageID, nil
 }
 
-func (b *Bot) sendJSON(ctx context.Context, method string, payload any) error {
+func (b *Bot) sendJSON(ctx context.Context, method string, payload any) ([]byte, error) {
 	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/%s", b.token, method)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
 		slog.Error("telegram marshal failed", "error", err)
-		return err
+		return nil, err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := b.client.Do(req)
 	if err != nil {
 		slog.Error("telegram send failed", "error", err)
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("telegram send failed: status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		return nil, fmt.Errorf("telegram send failed: status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 	var result struct {
 		OK          bool   `json:"ok"`
 		Description string `json:"description"`
 	}
 	if err := json.Unmarshal(respBody, &result); err == nil && !result.OK {
-		return fmt.Errorf("telegram send failed: %s", strings.TrimSpace(result.Description))
+		return nil, fmt.Errorf("telegram send failed: %s", strings.TrimSpace(result.Description))
 	}
-	return nil
+	return respBody, nil
 }
 
 func (b *Bot) DownloadFileByID(ctx context.Context, fileID string) ([]byte, error) {
