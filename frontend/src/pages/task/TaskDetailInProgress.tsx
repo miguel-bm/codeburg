@@ -7,6 +7,7 @@ import { tasksApi, invalidateTaskQueries, gitApi } from '../../api';
 import { TASK_STATUS } from '../../api';
 import type { Task, Project, UpdateTaskResponse } from '../../api';
 import { OpenInEditorButton } from '../../components/common/OpenInEditorButton';
+import { ActionToast } from '../../components/ui/ActionToast';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 
@@ -17,7 +18,7 @@ interface Props {
 
 export function TaskDetailInProgress({ task, project }: Props) {
   const queryClient = useQueryClient();
-  const [warning, setWarning] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ type: 'warning' | 'error'; message: string } | null>(null);
   const [dirtyConfirm, setDirtyConfirm] = useState<{ staged: number; unstaged: number; untracked: number } | null>(null);
 
   const updateTask = useMutation({
@@ -26,14 +27,17 @@ export function TaskDetailInProgress({ task, project }: Props) {
     onSuccess: (data: UpdateTaskResponse) => {
       invalidateTaskQueries(queryClient, data.id);
       if (data.worktreeWarning?.length) {
-        setWarning(data.worktreeWarning.join('; '));
+        setToast({ type: 'warning', message: data.worktreeWarning.join('; ') });
       }
       if (data.workflowError) {
-        setWarning((prev) => prev ? `${prev}; ${data.workflowError}` : data.workflowError!);
+        setToast((prev) => ({
+          type: 'warning',
+          message: prev ? `${prev.message}; ${data.workflowError}` : data.workflowError!,
+        }));
       }
     },
     onError: (error) => {
-      setWarning(error instanceof Error ? error.message : 'Failed to update task');
+      setToast({ type: 'error', message: error instanceof Error ? error.message : 'Failed to update task' });
     },
   });
 
@@ -85,14 +89,11 @@ export function TaskDetailInProgress({ task, project }: Props) {
           }
         />
 
-        {warning && (
-          <div className="flex items-center justify-between px-4 py-2 bg-[var(--color-warning,#b8860b)]/10 border-b border-[var(--color-warning,#b8860b)]/30 text-[var(--color-warning,#b8860b)] text-xs">
-            <span>{warning}</span>
-            <button onClick={() => setWarning(null)} className="ml-4 hover:text-[var(--color-text-primary)] transition-colors">
-              Dismiss
-            </button>
-          </div>
-        )}
+        <ActionToast
+          toast={toast}
+          title={toast?.type === 'error' ? 'Task Update Failed' : 'Task Update Warning'}
+          onDismiss={() => setToast(null)}
+        />
 
         <Modal
           open={!!dirtyConfirm}

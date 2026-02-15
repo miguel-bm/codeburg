@@ -167,7 +167,29 @@ func MergePR(workDir, prURL, strategy string, deleteBranch bool) error {
 	cmd.Dir = workDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("gh pr merge: %s: %w", strings.TrimSpace(string(output)), err)
+		trimmed := strings.TrimSpace(string(output))
+		if isAlreadyMergedPRFailure(trimmed) {
+			return nil
+		}
+		// If merge succeeded but local branch deletion failed because a worktree
+		// currently uses that branch, keep the workflow moving.
+		if deleteBranch && isWorktreeDeleteBranchFailure(trimmed) {
+			return nil
+		}
+		return fmt.Errorf("gh pr merge: %s: %w", trimmed, err)
 	}
 	return nil
+}
+
+func isWorktreeDeleteBranchFailure(output string) bool {
+	lower := strings.ToLower(output)
+	return strings.Contains(lower, "failed to delete local branch") &&
+		strings.Contains(lower, "cannot delete branch") &&
+		strings.Contains(lower, "used by worktree")
+}
+
+func isAlreadyMergedPRFailure(output string) bool {
+	lower := strings.ToLower(output)
+	return strings.Contains(lower, "pull request") &&
+		(strings.Contains(lower, "already merged") || strings.Contains(lower, "was merged"))
 }

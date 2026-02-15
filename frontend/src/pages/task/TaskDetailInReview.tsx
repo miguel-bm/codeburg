@@ -9,6 +9,7 @@ import { tasksApi, invalidateTaskQueries, gitApi } from '../../api';
 import { TASK_STATUS } from '../../api';
 import type { Task, Project, AgentSession, SessionProvider, SessionType, UpdateTaskResponse } from '../../api';
 import { OpenInEditorButton } from '../../components/common/OpenInEditorButton';
+import { ActionToast } from '../../components/ui/ActionToast';
 import { useMobile } from '../../hooks/useMobile';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
@@ -37,7 +38,7 @@ export function TaskDetailInReview({
   const queryClient = useQueryClient();
   const isMobile = useMobile();
   const [diffFileCount, setDiffFileCount] = useState(0);
-  const [warning, setWarning] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ type: 'warning' | 'error'; message: string } | null>(null);
   const [showDoneConfirm, setShowDoneConfirm] = useState(false);
   const [sessionPanelOpen, setSessionPanelOpen] = useState(false);
   const showComposer = showStartComposer || sessions.length === 0;
@@ -77,21 +78,24 @@ export function TaskDetailInReview({
     onSuccess: (data: UpdateTaskResponse) => {
       invalidateTaskQueries(queryClient, data.id);
       if (data.worktreeWarning?.length) {
-        setWarning(data.worktreeWarning.join('; '));
+        setToast({ type: 'warning', message: data.worktreeWarning.join('; ') });
       }
       if (data.workflowError) {
-        setWarning((prev) => prev ? `${prev}; ${data.workflowError}` : data.workflowError!);
+        setToast((prev) => ({
+          type: 'warning',
+          message: prev ? `${prev.message}; ${data.workflowError}` : data.workflowError!,
+        }));
       }
     },
     onError: (error) => {
-      setWarning(error instanceof Error ? error.message : 'Failed to update task');
+      setToast({ type: 'error', message: error instanceof Error ? error.message : 'Failed to update task' });
     },
   });
 
   const createPR = useMutation({
     mutationFn: () => tasksApi.createPR(task.id),
     onSuccess: () => invalidateTaskQueries(queryClient, task.id),
-    onError: (err: Error) => setWarning(err.message),
+    onError: (err: Error) => setToast({ type: 'error', message: err.message }),
   });
 
   const { data: gitStatus } = useQuery({
@@ -112,6 +116,14 @@ export function TaskDetailInReview({
   const handleCreatePR = () => {
     createPR.mutate();
   };
+
+  const feedbackToast = (
+    <ActionToast
+      toast={toast}
+      title={toast?.type === 'error' ? 'Task Update Failed' : 'Task Update Warning'}
+      onDismiss={() => setToast(null)}
+    />
+  );
 
   // Count active sessions (running or waiting_input)
   const activeSessions = sessions.filter(s => s.status === 'running' || s.status === 'waiting_input');
@@ -152,12 +164,7 @@ export function TaskDetailInReview({
           }
         />
 
-        {warning && (
-          <div className="flex items-center justify-between px-4 py-2 bg-[var(--color-warning,#b8860b)]/10 border-b border-[var(--color-warning,#b8860b)]/30 text-[var(--color-warning,#b8860b)] text-xs">
-            <span>{warning}</span>
-            <button onClick={() => setWarning(null)} className="ml-4 hover:text-[var(--color-text-primary)] transition-colors">Dismiss</button>
-          </div>
-        )}
+        {feedbackToast}
 
         <TaskGitMetaBar
           task={task}
@@ -323,12 +330,7 @@ export function TaskDetailInReview({
         }
       />
 
-      {warning && (
-        <div className="flex items-center justify-between px-4 py-2 bg-[var(--color-warning,#b8860b)]/10 border-b border-[var(--color-warning,#b8860b)]/30 text-[var(--color-warning,#b8860b)] text-xs">
-          <span>{warning}</span>
-          <button onClick={() => setWarning(null)} className="ml-4 hover:text-[var(--color-text-primary)] transition-colors">Dismiss</button>
-        </div>
-      )}
+      {feedbackToast}
 
       <TaskGitMetaBar
         task={task}

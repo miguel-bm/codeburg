@@ -1,6 +1,7 @@
 import { createPortal } from 'react-dom';
 import { HelpOverlay } from '../common/HelpOverlay';
 import { CreateProjectModal } from '../common/CreateProjectModal';
+import { ActionToast } from '../ui/ActionToast';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { TaskCard } from './TaskCard';
@@ -80,14 +81,11 @@ export function DashboardOverlays({
 
   return (
     <>
-      {warning && (
-        <div className="flex items-center justify-between px-4 py-2 bg-[var(--color-warning,#b8860b)]/10 border-b border-[var(--color-warning,#b8860b)]/30 text-[var(--color-warning,#b8860b)] text-xs">
-          <span>{warning}</span>
-          <Button variant="ghost" size="xs" onClick={onDismissWarning} className="ml-4">
-            Dismiss
-          </Button>
-        </div>
-      )}
+      <ActionToast
+        toast={warning ? { type: 'warning', message: warning } : null}
+        title="Task Update"
+        onDismiss={onDismissWarning}
+      />
 
       {isDragging && drag && (() => {
         const draggedTask = (tasks ?? []).find((task) => task.id === drag.taskId);

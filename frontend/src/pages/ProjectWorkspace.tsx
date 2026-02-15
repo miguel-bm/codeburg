@@ -2,14 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, GitBranch, Maximize2, Minimize2, RefreshCw, Settings, Upload, X } from 'lucide-react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AlertTriangle, GitBranch, Maximize2, Minimize2, RefreshCw, Settings, Upload, X } from 'lucide-react';
 import { useSetHeader } from '../components/layout/Header';
 import { OpenInEditorButton } from '../components/common/OpenInEditorButton';
 import { Breadcrumb } from '../components/ui/Breadcrumb';
 import { Button } from '../components/ui/Button';
 import { IconButton } from '../components/ui/IconButton';
 import { Modal } from '../components/ui/Modal';
+import { ActionToast } from '../components/ui/ActionToast';
 import { WorkspaceProvider, Workspace } from '../components/workspace';
 import type { WorkspaceScope } from '../components/workspace';
 import { projectsApi } from '../api';
@@ -122,12 +122,6 @@ export function ProjectWorkspace() {
     handleMouseLeave: handlePushLeave,
   } = useHoverTooltip();
 
-  useEffect(() => {
-    if (!feedback) return;
-    const t = setTimeout(() => setFeedback(null), 4200);
-    return () => clearTimeout(t);
-  }, [feedback]);
-
   useSetHeader(
     project ? (
       <div className="flex items-center justify-between w-full">
@@ -233,40 +227,11 @@ export function ProjectWorkspace() {
             lines={pushTooltipLines}
           />
         )}
-        <AnimatePresence>
-          {feedback && (
-            <motion.div
-              initial={{ opacity: 0, y: -10, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -10, scale: 0.98 }}
-              transition={{ duration: 0.18 }}
-              className={`pointer-events-auto absolute top-3 right-3 z-40 max-w-[460px] rounded-xl border backdrop-blur px-3 py-2.5 shadow-lg ${
-                feedback.type === 'success'
-                  ? 'bg-[var(--color-success)]/12 border-[var(--color-success)]/30 text-[var(--color-success)]'
-                  : 'bg-[var(--color-error)]/12 border-[var(--color-error)]/35 text-[var(--color-error)]'
-              }`}
-            >
-              <div className="flex items-start gap-2.5">
-                <div className="pt-0.5">
-                  {feedback.type === 'success' ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[11px] uppercase tracking-wide opacity-80 mb-0.5">
-                    {feedback.type === 'success' ? 'Git Updated' : 'Git Action Failed'}
-                  </div>
-                  <div className="text-xs leading-snug break-words text-[var(--color-text-primary)]">{feedback.message}</div>
-                </div>
-                <button
-                  onClick={() => setFeedback(null)}
-                  className="shrink-0 mt-0.5 rounded p-0.5 text-dim hover:text-[var(--color-text-primary)] hover:bg-[var(--color-card)] transition-colors"
-                  title="Dismiss"
-                >
-                  <X size={13} />
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <ActionToast
+          toast={feedback}
+          title={feedback?.type === 'success' ? 'Git Updated' : 'Git Action Failed'}
+          onDismiss={() => setFeedback(null)}
+        />
         <Modal
           open={showPushConfirm}
           onClose={() => {
