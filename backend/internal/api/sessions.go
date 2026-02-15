@@ -697,6 +697,7 @@ func (s *Server) awaitChatTurnResult(sessionID, source string, resultCh <-chan C
 		}
 		if changed {
 			s.broadcastSessionStatus(session.TaskID, sessionID, waitingStatus)
+			s.notifyTelegramSessionNeedsAttention(sessionID, session.TaskID, "chat turn interrupted")
 		}
 		return
 	}
@@ -728,6 +729,7 @@ func (s *Server) awaitChatTurnResult(sessionID, source string, resultCh <-chan C
 	}
 	if changed {
 		s.broadcastSessionStatus(session.TaskID, sessionID, waitingStatus)
+		s.notifyTelegramSessionNeedsAttention(sessionID, session.TaskID, "chat turn completed")
 	}
 }
 
