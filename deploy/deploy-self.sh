@@ -33,7 +33,7 @@ echo "    commit: ${SHORT_COMMIT}"
 echo "    target: ${TARGET_DIR}"
 echo "    log:    ${LOG_FILE}"
 
-nohup "$LOCAL_DEPLOY_SCRIPT" "$COMMIT" "$TARGET_DIR" >"$LOG_FILE" 2>&1 < /dev/null &
+nohup "$LOCAL_DEPLOY_SCRIPT" "$COMMIT" "$TARGET_DIR" "$SOURCE_DIR" >"$LOG_FILE" 2>&1 < /dev/null &
 PID=$!
 
 echo "==> Deploy launched in background (pid ${PID})"

@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Local deploy flow used by SSH deploy and self-deploy.
-# Usage: deploy-local.sh <commit-ish> [target-dir]
+# Usage: deploy-local.sh <commit-ish> [target-dir] [source-dir]
 set -euo pipefail
 
 REF="${1:-}"
 TARGET_DIR="${2:-/opt/codeburg}"
+SOURCE_DIR="${3:-}"
 
 if [[ -z "$REF" ]]; then
-    echo "Usage: $0 <commit-ish> [target-dir]"
+    echo "Usage: $0 <commit-ish> [target-dir] [source-dir]"
     exit 1
 fi
 
@@ -42,7 +43,15 @@ echo "==> Resolving deploy ref '${REF}'..."
 if ! COMMIT="$(git rev-parse "${REF}^{commit}" 2>/dev/null)"; then
     echo "==> Ref not found locally, fetching remotes..."
     git fetch --all --prune
-    COMMIT="$(git rev-parse "${REF}^{commit}")"
+    if ! COMMIT="$(git rev-parse "${REF}^{commit}" 2>/dev/null)"; then
+        if [[ -n "$SOURCE_DIR" ]] && git -C "$SOURCE_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+            echo "==> Ref still missing; fetching from source repo '${SOURCE_DIR}'..."
+            git fetch "$SOURCE_DIR"
+            COMMIT="$(git rev-parse "${REF}^{commit}")"
+        else
+            COMMIT="$(git rev-parse "${REF}^{commit}")"
+        fi
+    fi
 fi
 SHORT_COMMIT="$(git rev-parse --short "$COMMIT")"
 
