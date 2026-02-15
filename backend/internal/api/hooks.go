@@ -105,7 +105,13 @@ func (s *Server) handleSessionHook(w http.ResponseWriter, r *http.Request) {
 			transitionEvent = sessionlifecycle.EventStopHookWaiting
 		}
 	case "sessionend":
-		transitionEvent = sessionlifecycle.EventSessionEnded
+		if session.SessionType == "terminal" {
+			// For terminal sessions, keep the Codeburg session alive and wait for
+			// input. Runtime exit handling may hand off to an interactive shell.
+			transitionEvent = sessionlifecycle.EventNotificationWaiting
+		} else {
+			transitionEvent = sessionlifecycle.EventSessionEnded
+		}
 	case "agent_turn_complete":
 		// Codex notify: agent finished a turn, waiting for user
 		transitionEvent = sessionlifecycle.EventAgentTurnComplete

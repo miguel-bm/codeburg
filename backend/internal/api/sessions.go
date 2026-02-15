@@ -949,7 +949,99 @@ func (sm *SessionManager) cleanupZombieSessions(server *Server) (checked int, cl
 	return checked, cleaned
 }
 
+func (s *Server) tryStartTerminalFallback(taskID string, result ptyruntime.ExitResult) bool {
+	session := s.sessions.getOrRestore(result.SessionID, s.db)
+	if session == nil {
+		return false
+	}
+	if session.Provider != "claude" && session.Provider != "codex" {
+		return false
+	}
+	if !session.MarkFallbackStarted() {
+		return false
+	}
+
+	workDir := session.WorkDir
+	dbSession, err := s.db.GetSession(result.SessionID)
+	if err != nil {
+		session.ClearFallbackStarted()
+		return false
+	}
+	if dbSession.SessionType != "terminal" {
+		session.ClearFallbackStarted()
+		return false
+	}
+	if workDir == "" {
+		resolved, resolveErr := s.resolveSessionWorkDir(dbSession)
+		if resolveErr != nil {
+			slog.Warn("failed to resolve workdir for terminal fallback", "session_id", result.SessionID, "error", resolveErr)
+			session.ClearFallbackStarted()
+			return false
+		}
+		workDir = resolved
+		session.WorkDir = resolved
+	}
+
+	command, args := buildInteractiveShellCommand()
+	command, args = withShellFallback(command, args)
+	startErr := s.sessions.runtime.Start(result.SessionID, ptyruntime.StartOptions{
+		WorkDir: workDir,
+		Command: command,
+		Args:    args,
+		OnOutput: func(sessionID string, chunk []byte) {
+			if taskID != "" {
+				s.portSuggest.IngestOutput(taskID, sessionID, chunk)
+			}
+		},
+		OnExit: func(exitResult ptyruntime.ExitResult) {
+			s.handleRuntimeExit(taskID, exitResult)
+		},
+	})
+	if startErr != nil {
+		slog.Warn("failed to start terminal fallback runtime", "session_id", result.SessionID, "error", startErr)
+		session.ClearFallbackStarted()
+		return false
+	}
+
+	removeHookToken(result.SessionID)
+	removeNotifyScript(result.SessionID)
+	s.portSuggest.ForgetSession(result.SessionID)
+
+	resolvedTaskID, status, changed, err := s.applySessionTransitionWithFallback(
+		result.SessionID,
+		db.SessionStatusWaitingInput,
+		sessionlifecycle.EventNotificationWaiting,
+		"runtime_exit_fallback",
+	)
+	if err != nil && !errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, sessionlifecycle.ErrInvalidTransition) {
+			logInvalidSessionTransition(result.SessionID, db.SessionStatusWaitingInput, sessionlifecycle.EventNotificationWaiting, "runtime_exit_fallback", err)
+		} else {
+			slog.Warn("failed to update status for terminal fallback", "session_id", result.SessionID, "error", err)
+		}
+	} else {
+		session.SetStatus(status)
+		if resolvedTaskID != "" {
+			taskID = resolvedTaskID
+		}
+		if changed {
+			s.broadcastSessionStatus(taskID, result.SessionID, status)
+		}
+	}
+
+	slog.Info("session runtime fell back to interactive shell",
+		"session_id", result.SessionID,
+		"provider", session.Provider,
+		"workdir", workDir,
+	)
+	return true
+}
+
 func (s *Server) handleRuntimeExit(taskID string, result ptyruntime.ExitResult) {
+	if s.tryStartTerminalFallback(taskID, result) {
+		return
+	}
+
 	event := sessionlifecycle.EventRuntimeExitSuccess
 	fallbackStatus := db.SessionStatusCompleted
 	if result.ExitCode != 0 {

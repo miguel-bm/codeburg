@@ -1255,7 +1255,7 @@ func TestSessionHook_SessionEnd(t *testing.T) {
 		Status: &runningStatus,
 	})
 
-	// POST SessionEnd hook -> should set status to completed
+	// POST SessionEnd hook -> terminal sessions should wait for input
 	resp := env.post("/api/sessions/"+session.ID+"/hook", map[string]string{
 		"hook_event_name": "SessionEnd",
 	})
@@ -1268,8 +1268,8 @@ func TestSessionHook_SessionEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get session: %v", err)
 	}
-	if updated.Status != db.SessionStatusCompleted {
-		t.Errorf("expected status completed, got %q", updated.Status)
+	if updated.Status != db.SessionStatusWaitingInput {
+		t.Errorf("expected status waiting_input, got %q", updated.Status)
 	}
 }
 
