@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -117,6 +118,13 @@ Non-command messages are handled by the LLM assistant.`)
 }
 
 func (s *Server) handleTelegramMessage(ctx context.Context, msg telegram.IncomingMessage) (string, error) {
+	if msg.ReplyToMessageID != 0 {
+		sessionID := s.telegramLookupReplySession(msg.ChatID, msg.ReplyToMessageID)
+		if sessionID == "" {
+			return "I couldn't map this reply to a session. Use /reply <session-id> <message>.", nil
+		}
+		return s.telegramSendReplyToSession(ctx, sessionID, msg)
+	}
 	reply, err := s.telegramRunAssistant(ctx, msg)
 	if err != nil {
 		return "I could not process that right now. Check Telegram LLM settings and try again.", nil
@@ -1672,18 +1680,113 @@ func (s *Server) notifyTelegramSessionNeedsAttention(sessionID, taskID, reason s
 	}
 
 	title := ""
+	providerLabel := "Agent"
+	if session, err := s.db.GetSession(sessionID); err == nil {
+		providerLabel = telegramProviderLabel(session.Provider)
+	}
 	if taskID != "" {
 		if task, err := s.db.GetTask(taskID); err == nil {
 			title = task.Title
 		}
 	}
-	text := fmt.Sprintf("Session %s needs attention (%s).", shortID(sessionID), reason)
-	if taskID != "" {
-		text += fmt.Sprintf("\nTask: %s (%s)", shortID(taskID), title)
+
+	origin := ""
+	if cfg, err := s.auth.loadConfig(); err == nil {
+		origin = strings.TrimSpace(cfg.Auth.Origin)
 	}
-	text += fmt.Sprintf("\nReply with /reply %s <message>", sessionID)
+	taskLabel := html.EscapeString(strings.TrimSpace(title))
+	if taskLabel == "" {
+		taskLabel = shortID(taskID)
+	}
+	sessionLabel := html.EscapeString(providerLabel)
+	text := fmt.Sprintf("%s is waiting for a reply.", sessionLabel)
+	if origin != "" && taskID != "" {
+		sessionURL := strings.TrimSuffix(origin, "/") + "/tasks/" + taskID + "/session/" + sessionID
+		taskURL := strings.TrimSuffix(origin, "/") + "/tasks/" + taskID
+		text = fmt.Sprintf("<a href=\"%s\">%s</a> is waiting for a reply on task <a href=\"%s\">%s</a>.",
+			html.EscapeString(sessionURL), sessionLabel, html.EscapeString(taskURL), taskLabel)
+	} else if taskID != "" {
+		text = fmt.Sprintf("%s is waiting for a reply on task _%s_.", sessionLabel, taskLabel)
+	}
+	if strings.TrimSpace(reason) != "" {
+		text += fmt.Sprintf("\n\nReason: %s", html.EscapeString(reason))
+	}
+	text += fmt.Sprintf("\n\nReply to this message to answer, or use /reply %s <message>.", sessionID)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_ = bot.SendMessage(ctx, chatID, text)
+	messageID, err := bot.SendMessageWithOptions(ctx, chatID, text, telegram.SendMessageOptions{ParseMode: "HTML"})
+	if err == nil && messageID != 0 {
+		s.telegramStoreReplySession(chatID, messageID, sessionID)
+	}
+}
+
+func telegramProviderLabel(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "claude":
+		return "Claude"
+	case "codex":
+		return "Codex"
+	case "terminal":
+		return "Terminal"
+	default:
+		if provider == "" {
+			return "Agent"
+		}
+		return strings.ToUpper(provider[:1]) + provider[1:]
+	}
+}
+
+func telegramReplySessionMapKey(chatID, messageID int64) string {
+	return strconv.FormatInt(chatID, 10) + ":" + strconv.FormatInt(messageID, 10)
+}
+
+func (s *Server) telegramStoreReplySession(chatID, messageID int64, sessionID string) {
+	if chatID == 0 || messageID == 0 || strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	key := telegramReplySessionMapKey(chatID, messageID)
+	s.telegramReplyMapMu.Lock()
+	s.telegramReplyToSession[key] = strings.TrimSpace(sessionID)
+	s.telegramReplyMapMu.Unlock()
+}
+
+func (s *Server) telegramLookupReplySession(chatID, messageID int64) string {
+	if chatID == 0 || messageID == 0 {
+		return ""
+	}
+	key := telegramReplySessionMapKey(chatID, messageID)
+	s.telegramReplyMapMu.Lock()
+	sessionID := strings.TrimSpace(s.telegramReplyToSession[key])
+	s.telegramReplyMapMu.Unlock()
+	return sessionID
+}
+
+func (s *Server) telegramSendReplyToSession(ctx context.Context, sessionID string, msg telegram.IncomingMessage) (string, error) {
+	session, err := s.resolveSessionRef(sessionID)
+	if err != nil {
+		return "", err
+	}
+	content := strings.TrimSpace(msg.Text)
+	if content == "" {
+		apiKey, _ := s.telegramOpenAIAPIKey()
+		if strings.TrimSpace(apiKey) != "" {
+			content, _ = s.telegramResolvePrompt(ctx, msg, apiKey)
+			content = strings.TrimSpace(content)
+		}
+	}
+	if content == "" {
+		return "Reply content is empty.", nil
+	}
+
+	if session.SessionType == "chat" {
+		if err := s.startChatTurn(session.ID, content, "telegram_reply_inline"); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Sent message to %s session %s.", telegramProviderLabel(session.Provider), shortID(session.ID)), nil
+	}
+	if err := s.sessions.runtime.Write(session.ID, []byte(content+"\n")); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Sent message to terminal session %s.", shortID(session.ID)), nil
 }
