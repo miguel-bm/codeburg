@@ -16,6 +16,7 @@ type Session struct {
 	Status            db.SessionStatus
 	WorkDir           string
 	LastActivityAt    time.Time
+	FallbackStarted   bool
 	mu                sync.Mutex
 }
 
@@ -57,4 +58,30 @@ func (s *Session) GetLastActivity() time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.LastActivityAt
+}
+
+// MarkFallbackStarted marks that this session has already been handed off to a
+// fallback terminal once. Returns false if it was already marked.
+func (s *Session) MarkFallbackStarted() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.FallbackStarted {
+		return false
+	}
+	s.FallbackStarted = true
+	return true
+}
+
+// ClearFallbackStarted clears the fallback marker.
+func (s *Session) ClearFallbackStarted() {
+	s.mu.Lock()
+	s.FallbackStarted = false
+	s.mu.Unlock()
+}
+
+// FallbackWasStarted reports whether fallback handoff has been used.
+func (s *Session) FallbackWasStarted() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.FallbackStarted
 }

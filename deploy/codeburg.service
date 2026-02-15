@@ -14,6 +14,7 @@ RestartSec=5
 KillMode=process
 Environment=HOME=/home/codeburg
 Environment=TERM=xterm-256color
+Environment=PATH=/home/codeburg/.local/bin:/home/codeburg/go/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
 
 # Security hardening
 NoNewPrivileges=true

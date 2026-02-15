@@ -133,6 +133,14 @@ func buildChatTurnCommand(provider, prompt, model, providerSessionID string, aut
 	}
 }
 
+func buildInteractiveShellCommand() (string, []string) {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/bash"
+	}
+	return shell, []string{"-i"}
+}
+
 // validModelName matches model names safe to interpolate into shell commands.
 // Must start with a letter, then letters, digits, hyphens, dots, colons, or slashes.
 // e.g. "claude-sonnet-4-5-20250929", "gpt-5.2-codex", "o3", "anthropic/claude-3"
