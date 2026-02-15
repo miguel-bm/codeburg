@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,20 +19,16 @@ type Handlers struct {
 }
 
 type IncomingMessage struct {
-	ChatID           int64
-	UserID           int64
-	Username         string
-	FirstName        string
-	LastName         string
-	Text             string
-	IsCommand        bool
-	Command          string
-	CommandRaw       string
-	Args             string
-	ReplyToMessageID int64
-	ReplyToText      string
-	VoiceFileID      string
-	AudioFileID      string
+	ChatID     int64
+	UserID     int64
+	Username   string
+	FirstName  string
+	LastName   string
+	Text       string
+	IsCommand  bool
+	Command    string
+	CommandRaw string
+	Args       string
 }
 
 // Bot long-polls Telegram updates and delegates messages to configured handlers.
@@ -95,15 +90,11 @@ type update struct {
 }
 
 type message struct {
-	MessageID      int64           `json:"message_id"`
-	Chat           chat            `json:"chat"`
-	From           *user           `json:"from,omitempty"`
-	Text           string          `json:"text"`
-	Entities       []messageEntity `json:"entities,omitempty"`
-	WebAppData     *messageWebApp  `json:"web_app_data,omitempty"`
-	ReplyToMessage *message        `json:"reply_to_message,omitempty"`
-	Voice          *voice          `json:"voice,omitempty"`
-	Audio          *audio          `json:"audio,omitempty"`
+	Chat       chat            `json:"chat"`
+	From       *user           `json:"from,omitempty"`
+	Text       string          `json:"text"`
+	Entities   []messageEntity `json:"entities,omitempty"`
+	WebAppData *messageWebApp  `json:"web_app_data,omitempty"`
 }
 
 type user struct {
@@ -128,14 +119,6 @@ type chat struct {
 	ID int64 `json:"id"`
 }
 
-type voice struct {
-	FileID string `json:"file_id"`
-}
-
-type audio struct {
-	FileID string `json:"file_id"`
-}
-
 func (b *Bot) getUpdates(ctx context.Context, offset int) ([]update, error) {
 	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates?offset=%d&timeout=30&allowed_updates=[\"message\"]", b.token, offset)
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
@@ -155,15 +138,14 @@ func (b *Bot) getUpdates(ctx context.Context, offset int) ([]update, error) {
 	}
 
 	var result struct {
-		OK          bool     `json:"ok"`
-		Result      []update `json:"result"`
-		Description string   `json:"description"`
+		OK     bool     `json:"ok"`
+		Result []update `json:"result"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, err
 	}
 	if !result.OK {
-		return nil, fmt.Errorf("telegram API returned ok=false: %s", strings.TrimSpace(result.Description))
+		return nil, fmt.Errorf("telegram API returned ok=false")
 	}
 	return result.Result, nil
 }
@@ -177,7 +159,7 @@ func (b *Bot) handleUpdate(ctx context.Context, u update) {
 	}
 
 	msg := parseIncomingMessage(u.Message)
-	if msg.Text == "" && msg.VoiceFileID == "" && msg.AudioFileID == "" {
+	if msg.Text == "" {
 		return
 	}
 
@@ -212,12 +194,8 @@ func (b *Bot) handleUpdate(ctx context.Context, u update) {
 }
 
 func (b *Bot) isAuthorized(m *message) bool {
-	if b.allowedUserID == "" {
+	if b.allowedUserID == "" || m.From == nil {
 		return true
-	}
-	if m.From == nil {
-		slog.Warn("telegram unauthorized message ignored: missing from user")
-		return false
 	}
 	got := strconv.FormatInt(m.From.ID, 10)
 	if got != b.allowedUserID {
@@ -237,16 +215,6 @@ func parseIncomingMessage(m *message) IncomingMessage {
 		out.Username = m.From.Username
 		out.FirstName = m.From.FirstName
 		out.LastName = m.From.LastName
-	}
-	if m.Voice != nil {
-		out.VoiceFileID = strings.TrimSpace(m.Voice.FileID)
-	}
-	if m.Audio != nil {
-		out.AudioFileID = strings.TrimSpace(m.Audio.FileID)
-	}
-	if m.ReplyToMessage != nil {
-		out.ReplyToMessageID = m.ReplyToMessage.MessageID
-		out.ReplyToText = strings.TrimSpace(m.ReplyToMessage.Text)
 	}
 	if out.Text == "" || !strings.HasPrefix(out.Text, "/") {
 		return out
@@ -289,121 +257,33 @@ func (b *Bot) sendStartMessage(ctx context.Context, chatID int64) {
 }
 
 func (b *Bot) SendMessage(ctx context.Context, chatID int64, text string) error {
-	_, err := b.SendMessageWithOptions(ctx, chatID, text, SendMessageOptions{})
-	return err
-}
-
-type SendMessageOptions struct {
-	ParseMode string
-}
-
-func (b *Bot) SendMessageWithOptions(ctx context.Context, chatID int64, text string, opts SendMessageOptions) (int64, error) {
 	payload := map[string]any{
 		"chat_id": chatID,
 		"text":    text,
 	}
-	if strings.TrimSpace(opts.ParseMode) != "" {
-		payload["parse_mode"] = strings.TrimSpace(opts.ParseMode)
-	}
-	raw, err := b.sendJSON(ctx, "sendMessage", payload)
-	if err != nil {
-		return 0, err
-	}
-	var parsed struct {
-		Result struct {
-			MessageID int64 `json:"message_id"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return 0, err
-	}
-	return parsed.Result.MessageID, nil
+	return b.sendJSON(ctx, "sendMessage", payload)
 }
 
-func (b *Bot) sendJSON(ctx context.Context, method string, payload any) ([]byte, error) {
+func (b *Bot) sendJSON(ctx context.Context, method string, payload any) error {
 	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/%s", b.token, method)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
 		slog.Error("telegram marshal failed", "error", err)
-		return nil, err
+		return err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := b.client.Do(req)
 	if err != nil {
 		slog.Error("telegram send failed", "error", err)
-		return nil, err
+		return err
 	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("telegram send failed: status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
-	}
-	var result struct {
-		OK          bool   `json:"ok"`
-		Description string `json:"description"`
-	}
-	if err := json.Unmarshal(respBody, &result); err == nil && !result.OK {
-		return nil, fmt.Errorf("telegram send failed: %s", strings.TrimSpace(result.Description))
-	}
-	return respBody, nil
-}
-
-func (b *Bot) DownloadFileByID(ctx context.Context, fileID string) ([]byte, error) {
-	fileID = strings.TrimSpace(fileID)
-	if fileID == "" {
-		return nil, errors.New("file id is required")
-	}
-
-	getFileURL := fmt.Sprintf("https://api.telegram.org/bot%s/getFile?file_id=%s", b.token, fileID)
-	req, err := http.NewRequestWithContext(ctx, "GET", getFileURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := b.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("telegram getFile failed: status %d", resp.StatusCode)
-	}
-	var result struct {
-		OK          bool   `json:"ok"`
-		Description string `json:"description"`
-		Result      struct {
-			FilePath string `json:"file_path"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, err
-	}
-	if !result.OK {
-		return nil, fmt.Errorf("telegram getFile failed: %s", strings.TrimSpace(result.Description))
-	}
-	if strings.TrimSpace(result.Result.FilePath) == "" {
-		return nil, fmt.Errorf("telegram getFile failed: missing file_path")
-	}
-
-	fileURL := fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", b.token, strings.TrimSpace(result.Result.FilePath))
-	fileReq, err := http.NewRequestWithContext(ctx, "GET", fileURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	fileResp, err := b.client.Do(fileReq)
-	if err != nil {
-		return nil, err
-	}
-	defer fileResp.Body.Close()
-	if fileResp.StatusCode < 200 || fileResp.StatusCode >= 300 {
-		return nil, fmt.Errorf("telegram file download failed: status %d", fileResp.StatusCode)
-	}
-	return io.ReadAll(io.LimitReader(fileResp.Body, 10<<20))
+	resp.Body.Close()
+	return nil
 }

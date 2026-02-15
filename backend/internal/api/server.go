@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -58,33 +57,29 @@ func isAllowedOrigin(allowedOrigins []string, origin string) bool {
 }
 
 type Server struct {
-	db                     *db.DB
-	router                 chi.Router
-	bgCtx                  context.Context
-	bgCancel               context.CancelFunc
-	bgWG                   sync.WaitGroup
-	auth                   *AuthService
-	worktree               *worktree.Manager
-	wsHub                  *WSHub
-	sessions               *SessionManager
-	chat                   *ChatManager
-	tunnels                *tunnel.Manager
-	portSuggest            *portsuggest.Manager
-	gitclone               gitclone.Config
-	authLimiter            *loginRateLimiter
-	diffStatsCache         sync.Map // taskID -> diffStatsCacheEntry
-	webauthn               *webauthn.WebAuthn
-	challenges             *challengeStore
-	allowedOrigins         []string
-	telegramBotCancel      context.CancelFunc
-	telegramBot            *telegram.Bot
-	telegramBotMu          sync.Mutex
-	telegramReplyMapMu     sync.Mutex
-	telegramReplyToSession map[string]string // chatID:messageID -> sessionID
-	telegramMemoryMu       sync.Mutex
-	telegramMemory         map[int64][]telegramAssistantMemoryTurn
-	httpServer             *http.Server
-	httpServerMu           sync.Mutex
+	db                *db.DB
+	router            chi.Router
+	bgCtx             context.Context
+	bgCancel          context.CancelFunc
+	bgWG              sync.WaitGroup
+	auth              *AuthService
+	worktree          *worktree.Manager
+	wsHub             *WSHub
+	sessions          *SessionManager
+	chat              *ChatManager
+	tunnels           *tunnel.Manager
+	portSuggest       *portsuggest.Manager
+	gitclone          gitclone.Config
+	authLimiter       *loginRateLimiter
+	diffStatsCache    sync.Map // taskID -> diffStatsCacheEntry
+	webauthn          *webauthn.WebAuthn
+	challenges        *challengeStore
+	allowedOrigins    []string
+	telegramBotCancel context.CancelFunc
+	telegramBot       *telegram.Bot
+	telegramBotMu     sync.Mutex
+	httpServer        *http.Server
+	httpServerMu      sync.Mutex
 }
 
 func NewServer(database *db.DB) *Server {
@@ -94,22 +89,20 @@ func NewServer(database *db.DB) *Server {
 	authSvc := NewAuthService()
 
 	s := &Server{
-		db:                     database,
-		auth:                   authSvc,
-		bgCtx:                  bgCtx,
-		bgCancel:               bgCancel,
-		worktree:               worktree.NewManager(worktree.DefaultConfig()),
-		wsHub:                  wsHub,
-		sessions:               NewSessionManager(),
-		chat:                   NewChatManager(database),
-		tunnels:                tunnel.NewManager(),
-		portSuggest:            portsuggest.NewManager(nil),
-		gitclone:               gitclone.DefaultConfig(),
-		authLimiter:            newLoginRateLimiter(5, 1*time.Minute),
-		challenges:             newChallengeStore(),
-		allowedOrigins:         []string{"http://localhost:*"},
-		telegramReplyToSession: make(map[string]string),
-		telegramMemory:         make(map[int64][]telegramAssistantMemoryTurn),
+		db:             database,
+		auth:           authSvc,
+		bgCtx:          bgCtx,
+		bgCancel:       bgCancel,
+		worktree:       worktree.NewManager(worktree.DefaultConfig()),
+		wsHub:          wsHub,
+		sessions:       NewSessionManager(),
+		chat:           NewChatManager(database),
+		tunnels:        tunnel.NewManager(),
+		portSuggest:    portsuggest.NewManager(nil),
+		gitclone:       gitclone.DefaultConfig(),
+		authLimiter:    newLoginRateLimiter(5, 1*time.Minute),
+		challenges:     newChallengeStore(),
+		allowedOrigins: []string{"http://localhost:*"},
 	}
 
 	// Initialize WebAuthn + CORS if origin is configured
@@ -137,9 +130,6 @@ func NewServer(database *db.DB) *Server {
 			}
 		}
 	}
-
-	// Restore Telegram assistant memory from preferences (best effort).
-	s.telegramLoadAssistantMemory()
 
 	// Start Telegram bot if token preference is configured
 	s.startTelegramBot()
@@ -341,7 +331,6 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/telegram/bot/restart", s.handleRestartTelegramBot)
 
 		// Preferences
-		r.Get("/api/preferences/{key}/configured", s.handleGetPreferenceConfigured)
 		r.Get("/api/preferences/{key}", s.handleGetPreference)
 		r.Put("/api/preferences/{key}", s.handleSetPreference)
 		r.Delete("/api/preferences/{key}", s.handleDeletePreference)
@@ -509,15 +498,6 @@ func (s *Server) startTelegramBot() {
 	allowedUserID := ""
 	if pref, err := s.db.GetPreference("default", "telegram_user_id"); err == nil {
 		allowedUserID = unquotePreference(pref.Value)
-	}
-	allowedUserID = strings.TrimSpace(allowedUserID)
-	if allowedUserID == "" {
-		slog.Warn("telegram bot not started: telegram_user_id is not configured")
-		return
-	}
-	if _, err := strconv.ParseInt(allowedUserID, 10, 64); err != nil {
-		slog.Warn("telegram bot not started: telegram_user_id is invalid", "value", allowedUserID)
-		return
 	}
 
 	// Read origin from config
