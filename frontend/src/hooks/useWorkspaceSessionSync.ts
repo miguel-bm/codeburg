@@ -6,6 +6,23 @@ import type { WorkspaceTab } from '../stores/workspace';
 import { useWorkspace } from '../components/workspace/WorkspaceContext';
 import { useWorkspaceSessions } from './useWorkspaceSessions';
 import { useSharedWebSocket } from './useSharedWebSocket';
+import type { AgentSession } from '../api/sessions';
+
+function getNewestSessionId(sessions: AgentSession[]): string | undefined {
+  if (sessions.length === 0) return undefined;
+  return [...sessions]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]?.id;
+}
+
+export function resolveSessionSelection(
+  requestedSessionId: string | null,
+  sessions: AgentSession[],
+): string | undefined {
+  if (!requestedSessionId) return undefined;
+  const matched = sessions.find((session) => session.id === requestedSessionId);
+  if (matched) return matched.id;
+  return getNewestSessionId(sessions);
+}
 
 /**
  * Synchronizes API sessions, workspace tabs, and URL params.
@@ -86,8 +103,9 @@ export function useWorkspaceSessionSync() {
     // Defer URL session activation until we know the scope session list.
     if (isLoading) return;
 
-    if (sessions.some((session) => session.id === sessionId)) {
-      openSession(sessionId);
+    const resolvedSessionId = resolveSessionSelection(sessionId, sessions);
+    if (resolvedSessionId) {
+      openSession(resolvedSessionId);
     }
 
     // Clear the param to avoid re-triggering

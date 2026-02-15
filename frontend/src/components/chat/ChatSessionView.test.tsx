@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { ChatSessionView } from './ChatSessionView';
 import type { AgentSession } from '../../api/sessions';
 import type { ChatMessage } from '../../api/chat';
+import { useChatDraftStore } from '../../stores/chatDrafts';
 
 const useChatSessionMock = vi.fn();
 
@@ -29,9 +30,9 @@ vi.mock('./ToolCallCard', () => ({
   ToolCallCard: () => <div>tool</div>,
 }));
 
-function makeSession(status: AgentSession['status']): AgentSession {
+function makeSession(status: AgentSession['status'], id = 'session-1'): AgentSession {
   return {
-    id: 'session-1',
+    id,
     taskId: 'task-1',
     projectId: 'project-1',
     provider: 'claude',
@@ -59,6 +60,7 @@ function makeMessage(partial: Partial<ChatMessage> & Pick<ChatMessage, 'id' | 'k
 describe('ChatSessionView', () => {
   beforeEach(() => {
     useChatSessionMock.mockReset();
+    useChatDraftStore.getState().clearAll();
   });
 
   it('hides init metadata and duplicate result echoes', () => {
@@ -150,5 +152,49 @@ describe('ChatSessionView', () => {
     render(<ChatSessionView session={makeSession('waiting_input')} />);
 
     expect(screen.getAllByText('tool')).toHaveLength(1);
+  });
+
+  it('keeps drafts isolated per session when switching', () => {
+    useChatSessionMock.mockReturnValue({
+      messages: [],
+      connected: true,
+      connecting: false,
+      error: null,
+      sendMessage: vi.fn(),
+      interrupt: vi.fn(),
+    });
+
+    const { rerender } = render(<ChatSessionView session={makeSession('waiting_input', 'session-1')} />);
+
+    const input = screen.getByPlaceholderText('Describe your next step...') as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'draft for one', selectionStart: 13, selectionEnd: 13 } });
+    expect(input.value).toBe('draft for one');
+
+    rerender(<ChatSessionView session={makeSession('waiting_input', 'session-2')} />);
+    const secondInput = screen.getByPlaceholderText('Describe your next step...') as HTMLTextAreaElement;
+    expect(secondInput.value).toBe('');
+
+    fireEvent.change(secondInput, { target: { value: 'draft for two', selectionStart: 13, selectionEnd: 13 } });
+    rerender(<ChatSessionView session={makeSession('waiting_input', 'session-1')} />);
+    expect((screen.getByPlaceholderText('Describe your next step...') as HTMLTextAreaElement).value).toBe('draft for one');
+  });
+
+  it('restores an unsent draft after unmount and remount', () => {
+    useChatSessionMock.mockReturnValue({
+      messages: [],
+      connected: true,
+      connecting: false,
+      error: null,
+      sendMessage: vi.fn(),
+      interrupt: vi.fn(),
+    });
+
+    const { unmount } = render(<ChatSessionView session={makeSession('waiting_input', 'session-1')} />);
+    const input = screen.getByPlaceholderText('Describe your next step...') as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'persist me', selectionStart: 10, selectionEnd: 10 } });
+    unmount();
+
+    render(<ChatSessionView session={makeSession('waiting_input', 'session-1')} />);
+    expect((screen.getByPlaceholderText('Describe your next step...') as HTMLTextAreaElement).value).toBe('persist me');
   });
 });

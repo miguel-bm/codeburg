@@ -234,6 +234,7 @@ export function TaskDetailInReview({
                   />
                 ) : activeSession ? (
                   <SessionView
+                    key={activeSession.id}
                     session={activeSession}
                     onResume={activeSession.sessionType === 'chat' && activeSession.status === 'completed'
                       ? async () => {
@@ -388,6 +389,7 @@ export function TaskDetailInReview({
                   />
                 ) : activeSession ? (
                   <SessionView
+                    key={activeSession.id}
                     session={activeSession}
                     onResume={activeSession.sessionType === 'chat' && activeSession.status === 'completed'
                       ? async () => {

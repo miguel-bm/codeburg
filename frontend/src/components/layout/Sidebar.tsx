@@ -66,19 +66,30 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   const { data: sidebar, isLoading } = useSidebarData();
 
   const activeSessionSidebarEntryId = useMemo(() => {
-    if (!activeTaskPageId || !activeWorkspaceSessionTabId || !sidebar?.projects?.length) return undefined;
-    for (const project of sidebar.projects) {
-      const task = project.tasks.find((candidate) => candidate.id === activeTaskPageId);
-      if (!task) continue;
-      const session = task.sessions.find((candidate) => candidate.id === activeWorkspaceSessionTabId);
-      if (!session) return undefined;
-      if (session.provider !== 'claude' && session.provider !== 'codex') return undefined;
-      return session.id;
-    }
-    return undefined;
-  }, [activeTaskPageId, activeWorkspaceSessionTabId, sidebar?.projects]);
+    if (!activeWorkspaceSessionTabId || !sidebar?.projects?.length) return undefined;
 
-  const activeTaskSidebarEntryId = activeSessionSidebarEntryId ? undefined : activeTaskPageId;
+    if (activeTaskPageId) {
+      for (const project of sidebar.projects) {
+        const task = project.tasks.find((candidate) => candidate.id === activeTaskPageId);
+        if (!task) continue;
+        const session = task.sessions.find((candidate) => candidate.id === activeWorkspaceSessionTabId);
+        if (!session) return undefined;
+        return session.id;
+      }
+      return undefined;
+    }
+
+    if (activeProjectPageId) {
+      const project = sidebar.projects.find((candidate) => candidate.id === activeProjectPageId);
+      if (!project) return undefined;
+      const session = project.sessions.find((candidate) => candidate.id === activeWorkspaceSessionTabId);
+      return session?.id;
+    }
+
+    return undefined;
+  }, [activeProjectPageId, activeTaskPageId, activeWorkspaceSessionTabId, sidebar?.projects]);
+
+  const activeTaskSidebarEntryId = activeTaskPageId && activeSessionSidebarEntryId ? undefined : activeTaskPageId;
 
   const visibleProjects = useMemo(
     () => (sidebar?.projects ?? []).filter((p) => !p.hidden),

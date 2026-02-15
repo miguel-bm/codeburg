@@ -4,6 +4,12 @@ import { useLocation, useNavigate } from 'react-router-dom';
 /** Search params that belong to the dashboard and should survive panel navigation */
 const DASHBOARD_PARAMS = new Set(['view', 'project', 'status', 'priority', 'type', 'label']);
 
+function normalizeSearch(search: string): string {
+  const normalized = [...new URLSearchParams(search).entries()]
+    .sort(([a], [b]) => a.localeCompare(b));
+  return new URLSearchParams(normalized).toString();
+}
+
 export function usePanelNavigation() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -46,13 +52,22 @@ export function usePanelNavigation() {
     const sameElement = targetPath === location.pathname;
 
     if (sameElement) {
-      // Same element — if not expanded, expand (with current search params preserved);
-      // if already expanded, no-op
-      if (!isExpanded) {
-        const params = new URLSearchParams(location.search);
+      // Same element — apply target sub-selection params explicitly.
+      // Start from dashboard params only to avoid carrying stale sub-selection state.
+      const params = new URLSearchParams();
+      for (const [key, value] of new URLSearchParams(location.search)) {
+        if (DASHBOARD_PARAMS.has(key)) params.set(key, value);
+      }
+      for (const [key, value] of new URLSearchParams(targetSearch)) {
+        params.set(key, value);
+      }
+      if (isExpanded) {
         params.set('expanded', '1');
-        const qs = params.toString();
-        navigate(location.pathname + (qs ? `?${qs}` : ''), { replace: true });
+      }
+      const qs = params.toString();
+      const nextSearch = qs ? `?${qs}` : '';
+      if (normalizeSearch(nextSearch) !== normalizeSearch(location.search)) {
+        navigate(targetPath + nextSearch, { replace: options?.replace ?? true });
       }
     } else {
       // Different element — carry over dashboard params, then apply target params

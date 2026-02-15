@@ -8,6 +8,7 @@ import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { ToolCallCard } from './ToolCallCard';
 import { useMobile } from '../../hooks/useMobile';
 import { useVirtualKeyboard } from '../../hooks/useVirtualKeyboard';
+import { useChatDraftStore } from '../../stores/chatDrafts';
 import { applySuggestionToText, findActiveToken, fuzzyScore, type InputSelection } from './chatAutocomplete';
 
 interface ChatSessionViewProps {
@@ -238,7 +239,6 @@ function PendingAssistantRow({ providerLabel }: { providerLabel: string }) {
 export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
   const isMobile = useMobile();
   const { keyboardVisible } = useVirtualKeyboard();
-  const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [resuming, setResuming] = useState(false);
   const [selection, setSelection] = useState<InputSelection>({ start: 0, end: 0 });
@@ -253,6 +253,9 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const suggestionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const autoStickRef = useRef(true);
+  const input = useChatDraftStore((state) => state.drafts[session.id] ?? '');
+  const setDraft = useChatDraftStore((state) => state.setDraft);
+  const clearDraft = useChatDraftStore((state) => state.clearDraft);
 
   const {
     messages,
@@ -357,6 +360,9 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
   }, [dismissedTokenKey, suggestions, tokenKey]);
 
   useEffect(() => {
+    const draft = useChatDraftStore.getState().drafts[session.id] ?? '';
+    const cursor = draft.length;
+    setSelection({ start: cursor, end: cursor });
     setFileIndex(null);
     setFilesLoading(false);
     setDismissedTokenKey(null);
@@ -461,7 +467,7 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
   const applyComposerSuggestion = (suggestion: ComposerSuggestion) => {
     if (suggestion.disabled) return;
     const next = applySuggestionToText(input, selection, suggestion.value, ['/', '@'], suggestion.addSpace);
-    setInput(next.text);
+    setDraft(session.id, next.text);
     setDismissedTokenKey(null);
 
     requestAnimationFrame(() => {
@@ -483,7 +489,7 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
     const nextText = `${input.slice(0, start)}${insertValue}${input.slice(end)}`;
     const cursor = start + insertValue.length;
 
-    setInput(nextText);
+    setDraft(session.id, nextText);
     setDismissedTokenKey(null);
     setSelection({ start: cursor, end: cursor });
 
@@ -500,12 +506,13 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
   };
 
   const submit = async () => {
+    const sessionId = session.id;
     const content = input.trim();
     if (!content || sending || !canSend(session.status)) return;
     setSending(true);
     try {
       await sendMessage(content);
-      setInput('');
+      clearDraft(sessionId);
       setSelection({ start: 0, end: 0 });
       setDismissedTokenKey(null);
       autoStickRef.current = true;
@@ -639,7 +646,7 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
               ref={textareaRef}
               value={input}
               onChange={(e) => {
-                setInput(e.target.value);
+                setDraft(session.id, e.target.value);
                 setSelection({ start: e.target.selectionStart, end: e.target.selectionEnd });
                 setDismissedTokenKey(null);
               }}
