@@ -58,31 +58,33 @@ func isAllowedOrigin(allowedOrigins []string, origin string) bool {
 }
 
 type Server struct {
-	db                *db.DB
-	router            chi.Router
-	bgCtx             context.Context
-	bgCancel          context.CancelFunc
-	bgWG              sync.WaitGroup
-	auth              *AuthService
-	worktree          *worktree.Manager
-	wsHub             *WSHub
-	sessions          *SessionManager
-	chat              *ChatManager
-	tunnels           *tunnel.Manager
-	portSuggest       *portsuggest.Manager
-	gitclone          gitclone.Config
-	authLimiter       *loginRateLimiter
-	diffStatsCache    sync.Map // taskID -> diffStatsCacheEntry
-	webauthn          *webauthn.WebAuthn
-	challenges        *challengeStore
-	allowedOrigins    []string
-	telegramBotCancel context.CancelFunc
-	telegramBot       *telegram.Bot
-	telegramBotMu     sync.Mutex
-	telegramMemoryMu  sync.Mutex
-	telegramMemory    map[int64][]telegramAssistantMemoryTurn
-	httpServer        *http.Server
-	httpServerMu      sync.Mutex
+	db                     *db.DB
+	router                 chi.Router
+	bgCtx                  context.Context
+	bgCancel               context.CancelFunc
+	bgWG                   sync.WaitGroup
+	auth                   *AuthService
+	worktree               *worktree.Manager
+	wsHub                  *WSHub
+	sessions               *SessionManager
+	chat                   *ChatManager
+	tunnels                *tunnel.Manager
+	portSuggest            *portsuggest.Manager
+	gitclone               gitclone.Config
+	authLimiter            *loginRateLimiter
+	diffStatsCache         sync.Map // taskID -> diffStatsCacheEntry
+	webauthn               *webauthn.WebAuthn
+	challenges             *challengeStore
+	allowedOrigins         []string
+	telegramBotCancel      context.CancelFunc
+	telegramBot            *telegram.Bot
+	telegramBotMu          sync.Mutex
+	telegramReplyMapMu     sync.Mutex
+	telegramReplyToSession map[string]string // chatID:messageID -> sessionID
+	telegramMemoryMu       sync.Mutex
+	telegramMemory         map[int64][]telegramAssistantMemoryTurn
+	httpServer             *http.Server
+	httpServerMu           sync.Mutex
 }
 
 func NewServer(database *db.DB) *Server {
@@ -92,21 +94,22 @@ func NewServer(database *db.DB) *Server {
 	authSvc := NewAuthService()
 
 	s := &Server{
-		db:             database,
-		auth:           authSvc,
-		bgCtx:          bgCtx,
-		bgCancel:       bgCancel,
-		worktree:       worktree.NewManager(worktree.DefaultConfig()),
-		wsHub:          wsHub,
-		sessions:       NewSessionManager(),
-		chat:           NewChatManager(database),
-		tunnels:        tunnel.NewManager(),
-		portSuggest:    portsuggest.NewManager(nil),
-		gitclone:       gitclone.DefaultConfig(),
-		authLimiter:    newLoginRateLimiter(5, 1*time.Minute),
-		challenges:     newChallengeStore(),
-		allowedOrigins: []string{"http://localhost:*"},
-		telegramMemory: make(map[int64][]telegramAssistantMemoryTurn),
+		db:                     database,
+		auth:                   authSvc,
+		bgCtx:                  bgCtx,
+		bgCancel:               bgCancel,
+		worktree:               worktree.NewManager(worktree.DefaultConfig()),
+		wsHub:                  wsHub,
+		sessions:               NewSessionManager(),
+		chat:                   NewChatManager(database),
+		tunnels:                tunnel.NewManager(),
+		portSuggest:            portsuggest.NewManager(nil),
+		gitclone:               gitclone.DefaultConfig(),
+		authLimiter:            newLoginRateLimiter(5, 1*time.Minute),
+		challenges:             newChallengeStore(),
+		allowedOrigins:         []string{"http://localhost:*"},
+		telegramReplyToSession: make(map[string]string),
+		telegramMemory:         make(map[int64][]telegramAssistantMemoryTurn),
 	}
 
 	// Initialize WebAuthn + CORS if origin is configured

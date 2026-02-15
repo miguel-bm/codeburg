@@ -276,3 +276,50 @@ func TestTelegramAssistantMemoryPersistAndLoad(t *testing.T) {
 		t.Fatalf("unexpected restored turn: %#v", got[0])
 	}
 }
+
+func TestTelegramReplyToNotificationRoutesToSession(t *testing.T) {
+	env := setupTestEnv(t)
+
+	repoPath := createTestGitRepoWithMain(t)
+	defaultBranch := "main"
+	project, err := env.server.db.CreateProject(db.CreateProjectInput{
+		Name:          "Reply Route",
+		Path:          repoPath,
+		DefaultBranch: &defaultBranch,
+	})
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	task, err := env.server.db.CreateTask(db.CreateTaskInput{
+		ProjectID: project.ID,
+		Title:     "reply route task",
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	worktree := repoPath
+	if _, err := env.server.db.UpdateTask(task.ID, db.UpdateTaskInput{WorktreePath: &worktree}); err != nil {
+		t.Fatalf("set worktree: %v", err)
+	}
+	session, err := env.server.startSessionInternal(startSessionParams{
+		ProjectID: project.ID,
+		TaskID:    task.ID,
+		WorkDir:   repoPath,
+	}, StartSessionRequest{Provider: "terminal"})
+	if err != nil {
+		t.Fatalf("start terminal session: %v", err)
+	}
+
+	env.server.telegramStoreReplySession(55, 777, session.ID)
+	out, err := env.server.handleTelegramMessage(t.Context(), telegram.IncomingMessage{
+		ChatID:           55,
+		ReplyToMessageID: 777,
+		Text:             "continue",
+	})
+	if err != nil {
+		t.Fatalf("handle telegram message: %v", err)
+	}
+	if !strings.Contains(out, "Sent message to terminal session") {
+		t.Fatalf("unexpected reply route output: %s", out)
+	}
+}

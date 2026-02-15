@@ -59,18 +59,19 @@ func setupTestEnv(t *testing.T) *testEnv {
 
 	// Create server
 	s := &Server{
-		db:             database,
-		auth:           auth,
-		worktree:       worktree.NewManager(worktree.DefaultConfig()),
-		wsHub:          wsHub,
-		sessions:       NewSessionManager(),
-		chat:           NewChatManager(database),
-		tunnels:        tunnel.NewManager(),
-		portSuggest:    portsuggest.NewManager(nil),
-		gitclone:       gitclone.Config{BaseDir: filepath.Join(tmpDir, "repos")},
-		authLimiter:    newLoginRateLimiter(5, 1*time.Minute),
-		allowedOrigins: []string{"http://localhost:*"},
-		telegramMemory: make(map[int64][]telegramAssistantMemoryTurn),
+		db:                     database,
+		auth:                   auth,
+		worktree:               worktree.NewManager(worktree.DefaultConfig()),
+		wsHub:                  wsHub,
+		sessions:               NewSessionManager(),
+		chat:                   NewChatManager(database),
+		tunnels:                tunnel.NewManager(),
+		portSuggest:            portsuggest.NewManager(nil),
+		gitclone:               gitclone.Config{BaseDir: filepath.Join(tmpDir, "repos")},
+		authLimiter:            newLoginRateLimiter(5, 1*time.Minute),
+		allowedOrigins:         []string{"http://localhost:*"},
+		telegramReplyToSession: make(map[string]string),
+		telegramMemory:         make(map[int64][]telegramAssistantMemoryTurn),
 	}
 	s.setupRoutes()
 
