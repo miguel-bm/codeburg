@@ -8,6 +8,9 @@ import { SectionBody, SectionCard, SectionHeader } from '../../../components/ui/
 export function TelegramSection() {
   const [botToken, setBotToken] = useState('');
   const [telegramId, setTelegramId] = useState('');
+  const [llmApiKey, setLlmApiKey] = useState('');
+  const [llmBaseURL, setLlmBaseURL] = useState('');
+  const [llmModel, setLlmModel] = useState('');
   const [showSetup, setShowSetup] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
@@ -30,6 +33,33 @@ export function TelegramSection() {
       .catch(() => {
         // Not set yet.
       });
+
+    preferencesApi
+      .get<string>('telegram_llm_api_key')
+      .then((val) => {
+        if (val) setLlmApiKey(String(val));
+      })
+      .catch(() => {
+        // Not set yet.
+      });
+
+    preferencesApi
+      .get<string>('telegram_llm_base_url')
+      .then((val) => {
+        if (val) setLlmBaseURL(String(val));
+      })
+      .catch(() => {
+        // Not set yet.
+      });
+
+    preferencesApi
+      .get<string>('telegram_llm_model')
+      .then((val) => {
+        if (val) setLlmModel(String(val));
+      })
+      .catch(() => {
+        // Not set yet.
+      });
   }, []);
 
   const saveMutation = useMutation({
@@ -44,6 +74,24 @@ export function TelegramSection() {
         await preferencesApi.set('telegram_user_id', telegramId.trim());
       } else {
         await preferencesApi.delete('telegram_user_id').catch(() => {});
+      }
+
+      if (llmApiKey.trim()) {
+        await preferencesApi.set('telegram_llm_api_key', llmApiKey.trim());
+      } else {
+        await preferencesApi.delete('telegram_llm_api_key').catch(() => {});
+      }
+
+      if (llmBaseURL.trim()) {
+        await preferencesApi.set('telegram_llm_base_url', llmBaseURL.trim());
+      } else {
+        await preferencesApi.delete('telegram_llm_base_url').catch(() => {});
+      }
+
+      if (llmModel.trim()) {
+        await preferencesApi.set('telegram_llm_model', llmModel.trim());
+      } else {
+        await preferencesApi.delete('telegram_llm_model').catch(() => {});
       }
 
       await authApi.restartTelegramBot();
@@ -141,6 +189,48 @@ export function TelegramSection() {
               placeholder="123456789"
             />
             <p className="text-xs text-dim mt-1.5">Only this user will be able to log in via Telegram</p>
+          </div>
+
+          <div className="h-px bg-[var(--color-border)] -mx-5" />
+
+          <div>
+            <label className="block text-sm text-dim mb-1.5">LLM API Key</label>
+            <input
+              type="password"
+              value={llmApiKey}
+              onChange={(e) => setLlmApiKey(e.target.value)}
+              className={inputClass}
+              placeholder="sk-..."
+              autoComplete="off"
+            />
+            <p className="text-xs text-dim mt-1.5">
+              Used for non-command Telegram messages (OpenAI-compatible API).
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm text-dim mb-1.5">LLM Base URL</label>
+            <input
+              type="text"
+              value={llmBaseURL}
+              onChange={(e) => setLlmBaseURL(e.target.value)}
+              className={inputClass}
+              placeholder="https://api.openai.com/v1"
+              autoComplete="off"
+            />
+            <p className="text-xs text-dim mt-1.5">Use OpenRouter endpoint for OpenRouter keys.</p>
+          </div>
+
+          <div>
+            <label className="block text-sm text-dim mb-1.5">LLM Model</label>
+            <input
+              type="text"
+              value={llmModel}
+              onChange={(e) => setLlmModel(e.target.value)}
+              className={inputClass}
+              placeholder="gpt-4.1-mini"
+              autoComplete="off"
+            />
           </div>
 
           <Button
