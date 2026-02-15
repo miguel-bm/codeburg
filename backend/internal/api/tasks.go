@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -426,6 +427,10 @@ func (s *Server) handleReviewToDone(task *db.Task, project *db.Project, cfg *db.
 		return
 	}
 
+	deleteBranch := cfg.DeleteBranch == nil || *cfg.DeleteBranch
+	cleanupWorktree := cfg.CleanupWorktree == nil || *cfg.CleanupWorktree
+	branchToDelete := ptrToString(task.Branch)
+
 	switch cfg.Action {
 	case "merge_pr":
 		prURL := ptrToString(task.PRURL)
@@ -443,8 +448,8 @@ func (s *Server) handleReviewToDone(task *db.Task, project *db.Project, cfg *db.
 		if strategy == "" {
 			strategy = "squash"
 		}
-		deleteBranch := cfg.DeleteBranch == nil || *cfg.DeleteBranch
-		if err := github.MergePR(project.Path, prURL, strategy, deleteBranch); err != nil {
+		// Merge first, then clean up worktree, then delete branch explicitly.
+		if err := github.MergePR(project.Path, prURL, strategy, false); err != nil {
 			wfErr := fmt.Sprintf("failed to merge PR: %v", err)
 			resp.WorkflowError = &wfErr
 			slog.Error("workflow: merge PR failed", "task_id", task.ID, "error", err)
@@ -475,13 +480,6 @@ func (s *Server) handleReviewToDone(task *db.Task, project *db.Project, cfg *db.
 				return
 			}
 		}
-		// Delete branch if configured
-		deleteBranch := cfg.DeleteBranch == nil || *cfg.DeleteBranch
-		if deleteBranch {
-			delCmd := exec.Command("git", "branch", "-d", branch)
-			delCmd.Dir = project.Path
-			delCmd.Run() // best-effort
-		}
 		slog.Info("workflow: branch merged directly", "task_id", task.ID, "branch", branch)
 
 	default:
@@ -489,12 +487,11 @@ func (s *Server) handleReviewToDone(task *db.Task, project *db.Project, cfg *db.
 	}
 
 	// Cleanup worktree if configured
-	cleanupWorktree := cfg.CleanupWorktree == nil || *cfg.CleanupWorktree
 	if cleanupWorktree && task.WorktreePath != nil && *task.WorktreePath != "" {
 		err := s.worktree.Delete(worktree.DeleteOptions{
 			ProjectPath:    project.Path,
 			WorktreePath:   *task.WorktreePath,
-			DeleteBranch:   false, // branch already handled above
+			DeleteBranch:   false,
 			TeardownScript: ptrToString(project.TeardownScript),
 		})
 		if err != nil {
@@ -506,6 +503,51 @@ func (s *Server) handleReviewToDone(task *db.Task, project *db.Project, cfg *db.
 			slog.Info("workflow: worktree cleaned up", "task_id", task.ID)
 		}
 	}
+
+	if deleteBranch {
+		if branchToDelete == "" {
+			slog.Warn("workflow: skipping branch deletion (branch missing)", "task_id", task.ID)
+			return
+		}
+		if err := deleteMergedBranch(project.Path, branchToDelete); err != nil {
+			slog.Warn("workflow: post-merge branch cleanup failed", "task_id", task.ID, "branch", branchToDelete, "error", err)
+			return
+		}
+		slog.Info("workflow: branch deleted after merge", "task_id", task.ID, "branch", branchToDelete)
+	}
+}
+
+func deleteMergedBranch(repoPath, branch string) error {
+	failures := make([]string, 0, 2)
+
+	// `-d` is safe but can fail for squash merges; fallback to `-D`.
+	if _, err := runGit(repoPath, "branch", "-d", branch); err != nil {
+		if _, forceErr := runGit(repoPath, "branch", "-D", branch); forceErr != nil {
+			failures = append(failures, fmt.Sprintf("delete local branch: %v", forceErr))
+		}
+	}
+
+	remote, err := selectPushRemote(repoPath)
+	if err == nil {
+		if _, err := runGit(repoPath, "push", remote, "--delete", branch); err != nil {
+			if !isRemoteBranchMissingError(err.Error()) {
+				failures = append(failures, fmt.Sprintf("delete remote branch: %v", err))
+			}
+		}
+	}
+
+	if len(failures) == 0 {
+		return nil
+	}
+	return errors.New(strings.Join(failures, "; "))
+}
+
+func isRemoteBranchMissingError(message string) bool {
+	lower := strings.ToLower(message)
+	return strings.Contains(lower, "remote ref does not exist") ||
+		strings.Contains(lower, "unable to delete") && strings.Contains(lower, "remote ref") ||
+		strings.Contains(lower, "couldn't find remote ref") ||
+		strings.Contains(lower, "not found")
 }
 
 // directMergeBranch merges a feature branch into the base branch using --no-ff in the main repo.
