@@ -76,6 +76,7 @@ type Server struct {
 	challenges        *challengeStore
 	allowedOrigins    []string
 	telegramBotCancel context.CancelFunc
+	telegramBot       *telegram.Bot
 	telegramBotMu     sync.Mutex
 	httpServer        *http.Server
 	httpServerMu      sync.Mutex
@@ -450,6 +451,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.telegramBotCancel()
 		s.telegramBotCancel = nil
 	}
+	s.telegramBot = nil
 	s.telegramBotMu.Unlock()
 
 	done := make(chan struct{})
@@ -480,6 +482,7 @@ func (s *Server) startTelegramBot() {
 		s.telegramBotCancel()
 		s.telegramBotCancel = nil
 	}
+	s.telegramBot = nil
 
 	// Read bot token from preferences
 	pref, err := s.db.GetPreference("default", "telegram_bot_token")
@@ -492,6 +495,11 @@ func (s *Server) startTelegramBot() {
 		return
 	}
 
+	allowedUserID := ""
+	if pref, err := s.db.GetPreference("default", "telegram_user_id"); err == nil {
+		allowedUserID = unquotePreference(pref.Value)
+	}
+
 	// Read origin from config
 	config, err := s.auth.loadConfig()
 	if err != nil || config.Auth.Origin == "" {
@@ -502,7 +510,11 @@ func (s *Server) startTelegramBot() {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.telegramBotCancel = cancel
 
-	bot := telegram.NewBot(token, config.Auth.Origin)
+	bot := telegram.NewBot(token, config.Auth.Origin, allowedUserID, telegram.Handlers{
+		OnCommand: s.handleTelegramCommand,
+		OnMessage: s.handleTelegramMessage,
+	})
+	s.telegramBot = bot
 	go bot.Run(ctx)
 }
 
