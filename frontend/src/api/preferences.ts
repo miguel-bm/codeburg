@@ -9,6 +9,8 @@ export interface EditorConfig {
 
 export const preferencesApi = {
   get: <T>(key: string) => api.get<T>(`/preferences/${key}`),
+  getConfigured: async (key: string): Promise<boolean> =>
+    api.get<{ configured: boolean }>(`/preferences/${key}/configured`).then((v) => Boolean(v?.configured)),
   set: <T>(key: string, value: T) => api.put<T>(`/preferences/${key}`, value),
   delete: (key: string) => api.delete(`/preferences/${key}`),
 

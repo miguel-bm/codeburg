@@ -70,6 +70,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 		gitclone:       gitclone.Config{BaseDir: filepath.Join(tmpDir, "repos")},
 		authLimiter:    newLoginRateLimiter(5, 1*time.Minute),
 		allowedOrigins: []string{"http://localhost:*"},
+		telegramMemory: make(map[int64][]telegramAssistantMemoryTurn),
 	}
 	s.setupRoutes()
 

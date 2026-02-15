@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -78,6 +79,8 @@ type Server struct {
 	telegramBotCancel context.CancelFunc
 	telegramBot       *telegram.Bot
 	telegramBotMu     sync.Mutex
+	telegramMemoryMu  sync.Mutex
+	telegramMemory    map[int64][]telegramAssistantMemoryTurn
 	httpServer        *http.Server
 	httpServerMu      sync.Mutex
 }
@@ -103,6 +106,7 @@ func NewServer(database *db.DB) *Server {
 		authLimiter:    newLoginRateLimiter(5, 1*time.Minute),
 		challenges:     newChallengeStore(),
 		allowedOrigins: []string{"http://localhost:*"},
+		telegramMemory: make(map[int64][]telegramAssistantMemoryTurn),
 	}
 
 	// Initialize WebAuthn + CORS if origin is configured
@@ -130,6 +134,9 @@ func NewServer(database *db.DB) *Server {
 			}
 		}
 	}
+
+	// Restore Telegram assistant memory from preferences (best effort).
+	s.telegramLoadAssistantMemory()
 
 	// Start Telegram bot if token preference is configured
 	s.startTelegramBot()
@@ -330,6 +337,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/telegram/bot/restart", s.handleRestartTelegramBot)
 
 		// Preferences
+		r.Get("/api/preferences/{key}/configured", s.handleGetPreferenceConfigured)
 		r.Get("/api/preferences/{key}", s.handleGetPreference)
 		r.Put("/api/preferences/{key}", s.handleSetPreference)
 		r.Delete("/api/preferences/{key}", s.handleDeletePreference)
@@ -497,6 +505,15 @@ func (s *Server) startTelegramBot() {
 	allowedUserID := ""
 	if pref, err := s.db.GetPreference("default", "telegram_user_id"); err == nil {
 		allowedUserID = unquotePreference(pref.Value)
+	}
+	allowedUserID = strings.TrimSpace(allowedUserID)
+	if allowedUserID == "" {
+		slog.Warn("telegram bot not started: telegram_user_id is not configured")
+		return
+	}
+	if _, err := strconv.ParseInt(allowedUserID, 10, 64); err != nil {
+		slog.Warn("telegram bot not started: telegram_user_id is invalid", "value", allowedUserID)
+		return
 	}
 
 	// Read origin from config
