@@ -22,3 +22,20 @@ func TestParseIncomingMessageCapturesVoiceAndAudio(t *testing.T) {
 		t.Fatalf("expected audio file id, got %q", msg.AudioFileID)
 	}
 }
+
+func TestParseIncomingMessageCapturesReplyMetadata(t *testing.T) {
+	msg := parseIncomingMessage(&message{
+		Chat: chat{ID: 42},
+		ReplyToMessage: &message{
+			MessageID: 91,
+			Text:      "notification text",
+		},
+		Text: "reply body",
+	})
+	if msg.ReplyToMessageID != 91 {
+		t.Fatalf("expected reply_to_message_id=91, got %d", msg.ReplyToMessageID)
+	}
+	if msg.ReplyToText != "notification text" {
+		t.Fatalf("expected reply_to_text to be captured, got %q", msg.ReplyToText)
+	}
+}
