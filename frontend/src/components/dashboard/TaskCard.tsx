@@ -200,7 +200,7 @@ export const TaskCard = forwardRef<HTMLDivElement, TaskCardProps>(function TaskC
               }, 1500);
             }}
             onMouseDown={(e) => e.stopPropagation()}
-            className="absolute bottom-1.5 left-1.5 p-1.5 rounded-md bg-[var(--color-bg-primary)]/65 text-dim opacity-0 group-hover/card:opacity-100 hover:!text-accent hover:bg-[var(--color-bg-primary)]/85 transition-all backdrop-blur-[1px]"
+            className="absolute bottom-1.5 right-1.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-[var(--color-bg-primary)]/65 text-dim opacity-0 pointer-events-none group-hover/card:opacity-100 group-hover/card:pointer-events-auto hover:!text-accent hover:bg-[var(--color-bg-primary)]/85 transition-all backdrop-blur-[1px]"
             title={isArchived ? 'Unarchive' : 'Archive'}
           >
             {isArchived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
