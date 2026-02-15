@@ -6,8 +6,13 @@ export type ActivityPanel = 'files' | 'search' | 'git' | 'tools';
 export type WorkspaceTab =
   | { type: 'session'; sessionId: string }
   | { type: 'new_session' }
-  | { type: 'editor'; path: string; dirty: boolean; line?: number }
-  | { type: 'diff'; file?: string; staged?: boolean; base?: boolean; commit?: string };
+  | { type: 'editor'; path: string; dirty: boolean; line?: number; ephemeral?: boolean }
+  | { type: 'diff'; file?: string; staged?: boolean; base?: boolean; commit?: string; ephemeral?: boolean };
+
+interface OpenTabOptions {
+  ephemeral?: boolean;
+  forceNew?: boolean;
+}
 
 interface WorkspaceState {
   activePanel: ActivityPanel | null;
@@ -19,8 +24,8 @@ interface WorkspaceState {
   togglePanel: (panel: ActivityPanel) => void;
   setActivePanel: (panel: ActivityPanel | null) => void;
   setActivityPanelWidth: (width: number) => void;
-  openFile: (path: string, line?: number) => void;
-  openDiff: (file?: string, staged?: boolean, base?: boolean, commit?: string) => void;
+  openFile: (path: string, line?: number, options?: OpenTabOptions) => void;
+  openDiff: (file?: string, staged?: boolean, base?: boolean, commit?: string, options?: OpenTabOptions) => void;
   openNewSession: () => void;
   openSession: (sessionId: string) => void;
   replaceSessionTab: (oldSessionId: string, newSessionId: string) => void;
@@ -28,9 +33,31 @@ interface WorkspaceState {
   closeOtherTabs: (index: number) => void;
   closeTabsToRight: (index: number) => void;
   setActiveTab: (index: number) => void;
+  pinTab: (index: number) => void;
   moveTab: (from: number, to: number) => void;
   markDirty: (path: string, dirty: boolean) => void;
   resetTabs: () => void;
+}
+
+function isEphemeralTab(tab: WorkspaceTab | undefined): tab is Extract<WorkspaceTab, { type: 'editor' | 'diff' }> {
+  return !!tab && (tab.type === 'editor' || tab.type === 'diff') && tab.ephemeral === true;
+}
+
+function closePreviousEphemeralIfSwitching(
+  tabs: WorkspaceTab[],
+  activeTabIndex: number,
+  nextActiveTabIndex: number,
+): { tabs: WorkspaceTab[]; activeTabIndex: number } {
+  if (nextActiveTabIndex === activeTabIndex) {
+    return { tabs, activeTabIndex: nextActiveTabIndex };
+  }
+  if (!isEphemeralTab(tabs[activeTabIndex])) {
+    return { tabs, activeTabIndex: nextActiveTabIndex };
+  }
+
+  const nextTabs = tabs.filter((_, i) => i !== activeTabIndex);
+  const adjustedActive = nextActiveTabIndex > activeTabIndex ? nextActiveTabIndex - 1 : nextActiveTabIndex;
+  return { tabs: nextTabs, activeTabIndex: Math.max(0, Math.min(adjustedActive, nextTabs.length - 1)) };
 }
 
 export const useWorkspaceStore = create<WorkspaceState>()(
@@ -51,27 +78,34 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setActivityPanelWidth: (width) =>
         set({ activityPanelWidth: Math.max(180, Math.min(480, width)) }),
 
-      openFile: (path, line) => {
-        const { tabs } = get();
+      openFile: (path, line, options) => {
+        const { tabs, activeTabIndex } = get();
+        const { ephemeral = true, forceNew = false } = options ?? {};
         const existing = tabs.findIndex(
           (t) => t.type === 'editor' && t.path === path,
         );
-        if (existing >= 0) {
+        if (existing >= 0 && !forceNew) {
+          const adjustedTabs = [...tabs];
           if (line !== undefined) {
-            const newTabs = [...tabs];
-            newTabs[existing] = { ...newTabs[existing], line } as WorkspaceTab;
-            set({ tabs: newTabs, activeTabIndex: existing });
-          } else {
-            set({ activeTabIndex: existing });
+            adjustedTabs[existing] = { ...adjustedTabs[existing], line } as WorkspaceTab;
           }
+          if (!ephemeral && adjustedTabs[existing]?.type === 'editor' && adjustedTabs[existing].ephemeral) {
+            adjustedTabs[existing] = { ...adjustedTabs[existing], ephemeral: false } as WorkspaceTab;
+          }
+          const next = closePreviousEphemeralIfSwitching(adjustedTabs, activeTabIndex, existing);
+          set(next);
           return;
         }
-        const newTabs = [...tabs, { type: 'editor' as const, path, dirty: false, line }];
-        set({ tabs: newTabs, activeTabIndex: newTabs.length - 1 });
+
+        const created = { type: 'editor' as const, path, dirty: false, line, ephemeral };
+        const nextTabs = [...tabs, created];
+        const next = closePreviousEphemeralIfSwitching(nextTabs, activeTabIndex, nextTabs.length - 1);
+        set(next);
       },
 
-      openDiff: (file, staged, base, commit) => {
-        const { tabs } = get();
+      openDiff: (file, staged, base, commit, options) => {
+        const { tabs, activeTabIndex } = get();
+        const { ephemeral = true, forceNew = false } = options ?? {};
         const existing = tabs.findIndex(
           (t) =>
             t.type === 'diff' &&
@@ -80,44 +114,57 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             t.base === base &&
             t.commit === commit,
         );
-        if (existing >= 0) {
-          set({ activeTabIndex: existing });
+        if (existing >= 0 && !forceNew) {
+          const adjustedTabs = [...tabs];
+          if (!ephemeral && adjustedTabs[existing]?.type === 'diff' && adjustedTabs[existing].ephemeral) {
+            adjustedTabs[existing] = { ...adjustedTabs[existing], ephemeral: false } as WorkspaceTab;
+          }
+          const next = closePreviousEphemeralIfSwitching(adjustedTabs, activeTabIndex, existing);
+          set(next);
           return;
         }
-        const newTabs = [...tabs, { type: 'diff' as const, file, staged, base, commit }];
-        set({ tabs: newTabs, activeTabIndex: newTabs.length - 1 });
+
+        const created = { type: 'diff' as const, file, staged, base, commit, ephemeral };
+        const nextTabs = [...tabs, created];
+        const next = closePreviousEphemeralIfSwitching(nextTabs, activeTabIndex, nextTabs.length - 1);
+        set(next);
       },
 
       openNewSession: () => {
-        const { tabs } = get();
+        const { tabs, activeTabIndex } = get();
         const existing = tabs.findIndex((t) => t.type === 'new_session');
         if (existing >= 0) {
-          set({ activeTabIndex: existing });
+          const next = closePreviousEphemeralIfSwitching(tabs, activeTabIndex, existing);
+          set(next);
           return;
         }
-        const newTabs = [...tabs, { type: 'new_session' as const }];
-        set({ tabs: newTabs, activeTabIndex: newTabs.length - 1 });
+        const nextTabs = [...tabs, { type: 'new_session' as const }];
+        const next = closePreviousEphemeralIfSwitching(nextTabs, activeTabIndex, nextTabs.length - 1);
+        set(next);
       },
 
       openSession: (sessionId) => {
-        const { tabs } = get();
+        const { tabs, activeTabIndex } = get();
         const existing = tabs.findIndex(
           (t) => t.type === 'session' && t.sessionId === sessionId,
         );
         if (existing >= 0) {
-          set({ activeTabIndex: existing });
+          const next = closePreviousEphemeralIfSwitching(tabs, activeTabIndex, existing);
+          set(next);
           return;
         }
-        // Replace new_session tab if it exists
+
         const newSessionIdx = tabs.findIndex((t) => t.type === 'new_session');
         if (newSessionIdx >= 0) {
-          const newTabs = [...tabs];
-          newTabs[newSessionIdx] = { type: 'session', sessionId };
-          set({ tabs: newTabs, activeTabIndex: newSessionIdx });
+          const nextTabs = [...tabs];
+          nextTabs[newSessionIdx] = { type: 'session', sessionId };
+          const next = closePreviousEphemeralIfSwitching(nextTabs, activeTabIndex, newSessionIdx);
+          set(next);
           return;
         }
-        const newTabs = [...tabs, { type: 'session' as const, sessionId }];
-        set({ tabs: newTabs, activeTabIndex: newTabs.length - 1 });
+        const nextTabs = [...tabs, { type: 'session' as const, sessionId }];
+        const next = closePreviousEphemeralIfSwitching(nextTabs, activeTabIndex, nextTabs.length - 1);
+        set(next);
       },
 
       replaceSessionTab: (oldSessionId, newSessionId) => {
@@ -184,7 +231,20 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ tabs: newTabs, activeTabIndex: Math.min(activeTabIndex, newTabs.length - 1) });
       },
 
-      setActiveTab: (index) => set({ activeTabIndex: index }),
+      setActiveTab: (index) => {
+        const { tabs, activeTabIndex } = get();
+        if (index < 0 || index >= tabs.length) return;
+        const next = closePreviousEphemeralIfSwitching(tabs, activeTabIndex, index);
+        set(next);
+      },
+
+      pinTab: (index) => set((s) => {
+        const tab = s.tabs[index];
+        if (!isEphemeralTab(tab)) return s;
+        const nextTabs = [...s.tabs];
+        nextTabs[index] = { ...tab, ephemeral: false };
+        return { tabs: nextTabs };
+      }),
 
       moveTab: (from, to) => {
         const { tabs, activeTabIndex } = get();

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { FilePenLine } from 'lucide-react';
 import { useWorkspace } from './WorkspaceContext';
 import { DiffContent } from './DiffContent';
 import { parseDiffFiles } from '../git/diffFiles';
@@ -15,7 +16,7 @@ interface DiffTabProps {
 
 export function DiffTab({ file, staged, base, commit }: DiffTabProps) {
   const { api, scopeType, scopeId } = useWorkspace();
-  const { openDiff } = useWorkspaceStore();
+  const { openDiff, openFile } = useWorkspaceStore();
 
   // When a specific file is provided, fetch its diff content
   const { data: diffContent, isLoading: contentLoading, error: contentError } = useQuery({
@@ -78,13 +79,23 @@ export function DiffTab({ file, staged, base, commit }: DiffTabProps) {
             <StyledPath path={file} />
             <FileStatusBadge file={file} staged={staged} base={base} />
           </div>
-          {fileStats && (fileStats.additions > 0 || fileStats.deletions > 0) && (
-            <div className="text-xs shrink-0 ml-2">
-              <span className="text-[var(--color-success)]">+{fileStats.additions}</span>
-              {' '}
-              <span className="text-[var(--color-error)]">-{fileStats.deletions}</span>
-            </div>
-          )}
+          <div className="flex items-center gap-2 shrink-0 ml-2">
+            <button
+              onClick={() => openFile(file, undefined, { ephemeral: false, forceNew: true })}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-dim hover:text-accent hover:bg-accent/10 transition-colors"
+              title="Open in editor tab"
+            >
+              <FilePenLine size={11} />
+              <span>Open in editor</span>
+            </button>
+            {fileStats && (fileStats.additions > 0 || fileStats.deletions > 0) && (
+              <div className="text-xs">
+                <span className="text-[var(--color-success)]">+{fileStats.additions}</span>
+                {' '}
+                <span className="text-[var(--color-error)]">-{fileStats.deletions}</span>
+              </div>
+            )}
+          </div>
         </div>
         <div className="flex-1 overflow-hidden">
           <DiffContent original={diffContent.original} modified={diffContent.modified} path={file} />

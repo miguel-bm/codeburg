@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { FileText, Plus, RotateCcw, X, XCircle, ArrowRightToLine, ChevronDown } from 'lucide-react';
+import { useState, useCallback, useRef } from 'react';
+import { FileText, Plus, RotateCcw, X, XCircle, ArrowRightToLine } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspace';
 import type { WorkspaceTab } from '../../stores/workspace';
 import { useWorkspaceSessions } from '../../hooks/useWorkspaceSessions';
@@ -13,6 +13,17 @@ import { useLongPress } from '../../hooks/useLongPress';
 import { ContextMenu } from '../ui/ContextMenu';
 import type { ContextMenuItem } from '../ui/ContextMenu';
 import type { AgentSession } from '../../api/sessions';
+
+function isEphemeralTab(tab: WorkspaceTab | undefined): tab is Extract<WorkspaceTab, { type: 'editor' | 'diff' }> {
+  return !!tab && (tab.type === 'editor' || tab.type === 'diff') && tab.ephemeral === true;
+}
+
+function tabKey(tab: WorkspaceTab, index: number): string {
+  if (tab.type === 'session') return `session:${tab.sessionId}`;
+  if (tab.type === 'new_session') return `new_session:${index}`;
+  if (tab.type === 'editor') return `editor:${tab.path}:${index}`;
+  return `diff:${tab.file}:${tab.staged}:${tab.base}:${tab.commit}:${index}`;
+}
 
 function SessionTabLabel({ tab }: { tab: Extract<WorkspaceTab, { type: 'session' }> }) {
   const { sessions } = useWorkspaceSessions();
@@ -48,7 +59,12 @@ function TabLabel({ tab }: { tab: WorkspaceTab }) {
       return (
         <div className="flex items-center gap-1.5 min-w-0">
           <FileText size={12} className="text-dim shrink-0" />
-          <span className="truncate">{fileName(tab.path)}</span>
+          <span
+            className="truncate"
+            style={tab.ephemeral ? { fontFamily: 'cursive', fontStyle: 'italic' } : undefined}
+          >
+            {fileName(tab.path)}
+          </span>
           {tab.dirty && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />}
         </div>
       );
@@ -56,7 +72,12 @@ function TabLabel({ tab }: { tab: WorkspaceTab }) {
       return (
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="text-[10px] font-mono text-yellow-500 shrink-0">D</span>
-          <span className="truncate">{tab.file ? fileName(tab.file) : tab.commit ? `${tab.commit.slice(0, 7)}` : 'All Changes'}</span>
+          <span
+            className="truncate"
+            style={tab.ephemeral ? { fontFamily: 'cursive', fontStyle: 'italic' } : undefined}
+          >
+            {tab.file ? fileName(tab.file) : tab.commit ? `${tab.commit.slice(0, 7)}` : 'All Changes'}
+          </span>
           {tab.staged && <span className="text-[9px] text-green-500 shrink-0">staged</span>}
           {tab.base && <span className="text-[9px] text-dim shrink-0">base</span>}
           {tab.commit && <span className="text-[9px] text-accent shrink-0">commit</span>}
@@ -76,28 +97,19 @@ export function TabBar() {
 }
 
 function MobileTabBar() {
-  const { tabs, activeTabIndex, setActiveTab, openNewSession } = useWorkspaceStore();
+  const { tabs, activeTabIndex, setActiveTab, pinTab, openNewSession } = useWorkspaceStore();
   const { closeTab } = useTabActions();
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    if (!dropdownOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClick);
-    document.addEventListener('touchstart', handleClick as EventListener);
-    return () => {
-      document.removeEventListener('mousedown', handleClick);
-      document.removeEventListener('touchstart', handleClick as EventListener);
-    };
-  }, [dropdownOpen]);
-
-  const activeTab = tabs[activeTabIndex];
+  const activateTab = (index: number) => {
+    haptic();
+    const tab = tabs[index];
+    if (!tab) return;
+    if (index === activeTabIndex && isEphemeralTab(tab)) {
+      pinTab(index);
+      return;
+    }
+    setActiveTab(index);
+  };
 
   if (tabs.length === 0) {
     return (
@@ -114,26 +126,44 @@ function MobileTabBar() {
   }
 
   return (
-    <div className="relative flex items-center h-9 bg-canvas border-b border-subtle px-1" ref={dropdownRef}>
-      {/* Active tab indicator + dropdown trigger */}
-      <button
-        onClick={() => { haptic(); setDropdownOpen((prev) => !prev); }}
-        className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md bg-accent/15 text-accent min-w-0 max-w-[70%]"
-      >
-        <div className="min-w-0 overflow-hidden">
-          {activeTab ? <TabLabel tab={activeTab} /> : <span className="text-dim">No tab</span>}
+    <div className="flex items-center h-10 bg-canvas border-b border-subtle px-1.5 gap-1">
+      <div className="flex-1 overflow-x-auto scrollbar-none">
+        <div className="flex items-center gap-1 min-w-max py-1">
+          {tabs.map((tab, index) => {
+            const isActive = index === activeTabIndex;
+            return (
+              <div
+                key={tabKey(tab, index)}
+                className={`group flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-colors max-w-40 shrink-0 ${
+                  isActive
+                    ? 'bg-accent/15 text-accent'
+                    : 'bg-secondary text-dim hover:text-[var(--color-text-secondary)] hover:bg-tertiary'
+                }`}
+              >
+                <button
+                  onClick={() => activateTab(index)}
+                  className="min-w-0 overflow-hidden text-left"
+                  type="button"
+                >
+                  <TabLabel tab={tab} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeTab(index);
+                  }}
+                  className="p-0.5 rounded text-dim hover:text-[var(--color-error)]"
+                  type="button"
+                  aria-label="Close tab"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            );
+          })}
         </div>
-        <ChevronDown size={12} className={`shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
-      </button>
+      </div>
 
-      {/* Tab count badge */}
-      {tabs.length > 1 && (
-        <span className="ml-1.5 text-[10px] text-dim tabular-nums">{tabs.length}</span>
-      )}
-
-      <div className="flex-1" />
-
-      {/* New session button */}
       <button
         onClick={openNewSession}
         className="flex items-center justify-center w-7 h-7 text-dim hover:text-accent hover:bg-tertiary rounded shrink-0"
@@ -141,50 +171,28 @@ function MobileTabBar() {
       >
         <Plus size={13} />
       </button>
-
-      {/* Dropdown */}
-      {dropdownOpen && (
-        <div className="absolute top-full left-0 right-0 z-30 mt-0.5 mx-1 rounded-lg border border-subtle bg-card shadow-card overflow-hidden">
-          <div className="max-h-64 overflow-y-auto py-1">
-            {tabs.map((tab, index) => {
-              const isActive = index === activeTabIndex;
-              return (
-                <div
-                  key={tab.type === 'session' ? tab.sessionId : tab.type === 'editor' ? `editor:${tab.path}` : tab.type === 'diff' ? `diff:${tab.file}:${tab.staged}:${tab.commit}` : `tab:${index}`}
-                  className={`flex items-center gap-2 px-3 py-2 text-xs ${
-                    isActive ? 'bg-accent/10 text-accent' : 'text-[var(--color-text-primary)]'
-                  }`}
-                >
-                  <button
-                    className="flex-1 min-w-0 text-left"
-                    onClick={() => { haptic(); setActiveTab(index); setDropdownOpen(false); }}
-                  >
-                    <TabLabel tab={tab} />
-                  </button>
-                  <button
-                    onClick={() => { closeTab(index); if (tabs.length <= 1) setDropdownOpen(false); }}
-                    className="p-1 text-dim hover:text-[var(--color-error)] shrink-0 rounded"
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
 function DesktopTabBar() {
-  const { tabs, activeTabIndex, setActiveTab, openNewSession, openSession, replaceSessionTab, moveTab } = useWorkspaceStore();
+  const { tabs, activeTabIndex, setActiveTab, pinTab, openNewSession, openSession, replaceSessionTab, moveTab } = useWorkspaceStore();
   const { sessions, startSession, deleteSession, isStarting } = useWorkspaceSessions();
   const { closeTab, closeOtherTabs, closeTabsToRight } = useTabActions();
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
   const [resumingSessionId, setResumingSessionId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ index: number; position: { x: number; y: number } } | null>(null);
+
+  const activateTab = useCallback((index: number) => {
+    const tab = tabs[index];
+    if (!tab) return;
+    if (index === activeTabIndex && isEphemeralTab(tab)) {
+      pinTab(index);
+      return;
+    }
+    setActiveTab(index);
+  }, [activeTabIndex, pinTab, setActiveTab, tabs]);
 
   const handleDrop = useCallback((targetIndex: number) => {
     if (dragFrom !== null && dragFrom !== targetIndex) {
@@ -234,7 +242,6 @@ function DesktopTabBar() {
     );
   }
 
-  // Split tabs into session tabs and other tabs
   const sessionTabs: { tab: WorkspaceTab; index: number }[] = [];
   const otherTabs: { tab: WorkspaceTab; index: number }[] = [];
 
@@ -248,7 +255,6 @@ function DesktopTabBar() {
 
   return (
     <div className="flex items-center h-9 bg-canvas border-b border-subtle overflow-x-scroll scrollbar-none py-1 gap-0.5 px-1">
-      {/* Session tabs */}
       {sessionTabs.map(({ tab, index }) => {
         const session = tab.type === 'session'
           ? sessions.find((s) => s.id === tab.sessionId)
@@ -257,13 +263,13 @@ function DesktopTabBar() {
         const resumePending = !!session && isStarting && resumingSessionId === session.id;
         return (
           <Tab
-            key={tab.type === 'session' ? tab.sessionId : 'new_session'}
+            key={tabKey(tab, index)}
             tab={tab}
             storeIndex={index}
             isActive={activeTabIndex === index}
             isDragging={dragFrom === index}
             isDragOver={dragOver === index && dragFrom !== null && dragFrom !== index}
-            onClick={() => setActiveTab(index)}
+            onClick={() => activateTab(index)}
             onClose={() => closeTab(index)}
             onContextMenu={(pos) => setContextMenu({ index, position: pos })}
             onDragStart={() => setDragFrom(index)}
@@ -277,21 +283,19 @@ function DesktopTabBar() {
         );
       })}
 
-      {/* Separator between groups */}
       {sessionTabs.length > 0 && otherTabs.length > 0 && (
         <div className="w-px h-5 bg-subtle mx-0.5 shrink-0" />
       )}
 
-      {/* Editor/diff tabs */}
       {otherTabs.map(({ tab, index }) => (
         <Tab
-          key={tab.type === 'editor' ? `editor:${tab.path}` : tab.type === 'diff' ? `diff:${tab.file}:${tab.staged}:${tab.base}:${tab.commit}` : `tab:${index}`}
+          key={tabKey(tab, index)}
           tab={tab}
           storeIndex={index}
           isActive={activeTabIndex === index}
           isDragging={dragFrom === index}
           isDragOver={dragOver === index && dragFrom !== null && dragFrom !== index}
-          onClick={() => setActiveTab(index)}
+          onClick={() => activateTab(index)}
           onClose={() => closeTab(index)}
           onContextMenu={(pos) => setContextMenu({ index, position: pos })}
           onDragStart={() => setDragFrom(index)}
@@ -301,7 +305,6 @@ function DesktopTabBar() {
         />
       ))}
 
-      {/* New session button */}
       <button
         onClick={openNewSession}
         className="flex items-center justify-center w-7 h-7 mx-0.5 text-dim hover:text-accent hover:bg-tertiary rounded shrink-0"
@@ -310,7 +313,6 @@ function DesktopTabBar() {
         <Plus size={13} />
       </button>
 
-      {/* Tab context menu (long-press on mobile, right-click on desktop) */}
       {contextMenu && (
         <ContextMenu
           position={contextMenu.position}
@@ -357,14 +359,11 @@ function Tab({
 }) {
   const longPress = useLongPress({
     onLongPress: () => {
-      // Use a reasonable position — center of where the finger is
-      // We can't get touch coords from useLongPress directly, so we track them
       onContextMenu(lastTouchPos.current);
     },
     onClick,
   });
 
-  // Track touch position for long-press menu placement
   const lastTouchPos = useRef({ x: 0, y: 0 });
 
   return (
