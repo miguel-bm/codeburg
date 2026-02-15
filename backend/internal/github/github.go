@@ -182,14 +182,27 @@ func MergePR(workDir, prURL, strategy string, deleteBranch bool) error {
 }
 
 func isWorktreeDeleteBranchFailure(output string) bool {
-	lower := strings.ToLower(output)
-	return strings.Contains(lower, "failed to delete local branch") &&
-		strings.Contains(lower, "cannot delete branch") &&
-		strings.Contains(lower, "used by worktree")
+	normalized := normalizeCLIOutput(output)
+	if !strings.Contains(normalized, "failed to delete local branch") {
+		return false
+	}
+
+	// Deleting a checked-out branch is expected when a task worktree still exists.
+	return strings.Contains(normalized, "used by worktree") ||
+		strings.Contains(normalized, "branch is checked out") ||
+		strings.Contains(normalized, "cannot delete branch")
 }
 
 func isAlreadyMergedPRFailure(output string) bool {
+	normalized := normalizeCLIOutput(output)
+	mentionsMerged := strings.Contains(normalized, "already merged") ||
+		strings.Contains(normalized, "was merged")
+	mentionsPR := strings.Contains(normalized, "pull request") ||
+		strings.Contains(normalized, "gh pr merge")
+	return mentionsMerged && mentionsPR
+}
+
+func normalizeCLIOutput(output string) string {
 	lower := strings.ToLower(output)
-	return strings.Contains(lower, "pull request") &&
-		(strings.Contains(lower, "already merged") || strings.Contains(lower, "was merged"))
+	return strings.Join(strings.Fields(lower), " ")
 }

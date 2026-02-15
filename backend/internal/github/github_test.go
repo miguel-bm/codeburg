@@ -21,9 +21,9 @@ func TestIsWorktreeDeleteBranchFailure(t *testing.T) {
 			want:   false,
 		},
 		{
-			name:   "local delete failure for other reason",
+			name:   "local delete failure for checked out branch",
 			output: "failed to delete local branch foo: branch is checked out",
-			want:   false,
+			want:   true,
 		},
 	}
 
@@ -52,6 +52,14 @@ func TestIsAlreadyMergedPRFailure(t *testing.T) {
 			name:   "was merged",
 			output: "pull request #123 was merged",
 			want:   true,
+		},
+		{
+			name: "already merged with branch-delete error",
+			output: "gh pr merge: ! Pull request sellm-hq/sellm-app#83 was already merged " +
+				"failed to delete local branch track-user-activity-on-analytics-engine: " +
+				"failed to run git: error: cannot delete branch 'track-user-activity-on-analytics-engine' " +
+				"used by worktree at '/home/codeburg/.codeburg/worktrees/sellm-app/track-user-activity-on-analytics-engine'",
+			want: true,
 		},
 		{
 			name:   "not merged yet",
