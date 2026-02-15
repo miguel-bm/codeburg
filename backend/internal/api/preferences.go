@@ -4,13 +4,45 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/miguel-bm/codeburg/internal/db"
 )
 
+var privatePreferenceKeys = map[string]struct{}{
+	"telegram_bot_token":      {},
+	"telegram_openai_api_key": {},
+	"telegram_llm_api_key":    {},
+}
+
+func isPrivatePreferenceKey(key string) bool {
+	_, ok := privatePreferenceKeys[strings.TrimSpace(key)]
+	return ok
+}
+
+func (s *Server) handleGetPreferenceConfigured(w http.ResponseWriter, r *http.Request) {
+	key := chi.URLParam(r, "key")
+	pref, err := s.db.GetPreference(db.DefaultUserID, key)
+	if err != nil {
+		if err == db.ErrNotFound {
+			writeJSON(w, http.StatusOK, map[string]bool{"configured": false})
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to get preference")
+		return
+	}
+
+	configured := strings.TrimSpace(unquotePreference(pref.Value)) != ""
+	writeJSON(w, http.StatusOK, map[string]bool{"configured": configured})
+}
+
 func (s *Server) handleGetPreference(w http.ResponseWriter, r *http.Request) {
 	key := chi.URLParam(r, "key")
+	if isPrivatePreferenceKey(key) {
+		writeError(w, http.StatusForbidden, "preference is private")
+		return
+	}
 
 	pref, err := s.db.GetPreference(db.DefaultUserID, key)
 	if err != nil {
