@@ -61,7 +61,7 @@ function TabLabel({ tab }: { tab: WorkspaceTab }) {
           <FileText size={12} className="text-dim shrink-0" />
           <span
             className="truncate"
-            style={tab.ephemeral ? { fontFamily: 'cursive', fontStyle: 'italic' } : undefined}
+            style={tab.ephemeral ? { fontStyle: 'italic' } : undefined}
           >
             {fileName(tab.path)}
           </span>
@@ -74,7 +74,7 @@ function TabLabel({ tab }: { tab: WorkspaceTab }) {
           <span className="text-[10px] font-mono text-yellow-500 shrink-0">D</span>
           <span
             className="truncate"
-            style={tab.ephemeral ? { fontFamily: 'cursive', fontStyle: 'italic' } : undefined}
+            style={tab.ephemeral ? { fontStyle: 'italic' } : undefined}
           >
             {tab.file ? fileName(tab.file) : tab.commit ? `${tab.commit.slice(0, 7)}` : 'All Changes'}
           </span>
