@@ -17,6 +17,13 @@ const (
 	TaskStatusDone       TaskStatus = "done"
 )
 
+type TaskBranchMode string
+
+const (
+	TaskBranchModeCreateFromDefault TaskBranchMode = "create_from_default"
+	TaskBranchModeAdoptExisting     TaskBranchMode = "adopt_existing"
+)
+
 type Task struct {
 	ID           string     `json:"id"`
 	ProjectID    string     `json:"projectId"`
@@ -47,17 +54,18 @@ type CreateTaskInput struct {
 }
 
 type UpdateTaskInput struct {
-	Title        *string     `json:"title,omitempty"`
-	Description  *string     `json:"description,omitempty"`
-	Status       *TaskStatus `json:"status,omitempty"`
-	TaskType     *string     `json:"taskType,omitempty"`
-	Priority     *string     `json:"priority,omitempty"`
-	Branch       *string     `json:"branch,omitempty"`
-	WorktreePath *string     `json:"worktreePath,omitempty"`
-	PRURL        *string     `json:"prUrl,omitempty"`
-	Pinned       *bool       `json:"pinned,omitempty"`
-	Position     *int        `json:"position,omitempty"`
-	SetArchived *bool `json:"archived,omitempty"` // true=archive now, false=unarchive; nil=unchanged
+	Title        *string         `json:"title,omitempty"`
+	Description  *string         `json:"description,omitempty"`
+	Status       *TaskStatus     `json:"status,omitempty"`
+	TaskType     *string         `json:"taskType,omitempty"`
+	Priority     *string         `json:"priority,omitempty"`
+	Branch       *string         `json:"branch,omitempty"`
+	BranchMode   *TaskBranchMode `json:"branchMode,omitempty"`
+	WorktreePath *string         `json:"worktreePath,omitempty"`
+	PRURL        *string         `json:"prUrl,omitempty"`
+	Pinned       *bool           `json:"pinned,omitempty"`
+	Position     *int            `json:"position,omitempty"`
+	SetArchived  *bool           `json:"archived,omitempty"` // true=archive now, false=unarchive; nil=unchanged
 }
 
 type TaskFilter struct {

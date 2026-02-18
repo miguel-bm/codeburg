@@ -82,6 +82,7 @@ export interface WorktreeResponse {
 }
 
 export type TaskStatus = 'backlog' | 'in_progress' | 'in_review' | 'done';
+export type TaskBranchMode = 'create_from_default' | 'adopt_existing';
 
 export const TASK_STATUS = {
   BACKLOG: 'backlog',
@@ -145,6 +146,7 @@ export interface UpdateTaskInput {
   taskType?: string;
   priority?: string;
   branch?: string;
+  branchMode?: TaskBranchMode;
   worktreePath?: string;
   prUrl?: string;
   pinned?: boolean;

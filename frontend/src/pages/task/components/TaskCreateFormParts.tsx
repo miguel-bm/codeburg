@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import type { ReactNode } from 'react';
-import { Check, ChevronDown, Plus, Search, X } from 'lucide-react';
+import { Check, ChevronDown, GitBranch, Plus, Search, X } from 'lucide-react';
 import type { Label, Project } from '../../../api/types';
 import { PRIORITY_OPTIONS } from './taskCreateOptions';
 import type { PriorityValue, TaskTypeOption, TaskTypeValue } from './taskCreateOptions';
@@ -126,6 +126,131 @@ export function ProjectSearchSelect({
                       {active && <Check size={12} className="shrink-0" />}
                     </div>
                     <div className="text-[11px] text-dim truncate mt-0.5">{project.path}</div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function BranchSearchSelect({
+  branches,
+  value,
+  onChange,
+  disabled,
+  loading,
+}: {
+  branches: string[];
+  value: string;
+  onChange: (branch: string) => void;
+  disabled?: boolean;
+  loading?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onOutside = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+        setQuery('');
+      }
+    };
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+        setQuery('');
+      }
+    };
+    document.addEventListener('mousedown', onOutside);
+    document.addEventListener('keydown', onEscape);
+    return () => {
+      document.removeEventListener('mousedown', onOutside);
+      document.removeEventListener('keydown', onEscape);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setTimeout(() => inputRef.current?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [open]);
+
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return branches;
+    return branches.filter((branch) => branch.toLowerCase().includes(normalized));
+  }, [branches, query]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() =>
+          setOpen((current) => {
+            const next = !current;
+            if (!next) setQuery('');
+            return next;
+          })
+        }
+        className={`w-full px-3 py-2 rounded-md border bg-primary flex items-center justify-between gap-2 text-left ${
+          open ? 'border-accent ring-1 ring-accent/20' : 'border-subtle hover:border-[var(--color-text-dim)]'
+        } disabled:opacity-60 disabled:cursor-not-allowed`}
+      >
+        <div className="min-w-0 flex items-center gap-2">
+          <GitBranch size={13} className="text-dim shrink-0" />
+          <div className="text-sm text-[var(--color-text-primary)] truncate">{value || (loading ? 'Loading branches...' : 'Select branch')}</div>
+        </div>
+        <ChevronDown size={14} className={`text-dim shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute z-40 mt-1 w-full rounded-lg border border-subtle bg-elevated shadow-lg shadow-black/25 overflow-hidden">
+          <div className="p-2 border-b border-subtle">
+            <label className="relative block">
+              <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
+              <input
+                ref={inputRef}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search branches..."
+                className="w-full h-8 rounded-md border border-subtle bg-primary pl-7 pr-2 text-xs text-[var(--color-text-primary)] placeholder:text-dim focus:outline-none focus:border-accent"
+              />
+            </label>
+          </div>
+          <div className="max-h-60 overflow-y-auto p-1.5">
+            {loading ? (
+              <div className="px-2 py-3 text-xs text-dim text-center">Loading branches...</div>
+            ) : filtered.length === 0 ? (
+              <div className="px-2 py-3 text-xs text-dim text-center">No matching branches.</div>
+            ) : (
+              filtered.map((branch) => {
+                const active = branch === value;
+                return (
+                  <button
+                    key={branch}
+                    type="button"
+                    onClick={() => {
+                      onChange(branch);
+                      setOpen(false);
+                      setQuery('');
+                    }}
+                    className={`w-full text-left px-2 py-2 rounded-md transition-colors ${
+                      active ? 'bg-accent/10 text-accent' : 'hover:bg-tertiary text-[var(--color-text-primary)]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm truncate font-mono">{branch}</span>
+                      {active && <Check size={12} className="shrink-0" />}
+                    </div>
                   </button>
                 );
               })

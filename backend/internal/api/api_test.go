@@ -1826,6 +1826,100 @@ func TestUpdateTask_InProgress_WithExistingBranch_AdoptsBranch(t *testing.T) {
 	}
 }
 
+func TestUpdateTask_InProgress_WithExplicitAdoptMissingBranch_ReturnsConflict(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+	env.server.worktree = worktree.NewManager(worktree.Config{BaseDir: t.TempDir()})
+
+	repoPath := createTestGitRepo(t)
+	if out, err := exec.Command("git", "-C", repoPath, "branch", "-M", "main").CombinedOutput(); err != nil {
+		t.Fatalf("set default branch to main: %v (%s)", err, string(out))
+	}
+
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "wt-explicit-adopt-missing-" + db.NewID(), "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title":  "Worktree Explicit Adopt Missing",
+		"branch": "does-not-exist-anywhere",
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	resp := env.patch("/api/tasks/"+task.ID, map[string]string{
+		"status":     "in_progress",
+		"branchMode": "adopt_existing",
+	})
+	if resp.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var errBody map[string]string
+	decodeResponse(t, resp, &errBody)
+	if !strings.Contains(errBody["error"], "not found locally or on origin") {
+		t.Fatalf("expected not-found adopt error, got %q", errBody["error"])
+	}
+
+	reloaded, err := env.server.db.GetTask(task.ID)
+	if err != nil {
+		t.Fatalf("reload task: %v", err)
+	}
+	if reloaded.Status != db.TaskStatusBacklog {
+		t.Fatalf("expected status to remain backlog, got %q", reloaded.Status)
+	}
+}
+
+func TestUpdateTask_InProgress_WithExplicitCreateFromDefault_DoesNotAdoptExistingBranch(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+	env.server.worktree = worktree.NewManager(worktree.Config{BaseDir: t.TempDir()})
+
+	repoPath := createTestGitRepo(t)
+	if out, err := exec.Command("git", "-C", repoPath, "branch", "-M", "main").CombinedOutput(); err != nil {
+		t.Fatalf("set default branch to main: %v (%s)", err, string(out))
+	}
+	const branchName = "shared-branch"
+	if out, err := exec.Command("git", "-C", repoPath, "branch", branchName).CombinedOutput(); err != nil {
+		t.Fatalf("create existing branch: %v (%s)", err, string(out))
+	}
+
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "wt-explicit-create-" + db.NewID(), "path": repoPath,
+	})
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title":  "Worktree Explicit Create",
+		"branch": branchName,
+	})
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	resp := env.patch("/api/tasks/"+task.ID, map[string]string{
+		"status":     "in_progress",
+		"branchMode": "create_from_default",
+	})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var updated db.Task
+	decodeResponse(t, resp, &updated)
+	if updated.Branch == nil || *updated.Branch == "" {
+		t.Fatalf("expected a branch in response")
+	}
+	if *updated.Branch == branchName {
+		t.Fatalf("expected explicit create mode to avoid adopting %q", branchName)
+	}
+	if !strings.HasPrefix(*updated.Branch, branchName+"-") {
+		t.Fatalf("expected branch collision suffix, got %q", *updated.Branch)
+	}
+}
+
 func TestUpdateTask_InProgress_WorktreeCreateFailure_ReturnsWarning(t *testing.T) {
 	env := setupTestEnv(t)
 	env.setup("testpass123")

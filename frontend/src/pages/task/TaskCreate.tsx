@@ -16,6 +16,7 @@ import { Breadcrumb } from '../../components/ui/Breadcrumb';
 import { tasksApi, sessionsApi, invalidateTaskQueries, projectsApi, labelsApi } from '../../api';
 import { TASK_STATUS } from '../../api/types';
 import type { Label } from '../../api/types';
+import type { TaskBranchMode } from '../../api/types';
 import type { SessionProvider } from '../../api/sessions';
 import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 import { Button } from '../../components/ui/Button';
@@ -25,6 +26,7 @@ import { MarkdownField } from '../../components/ui/MarkdownField';
 import { DEFAULT_LABEL_COLORS } from '../../constants/tasks';
 import { buildBranchName, pickColorFromName } from '../../utils/text';
 import {
+  BranchSearchSelect,
   Field,
   LabelPicker,
   PriorityToggle,
@@ -88,8 +90,10 @@ export function TaskCreate() {
   const [taskTypeTouched, setTaskTypeTouched] = useState(false);
   const [priority, setPriority] = useState<PriorityValue>('none');
   const [manualProjectId, setManualProjectId] = useState(defaultProjectId);
-  const [branch, setBranch] = useState('');
-  const [branchDirty, setBranchDirty] = useState(false);
+  const [createBranch, setCreateBranch] = useState('');
+  const [createBranchDirty, setCreateBranchDirty] = useState(false);
+  const [adoptBranch, setAdoptBranch] = useState('');
+  const [branchMode, setBranchMode] = useState<TaskBranchMode>('create_from_default');
   const [pendingLabels, setPendingLabels] = useState<Label[]>([]);
 
   const [provider, setProvider] = useState<WizardProvider>(isInProgressCreate ? 'claude' : 'none');
@@ -126,17 +130,26 @@ export function TaskCreate() {
 
   const effectiveProvider: WizardProvider = isInProgressCreate ? provider : 'none';
 
-  const autoBranch = useMemo(
+  const autoCreateBranch = useMemo(
     () => (title.trim() ? buildBranchName(title) : ''),
     [title],
   );
 
-  const effectiveBranch = branchDirty ? branch : autoBranch;
+  const effectiveCreateBranch = createBranchDirty ? createBranch : autoCreateBranch;
+  const effectiveBranch = isInProgressCreate && branchMode === 'adopt_existing'
+    ? adoptBranch
+    : effectiveCreateBranch;
 
   const { data: projectLabels = [] } = useQuery({
     queryKey: ['labels', projectId],
     queryFn: () => labelsApi.list(projectId),
     enabled: !!projectId,
+  });
+
+  const { data: projectBranches = [], isFetching: loadingProjectBranches } = useQuery({
+    queryKey: ['project-branches', projectId],
+    queryFn: () => projectsApi.listBranches(projectId),
+    enabled: !!projectId && isInProgressCreate && branchMode === 'adopt_existing',
   });
 
   useEffect(() => {
@@ -180,7 +193,7 @@ export function TaskCreate() {
       let sessionId: string | undefined;
 
       if (isInProgressCreate) {
-        await tasksApi.update(task.id, { status: TASK_STATUS.IN_PROGRESS });
+        await tasksApi.update(task.id, { status: TASK_STATUS.IN_PROGRESS, branchMode });
 
         if (effectiveProvider !== 'none') {
           const shouldSendPrompt = showPromptToggle && includePrompt;
@@ -204,7 +217,11 @@ export function TaskCreate() {
     },
   });
 
-  const canCreate = title.trim().length > 0 && !!projectId && !createMutation.isPending;
+  const hasAdoptBranch = adoptBranch.trim().length > 0;
+  const canCreate = title.trim().length > 0 &&
+    !!projectId &&
+    !createMutation.isPending &&
+    (!isInProgressCreate || branchMode !== 'adopt_existing' || hasAdoptBranch);
 
   const handleClose = () => closePanel();
 
@@ -341,35 +358,86 @@ export function TaskCreate() {
             <PriorityToggle value={priority} onChange={setPriority} />
           </Field>
 
-          <Field label="Branch">
-            <div className="flex items-center gap-2">
-              <GitBranch size={14} className="text-dim shrink-0" />
-              <input
-                type="text"
-                value={effectiveBranch}
-                onChange={(e) => {
-                  setBranch(e.target.value);
-                  setBranchDirty(true);
-                }}
-                onKeyDown={handleInputEsc}
-                disabled={createMutation.isPending}
-                placeholder="auto-generated from title"
-                className="flex-1 px-2 py-1.5 text-sm font-mono border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-accent placeholder:text-dim"
-              />
-              {branchDirty && (
+          {isInProgressCreate && (
+            <Field label="Branch source">
+              <div className="inline-flex items-center gap-1 rounded-lg border border-subtle bg-primary p-1">
                 <button
                   type="button"
-                  onClick={() => {
-                    setBranch(autoBranch);
-                    setBranchDirty(false);
-                  }}
-                  className="text-[10px] text-dim hover:text-[var(--color-text-primary)] shrink-0"
+                  onClick={() => setBranchMode('create_from_default')}
+                  disabled={createMutation.isPending}
+                  className={`px-2.5 py-1 text-xs rounded-md transition ${
+                    branchMode === 'create_from_default'
+                      ? 'bg-[var(--color-accent-soft)] text-[var(--color-text-primary)]'
+                      : 'text-dim hover:text-[var(--color-text-primary)]'
+                  }`}
                 >
-                  reset
+                  Create from default
                 </button>
-              )}
-            </div>
-            <p className="text-[11px] text-dim mt-1">Colon separators are converted to path separators.</p>
+                <button
+                  type="button"
+                  onClick={() => setBranchMode('adopt_existing')}
+                  disabled={createMutation.isPending}
+                  className={`px-2.5 py-1 text-xs rounded-md transition ${
+                    branchMode === 'adopt_existing'
+                      ? 'bg-[var(--color-accent-soft)] text-[var(--color-text-primary)]'
+                      : 'text-dim hover:text-[var(--color-text-primary)]'
+                  }`}
+                >
+                  Adopt existing
+                </button>
+              </div>
+              <p className="text-[11px] text-dim mt-1">
+                {branchMode === 'adopt_existing'
+                  ? 'Adopts an existing local/origin branch and fails if it cannot be found.'
+                  : 'Creates a new branch from the project default branch.'}
+              </p>
+            </Field>
+          )}
+
+          <Field label="Branch">
+            {isInProgressCreate && branchMode === 'adopt_existing' ? (
+              <>
+                <BranchSearchSelect
+                  branches={projectBranches}
+                  value={adoptBranch}
+                  onChange={setAdoptBranch}
+                  disabled={createMutation.isPending || !projectId}
+                  loading={loadingProjectBranches}
+                />
+                <p className="text-[11px] text-dim mt-1">Pick an existing branch from local/origin refs.</p>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  <GitBranch size={14} className="text-dim shrink-0" />
+                  <input
+                    type="text"
+                    value={effectiveCreateBranch}
+                    onChange={(e) => {
+                      setCreateBranch(e.target.value);
+                      setCreateBranchDirty(true);
+                    }}
+                    onKeyDown={handleInputEsc}
+                    disabled={createMutation.isPending}
+                    placeholder="auto-generated from title"
+                    className="flex-1 px-2 py-1.5 text-sm font-mono border border-subtle bg-primary text-[var(--color-text-primary)] rounded-md focus:outline-none focus:border-accent placeholder:text-dim"
+                  />
+                  {createBranchDirty && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCreateBranch(autoCreateBranch);
+                        setCreateBranchDirty(false);
+                      }}
+                      className="text-[10px] text-dim hover:text-[var(--color-text-primary)] shrink-0"
+                    >
+                      reset
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-dim mt-1">Colon separators are converted to path separators.</p>
+              </>
+            )}
           </Field>
 
           <Field label="Labels">

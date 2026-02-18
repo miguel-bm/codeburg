@@ -146,6 +146,15 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if input.BranchMode != nil {
+		switch *input.BranchMode {
+		case db.TaskBranchModeAdoptExisting, db.TaskBranchModeCreateFromDefault:
+		default:
+			writeError(w, http.StatusBadRequest, "invalid branchMode")
+			return
+		}
+	}
+
 	// Get current task to check status transition
 	currentTask, err := s.db.GetTask(id)
 	if err != nil {
@@ -172,6 +181,10 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 		if currentTask.WorktreePath == nil || *currentTask.WorktreePath == "" {
 			warnings, err := s.autoCreateWorktree(currentTask, &input)
 			if err != nil {
+				if isExplicitAdoptMode(input.BranchMode) {
+					writeError(w, http.StatusConflict, "failed to create worktree: "+err.Error())
+					return
+				}
 				slog.Warn("failed to auto-create worktree", "task_id", id, "error", err)
 				worktreeWarnings = append(worktreeWarnings, "failed to create worktree: "+err.Error())
 			} else {
@@ -308,9 +321,10 @@ func (s *Server) autoCreateWorktree(task *db.Task, input *db.UpdateTaskInput) (w
 	}
 
 	branchName := strings.TrimSpace(ptrToString(task.Branch))
-	// A non-empty task branch name does not always mean "adopt existing branch".
-	// Treat it as adopt mode only when the ref actually exists locally or remotely.
-	adoptBranch := branchName != "" && (gitRefExists(project.Path, branchName) || gitRefExists(project.Path, "origin/"+branchName))
+	adoptBranch, err := resolveAdoptMode(project.Path, branchName, input.BranchMode)
+	if err != nil {
+		return nil, err
+	}
 
 	result, err := s.worktree.Create(worktree.CreateOptions{
 		ProjectPath:  project.Path,
@@ -334,6 +348,43 @@ func (s *Server) autoCreateWorktree(task *db.Task, input *db.UpdateTaskInput) (w
 	input.Branch = &result.BranchName
 
 	return result.Warnings, nil
+}
+
+func isExplicitAdoptMode(mode *db.TaskBranchMode) bool {
+	return mode != nil && *mode == db.TaskBranchModeAdoptExisting
+}
+
+func resolveAdoptMode(repoPath, branchName string, mode *db.TaskBranchMode) (bool, error) {
+	branchName = strings.TrimSpace(branchName)
+	if mode == nil {
+		// Backward-compatible behavior: infer adopt mode from existing refs.
+		return branchName != "" && (gitRefExists(repoPath, branchName) || gitRefExists(repoPath, "origin/"+branchName)), nil
+	}
+
+	switch *mode {
+	case db.TaskBranchModeCreateFromDefault:
+		return false, nil
+	case db.TaskBranchModeAdoptExisting:
+		if branchName == "" {
+			return false, fmt.Errorf("branch is required when branchMode is adopt_existing")
+		}
+
+		// Fetch first so adopt checks use fresh origin refs.
+		fetchCmd := exec.Command("git", "fetch", "--prune")
+		fetchCmd.Dir = repoPath
+		if output, err := fetchCmd.CombinedOutput(); err != nil {
+			if !gitRefExists(repoPath, branchName) {
+				return false, fmt.Errorf("could not refresh remote refs and branch '%s' is not local: %s", branchName, strings.TrimSpace(string(output)))
+			}
+		}
+
+		if gitRefExists(repoPath, branchName) || gitRefExists(repoPath, "origin/"+branchName) {
+			return true, nil
+		}
+		return false, fmt.Errorf("branch '%s' not found locally or on origin", branchName)
+	default:
+		return false, fmt.Errorf("invalid branchMode")
+	}
 }
 
 func gitRefExists(repoPath, ref string) bool {
