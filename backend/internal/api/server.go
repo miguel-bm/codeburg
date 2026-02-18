@@ -302,6 +302,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/tasks/{id}/git/commit", s.handleGitCommit)
 		r.Post("/api/tasks/{id}/git/pull", s.handleGitPull)
 		r.Post("/api/tasks/{id}/git/push", s.handleGitPush)
+		r.Post("/api/tasks/{id}/git/rebase-home", s.handleGitRebaseHome)
 		r.Post("/api/tasks/{id}/git/stash", s.handleGitStash)
 		r.Get("/api/tasks/{id}/git/log", s.handleGitLog)
 

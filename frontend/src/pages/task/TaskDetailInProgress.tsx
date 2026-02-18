@@ -18,8 +18,9 @@ interface Props {
 
 export function TaskDetailInProgress({ task, project }: Props) {
   const queryClient = useQueryClient();
-  const [toast, setToast] = useState<{ type: 'warning' | 'error'; message: string } | null>(null);
+  const [toast, setToast] = useState<{ type: 'success' | 'warning' | 'error'; message: string } | null>(null);
   const [dirtyConfirm, setDirtyConfirm] = useState<{ staged: number; unstaged: number; untracked: number } | null>(null);
+  const homeBranch = project?.defaultBranch || 'main';
 
   const updateTask = useMutation({
     mutationFn: (input: Parameters<typeof tasksApi.update>[1]) =>
@@ -45,6 +46,22 @@ export function TaskDetailInProgress({ task, project }: Props) {
     setDirtyConfirm(null);
     updateTask.mutate({ status: TASK_STATUS.IN_REVIEW });
   };
+
+  const rebaseHome = useMutation({
+    mutationFn: () => gitApi.rebaseHome(task.id),
+    onSuccess: () => {
+      invalidateTaskQueries(queryClient, task.id);
+      setToast({ type: 'success', message: `Rebased cleanly onto origin/${homeBranch}.` });
+    },
+    onError: (error) => {
+      setToast({
+        type: 'warning',
+        message: error instanceof Error
+          ? error.message
+          : `Could not rebase onto origin/${homeBranch}.`,
+      });
+    },
+  });
 
   const handleMoveToReview = async () => {
     try {
@@ -77,11 +94,21 @@ export function TaskDetailInProgress({ task, project }: Props) {
           actions={
             <>
               {task.worktreePath && <OpenInEditorButton worktreePath={task.worktreePath} />}
+              {task.worktreePath && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => rebaseHome.mutate()}
+                  disabled={updateTask.isPending || rebaseHome.isPending}
+                >
+                  Rebase on origin/{homeBranch}
+                </Button>
+              )}
               <Button
                 variant="primary"
                 size="sm"
                 onClick={handleMoveToReview}
-                disabled={updateTask.isPending}
+                disabled={updateTask.isPending || rebaseHome.isPending}
               >
                 Review
               </Button>
@@ -91,7 +118,13 @@ export function TaskDetailInProgress({ task, project }: Props) {
 
         <ActionToast
           toast={toast}
-          title={toast?.type === 'error' ? 'Task Update Failed' : 'Task Update Warning'}
+          title={
+            toast?.type === 'success'
+              ? 'Git Updated'
+              : toast?.type === 'error'
+                ? 'Task Update Failed'
+                : 'Task Update Warning'
+          }
           onDismiss={() => setToast(null)}
         />
 

@@ -89,6 +89,9 @@ export const gitApi = {
   push: (taskId: string) =>
     api.post<void>(`/tasks/${taskId}/git/push`),
 
+  rebaseHome: (taskId: string) =>
+    api.post<void>(`/tasks/${taskId}/git/rebase-home`),
+
   stash: (taskId: string, action: 'push' | 'pop' | 'list') =>
     api.post<GitStashResponse>(`/tasks/${taskId}/git/stash`, { action }),
 };

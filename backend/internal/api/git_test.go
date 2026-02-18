@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/miguel-bm/codeburg/internal/db"
@@ -74,6 +75,35 @@ func createTaskWithWorktree(t *testing.T, env *testEnv) (string, string) {
 	})
 
 	return task.ID, repoPath
+}
+
+func createTaskWithRepoWorktree(t *testing.T, env *testEnv, repoPath string) string {
+	t.Helper()
+
+	projResp := env.post("/api/projects", map[string]string{
+		"name": "git-test-proj-" + db.NewID(),
+		"path": repoPath,
+	})
+	if projResp.Code != http.StatusCreated {
+		t.Fatalf("create project: %d %s", projResp.Code, projResp.Body.String())
+	}
+	var project db.Project
+	decodeResponse(t, projResp, &project)
+
+	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
+		"title": "Git Test Task",
+	})
+	if taskResp.Code != http.StatusCreated {
+		t.Fatalf("create task: %d %s", taskResp.Code, taskResp.Body.String())
+	}
+	var task db.Task
+	decodeResponse(t, taskResp, &task)
+
+	env.server.db.UpdateTask(task.ID, db.UpdateTaskInput{
+		WorktreePath: &repoPath,
+	})
+
+	return task.ID
 }
 
 // --- Pure parsing tests (table-driven, no HTTP) ---
@@ -647,5 +677,100 @@ func TestGitStash_InvalidAction(t *testing.T) {
 	json.Unmarshal(resp.Body.Bytes(), &body)
 	if body["error"] != "invalid action: must be push, pop, or list" {
 		t.Errorf("unexpected error: %q", body["error"])
+	}
+}
+
+func TestGitRebaseHome_CleanRebase(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepoWithMain(t)
+	remotePath := filepath.Join(t.TempDir(), "remote.git")
+	gitExecHelper(t, t.TempDir(), "init", "--bare", remotePath)
+
+	gitExecHelper(t, repoPath, "remote", "add", "origin", remotePath)
+	gitExecHelper(t, repoPath, "push", "-u", "origin", "main")
+
+	// Create task branch with local work.
+	gitExecHelper(t, repoPath, "checkout", "-b", "feature/rebase-clean")
+	if err := os.WriteFile(filepath.Join(repoPath, "feature.txt"), []byte("feature\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	gitExecHelper(t, repoPath, "add", "feature.txt")
+	gitExecHelper(t, repoPath, "commit", "-m", "feature commit")
+
+	// Advance origin/main with a non-conflicting commit.
+	clonePath := t.TempDir()
+	gitExecHelper(t, t.TempDir(), "clone", remotePath, clonePath)
+	gitExecHelper(t, clonePath, "config", "user.email", "test@test.com")
+	gitExecHelper(t, clonePath, "config", "user.name", "Test")
+	gitExecHelper(t, clonePath, "checkout", "main")
+	if err := os.WriteFile(filepath.Join(clonePath, "README.md"), []byte("# Updated on main\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	gitExecHelper(t, clonePath, "add", "README.md")
+	gitExecHelper(t, clonePath, "commit", "-m", "main update")
+	gitExecHelper(t, clonePath, "push", "origin", "main")
+
+	taskID := createTaskWithRepoWorktree(t, env, repoPath)
+	resp := env.post("/api/tasks/"+taskID+"/git/rebase-home", map[string]string{})
+	if resp.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	baseOut, err := exec.Command("git", "-C", repoPath, "merge-base", "HEAD", "origin/main").CombinedOutput()
+	if err != nil {
+		t.Fatalf("merge-base failed: %v (%s)", err, string(baseOut))
+	}
+	originOut, err := exec.Command("git", "-C", repoPath, "rev-parse", "origin/main").CombinedOutput()
+	if err != nil {
+		t.Fatalf("rev-parse origin/main failed: %v (%s)", err, string(originOut))
+	}
+	if strings.TrimSpace(string(baseOut)) != strings.TrimSpace(string(originOut)) {
+		t.Fatalf("expected HEAD to be rebased onto origin/main")
+	}
+}
+
+func TestGitRebaseHome_ConflictAbortsAndReturnsConflict(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+
+	repoPath := createTestGitRepoWithMain(t)
+	remotePath := filepath.Join(t.TempDir(), "remote.git")
+	gitExecHelper(t, t.TempDir(), "init", "--bare", remotePath)
+
+	gitExecHelper(t, repoPath, "remote", "add", "origin", remotePath)
+	gitExecHelper(t, repoPath, "push", "-u", "origin", "main")
+
+	// Create conflicting feature commit.
+	gitExecHelper(t, repoPath, "checkout", "-b", "feature/rebase-conflict")
+	if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("feature change\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	gitExecHelper(t, repoPath, "add", "README.md")
+	gitExecHelper(t, repoPath, "commit", "-m", "feature conflicting change")
+
+	// Advance origin/main with conflicting change.
+	clonePath := t.TempDir()
+	gitExecHelper(t, t.TempDir(), "clone", remotePath, clonePath)
+	gitExecHelper(t, clonePath, "config", "user.email", "test@test.com")
+	gitExecHelper(t, clonePath, "config", "user.name", "Test")
+	gitExecHelper(t, clonePath, "checkout", "main")
+	if err := os.WriteFile(filepath.Join(clonePath, "README.md"), []byte("main change\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	gitExecHelper(t, clonePath, "add", "README.md")
+	gitExecHelper(t, clonePath, "commit", "-m", "main conflicting change")
+	gitExecHelper(t, clonePath, "push", "origin", "main")
+
+	taskID := createTaskWithRepoWorktree(t, env, repoPath)
+	resp := env.post("/api/tasks/"+taskID+"/git/rebase-home", map[string]string{})
+	if resp.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	// Ensure no active rebase state remains.
+	if out, err := exec.Command("git", "-C", repoPath, "rev-parse", "--verify", "REBASE_HEAD").CombinedOutput(); err == nil {
+		t.Fatalf("expected no active rebase, found REBASE_HEAD: %s", strings.TrimSpace(string(out)))
 	}
 }

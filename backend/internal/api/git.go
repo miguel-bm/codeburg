@@ -14,7 +14,6 @@ import (
 	"time"
 )
 
-
 // Git operation response types
 
 type GitFileEntry struct {
@@ -25,14 +24,14 @@ type GitFileEntry struct {
 }
 
 type GitStatusResponse struct {
-	Branch    string         `json:"branch"`
-	Upstream  string         `json:"upstream,omitempty"`
-	HasUpstream bool         `json:"hasUpstream"`
-	Ahead     int            `json:"ahead"`
-	Behind    int            `json:"behind"`
-	Staged    []GitFileEntry `json:"staged"`
-	Unstaged  []GitFileEntry `json:"unstaged"`
-	Untracked []string       `json:"untracked"`
+	Branch      string         `json:"branch"`
+	Upstream    string         `json:"upstream,omitempty"`
+	HasUpstream bool           `json:"hasUpstream"`
+	Ahead       int            `json:"ahead"`
+	Behind      int            `json:"behind"`
+	Staged      []GitFileEntry `json:"staged"`
+	Unstaged    []GitFileEntry `json:"unstaged"`
+	Untracked   []string       `json:"untracked"`
 }
 
 type GitDiffResponse struct {
@@ -63,16 +62,16 @@ type GitPushRequest struct {
 }
 
 type GitLogEntry struct {
-	Hash       string `json:"hash"`
-	ShortHash  string `json:"shortHash"`
-	Message    string `json:"message"`
-	Body       string `json:"body,omitempty"`
-	Author     string `json:"author"`
-	AuthorEmail string `json:"authorEmail"`
-	Date       string `json:"date"`
-	FilesChanged int  `json:"filesChanged"`
-	Additions  int    `json:"additions"`
-	Deletions  int    `json:"deletions"`
+	Hash         string `json:"hash"`
+	ShortHash    string `json:"shortHash"`
+	Message      string `json:"message"`
+	Body         string `json:"body,omitempty"`
+	Author       string `json:"author"`
+	AuthorEmail  string `json:"authorEmail"`
+	Date         string `json:"date"`
+	FilesChanged int    `json:"filesChanged"`
+	Additions    int    `json:"additions"`
+	Deletions    int    `json:"deletions"`
 }
 
 type GitLogResponse struct {
@@ -677,6 +676,48 @@ func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleGitRebaseHome(w http.ResponseWriter, r *http.Request) {
+	taskID := urlParam(r, "id")
+
+	task, err := s.db.GetTask(taskID)
+	if err != nil {
+		writeDBError(w, err, "task")
+		return
+	}
+	if task.WorktreePath == nil || *task.WorktreePath == "" {
+		writeError(w, http.StatusBadRequest, "task has no worktree")
+		return
+	}
+	workDir := *task.WorktreePath
+
+	project, err := s.db.GetProject(task.ProjectID)
+	if err != nil {
+		writeDBError(w, err, "project")
+		return
+	}
+
+	baseBranch := strings.TrimSpace(project.DefaultBranch)
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
+	remoteBase := "origin/" + baseBranch
+
+	if _, err := runGit(workDir, "fetch", "--prune", "origin", baseBranch); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if _, err := runGit(workDir, "rebase", remoteBase); err != nil {
+		// Best-effort cleanup so the worktree is not left in a half-rebased state.
+		_, _ = runGit(workDir, "rebase", "--abort")
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+
+	s.diffStatsCache.Delete(taskID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
