@@ -58,6 +58,7 @@ export function ActivityBar() {
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         disabled={refreshState === 'loading'}
+        title={refreshTooltip}
         className={`inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors mb-1 ${
           refreshState === 'done'
             ? 'text-[var(--color-success)] bg-tertiary'
