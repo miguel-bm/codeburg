@@ -81,11 +81,29 @@ interface DiffContentProps {
   path: string;
 }
 
+const TIGHT_DIFF_WIDTH_PX = 1000;
+
+type DiffLayoutMode = 'split' | 'unified';
+
+export function getDiffLayoutMode(opts: {
+  isMobile: boolean;
+  containerWidth: number;
+  original: string;
+  modified: string;
+}): DiffLayoutMode {
+  const { isMobile, containerWidth, original, modified } = opts;
+  const isEntirelyNewFile = original.length === 0 && modified.length > 0;
+  const isTightWidth = containerWidth > 0 && containerWidth < TIGHT_DIFF_WIDTH_PX;
+  if (isMobile || isTightWidth || isEntirelyNewFile) return 'unified';
+  return 'split';
+}
+
 export function DiffContent({ original, modified, path }: DiffContentProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<{ destroy: () => void } | null>(null);
   const isMobile = useMobile();
   const [theme, setTheme] = useState<'dark' | 'light'>(() => getResolvedTheme());
+  const [containerWidth, setContainerWidth] = useState(0);
 
   useEffect(() => {
     return subscribeToThemeChange(({ resolvedTheme }) => {
@@ -112,13 +130,33 @@ export function DiffContent({ original, modified, path }: DiffContentProps) {
     const el = containerRef.current;
     if (!el) return;
 
+    const updateWidth = () => {
+      setContainerWidth(Math.floor(el.clientWidth));
+    };
+
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(el);
+
+    return () => observer.disconnect();
+  }, []);
+
+  const layoutMode = useMemo(
+    () => getDiffLayoutMode({ isMobile, containerWidth, original, modified }),
+    [isMobile, containerWidth, original, modified],
+  );
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
     // Clean up previous view
     if (viewRef.current) {
       viewRef.current.destroy();
       viewRef.current = null;
     }
 
-    if (isMobile) {
+    if (layoutMode === 'unified') {
       const unifiedView = new EditorView({
         state: EditorState.create({
           doc: modified,
@@ -159,7 +197,7 @@ export function DiffContent({ original, modified, path }: DiffContentProps) {
       viewRef.current?.destroy();
       viewRef.current = null;
     };
-  }, [original, modified, extensions, isMobile]);
+  }, [original, modified, extensions, layoutMode]);
 
   return (
     <div
