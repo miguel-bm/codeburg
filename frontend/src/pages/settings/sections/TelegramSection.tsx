@@ -7,19 +7,25 @@ import { SectionBody, SectionCard, SectionHeader } from '../../../components/ui/
 
 export function TelegramSection() {
   const [botToken, setBotToken] = useState('');
+  const [botTokenConfigured, setBotTokenConfigured] = useState(false);
+  const [botTokenDirty, setBotTokenDirty] = useState(false);
   const [telegramId, setTelegramId] = useState('');
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [openaiApiKeyConfigured, setOpenaiApiKeyConfigured] = useState(false);
+  const [openaiApiKeyDirty, setOpenaiApiKeyDirty] = useState(false);
+  const [llmModel, setLlmModel] = useState('gpt-4.1-mini');
   const [showSetup, setShowSetup] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     preferencesApi
-      .get<string>('telegram_bot_token')
+      .getConfigured('telegram_bot_token')
       .then((val) => {
-        if (val) setBotToken(String(val));
+        setBotTokenConfigured(val);
       })
       .catch(() => {
-        // Not set yet.
+        setBotTokenConfigured(false);
       });
 
     preferencesApi
@@ -30,14 +36,34 @@ export function TelegramSection() {
       .catch(() => {
         // Not set yet.
       });
+
+    preferencesApi
+      .getConfigured('telegram_openai_api_key')
+      .then((val) => {
+        setOpenaiApiKeyConfigured(val);
+      })
+      .catch(() => {
+        setOpenaiApiKeyConfigured(false);
+      });
+
+    preferencesApi
+      .get<string>('telegram_openai_model')
+      .then((val) => {
+        if (val) setLlmModel(String(val));
+      })
+      .catch(() => {
+        // Not set yet.
+      });
   }, []);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (botToken.trim()) {
-        await preferencesApi.set('telegram_bot_token', botToken.trim());
-      } else {
-        await preferencesApi.delete('telegram_bot_token').catch(() => {});
+      if (botTokenDirty) {
+        if (botToken.trim()) {
+          await preferencesApi.set('telegram_bot_token', botToken.trim());
+        } else {
+          await preferencesApi.delete('telegram_bot_token').catch(() => {});
+        }
       }
 
       if (telegramId.trim()) {
@@ -46,9 +72,31 @@ export function TelegramSection() {
         await preferencesApi.delete('telegram_user_id').catch(() => {});
       }
 
+      if (openaiApiKeyDirty) {
+        if (openaiApiKey.trim()) {
+          await preferencesApi.set('telegram_openai_api_key', openaiApiKey.trim());
+        } else {
+          await preferencesApi.delete('telegram_openai_api_key').catch(() => {});
+        }
+      }
+
+      if (llmModel.trim()) {
+        await preferencesApi.set('telegram_openai_model', llmModel.trim());
+      } else {
+        await preferencesApi.delete('telegram_openai_model').catch(() => {});
+      }
+
       await authApi.restartTelegramBot();
     },
     onSuccess: () => {
+      const hasBotToken = botToken.trim() !== '';
+      const hasOpenAIKey = openaiApiKey.trim() !== '';
+      setBotToken('');
+      setOpenaiApiKey('');
+      setBotTokenDirty(false);
+      setOpenaiApiKeyDirty(false);
+      if (botTokenDirty) setBotTokenConfigured(hasBotToken);
+      if (openaiApiKeyDirty) setOpenaiApiKeyConfigured(hasOpenAIKey);
       setSaved(true);
       setError('');
       setTimeout(() => setSaved(false), 3000);
@@ -122,11 +170,17 @@ export function TelegramSection() {
             <input
               type="password"
               value={botToken}
-              onChange={(e) => setBotToken(e.target.value)}
+              onChange={(e) => {
+                setBotToken(e.target.value);
+                setBotTokenDirty(true);
+              }}
               className={inputClass}
               placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v..."
               autoComplete="off"
             />
+            {botTokenConfigured && !botTokenDirty && (
+              <p className="text-xs text-dim mt-1.5">Bot token is already configured. Enter a new value to rotate it.</p>
+            )}
           </div>
 
           <div className="h-px bg-[var(--color-border)] -mx-5" />
@@ -141,6 +195,41 @@ export function TelegramSection() {
               placeholder="123456789"
             />
             <p className="text-xs text-dim mt-1.5">Only this user will be able to log in via Telegram</p>
+          </div>
+
+          <div className="h-px bg-[var(--color-border)] -mx-5" />
+
+          <div>
+            <label className="block text-sm text-dim mb-1.5">OpenAI API Key</label>
+            <input
+              type="password"
+              value={openaiApiKey}
+              onChange={(e) => {
+                setOpenaiApiKey(e.target.value);
+                setOpenaiApiKeyDirty(true);
+              }}
+              className={inputClass}
+              placeholder="sk-..."
+              autoComplete="off"
+            />
+            <p className="text-xs text-dim mt-1.5">
+              Used for non-command Telegram messages (OpenAI Responses + transcription).
+            </p>
+            {openaiApiKeyConfigured && !openaiApiKeyDirty && (
+              <p className="text-xs text-dim mt-1.5">OpenAI API key is already configured. Enter a new value to rotate it.</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm text-dim mb-1.5">OpenAI Model</label>
+            <input
+              type="text"
+              value={llmModel}
+              onChange={(e) => setLlmModel(e.target.value)}
+              className={inputClass}
+              placeholder="gpt-4.1-mini"
+              autoComplete="off"
+            />
           </div>
 
           <Button

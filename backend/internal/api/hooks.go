@@ -170,6 +170,9 @@ func (s *Server) handleSessionHook(w http.ResponseWriter, r *http.Request) {
 
 	// Broadcast status transition
 	s.broadcastSessionStatus(session.TaskID, sessionID, newStatus)
+	if newStatus == db.SessionStatusWaitingInput {
+		s.notifyTelegramSessionNeedsAttention(sessionID, session.TaskID, "agent is waiting for input")
+	}
 
 	// Invalidate diff stats cache when agent finishes work
 	if newStatus == db.SessionStatusWaitingInput || newStatus == db.SessionStatusCompleted {
