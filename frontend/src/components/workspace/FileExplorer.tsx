@@ -418,6 +418,8 @@ export function FileExplorer() {
                       value={createName}
                       onChange={(e) => setCreateName(e.target.value)}
                       onKeyDown={(e) => {
+                        // Keep typing isolated from tree-level keyboard shortcuts/typeahead.
+                        e.stopPropagation();
                         if (e.key === 'Enter') {
                           e.preventDefault();
                           handleCreateSubmit();
@@ -491,6 +493,8 @@ export function FileExplorer() {
                       value={renameValue}
                       onChange={(e) => setRenameValue(e.target.value)}
                       onKeyDown={(e) => {
+                        // Keep typing isolated from tree-level keyboard shortcuts/typeahead.
+                        e.stopPropagation();
                         if (e.key === 'Enter') {
                           e.preventDefault();
                           handleRenameSubmit(node.data.path);
