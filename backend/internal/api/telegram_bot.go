@@ -127,7 +127,8 @@ func (s *Server) handleTelegramMessage(ctx context.Context, msg telegram.Incomin
 	}
 	reply, err := s.telegramRunAssistant(ctx, msg)
 	if err != nil {
-		return "I could not process that right now. Check Telegram LLM settings and try again.", nil
+		slog.Warn("telegram assistant request failed", "chat_id", msg.ChatID, "error", err)
+		return s.telegramRenderAssistantError(err), nil
 	}
 	return reply, nil
 }
@@ -678,14 +679,44 @@ func shortID(id string) string {
 }
 
 type openAIToolDef struct {
-	Type     string              `json:"type"`
-	Function openAIToolDefDetail `json:"function"`
+	Type        string              `json:"type"`
+	Name        string              `json:"name,omitempty"`
+	Description string              `json:"description,omitempty"`
+	Parameters  map[string]any      `json:"parameters,omitempty"`
+	Function    openAIToolDefDetail `json:"function,omitempty"`
 }
 
 type openAIToolDefDetail struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitempty"`
 	Parameters  map[string]any `json:"parameters,omitempty"`
+}
+
+func (t openAIToolDef) MarshalJSON() ([]byte, error) {
+	name := strings.TrimSpace(t.Name)
+	if name == "" {
+		name = strings.TrimSpace(t.Function.Name)
+	}
+	description := strings.TrimSpace(t.Description)
+	if description == "" {
+		description = strings.TrimSpace(t.Function.Description)
+	}
+	parameters := t.Parameters
+	if len(parameters) == 0 {
+		parameters = t.Function.Parameters
+	}
+	wire := struct {
+		Type        string         `json:"type"`
+		Name        string         `json:"name,omitempty"`
+		Description string         `json:"description,omitempty"`
+		Parameters  map[string]any `json:"parameters,omitempty"`
+	}{
+		Type:        t.Type,
+		Name:        name,
+		Description: description,
+		Parameters:  parameters,
+	}
+	return json.Marshal(wire)
 }
 
 type openAIResponsesRequest struct {
@@ -760,12 +791,59 @@ func (s *Server) telegramRunAssistant(ctx context.Context, msg telegram.Incoming
 	tools := s.telegramAssistantTools()
 	httpClient := &http.Client{Timeout: 45 * time.Second}
 	endpoint := "https://api.openai.com/v1/responses"
-	previousResponseID := ""
+	var (
+		assistantText string
+		lastErr       error
+	)
+	for _, candidate := range telegramAssistantModelCandidates(model) {
+		assistantText, lastErr = s.telegramRunAssistantWithModel(ctx, httpClient, endpoint, apiKey, candidate, input, tools)
+		if lastErr == nil {
+			if strings.TrimSpace(assistantText) == "" {
+				assistantText = "Done."
+			}
+			s.telegramAssistantMemoryAppend(msg.ChatID, prompt, assistantText)
+			return assistantText, nil
+		}
+		slog.Warn("telegram assistant model attempt failed", "model", candidate, "error", lastErr)
+	}
+	return "", lastErr
+}
 
+func telegramAssistantModelCandidates(primary string) []string {
+	added := make(map[string]struct{}, 3)
+	out := make([]string, 0, 3)
+	add := func(v string) {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return
+		}
+		if _, ok := added[v]; ok {
+			return
+		}
+		added[v] = struct{}{}
+		out = append(out, v)
+	}
+	add(primary)
+	add("gpt-4.1-mini")
+	add("gpt-4o-mini")
+	return out
+}
+
+func (s *Server) telegramRunAssistantWithModel(
+	ctx context.Context,
+	httpClient *http.Client,
+	endpoint string,
+	apiKey string,
+	model string,
+	input any,
+	tools []openAIToolDef,
+) (string, error) {
+	currentInput := input
+	previousResponseID := ""
 	for i := 0; i < 6; i++ {
 		respMsg, err := s.telegramCallResponses(ctx, httpClient, endpoint, apiKey, openAIResponsesRequest{
 			Model:              model,
-			Input:              input,
+			Input:              currentInput,
 			Tools:              tools,
 			ToolChoice:         "auto",
 			Temperature:        0.2,
@@ -777,10 +855,6 @@ func (s *Server) telegramRunAssistant(ctx context.Context, msg telegram.Incoming
 		assistantText := flattenResponseOutputText(respMsg.Output)
 		toolCalls := responseFunctionCalls(respMsg.Output)
 		if len(toolCalls) == 0 {
-			if strings.TrimSpace(assistantText) == "" {
-				assistantText = "Done."
-			}
-			s.telegramAssistantMemoryAppend(msg.ChatID, prompt, assistantText)
 			return assistantText, nil
 		}
 
@@ -802,9 +876,9 @@ func (s *Server) telegramRunAssistant(ctx context.Context, msg telegram.Incoming
 		if len(toolOutputs) == 0 {
 			return "I could not execute the requested tools.", nil
 		}
-		input = toolOutputs
+		currentInput = toolOutputs
 	}
-	return "I hit the tool-call loop limit. Please retry.", nil
+	return "", fmt.Errorf("I hit the tool-call loop limit. Please retry.")
 }
 
 func (s *Server) telegramResolvePrompt(ctx context.Context, msg telegram.IncomingMessage, apiKey string) (string, error) {
@@ -1661,6 +1735,23 @@ func (s *Server) telegramRenderCommandError(err error) string {
 	default:
 		return "Request failed: " + msg
 	}
+}
+
+func (s *Server) telegramRenderAssistantError(err error) string {
+	msg := strings.TrimSpace(err.Error())
+	if msg == "" {
+		return "I could not process that right now. Check Telegram LLM settings and try again."
+	}
+	msg = strings.TrimPrefix(msg, "llm request failed:")
+	msg = strings.TrimPrefix(msg, "voice transcription failed:")
+	msg = strings.TrimSpace(msg)
+	if len(msg) > 320 {
+		msg = msg[:320] + "..."
+	}
+	if msg == "" {
+		return "I could not process that right now. Check Telegram LLM settings and try again."
+	}
+	return "I could not process that right now. " + msg
 }
 
 func (s *Server) notifyTelegramSessionNeedsAttention(sessionID, taskID, reason string) {

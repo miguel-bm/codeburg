@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,6 +93,29 @@ func TestFlattenResponseOutputText(t *testing.T) {
 	})
 	if got != "line 1\nline 2" {
 		t.Fatalf("unexpected flattened content: %q", got)
+	}
+}
+
+func TestOpenAIToolDefMarshalJSONUsesResponsesShape(t *testing.T) {
+	raw, err := json.Marshal(openAIToolDef{
+		Type: "function",
+		Function: openAIToolDefDetail{
+			Name:        "list_projects",
+			Description: "List available projects",
+			Parameters: map[string]any{
+				"type": "object",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal tool def: %v", err)
+	}
+	body := string(raw)
+	if !strings.Contains(body, `"name":"list_projects"`) {
+		t.Fatalf("expected top-level name in tool payload, got: %s", body)
+	}
+	if strings.Contains(body, `"function":{`) {
+		t.Fatalf("did not expect nested function field in Responses payload: %s", body)
 	}
 }
 
