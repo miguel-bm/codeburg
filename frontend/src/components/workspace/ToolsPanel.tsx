@@ -4,9 +4,11 @@ import { Copy, ExternalLink, Play, Plus, Square, Terminal } from 'lucide-react';
 import { useWorkspaceRecipes } from '../../hooks/useWorkspaceRecipes';
 import { useWorkspaceTunnels } from '../../hooks/useWorkspaceTunnels';
 import { useWorkspaceSessions } from '../../hooks/useWorkspaceSessions';
+import { useMobile } from '../../hooks/useMobile';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { useLongPress } from '../../hooks/useLongPress';
 import { ContextMenu } from '../ui/ContextMenu';
+import { Modal } from '../ui/Modal';
 import type { Recipe } from '../../api/workspace';
 import type { ContextMenuItem } from '../ui/ContextMenu';
 
@@ -14,20 +16,27 @@ export function ToolsPanel() {
   const { recipes, isLoading: recipesLoading } = useWorkspaceRecipes();
   const { tunnels, isLoading: tunnelsLoading, createTunnel, isCreating, stopTunnel } = useWorkspaceTunnels();
   const { startSession } = useWorkspaceSessions();
-  const { openSession } = useWorkspaceStore();
+  const { openSession, setActivePanel } = useWorkspaceStore();
+  const isMobile = useMobile();
   const [showPortInput, setShowPortInput] = useState(false);
   const [port, setPort] = useState('');
   const [runningRecipe, setRunningRecipe] = useState<string | null>(null);
+  const [pendingRecipe, setPendingRecipe] = useState<Recipe | null>(null);
 
   // Draggable divider state
   const [splitFraction, setSplitFraction] = useState(0.5);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const handleRunRecipe = async (command: string) => {
-    setRunningRecipe(command);
+  const handleConfirmRunRecipe = async () => {
+    if (!pendingRecipe) return;
+    setRunningRecipe(pendingRecipe.command);
     try {
-      const session = await startSession({ provider: 'terminal', prompt: command });
+      const session = await startSession({ provider: 'terminal', prompt: pendingRecipe.command });
       openSession(session.id);
+      if (isMobile) {
+        setActivePanel(null);
+      }
+      setPendingRecipe(null);
     } finally {
       setRunningRecipe(null);
     }
@@ -109,7 +118,7 @@ export function ToolsPanel() {
                 key={`${recipe.source}:${recipe.name}`}
                 recipe={recipe}
                 isRunning={runningRecipe === recipe.command}
-                onRun={() => handleRunRecipe(recipe.command)}
+                onRun={() => setPendingRecipe(recipe)}
               />
             ))}
           </div>
@@ -173,6 +182,46 @@ export function ToolsPanel() {
           />
         ))}
       </div>
+
+      <Modal
+        open={!!pendingRecipe}
+        onClose={() => {
+          if (!runningRecipe) setPendingRecipe(null);
+        }}
+        title="Run recipe?"
+        size="sm"
+        footer={(
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setPendingRecipe(null)}
+              disabled={!!runningRecipe}
+              className="px-3 py-1.5 text-xs rounded-md border border-subtle text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => { void handleConfirmRunRecipe(); }}
+              disabled={!!runningRecipe}
+              className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-dim transition-colors disabled:opacity-50"
+            >
+              {runningRecipe ? 'Starting...' : 'Run recipe'}
+            </button>
+          </div>
+        )}
+      >
+        <div className="px-5 py-4 space-y-2">
+          <p className="text-xs text-[var(--color-text-primary)]">
+            Start a terminal session for <span className="font-mono text-accent">{pendingRecipe?.name}</span>?
+          </p>
+          {pendingRecipe?.command && (
+            <pre className="text-[11px] font-mono text-[var(--color-text-primary)] bg-secondary rounded px-2 py-1 whitespace-pre-wrap break-all">
+              {pendingRecipe.command}
+            </pre>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }
