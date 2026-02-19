@@ -15,6 +15,7 @@ fi
 export PATH="/usr/local/go/bin:/usr/local/bin:/usr/bin:$HOME/go/bin:$PATH"
 export GOTOOLCHAIN=auto
 export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+export CI=true
 
 cd "$TARGET_DIR"
 
