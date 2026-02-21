@@ -529,6 +529,58 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, session)
 }
 
+type UpdateSessionRequest struct {
+	DisplayName *string `json:"displayName"`
+}
+
+func (s *Server) handleUpdateSession(w http.ResponseWriter, r *http.Request) {
+	id := urlParam(r, "id")
+
+	// Ensure session exists.
+	if _, err := s.db.GetSession(id); err != nil {
+		writeDBError(w, err, "session")
+		return
+	}
+
+	var req UpdateSessionRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.DisplayName == nil {
+		writeError(w, http.StatusBadRequest, "displayName is required")
+		return
+	}
+
+	name := strings.TrimSpace(*req.DisplayName)
+	if len(name) > 80 {
+		writeError(w, http.StatusBadRequest, "displayName must be 80 characters or fewer")
+		return
+	}
+
+	updated, err := s.db.UpdateSession(id, db.UpdateSessionInput{
+		DisplayName: &name,
+	})
+	if err != nil {
+		writeDBError(w, err, "session")
+		return
+	}
+
+	if updated.TaskID != "" {
+		s.wsHub.BroadcastToTask(updated.TaskID, "session_updated", map[string]any{
+			"sessionId":   updated.ID,
+			"displayName": updated.DisplayName,
+		})
+	}
+	s.wsHub.BroadcastGlobal("sidebar_update", map[string]string{
+		"taskId":    updated.TaskID,
+		"sessionId": updated.ID,
+	})
+
+	writeJSON(w, http.StatusOK, updated)
+}
+
 // SendMessageRequest contains the request body for sending a message
 type SendMessageRequest struct {
 	Content string `json:"content"`

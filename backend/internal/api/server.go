@@ -297,6 +297,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/tasks/{taskId}/sessions", s.handleListSessions)
 		r.Post("/api/tasks/{taskId}/sessions", s.handleStartSession)
 		r.Get("/api/sessions/{id}", s.handleGetSession)
+		r.Patch("/api/sessions/{id}", s.handleUpdateSession)
 		r.Post("/api/sessions/{id}/message", s.handleSendMessage)
 		r.Post("/api/sessions/{id}/stop", s.handleStopSession)
 		r.Delete("/api/sessions/{id}", s.handleDeleteSession)

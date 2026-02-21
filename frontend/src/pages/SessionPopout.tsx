@@ -5,6 +5,7 @@ import { Terminal } from 'lucide-react';
 import { sessionsApi } from '../api';
 import { SessionView } from '../components/session';
 import type { SessionStatus } from '../api';
+import { sessionLabel } from '../lib/sessionLabel';
 
 function statusLabel(status: SessionStatus): string {
   switch (status) {
@@ -93,7 +94,7 @@ export function SessionPopout() {
 
     const unread = unreadUpdate ? '[●] ' : '';
     const waiting = session.status === 'waiting_input' ? '[Waiting] ' : '';
-    document.title = `${unread}${waiting}${statusLabel(session.status)} · ${session.provider} · ${session.id.slice(0, 8)} · Codeburg`;
+    document.title = `${unread}${waiting}${statusLabel(session.status)} · ${sessionLabel(session)} · Codeburg`;
   }, [id, isError, isLoading, session, unreadUpdate]);
 
   if (isLoading) {

@@ -314,4 +314,11 @@ var migrations = []migration{
 			CREATE INDEX idx_agent_messages_session_seq ON agent_messages(session_id, seq);
 		`,
 	},
+	{
+		version: 17,
+		sql: `
+			-- Optional user-defined name for session labels
+			ALTER TABLE agent_sessions ADD COLUMN display_name TEXT;
+		`,
+	},
 }

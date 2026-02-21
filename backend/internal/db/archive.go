@@ -9,14 +9,14 @@ import (
 
 // ProjectArchive contains all data associated with a project for export/import.
 type ProjectArchive struct {
-	Version          int                   `json:"version"`
-	ArchivedAt       time.Time             `json:"archivedAt"`
-	Project          *Project              `json:"project"`
-	Tasks            []*ArchiveTask        `json:"tasks"`
-	Labels           []*Label              `json:"labels"`
-	LabelAssignments []LabelAssignment     `json:"labelAssignments"`
-	TaskDependencies []TaskDependency      `json:"taskDependencies"`
-	Sessions         []*ArchiveSession     `json:"sessions"`
+	Version          int               `json:"version"`
+	ArchivedAt       time.Time         `json:"archivedAt"`
+	Project          *Project          `json:"project"`
+	Tasks            []*ArchiveTask    `json:"tasks"`
+	Labels           []*Label          `json:"labels"`
+	LabelAssignments []LabelAssignment `json:"labelAssignments"`
+	TaskDependencies []TaskDependency  `json:"taskDependencies"`
+	Sessions         []*ArchiveSession `json:"sessions"`
 }
 
 // ArchiveTask is a Task with all fields serialized for archival (no Labels slice—assignments stored separately).
@@ -43,6 +43,7 @@ type ArchiveSession struct {
 	ID                string        `json:"id"`
 	TaskID            string        `json:"taskId"`
 	Provider          string        `json:"provider"`
+	DisplayName       *string       `json:"displayName,omitempty"`
 	SessionType       string        `json:"sessionType"`
 	ProviderSessionID *string       `json:"providerSessionId,omitempty"`
 	Status            SessionStatus `json:"status"`
@@ -192,9 +193,9 @@ func (db *DB) ImportProjectArchive(archive *ProjectArchive) error {
 	// Insert sessions
 	for _, s := range archive.Sessions {
 		_, err = tx.Exec(`
-			INSERT INTO agent_sessions (id, task_id, provider, session_type, provider_session_id, status, log_file, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, s.ID, s.TaskID, s.Provider, s.SessionType,
+			INSERT INTO agent_sessions (id, task_id, provider, display_name, session_type, provider_session_id, status, log_file, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, s.ID, s.TaskID, s.Provider, NullString(s.DisplayName), s.SessionType,
 			NullString(s.ProviderSessionID), s.Status, NullString(s.LogFile),
 			s.CreatedAt, s.UpdatedAt)
 		if err != nil {
@@ -289,7 +290,7 @@ func (db *DB) listAllSessionsForTasks(taskIDs []string) ([]*ArchiveSession, erro
 	if len(taskIDs) == 0 {
 		return nil, nil
 	}
-	query := `SELECT id, task_id, provider, session_type, provider_session_id, status, log_file, created_at, updated_at
+	query := `SELECT id, task_id, provider, display_name, session_type, provider_session_id, status, log_file, created_at, updated_at
 		FROM agent_sessions WHERE task_id IN (?` + repeatPlaceholders(len(taskIDs)-1) + `) ORDER BY created_at`
 	rows, err := db.conn.Query(query, toAnySlice(taskIDs)...)
 	if err != nil {
@@ -300,10 +301,11 @@ func (db *DB) listAllSessionsForTasks(taskIDs []string) ([]*ArchiveSession, erro
 	sessions := make([]*ArchiveSession, 0)
 	for rows.Next() {
 		var s ArchiveSession
-		var providerSessID, logFile sql.NullString
-		if err := rows.Scan(&s.ID, &s.TaskID, &s.Provider, &s.SessionType, &providerSessID, &s.Status, &logFile, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		var displayName, providerSessID, logFile sql.NullString
+		if err := rows.Scan(&s.ID, &s.TaskID, &s.Provider, &displayName, &s.SessionType, &providerSessID, &s.Status, &logFile, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, err
 		}
+		s.DisplayName = StringPtr(displayName)
 		s.ProviderSessionID = StringPtr(providerSessID)
 		s.LogFile = StringPtr(logFile)
 		sessions = append(sessions, &s)

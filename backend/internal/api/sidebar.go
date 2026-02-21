@@ -27,12 +27,12 @@ type SidebarProject struct {
 }
 
 type SidebarTask struct {
-	ID        string          `json:"id"`
-	Title     string          `json:"title"`
-	Status    db.TaskStatus   `json:"status"`
-	Branch    *string         `json:"branch,omitempty"`
-	PRURL     *string         `json:"prUrl,omitempty"`
-	DiffStats *DiffStats      `json:"diffStats,omitempty"`
+	ID        string           `json:"id"`
+	Title     string           `json:"title"`
+	Status    db.TaskStatus    `json:"status"`
+	Branch    *string          `json:"branch,omitempty"`
+	PRURL     *string          `json:"prUrl,omitempty"`
+	DiffStats *DiffStats       `json:"diffStats,omitempty"`
 	Sessions  []SidebarSession `json:"sessions"`
 }
 
@@ -42,10 +42,11 @@ type DiffStats struct {
 }
 
 type SidebarSession struct {
-	ID       string           `json:"id"`
-	Provider string           `json:"provider"`
-	Status   db.SessionStatus `json:"status"`
-	Number   int              `json:"number"`
+	ID          string           `json:"id"`
+	Provider    string           `json:"provider"`
+	DisplayName *string          `json:"displayName,omitempty"`
+	Status      db.SessionStatus `json:"status"`
+	Number      int              `json:"number"`
 }
 
 // diffStatsCache is an in-memory cache for diff stats with TTL
@@ -230,10 +231,11 @@ func (s *Server) handleSidebar(w http.ResponseWriter, r *http.Request) {
 		// Project-level sessions (no task)
 		for i, sess := range sessionsByProject[p.ID] {
 			sp.Sessions = append(sp.Sessions, SidebarSession{
-				ID:       sess.ID,
-				Provider: sess.Provider,
-				Status:   sess.Status,
-				Number:   i + 1,
+				ID:          sess.ID,
+				Provider:    sess.Provider,
+				DisplayName: sess.DisplayName,
+				Status:      sess.Status,
+				Number:      i + 1,
 			})
 		}
 
@@ -252,10 +254,11 @@ func (s *Server) handleSidebar(w http.ResponseWriter, r *http.Request) {
 			taskSessions := sessionsByTask[t.ID]
 			for i, sess := range taskSessions {
 				st.Sessions = append(st.Sessions, SidebarSession{
-					ID:       sess.ID,
-					Provider: sess.Provider,
-					Status:   sess.Status,
-					Number:   i + 1,
+					ID:          sess.ID,
+					Provider:    sess.Provider,
+					DisplayName: sess.DisplayName,
+					Status:      sess.Status,
+					Number:      i + 1,
 				})
 			}
 

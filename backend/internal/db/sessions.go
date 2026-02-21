@@ -29,6 +29,7 @@ type AgentSession struct {
 	TaskID            string        `json:"taskId,omitempty"`
 	ProjectID         string        `json:"projectId"`
 	Provider          string        `json:"provider"`
+	DisplayName       *string       `json:"displayName,omitempty"`
 	SessionType       string        `json:"sessionType"`
 	ProviderSessionID *string       `json:"providerSessionId,omitempty"`
 	Status            SessionStatus `json:"status"`
@@ -54,6 +55,7 @@ type CreateSessionInput struct {
 // UpdateSessionInput contains fields for updating a session
 type UpdateSessionInput struct {
 	ProviderSessionID *string        `json:"providerSessionId,omitempty"`
+	DisplayName       *string        `json:"displayName,omitempty"`
 	Status            *SessionStatus `json:"status,omitempty"`
 	TmuxWindow        *string        `json:"tmuxWindow,omitempty"`
 	TmuxPane          *string        `json:"tmuxPane,omitempty"`
@@ -90,7 +92,7 @@ func (db *DB) CreateSession(input CreateSessionInput) (*AgentSession, error) {
 // GetSession retrieves a session by ID
 func (db *DB) GetSession(id string) (*AgentSession, error) {
 	row := db.conn.QueryRow(`
-		SELECT id, task_id, project_id, provider, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
+		SELECT id, task_id, project_id, provider, display_name, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
 		FROM agent_sessions WHERE id = ?
 	`, id)
 
@@ -104,7 +106,7 @@ func (db *DB) GetSession(id string) (*AgentSession, error) {
 // ListSessionsByTask retrieves all sessions for a task
 func (db *DB) ListSessionsByTask(taskID string) ([]*AgentSession, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, task_id, project_id, provider, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
+		SELECT id, task_id, project_id, provider, display_name, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
 		FROM agent_sessions WHERE task_id = ? ORDER BY created_at DESC
 	`, taskID)
 	if err != nil {
@@ -127,7 +129,7 @@ func (db *DB) ListSessionsByTask(taskID string) ([]*AgentSession, error) {
 // ListActiveSessions returns all sessions with active statuses (running, waiting_input, idle)
 func (db *DB) ListActiveSessions() ([]*AgentSession, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, task_id, project_id, provider, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
+		SELECT id, task_id, project_id, provider, display_name, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
 		FROM agent_sessions WHERE status IN (?, ?, ?) ORDER BY created_at
 	`, SessionStatusRunning, SessionStatusWaitingInput, SessionStatusIdle)
 	if err != nil {
@@ -155,6 +157,10 @@ func (db *DB) UpdateSession(id string, input UpdateSessionInput) (*AgentSession,
 	if input.ProviderSessionID != nil {
 		query += ", provider_session_id = ?"
 		args = append(args, *input.ProviderSessionID)
+	}
+	if input.DisplayName != nil {
+		query += ", display_name = ?"
+		args = append(args, *input.DisplayName)
 	}
 	if input.Status != nil {
 		query += ", status = ?"
@@ -217,7 +223,7 @@ func (db *DB) DeleteSession(id string) error {
 // GetActiveSessionForTask returns the most recent active session for a task
 func (db *DB) GetActiveSessionForTask(taskID string) (*AgentSession, error) {
 	row := db.conn.QueryRow(`
-		SELECT id, task_id, project_id, provider, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
+		SELECT id, task_id, project_id, provider, display_name, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
 		FROM agent_sessions
 		WHERE task_id = ? AND status IN (?, ?, ?)
 		ORDER BY created_at DESC LIMIT 1
@@ -233,7 +239,7 @@ func (db *DB) GetActiveSessionForTask(taskID string) (*AgentSession, error) {
 // ListSessionsByProject retrieves all sessions for a project (project-level only, no task)
 func (db *DB) ListSessionsByProject(projectID string) ([]*AgentSession, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, task_id, project_id, provider, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
+		SELECT id, task_id, project_id, provider, display_name, session_type, provider_session_id, status, tmux_window, tmux_pane, log_file, last_activity_at, created_at, updated_at
 		FROM agent_sessions WHERE project_id = ? AND task_id IS NULL ORDER BY created_at DESC
 	`, projectID)
 	if err != nil {
@@ -257,11 +263,11 @@ func scanSession(scan scanFunc) (*AgentSession, error) {
 	var s AgentSession
 	var taskID, projectID sql.NullString
 	var sessionType sql.NullString
-	var providerSessionID, tmuxWindow, tmuxPane, logFile sql.NullString
+	var displayName, providerSessionID, tmuxWindow, tmuxPane, logFile sql.NullString
 	var lastActivityAt sql.NullTime
 
 	err := scan(
-		&s.ID, &taskID, &projectID, &s.Provider, &sessionType, &providerSessionID, &s.Status,
+		&s.ID, &taskID, &projectID, &s.Provider, &displayName, &sessionType, &providerSessionID, &s.Status,
 		&tmuxWindow, &tmuxPane, &logFile, &lastActivityAt, &s.CreatedAt, &s.UpdatedAt,
 	)
 	if err != nil {
@@ -274,6 +280,7 @@ func scanSession(scan scanFunc) (*AgentSession, error) {
 	if projectID.Valid {
 		s.ProjectID = projectID.String
 	}
+	s.DisplayName = StringPtr(displayName)
 	s.SessionType = "terminal"
 	if sessionType.Valid && sessionType.String != "" {
 		s.SessionType = sessionType.String

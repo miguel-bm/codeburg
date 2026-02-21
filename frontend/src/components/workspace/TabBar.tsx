@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { FileText, Plus, RotateCcw, X, XCircle, ArrowRightToLine } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspace';
 import type { WorkspaceTab } from '../../stores/workspace';
@@ -13,6 +13,7 @@ import { useLongPress } from '../../hooks/useLongPress';
 import { ContextMenu } from '../ui/ContextMenu';
 import type { ContextMenuItem } from '../ui/ContextMenu';
 import type { AgentSession } from '../../api/sessions';
+import { buildSessionOrdinalMap, sessionLabel } from '../../lib/sessionLabel';
 
 function isEphemeralTab(tab: WorkspaceTab | undefined): tab is Extract<WorkspaceTab, { type: 'editor' | 'diff' }> {
   return !!tab && (tab.type === 'editor' || tab.type === 'diff') && tab.ephemeral === true;
@@ -28,6 +29,7 @@ function tabKey(tab: WorkspaceTab, index: number): string {
 function SessionTabLabel({ tab }: { tab: Extract<WorkspaceTab, { type: 'session' }> }) {
   const { sessions } = useWorkspaceSessions();
   const session = sessions.find((s) => s.id === tab.sessionId);
+  const ordinals = useMemo(() => buildSessionOrdinalMap(sessions), [sessions]);
 
   if (!session) {
     return <span className="truncate text-dim">Session</span>;
@@ -39,7 +41,7 @@ function SessionTabLabel({ tab }: { tab: Extract<WorkspaceTab, { type: 'session'
     <div className="flex items-center gap-1.5 min-w-0">
       <ProviderIcon provider={session.provider} />
       <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`} />
-      <span className="truncate">#{session.id.slice(0, 6)}</span>
+      <span className="truncate">{sessionLabel(session, ordinals.get(session.id))}</span>
     </div>
   );
 }
@@ -177,7 +179,7 @@ function MobileTabBar() {
 
 function DesktopTabBar() {
   const { tabs, activeTabIndex, setActiveTab, pinTab, openNewSession, openSession, replaceSessionTab, moveTab } = useWorkspaceStore();
-  const { sessions, startSession, deleteSession, isStarting } = useWorkspaceSessions();
+  const { sessions, startSession, deleteSession, updateSession, isStarting } = useWorkspaceSessions();
   const { closeTab, closeOtherTabs, closeTabsToRight } = useTabActions();
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
@@ -227,6 +229,13 @@ function DesktopTabBar() {
       setResumingSessionId(null);
     }
   }, [deleteSession, openSession, replaceSessionTab, startSession]);
+
+  const handleRenameSession = useCallback(async (session: AgentSession) => {
+    const suggested = session.displayName ?? '';
+    const nextName = window.prompt('Rename session tab', suggested);
+    if (nextName === null) return;
+    await updateSession({ sessionId: session.id, displayName: nextName });
+  }, [updateSession]);
 
   if (tabs.length === 0) {
     return (
@@ -317,7 +326,16 @@ function DesktopTabBar() {
         <ContextMenu
           position={contextMenu.position}
           onClose={() => setContextMenu(null)}
-          items={buildTabContextMenuItems(contextMenu.index, tabs.length, closeTab, closeOtherTabs, closeTabsToRight)}
+          items={buildTabContextMenuItems({
+            index: contextMenu.index,
+            tabCount: tabs.length,
+            tab: tabs[contextMenu.index],
+            sessions,
+            closeTab,
+            closeOtherTabs,
+            closeTabsToRight,
+            onRenameSession: (session) => { void handleRenameSession(session); },
+          })}
         />
       )}
     </div>
@@ -425,14 +443,26 @@ function Tab({
   );
 }
 
-function buildTabContextMenuItems(
-  index: number,
-  tabCount: number,
-  closeTab: (i: number) => void,
-  closeOtherTabs: (i: number) => void,
-  closeTabsToRight: (i: number) => void,
-): ContextMenuItem[] {
-  return [
+function buildTabContextMenuItems({
+  index,
+  tabCount,
+  tab,
+  sessions,
+  closeTab,
+  closeOtherTabs,
+  closeTabsToRight,
+  onRenameSession,
+}: {
+  index: number;
+  tabCount: number;
+  tab: WorkspaceTab | undefined;
+  sessions: AgentSession[];
+  closeTab: (i: number) => void;
+  closeOtherTabs: (i: number) => void;
+  closeTabsToRight: (i: number) => void;
+  onRenameSession: (session: AgentSession) => void;
+}): ContextMenuItem[] {
+  const items: ContextMenuItem[] = [
     {
       label: 'Close',
       icon: X,
@@ -451,4 +481,17 @@ function buildTabContextMenuItems(
       disabled: index >= tabCount - 1,
     },
   ];
+
+  if (tab?.type === 'session') {
+    const session = sessions.find((s) => s.id === tab.sessionId);
+    if (session) {
+      items.unshift({
+        label: 'Rename Session',
+        icon: FileText,
+        onClick: () => onRenameSession(session),
+      });
+    }
+  }
+
+  return items;
 }

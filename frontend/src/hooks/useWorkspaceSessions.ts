@@ -41,6 +41,15 @@ export function useWorkspaceSessions() {
       sessionsApi.sendMessage(sessionId, content),
   });
 
+  const updateMutation = useMutation({
+    mutationFn: ({ sessionId, displayName }: { sessionId: string; displayName: string }) =>
+      sessionsApi.update(sessionId, { displayName }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey: ['sidebar'] });
+    },
+  });
+
   return {
     sessions: sessionsQuery.data ?? [],
     isLoading: sessionsQuery.isLoading,
@@ -51,6 +60,7 @@ export function useWorkspaceSessions() {
     stopSession: stopMutation.mutateAsync,
     deleteSession: deleteMutation.mutateAsync,
     sendMessage: sendMessageMutation.mutateAsync,
+    updateSession: updateMutation.mutateAsync,
     getSession: (id: string) => sessionsApi.get(id),
   };
 }

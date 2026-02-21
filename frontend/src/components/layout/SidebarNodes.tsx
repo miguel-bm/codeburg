@@ -7,6 +7,7 @@ import type { SidebarProject, SidebarTask, SidebarSession, SidebarData } from '.
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import { usePanelNavigation } from '../../hooks/usePanelNavigation';
 import { getSessionStatusMeta } from '../../lib/sessionStatus';
+import { sidebarSessionLabel } from '../../lib/sessionLabel';
 
 // --- Project Node ---
 
@@ -495,7 +496,7 @@ function SidebarSessionNode({ session, taskId, projectId, onClose, mobile, isAct
     >
       <StatusDot status={session.status} />
       <span className={isActive ? 'text-accent' : 'text-dim'}>
-        {session.provider} #{session.number}
+        {sidebarSessionLabel(session)}
       </span>
     </div>
   );
