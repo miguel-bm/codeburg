@@ -63,6 +63,9 @@ echo "==> Target commit: ${SHORT_COMMIT}"
 echo "==> Checking out target commit (detached HEAD)..."
 git checkout --detach --force "$COMMIT"
 
+echo "==> Syncing agent skills..."
+./deploy/sync-agent-skills.sh
+
 echo "==> Installing frontend dependencies..."
 pnpm --dir frontend install --frozen-lockfile
 

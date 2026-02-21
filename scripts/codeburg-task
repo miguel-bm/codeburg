@@ -1,0 +1,295 @@
+#!/usr/bin/env node
+
+const DEFAULT_URL = process.env.CODEBURG_URL || "http://127.0.0.1:8080";
+
+function usage() {
+  console.error(`Usage:
+  codeburg-task projects [--json] [--url URL] [--token TOKEN | --password PASSWORD]
+  codeburg-task create --project ID_OR_NAME --title TITLE [--description TEXT] [--dedupe] [--json] [--url URL] [--token TOKEN | --password PASSWORD]
+
+Auth:
+  - Set CODEBURG_TOKEN (recommended), or
+  - pass --token, or
+  - pass --password / set CODEBURG_PASSWORD (uses /api/auth/login)
+`);
+}
+
+function parseArgs(argv) {
+  const result = {
+    command: null,
+    args: [],
+    opts: {
+      url: DEFAULT_URL,
+      token: process.env.CODEBURG_TOKEN || "",
+      password: process.env.CODEBURG_PASSWORD || "",
+      json: false,
+      dedupe: false,
+      project: "",
+      title: "",
+      description: "",
+    },
+  };
+
+  if (argv.length === 0) {
+    return result;
+  }
+
+  result.command = argv[0];
+
+  for (let i = 1; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--url") {
+      i += 1;
+      result.opts.url = argv[i] || "";
+    } else if (arg === "--token") {
+      i += 1;
+      result.opts.token = argv[i] || "";
+    } else if (arg === "--password") {
+      i += 1;
+      result.opts.password = argv[i] || "";
+    } else if (arg === "--json") {
+      result.opts.json = true;
+    } else if (arg === "--dedupe") {
+      result.opts.dedupe = true;
+    } else if (arg === "--project") {
+      i += 1;
+      result.opts.project = argv[i] || "";
+    } else if (arg === "--title") {
+      i += 1;
+      result.opts.title = argv[i] || "";
+    } else if (arg === "--description") {
+      i += 1;
+      result.opts.description = argv[i] || "";
+    } else {
+      result.args.push(arg);
+    }
+  }
+
+  return result;
+}
+
+async function loginWithPassword(baseUrl, password) {
+  const resp = await fetch(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`login failed (${resp.status}): ${text}`);
+  }
+
+  const data = await resp.json();
+  if (!data || typeof data.token !== "string" || data.token.length === 0) {
+    throw new Error("login response did not include token");
+  }
+  return data.token;
+}
+
+function ensureArray(data) {
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.items)) return data.items;
+  if (data && Array.isArray(data.tasks)) return data.tasks;
+  if (data && Array.isArray(data.projects)) return data.projects;
+  return [];
+}
+
+async function apiCall(baseUrl, token, method, path, body) {
+  const headers = { Accept: "application/json" };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const resp = await fetch(`${baseUrl}${path}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`${method} ${path} failed (${resp.status}): ${text}`);
+  }
+
+  const contentType = resp.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    return null;
+  }
+  return await resp.json();
+}
+
+function normalize(s) {
+  return (s || "").trim().toLowerCase();
+}
+
+function resolveProject(projects, selector) {
+  const sel = (selector || "").trim();
+  if (!sel) return null;
+
+  const byId = projects.find((p) => p && p.id === sel);
+  if (byId) return byId;
+
+  const lowered = sel.toLowerCase();
+  const exact = projects.filter((p) => {
+    const name = (p && typeof p.name === "string" ? p.name : "").toLowerCase();
+    const path = (p && typeof p.path === "string" ? p.path : "").toLowerCase();
+    return name === lowered || path === lowered;
+  });
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) {
+    throw new Error(`project selector '${selector}' matched multiple projects`);
+  }
+
+  const fuzzy = projects.filter((p) => {
+    const name = (p && typeof p.name === "string" ? p.name : "").toLowerCase();
+    const path = (p && typeof p.path === "string" ? p.path : "").toLowerCase();
+    return name.includes(lowered) || path.includes(lowered);
+  });
+  if (fuzzy.length === 1) return fuzzy[0];
+  if (fuzzy.length > 1) {
+    throw new Error(`project selector '${selector}' matched multiple projects`);
+  }
+
+  return null;
+}
+
+async function listProjects(baseUrl, token, asJson) {
+  const data = await apiCall(baseUrl, token, "GET", "/api/projects");
+  const projects = ensureArray(data);
+
+  if (asJson) {
+    console.log(JSON.stringify(projects, null, 2));
+    return;
+  }
+
+  if (projects.length === 0) {
+    console.log("No projects found.");
+    return;
+  }
+
+  console.log("ID\tNAME\tPATH");
+  for (const project of projects) {
+    const id = project?.id || "";
+    const name = project?.name || "";
+    const path = project?.path || "";
+    console.log(`${id}\t${name}\t${path}`);
+  }
+}
+
+async function createTask(baseUrl, token, opts) {
+  if (!opts.project) {
+    throw new Error("--project is required");
+  }
+  if (!opts.title) {
+    throw new Error("--title is required");
+  }
+
+  const projectData = await apiCall(baseUrl, token, "GET", "/api/projects");
+  const projects = ensureArray(projectData);
+  const project = resolveProject(projects, opts.project);
+  if (!project || !project.id) {
+    throw new Error(`project '${opts.project}' not found`);
+  }
+
+  if (opts.dedupe) {
+    const taskData = await apiCall(
+      baseUrl,
+      token,
+      "GET",
+      `/api/tasks?project=${encodeURIComponent(project.id)}`
+    );
+    const tasks = ensureArray(taskData);
+    const incoming = normalize(opts.title);
+    const existing = tasks.find((t) => normalize(t?.title) === incoming);
+    if (existing) {
+      const dedupePayload = {
+        deduped: true,
+        task: existing,
+        project: { id: project.id, name: project.name || "" },
+      };
+      if (opts.json) {
+        console.log(JSON.stringify(dedupePayload, null, 2));
+      } else {
+        console.log(
+          `Deduped: existing task ${existing.id || ""} (${existing.title || ""}) in ${project.name || project.id}`
+        );
+      }
+      return;
+    }
+  }
+
+  const payload = { title: opts.title };
+  if (opts.description) {
+    payload.description = opts.description;
+  }
+
+  const created = await apiCall(
+    baseUrl,
+    token,
+    "POST",
+    `/api/projects/${encodeURIComponent(project.id)}/tasks`,
+    payload
+  );
+
+  if (opts.json) {
+    console.log(
+      JSON.stringify(
+        {
+          deduped: false,
+          task: created,
+          project: { id: project.id, name: project.name || "" },
+        },
+        null,
+        2
+      )
+    );
+    return;
+  }
+
+  console.log(
+    `Created task ${created?.id || ""} in ${project.name || project.id}: ${created?.title || opts.title}`
+  );
+}
+
+async function main() {
+  const parsed = parseArgs(process.argv.slice(2));
+  if (!parsed.command || parsed.command === "help" || parsed.command === "--help") {
+    usage();
+    process.exit(parsed.command ? 0 : 1);
+  }
+
+  const baseUrl = (parsed.opts.url || "").replace(/\/+$/, "");
+  if (!baseUrl) {
+    throw new Error("Codeburg URL is required (--url or CODEBURG_URL)");
+  }
+
+  let token = parsed.opts.token;
+  if (!token && parsed.opts.password) {
+    token = await loginWithPassword(baseUrl, parsed.opts.password);
+  }
+
+  if (!token) {
+    throw new Error("auth is required (set CODEBURG_TOKEN, or pass --token/--password)");
+  }
+
+  if (parsed.command === "projects") {
+    await listProjects(baseUrl, token, parsed.opts.json);
+    return;
+  }
+
+  if (parsed.command === "create") {
+    await createTask(baseUrl, token, parsed.opts);
+    return;
+  }
+
+  throw new Error(`unknown command: ${parsed.command}`);
+}
+
+main().catch((err) => {
+  console.error(`codeburg-task error: ${err.message}`);
+  process.exit(1);
+});

@@ -181,6 +181,16 @@ sudo -u "${CODEBURG_USER}" bash -lc "
 "
 echo "    Build complete!"
 
+# --- Install/sync agent skills ---
+echo ""
+echo "==> Installing agent skills..."
+sudo -u "${CODEBURG_USER}" bash -lc "
+    set -euo pipefail
+    cd ${INSTALL_DIR}
+    ./deploy/sync-agent-skills.sh
+"
+echo "    Agent skills installed."
+
 # --- Install systemd service ---
 echo ""
 echo "==> Installing systemd service..."

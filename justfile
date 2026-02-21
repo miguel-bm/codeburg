@@ -92,6 +92,10 @@ lint-fe:
 check-runtime:
     ./deploy/check-runtime-tooling.sh
 
+# Install or update user-level Codex/Claude skills from this repo
+install-agent-skills:
+    ./deploy/sync-agent-skills.sh
+
 # --- Deploy ---
 
 # Deploy to production server (optionally specify branch, default: main)
