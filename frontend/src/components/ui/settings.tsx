@@ -57,18 +57,20 @@ export function FieldLabel({ label, description }: { label: string; description?
   );
 }
 
-export function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+export function Toggle({ checked, onChange, disabled = false }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-disabled={disabled}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
       className={`relative w-10 h-[22px] border rounded-full transition-all duration-200 flex-shrink-0 ${
         checked
           ? 'bg-accent border-accent'
           : 'bg-tertiary border-subtle'
-      }`}
+      } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
     >
       <span
         className={`absolute top-[3px] w-3.5 h-3.5 rounded-full transition-all duration-200 ${

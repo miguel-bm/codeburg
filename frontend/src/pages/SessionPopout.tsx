@@ -6,6 +6,7 @@ import { sessionsApi } from '../api';
 import { SessionView } from '../components/session';
 import type { SessionStatus } from '../api';
 import { sessionLabel } from '../lib/sessionLabel';
+import { useSharedWebSocket } from '../hooks/useSharedWebSocket';
 
 function statusLabel(status: SessionStatus): string {
   switch (status) {
@@ -24,6 +25,7 @@ function statusLabel(status: SessionStatus): string {
 
 export function SessionPopout() {
   const { id, sessionId } = useParams<{ id: string; sessionId: string }>();
+  const { connected, send } = useSharedWebSocket();
   const originalTitleRef = useRef<string>(typeof document !== 'undefined' ? document.title : 'Codeburg');
   const previousUpdateRef = useRef<{ status?: SessionStatus; lastActivityAt?: string }>({});
   const [unreadUpdate, setUnreadUpdate] = useState(false);
@@ -79,6 +81,35 @@ export function SessionPopout() {
       document.title = originalTitle;
     };
   }, []);
+
+  useEffect(() => {
+    if (!connected || !sessionId) return;
+
+    const report = () => {
+      send({
+        type: 'session_focus',
+        sessionId,
+        focused: document.visibilityState === 'visible' && document.hasFocus(),
+      });
+    };
+
+    report();
+    const heartbeat = window.setInterval(report, 10_000);
+    const onVisibility = () => report();
+    const onFocus = () => report();
+    const onBlur = () => report();
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('blur', onBlur);
+
+    return () => {
+      window.clearInterval(heartbeat);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('blur', onBlur);
+      send({ type: 'session_focus', sessionId, focused: false });
+    };
+  }, [connected, send, sessionId]);
 
   // Keep title scoped to this single session, with a small unread marker.
   useEffect(() => {

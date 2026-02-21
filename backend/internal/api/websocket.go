@@ -392,6 +392,7 @@ func (c *WSClient) handleMessage(s *Server, message []byte) {
 		ID        string `json:"id"`
 		SessionID string `json:"sessionId"`
 		Content   string `json:"content"`
+		Focused   bool   `json:"focused"`
 		Token     string `json:"token"`
 	}
 
@@ -458,6 +459,16 @@ func (c *WSClient) handleMessage(s *Server, message []byte) {
 		if msg.SessionID != "" && msg.Content != "" {
 			s.handleWSMessage(msg.SessionID, msg.Content)
 		}
+
+	case "session_focus":
+		if !c.isAuthenticated() {
+			c.closeUnauthorized("authentication required")
+			return
+		}
+		if strings.TrimSpace(msg.SessionID) == "" {
+			return
+		}
+		s.telegramUpdateSessionFocus(strings.TrimSpace(msg.SessionID), msg.Focused)
 
 	case "ping":
 		c.sendJSON(map[string]string{"type": "pong"})

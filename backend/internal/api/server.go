@@ -81,6 +81,8 @@ type Server struct {
 	telegramBotMu          sync.Mutex
 	telegramReplyMapMu     sync.Mutex
 	telegramReplyToSession map[string]string // chatID:messageID -> sessionID
+	telegramFocusMu        sync.Mutex
+	telegramFocusedSession map[string]time.Time // sessionID -> last-focused timestamp
 	telegramMemoryMu       sync.Mutex
 	telegramMemory         map[int64][]telegramAssistantMemoryTurn
 	httpServer             *http.Server
@@ -109,6 +111,7 @@ func NewServer(database *db.DB) *Server {
 		challenges:             newChallengeStore(),
 		allowedOrigins:         []string{"http://localhost:*"},
 		telegramReplyToSession: make(map[string]string),
+		telegramFocusedSession: make(map[string]time.Time),
 		telegramMemory:         make(map[int64][]telegramAssistantMemoryTurn),
 	}
 

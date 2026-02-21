@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/miguel-bm/codeburg/internal/db"
 	"github.com/miguel-bm/codeburg/internal/telegram"
@@ -345,5 +346,24 @@ func TestTelegramReplyToNotificationRoutesToSession(t *testing.T) {
 	}
 	if !strings.Contains(out, "Sent message to terminal session") {
 		t.Fatalf("unexpected reply route output: %s", out)
+	}
+}
+
+func TestTelegramSessionFocusedRecently(t *testing.T) {
+	env := setupTestEnv(t)
+	sessionID := "sess_test_focus"
+
+	if env.server.telegramSessionFocusedRecently(sessionID, 20*time.Second) {
+		t.Fatalf("expected no focus before updates")
+	}
+
+	env.server.telegramUpdateSessionFocus(sessionID, true)
+	if !env.server.telegramSessionFocusedRecently(sessionID, 20*time.Second) {
+		t.Fatalf("expected focused session to be detected")
+	}
+
+	env.server.telegramUpdateSessionFocus(sessionID, false)
+	if env.server.telegramSessionFocusedRecently(sessionID, 20*time.Second) {
+		t.Fatalf("expected focus to clear after false update")
 	}
 }

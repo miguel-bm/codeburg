@@ -16,6 +16,7 @@ import { CommandPalette, useCommandPalette } from './components/common/CommandPa
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useNotifications } from './hooks/useNotifications';
 import { useSidebarRealtimeUpdates } from './hooks/useSidebarData';
+import { useSessionFocusPresence } from './hooks/useSessionFocusPresence';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -51,6 +52,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 function MainAppShell() {
   useSidebarRealtimeUpdates();
   useNotifications();
+  useSessionFocusPresence();
   const { open: paletteOpen, setOpen: setPaletteOpen } = useCommandPalette();
 
   return (
