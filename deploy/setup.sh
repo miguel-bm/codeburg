@@ -113,14 +113,14 @@ else
     echo "    User ${CODEBURG_USER} already exists"
 fi
 
-# Sudoers: allow codeburg to restart its own service and reload systemd
+# Sudoers: allow codeburg to manage its service and run the root helper unit
 cat > /etc/sudoers.d/codeburg << 'SUDOEOF'
 codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart codeburg
 codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl start codeburg
 codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop codeburg
 codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl status codeburg
-codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl daemon-reload
-codeburg ALL=(ALL) NOPASSWD: /usr/bin/cp /opt/codeburg/deploy/codeburg.service /etc/systemd/system/codeburg.service
+codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl start codeburg-apply-unit.service
+codeburg ALL=(ALL) NOPASSWD: /usr/bin/systemctl status codeburg-apply-unit.service
 codeburg ALL=(ALL) NOPASSWD: /usr/bin/chown -R codeburg\:codeburg /opt/codeburg
 SUDOEOF
 chmod 0440 /etc/sudoers.d/codeburg
@@ -195,7 +195,10 @@ echo "    Agent skills installed."
 echo ""
 echo "==> Installing systemd service..."
 cp "${INSTALL_DIR}/deploy/codeburg.service" /etc/systemd/system/codeburg.service
+cp "${INSTALL_DIR}/deploy/codeburg-apply-unit.service" /etc/systemd/system/codeburg-apply-unit.service
+chmod 0755 "${INSTALL_DIR}/deploy/apply-systemd-unit.sh"
 systemctl daemon-reload
+systemctl enable codeburg-apply-unit >/dev/null 2>&1 || true
 systemctl enable codeburg
 systemctl start codeburg
 

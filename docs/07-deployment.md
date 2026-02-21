@@ -95,6 +95,17 @@ This SSHs into the server and runs `/opt/codeburg/deploy/deploy.sh`, which:
 
 Zero-downtime is not a goal (personal tool, restarts take <2 seconds).
 
+### Service Unit Updates During Self-Deploy
+
+Self-deploy runs inside the Codeburg service sandbox, where direct writes to `/etc` can be blocked.  
+To make deploy fully self-hosted, Codeburg uses a privileged helper unit:
+
+- `codeburg-apply-unit.service` (root, oneshot) executes `/opt/codeburg/deploy/apply-systemd-unit.sh`
+- The script copies `/opt/codeburg/deploy/codeburg.service` to `/etc/systemd/system/codeburg.service` only when changed, then runs `systemctl daemon-reload`
+- Deploy invokes this helper via `sudo systemctl start codeburg-apply-unit.service`, then restarts `codeburg.service`
+
+This removes direct `/etc` writes from the unprivileged deploy process while still allowing service-file updates on every deploy.
+
 ## Self-Hosted Deploy (From Inside Codeburg)
 
 When running deploy from a Codeburg terminal session, restarting `codeburg.service` can terminate the in-session process. Use detached self-deploy instead:

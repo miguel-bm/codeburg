@@ -78,9 +78,12 @@ echo "==> Building backend..."
 echo "==> Running migrations..."
 ./backend/codeburg migrate
 
-echo "==> Updating service file..."
-sudo cp "$TARGET_DIR/deploy/codeburg.service" /etc/systemd/system/codeburg.service
-sudo systemctl daemon-reload
+echo "==> Applying service unit (host-side helper)..."
+if ! sudo systemctl start codeburg-apply-unit.service; then
+    echo "==> ERROR: failed to run codeburg-apply-unit.service"
+    echo "==> Install/refresh host services with deploy/setup.sh (run as root on the server)."
+    exit 1
+fi
 
 echo "==> Restarting service..."
 sudo systemctl restart codeburg

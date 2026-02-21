@@ -421,11 +421,20 @@ func (s *Server) startSessionInternal(params startSessionParams, req StartSessio
 		slog.Warn("provider command not found in service PATH, using login-shell fallback", "session_id", dbSession.ID, "provider", req.Provider, "command", originalCommand)
 	}
 
+	sessionEnv := []string{
+		fmt.Sprintf("CODEBURG_URL=%s", apiURL),
+		"CODEBURG_TASK_MODE=internal",
+	}
+	if servicePath := os.Getenv("PATH"); servicePath != "" {
+		sessionEnv = append(sessionEnv, "PATH="+servicePath)
+	}
+
 	startRuntime := func() error {
 		return s.sessions.runtime.Start(dbSession.ID, ptyruntime.StartOptions{
 			WorkDir: workDir,
 			Command: command,
 			Args:    args,
+			Env:     sessionEnv,
 			OnOutput: func(sessionID string, chunk []byte) {
 				if taskID != "" {
 					s.portSuggest.IngestOutput(taskID, sessionID, chunk)
