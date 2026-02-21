@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-BIN_DIR="${CODEBURG_SKILL_BIN_DIR:-${HOME}/go/bin}"
+BIN_DIR="${CODEBURG_SKILL_BIN_DIR:-${HOME}/.local/bin}"
 CODEX_SKILLS_DIR="${CODEBURG_CODEX_SKILLS_DIR:-${HOME}/.codex/skills}"
 AGENTS_SKILLS_DIR="${CODEBURG_AGENTS_SKILLS_DIR:-${HOME}/.agents/skills}"
 CLAUDE_SKILLS_DIR="${CODEBURG_CLAUDE_SKILLS_DIR:-${HOME}/.claude/skills}"

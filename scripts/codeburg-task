@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 
 const DEFAULT_URL = process.env.CODEBURG_URL || "http://127.0.0.1:8080";
+const DEFAULT_MODE = process.env.CODEBURG_TASK_MODE || "auto";
 
 function usage() {
   console.error(`Usage:
-  codeburg-task projects [--json] [--url URL] [--token TOKEN | --password PASSWORD]
-  codeburg-task create --project ID_OR_NAME --title TITLE [--description TEXT] [--dedupe] [--json] [--url URL] [--token TOKEN | --password PASSWORD]
+  codeburg-task projects [--json] [--mode auto|internal|public] [--url URL] [--token TOKEN | --password PASSWORD]
+  codeburg-task create --project ID_OR_NAME --title TITLE [--description TEXT] [--dedupe] [--json] [--mode auto|internal|public] [--url URL] [--token TOKEN | --password PASSWORD]
 
-Auth:
+Modes:
+  - auto (default): try internal loopback API first, then fallback to public API
+  - internal: use /api/internal/agent/* only (no auth token required)
+  - public: use normal /api/* endpoints (requires token or password)
+
+Auth (public mode):
   - Set CODEBURG_TOKEN (recommended), or
   - pass --token, or
   - pass --password / set CODEBURG_PASSWORD (uses /api/auth/login)
@@ -20,6 +26,7 @@ function parseArgs(argv) {
     args: [],
     opts: {
       url: DEFAULT_URL,
+      mode: DEFAULT_MODE,
       token: process.env.CODEBURG_TOKEN || "",
       password: process.env.CODEBURG_PASSWORD || "",
       json: false,
@@ -41,6 +48,9 @@ function parseArgs(argv) {
     if (arg === "--url") {
       i += 1;
       result.opts.url = argv[i] || "";
+    } else if (arg === "--mode") {
+      i += 1;
+      result.opts.mode = argv[i] || "";
     } else if (arg === "--token") {
       i += 1;
       result.opts.token = argv[i] || "";
@@ -110,16 +120,113 @@ async function apiCall(baseUrl, token, method, path, body) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`${method} ${path} failed (${resp.status}): ${text}`);
+  const contentType = resp.headers.get("content-type") || "";
+  let data = null;
+  if (contentType.includes("application/json")) {
+    data = await resp.json();
+  } else {
+    data = await resp.text();
   }
 
-  const contentType = resp.headers.get("content-type") || "";
-  if (!contentType.includes("application/json")) {
-    return null;
+  if (!resp.ok) {
+    const text = typeof data === "string" ? data : JSON.stringify(data);
+    const err = new Error(`${method} ${path} failed (${resp.status}): ${text}`);
+    err.status = resp.status;
+    throw err;
   }
-  return await resp.json();
+
+  return data;
+}
+
+function printProjects(projects) {
+  if (projects.length === 0) {
+    console.log("No projects found.");
+    return;
+  }
+
+  console.log("ID\tNAME\tPATH");
+  for (const project of projects) {
+    const id = project?.id || "";
+    const name = project?.name || "";
+    const path = project?.path || "";
+    console.log(`${id}\t${name}\t${path}`);
+  }
+}
+
+function printCreateResult(payload, opts) {
+  if (opts.json) {
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  const projectName = payload?.project?.name || payload?.project?.id || "";
+  const taskId = payload?.task?.id || "";
+  const taskTitle = payload?.task?.title || opts.title;
+
+  if (payload?.deduped) {
+    console.log(`Deduped: existing task ${taskId} (${taskTitle}) in ${projectName}`);
+    return;
+  }
+
+  console.log(`Created task ${taskId} in ${projectName}: ${taskTitle}`);
+}
+
+function shouldFallbackToPublic(err) {
+  if (!err || typeof err.status !== "number") return false;
+  return err.status === 401 || err.status === 403 || err.status === 404;
+}
+
+async function getPublicToken(baseUrl, opts) {
+  let token = opts.token;
+  if (!token && opts.password) {
+    token = await loginWithPassword(baseUrl, opts.password);
+  }
+  if (!token) {
+    throw new Error(
+      "public API auth is required (set CODEBURG_TOKEN, or pass --token/--password)"
+    );
+  }
+  return token;
+}
+
+async function listProjectsInternal(baseUrl, opts) {
+  const data = await apiCall(baseUrl, "", "GET", "/api/internal/agent/projects");
+  const projects = ensureArray(data);
+  if (opts.json) {
+    console.log(JSON.stringify(projects, null, 2));
+  } else {
+    printProjects(projects);
+  }
+}
+
+async function listProjectsPublic(baseUrl, opts) {
+  const token = await getPublicToken(baseUrl, opts);
+  const data = await apiCall(baseUrl, token, "GET", "/api/projects");
+  const projects = ensureArray(data);
+  if (opts.json) {
+    console.log(JSON.stringify(projects, null, 2));
+  } else {
+    printProjects(projects);
+  }
+}
+
+async function createTaskInternal(baseUrl, opts) {
+  if (!opts.project) {
+    throw new Error("--project is required");
+  }
+  if (!opts.title) {
+    throw new Error("--title is required");
+  }
+
+  const payload = {
+    project: opts.project,
+    title: opts.title,
+    description: opts.description,
+    dedupe: opts.dedupe,
+  };
+
+  const result = await apiCall(baseUrl, "", "POST", "/api/internal/agent/tasks", payload);
+  printCreateResult(result, opts);
 }
 
 function normalize(s) {
@@ -157,36 +264,15 @@ function resolveProject(projects, selector) {
   return null;
 }
 
-async function listProjects(baseUrl, token, asJson) {
-  const data = await apiCall(baseUrl, token, "GET", "/api/projects");
-  const projects = ensureArray(data);
-
-  if (asJson) {
-    console.log(JSON.stringify(projects, null, 2));
-    return;
-  }
-
-  if (projects.length === 0) {
-    console.log("No projects found.");
-    return;
-  }
-
-  console.log("ID\tNAME\tPATH");
-  for (const project of projects) {
-    const id = project?.id || "";
-    const name = project?.name || "";
-    const path = project?.path || "";
-    console.log(`${id}\t${name}\t${path}`);
-  }
-}
-
-async function createTask(baseUrl, token, opts) {
+async function createTaskPublic(baseUrl, opts) {
   if (!opts.project) {
     throw new Error("--project is required");
   }
   if (!opts.title) {
     throw new Error("--title is required");
   }
+
+  const token = await getPublicToken(baseUrl, opts);
 
   const projectData = await apiCall(baseUrl, token, "GET", "/api/projects");
   const projects = ensureArray(projectData);
@@ -206,18 +292,14 @@ async function createTask(baseUrl, token, opts) {
     const incoming = normalize(opts.title);
     const existing = tasks.find((t) => normalize(t?.title) === incoming);
     if (existing) {
-      const dedupePayload = {
-        deduped: true,
-        task: existing,
-        project: { id: project.id, name: project.name || "" },
-      };
-      if (opts.json) {
-        console.log(JSON.stringify(dedupePayload, null, 2));
-      } else {
-        console.log(
-          `Deduped: existing task ${existing.id || ""} (${existing.title || ""}) in ${project.name || project.id}`
-        );
-      }
+      printCreateResult(
+        {
+          deduped: true,
+          task: existing,
+          project: { id: project.id, name: project.name || "" },
+        },
+        opts
+      );
       return;
     }
   }
@@ -235,24 +317,58 @@ async function createTask(baseUrl, token, opts) {
     payload
   );
 
-  if (opts.json) {
-    console.log(
-      JSON.stringify(
-        {
-          deduped: false,
-          task: created,
-          project: { id: project.id, name: project.name || "" },
-        },
-        null,
-        2
-      )
-    );
+  printCreateResult(
+    {
+      deduped: false,
+      task: created,
+      project: { id: project.id, name: project.name || "" },
+    },
+    opts
+  );
+}
+
+async function runProjects(baseUrl, opts) {
+  if (opts.mode === "internal") {
+    await listProjectsInternal(baseUrl, opts);
+    return;
+  }
+  if (opts.mode === "public") {
+    await listProjectsPublic(baseUrl, opts);
     return;
   }
 
-  console.log(
-    `Created task ${created?.id || ""} in ${project.name || project.id}: ${created?.title || opts.title}`
-  );
+  try {
+    await listProjectsInternal(baseUrl, opts);
+    return;
+  } catch (err) {
+    if (!shouldFallbackToPublic(err)) {
+      throw err;
+    }
+  }
+
+  await listProjectsPublic(baseUrl, opts);
+}
+
+async function runCreate(baseUrl, opts) {
+  if (opts.mode === "internal") {
+    await createTaskInternal(baseUrl, opts);
+    return;
+  }
+  if (opts.mode === "public") {
+    await createTaskPublic(baseUrl, opts);
+    return;
+  }
+
+  try {
+    await createTaskInternal(baseUrl, opts);
+    return;
+  } catch (err) {
+    if (!shouldFallbackToPublic(err)) {
+      throw err;
+    }
+  }
+
+  await createTaskPublic(baseUrl, opts);
 }
 
 async function main() {
@@ -267,22 +383,18 @@ async function main() {
     throw new Error("Codeburg URL is required (--url or CODEBURG_URL)");
   }
 
-  let token = parsed.opts.token;
-  if (!token && parsed.opts.password) {
-    token = await loginWithPassword(baseUrl, parsed.opts.password);
-  }
-
-  if (!token) {
-    throw new Error("auth is required (set CODEBURG_TOKEN, or pass --token/--password)");
+  const mode = parsed.opts.mode;
+  if (!["auto", "internal", "public"].includes(mode)) {
+    throw new Error("invalid --mode (expected auto, internal, or public)");
   }
 
   if (parsed.command === "projects") {
-    await listProjects(baseUrl, token, parsed.opts.json);
+    await runProjects(baseUrl, parsed.opts);
     return;
   }
 
   if (parsed.command === "create") {
-    await createTask(baseUrl, token, parsed.opts);
+    await runCreate(baseUrl, parsed.opts);
     return;
   }
 

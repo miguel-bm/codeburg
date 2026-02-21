@@ -200,6 +200,13 @@ func (s *Server) setupRoutes() {
 	// Hook endpoint (auth handled inline — accepts scoped hook tokens or full JWTs)
 	r.Post("/api/sessions/{id}/hook", s.handleSessionHook)
 
+	// Internal agent endpoints (loopback-only, no JWT required)
+	r.Group(func(r chi.Router) {
+		r.Use(s.loopbackOnlyMiddleware)
+		r.Get("/api/internal/agent/projects", s.handleInternalAgentListProjects)
+		r.Post("/api/internal/agent/tasks", s.handleInternalAgentCreateTask)
+	})
+
 	// Protected routes
 	r.Group(func(r chi.Router) {
 		r.Use(s.authMiddleware)

@@ -9,11 +9,9 @@ Use this skill only when explicitly asked to create or update tasks in Codeburg.
 
 ## Preconditions
 
-- `codeburg-task` must be available in `PATH`.
-- Auth must be configured with one of:
-  - `CODEBURG_TOKEN`
-  - `CODEBURG_PASSWORD`
-- Optional: `CODEBURG_URL` (defaults to `http://127.0.0.1:8080`).
+- `codeburg-task` is available in `PATH`.
+- `CODEBURG_URL` is optional (defaults to `http://127.0.0.1:8080`).
+- By default, the CLI uses internal loopback-only endpoints, so user auth setup is not required.
 
 ## Workflow
 
