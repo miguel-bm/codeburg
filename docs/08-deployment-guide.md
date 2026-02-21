@@ -65,6 +65,18 @@ curl http://127.0.0.1:8080/api/auth/status
 # Should return: {"setup":false}
 ```
 
+### Step 2b: One-Time Host Bootstrap for Self-Deploy (Existing Servers)
+
+If your server was provisioned before the self-deploy helper was added, run this once as root:
+
+```bash
+cd /opt/codeburg
+git pull
+sudo ./deploy/install-self-deploy-host.sh
+```
+
+This installs the root helper unit (`codeburg-apply-unit.service`) and updates sudoers so deploys can apply service-file updates without writing `/etc` from inside the Codeburg sandbox.
+
 ## Step 3: Set Up SSH Key Access
 
 From your **dev machine**:
@@ -301,10 +313,16 @@ ssh codeburg-server 'sudo journalctl -u cloudflared -f'
 
 ### Restart Services
 
-The `codeburg` user has passwordless sudo for `systemctl` commands on the codeburg service:
+The `codeburg` user has passwordless sudo for `systemctl` commands on the Codeburg services:
 
 ```bash
 ssh codeburg-server 'sudo systemctl restart codeburg'
+```
+
+Apply/update the systemd unit from the checked-out repo (used by deploy scripts):
+
+```bash
+ssh codeburg-server 'sudo systemctl start codeburg-apply-unit.service'
 ```
 
 For cloudflared, you'll need root access:

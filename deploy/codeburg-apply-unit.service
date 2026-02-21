@@ -1,0 +1,13 @@
+[Unit]
+Description=Apply Codeburg systemd unit from /opt/codeburg
+After=local-fs.target
+ConditionPathExists=/opt/codeburg/deploy/apply-systemd-unit.sh
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/codeburg/deploy/apply-systemd-unit.sh
+
+[Install]
+WantedBy=multi-user.target
