@@ -324,7 +324,7 @@ func (s *Server) telegramCommandReply(args string) (string, error) {
 		}
 		return fmt.Sprintf("Sent message to chat session %s.", shortID(session.ID)), nil
 	}
-	if err := s.sessions.runtime.Write(session.ID, []byte(content+"\n")); err != nil {
+	if err := s.sendTerminalInput(session.ID, content); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Sent message to terminal session %s.", shortID(session.ID)), nil
@@ -1561,7 +1561,7 @@ func (s *Server) telegramRunToolCall(name, rawArgs string) map[string]any {
 				return map[string]any{"ok": false, "error": err.Error()}
 			}
 		} else {
-			if err := s.sessions.runtime.Write(session.ID, []byte(content+"\n")); err != nil {
+			if err := s.sendTerminalInput(session.ID, content); err != nil {
 				return map[string]any{"ok": false, "error": err.Error()}
 			}
 		}
@@ -1972,7 +1972,7 @@ func (s *Server) telegramSendReplyToSession(ctx context.Context, sessionID strin
 		}
 		return fmt.Sprintf("Sent message to %s session %s.", telegramProviderLabel(session.Provider), shortID(session.ID)), nil
 	}
-	if err := s.sessions.runtime.Write(session.ID, []byte(content+"\n")); err != nil {
+	if err := s.sendTerminalInput(session.ID, content); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Sent message to terminal session %s.", shortID(session.ID)), nil

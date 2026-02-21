@@ -637,7 +637,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Deliver message to runtime process
-	if err := s.sessions.runtime.Write(id, []byte(req.Content+"\n")); err != nil {
+	if err := s.sendTerminalInput(id, req.Content); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to send message: "+err.Error())
 		return
 	}

@@ -519,7 +519,7 @@ func (s *Server) handleWSMessage(sessionID string, content string) {
 		return
 	}
 
-	if err := s.sessions.runtime.Write(sessionID, []byte(content+"\n")); err != nil {
+	if err := s.sendTerminalInput(sessionID, content); err != nil {
 		slog.Error("failed to send websocket message to session", "session_id", sessionID, "error", err)
 		s.wsHub.BroadcastToSession(sessionID, "error", map[string]string{
 			"message": "Failed to deliver message: " + err.Error(),
