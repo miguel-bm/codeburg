@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -210,6 +211,14 @@ func (m *ChatManager) runTurn(state *chatSessionState, ctx context.Context, inpu
 	if input.WorkDir != "" {
 		cmd.Dir = input.WorkDir
 	}
+	apiURL := os.Getenv("CODEBURG_URL")
+	if strings.TrimSpace(apiURL) == "" {
+		apiURL = "http://localhost:8080"
+	}
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("CODEBURG_URL=%s", apiURL),
+		"CODEBURG_TASK_MODE=internal",
+	)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
