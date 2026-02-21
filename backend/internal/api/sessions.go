@@ -363,6 +363,7 @@ func (s *Server) startSessionInternal(params startSessionParams, req StartSessio
 				slog.Warn("failed to set chat session waiting_input", "session_id", dbSession.ID, "error", waitErr)
 			} else if waitingChanged {
 				s.broadcastSessionStatus(taskID, dbSession.ID, waitingStatus)
+				s.notifyTelegramSessionNeedsAttention(dbSession.ID, taskID, "session started and waiting for input")
 			}
 		}
 
@@ -1089,6 +1090,7 @@ func (s *Server) tryStartTerminalFallback(taskID string, result ptyruntime.ExitR
 		}
 		if changed {
 			s.broadcastSessionStatus(taskID, result.SessionID, status)
+			s.notifyTelegramSessionNeedsAttention(result.SessionID, taskID, "session switched to interactive shell and is waiting for input")
 		}
 	}
 

@@ -1759,14 +1759,17 @@ func (s *Server) notifyTelegramSessionNeedsAttention(sessionID, taskID, reason s
 	bot := s.telegramBot
 	s.telegramBotMu.Unlock()
 	if bot == nil {
+		slog.Debug("telegram notify skipped: bot not running", "session_id", sessionID, "task_id", taskID)
 		return
 	}
 	chatIDRaw, err := s.telegramPreferenceString("telegram_user_id")
 	if err != nil || strings.TrimSpace(chatIDRaw) == "" {
+		slog.Debug("telegram notify skipped: telegram_user_id not configured", "session_id", sessionID, "task_id", taskID, "error", err)
 		return
 	}
 	chatID, err := strconv.ParseInt(strings.TrimSpace(chatIDRaw), 10, 64)
 	if err != nil {
+		slog.Warn("telegram notify skipped: invalid telegram_user_id", "session_id", sessionID, "task_id", taskID, "value", chatIDRaw, "error", err)
 		return
 	}
 
@@ -1790,25 +1793,47 @@ func (s *Server) notifyTelegramSessionNeedsAttention(sessionID, taskID, reason s
 		taskLabel = shortID(taskID)
 	}
 	sessionLabel := html.EscapeString(providerLabel)
-	text := fmt.Sprintf("%s is waiting for a reply.", sessionLabel)
+	htmlText := fmt.Sprintf("%s is waiting for a reply.", sessionLabel)
+	plainText := fmt.Sprintf("%s is waiting for a reply.", providerLabel)
 	if origin != "" && taskID != "" {
 		sessionURL := strings.TrimSuffix(origin, "/") + "/tasks/" + taskID + "/session/" + sessionID
 		taskURL := strings.TrimSuffix(origin, "/") + "/tasks/" + taskID
-		text = fmt.Sprintf("<a href=\"%s\">%s</a> is waiting for a reply on task <a href=\"%s\">%s</a>.",
+		htmlText = fmt.Sprintf("<a href=\"%s\">%s</a> is waiting for a reply on task <a href=\"%s\">%s</a>.",
 			html.EscapeString(sessionURL), sessionLabel, html.EscapeString(taskURL), taskLabel)
+		plainText = fmt.Sprintf("%s is waiting for a reply on task %s.\nSession: %s\nTask: %s", providerLabel, strings.TrimSpace(title), sessionURL, taskURL)
 	} else if taskID != "" {
-		text = fmt.Sprintf("%s is waiting for a reply on task _%s_.", sessionLabel, taskLabel)
+		htmlText = fmt.Sprintf("%s is waiting for a reply on task %s.", sessionLabel, taskLabel)
+		plainText = fmt.Sprintf("%s is waiting for a reply on task %s.", providerLabel, strings.TrimSpace(title))
 	}
 	if strings.TrimSpace(reason) != "" {
-		text += fmt.Sprintf("\n\nReason: %s", html.EscapeString(reason))
+		htmlText += fmt.Sprintf("\n\nReason: %s", html.EscapeString(reason))
+		plainText += fmt.Sprintf("\n\nReason: %s", reason)
 	}
-	text += fmt.Sprintf("\n\nReply to this message to answer, or use /reply %s <message>.", sessionID)
+	htmlText += fmt.Sprintf("\n\nReply to this message to answer, or use /reply %s <message>.", sessionID)
+	plainText += fmt.Sprintf("\n\nReply to this message to answer, or use /reply %s <message>.", sessionID)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	messageID, err := bot.SendMessageWithOptions(ctx, chatID, text, telegram.SendMessageOptions{ParseMode: "HTML"})
+	messageID, err := bot.SendMessageWithOptions(ctx, chatID, htmlText, telegram.SendMessageOptions{ParseMode: "HTML"})
+	if err != nil {
+		slog.Warn("telegram notification send failed, retrying plain text",
+			"session_id", sessionID,
+			"task_id", taskID,
+			"chat_id", chatID,
+			"error", err,
+		)
+		messageID, err = bot.SendMessageWithOptions(ctx, chatID, plainText, telegram.SendMessageOptions{})
+	}
 	if err == nil && messageID != 0 {
 		s.telegramStoreReplySession(chatID, messageID, sessionID)
+		slog.Debug("telegram notification sent", "session_id", sessionID, "task_id", taskID, "chat_id", chatID, "message_id", messageID)
+	} else if err != nil {
+		slog.Warn("telegram notification delivery failed",
+			"session_id", sessionID,
+			"task_id", taskID,
+			"chat_id", chatID,
+			"error", err,
+		)
 	}
 }
 
