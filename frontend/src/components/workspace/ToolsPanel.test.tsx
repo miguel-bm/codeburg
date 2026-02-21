@@ -80,7 +80,7 @@ describe('Workspace ToolsPanel recipe confirmation', () => {
       </TestWrapper>,
     );
 
-    await user.click(screen.getByTitle('Run: just test'));
+    await user.click(screen.getByRole('button', { name: 'Run recipe: test' }));
 
     expect(startSession).not.toHaveBeenCalled();
     expect(screen.getByText('Run recipe?')).toBeInTheDocument();
@@ -105,7 +105,9 @@ describe('Workspace ToolsPanel recipe confirmation', () => {
       </TestWrapper>,
     );
 
-    await user.click(screen.getByTitle('Run: just test'));
+    await user.click(screen.getByRole('button', { name: 'Run recipe: test' }));
+    expect(screen.getByText('justfile')).toBeInTheDocument();
+    expect(screen.getByText('Run tests')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Run recipe' }));
 
     await waitFor(() => {
