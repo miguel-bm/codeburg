@@ -37,6 +37,7 @@ export function V2ProjectSettingsPage() {
   const [secretSource, setSecretSource] = useState('');
   const [actionName, setActionName] = useState('');
   const [actionCommand, setActionCommand] = useState('');
+  const safeQuickActions = Array.isArray(quickActions) ? quickActions : [];
 
   useEffect(() => {
     setSetupScript(project?.setupScript ?? '');
@@ -83,7 +84,7 @@ export function V2ProjectSettingsPage() {
     const name = actionName.trim();
     const command = actionCommand.trim();
     if (!name || !command) return;
-    saveQuickActions.mutate([...quickActions, { id: crypto.randomUUID(), name, command }]);
+    saveQuickActions.mutate([...safeQuickActions, { id: crypto.randomUUID(), name, command }]);
     setActionName('');
     setActionCommand('');
   };
@@ -145,18 +146,18 @@ export function V2ProjectSettingsPage() {
 
             <SettingsSection icon={<Bolt size={15} />} title="Quick run actions" description="Configured per project, executed inside the selected workspace through the Run menu.">
               <div className="space-y-2">
-                {quickActions.map((action) => (
+                {safeQuickActions.map((action) => (
                   <div key={action.id} className="grid grid-cols-[minmax(0,1fr)_2rem] items-center gap-3 py-2">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium">{action.name}</div>
                       <div className="truncate font-mono text-xs text-dim">{action.command}</div>
                     </div>
-                    <button type="button" onClick={() => saveQuickActions.mutate(quickActions.filter((candidate) => candidate.id !== action.id))} className="rounded-md p-1 text-dim hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)]">
+                    <button type="button" onClick={() => saveQuickActions.mutate(safeQuickActions.filter((candidate) => candidate.id !== action.id))} className="rounded-md p-1 text-dim hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)]">
                       <Trash2 size={13} />
                     </button>
                   </div>
                 ))}
-                {quickActions.length === 0 && <div className="py-3 text-sm text-dim">No quick actions yet.</div>}
+                {safeQuickActions.length === 0 && <div className="py-3 text-sm text-dim">No quick actions yet.</div>}
               </div>
               <div className="mt-4 grid gap-2 md:grid-cols-[14rem_minmax(0,1fr)_auto]">
                 <V2Input value={actionName} onChange={(event) => setActionName(event.target.value)} placeholder="Test backend" />

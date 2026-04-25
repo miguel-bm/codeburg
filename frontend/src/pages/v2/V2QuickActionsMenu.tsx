@@ -35,6 +35,8 @@ export function V2QuickActionsMenu({
     enabled: !!projectId,
   });
 
+  const safeActions = Array.isArray(actions) ? actions : [];
+
   const saveActions = useMutation({
     mutationFn: (nextActions: QuickRunAction[]) => preferencesApi.set(quickActionKey, nextActions),
     onSuccess: async () => {
@@ -58,7 +60,7 @@ export function V2QuickActionsMenu({
     const name = actionName.trim();
     const command = actionCommand.trim();
     if (!name || !command) return;
-    saveActions.mutate([...actions, { id: crypto.randomUUID(), name, command }]);
+    saveActions.mutate([...safeActions, { id: crypto.randomUUID(), name, command }]);
     setActionName('');
     setActionCommand('');
   };
@@ -90,7 +92,7 @@ export function V2QuickActionsMenu({
             </div>
 
             <div className="max-h-72 overflow-auto py-1">
-              {actions.map((action) => (
+              {safeActions.map((action) => (
                 <div key={action.id} className="group flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-[var(--color-card-hover)]">
                   <button type="button" className="min-w-0 flex-1 text-left" onClick={() => runAction.mutate(action)}>
                     <div className="truncate text-sm">{action.name}</div>
@@ -100,14 +102,14 @@ export function V2QuickActionsMenu({
                     <button
                       type="button"
                       className="rounded-md p-1 text-dim hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)]"
-                      onClick={() => saveActions.mutate(actions.filter((candidate) => candidate.id !== action.id))}
+                      onClick={() => saveActions.mutate(safeActions.filter((candidate) => candidate.id !== action.id))}
                     >
                       <Trash2 size={13} />
                     </button>
                   )}
                 </div>
               ))}
-              {actions.length === 0 && <div className="px-2 py-4 text-sm text-dim">No actions yet. Add one below.</div>}
+              {safeActions.length === 0 && <div className="px-2 py-4 text-sm text-dim">No actions yet. Add one below.</div>}
             </div>
 
             <div className="mt-1 space-y-2 rounded-lg bg-inset p-2">

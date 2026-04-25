@@ -75,10 +75,11 @@ export function V2ProjectPage() {
     enabled: !!id,
   });
 
-  const sortedWorkspaces = useMemo(() => [...(workspaces ?? [])].sort((a, b) => {
+  const safeWorkspaces = Array.isArray(workspaces) ? workspaces : [];
+  const sortedWorkspaces = useMemo(() => [...safeWorkspaces].sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === 'main' ? -1 : 1;
     return a.createdAt.localeCompare(b.createdAt);
-  }), [workspaces]);
+  }), [safeWorkspaces]);
   const defaultWorkspace = sortedWorkspaces.find((workspace) => workspace.kind === 'main') ?? sortedWorkspaces[0] ?? null;
   const activeWorkspace = sortedWorkspaces.find((workspace) => workspace.id === requestedWorkspaceId) ?? defaultWorkspace;
   const activeWorkspaceId = activeWorkspace?.id ?? null;
@@ -99,7 +100,9 @@ export function V2ProjectPage() {
     enabled: !!project && !!activeWorkspaceId,
   });
 
-  const sortedTerminals = useMemo(() => [...(terminals ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [terminals]);
+  const safeTerminals = Array.isArray(terminals) ? terminals : [];
+  const safeWorkspaceConversations = Array.isArray(workspaceConversations) ? workspaceConversations : [];
+  const sortedTerminals = useMemo(() => [...safeTerminals].sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [safeTerminals]);
   const activeTerminal = mainSurface?.type === 'terminal'
     ? sortedTerminals.find((terminal) => terminal.id === mainSurface.terminalId) ?? null
     : requestedTerminalId
@@ -348,7 +351,7 @@ export function V2ProjectPage() {
             }}
             onCloseTerminal={(terminal) => closeTerminal.mutate(terminal.id)}
             onRenameTerminal={(terminal, title) => renameTerminal.mutate({ terminalId: terminal.id, title })}
-            conversations={workspaceConversations}
+            conversations={safeWorkspaceConversations}
             onSelectConversation={(conversation) => navigate(`/v2/conversations/${conversation.id}`)}
             onCreateConversation={() => createConversation.mutate()}
             onSelectWorkspaceTab={(index) => {

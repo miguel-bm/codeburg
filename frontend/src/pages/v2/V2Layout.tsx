@@ -40,11 +40,13 @@ export function V2Layout() {
     queryFn: () => preferencesApi.getPinnedProjects(),
   });
 
-  const visibleProjects = (projects ?? [])
+  const safeProjects = Array.isArray(projects) ? projects : [];
+  const safePinnedProjectIds = Array.isArray(pinnedProjectIds) ? pinnedProjectIds : [];
+  const visibleProjects = safeProjects
     .filter((project) => !project.hidden)
     .sort((a, b) => {
-      const pinnedA = pinnedProjectIds.includes(a.id);
-      const pinnedB = pinnedProjectIds.includes(b.id);
+      const pinnedA = safePinnedProjectIds.includes(a.id);
+      const pinnedB = safePinnedProjectIds.includes(b.id);
       if (pinnedA !== pinnedB) return pinnedA ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
@@ -158,7 +160,7 @@ export function V2Layout() {
             <ProjectTree
               key={project.id}
               project={project}
-              pinned={pinnedProjectIds.includes(project.id)}
+              pinned={safePinnedProjectIds.includes(project.id)}
               workspaces={workspacesByProject.get(project.id) ?? []}
               conversations={conversationsByProject.get(project.id) ?? []}
               pathname={location.pathname}
@@ -224,11 +226,13 @@ function ProjectTree({
   const conversationActive = conversations.some((conversation) => conversation.id === activeConversationId);
   const treeOpen = projectActive || conversationActive;
   const selectedWorkspaceId = new URLSearchParams(search).get('workspace');
-  const orderedWorkspaces = [...workspaces].sort((a, b) => {
+  const safeWorkspaces = Array.isArray(workspaces) ? workspaces : [];
+  const safeConversations = Array.isArray(conversations) ? conversations : [];
+  const orderedWorkspaces = [...safeWorkspaces].sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === 'main' ? -1 : 1;
     return a.createdAt.localeCompare(b.createdAt);
   });
-  const recentProjectConversations = [...conversations]
+  const recentProjectConversations = [...safeConversations]
     .filter((conversation) => !conversation.currentWorkspaceId && conversation.status === 'active')
     .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
     .slice(0, 3);
@@ -285,7 +289,7 @@ function ProjectTree({
             const active = selectedWorkspaceId
               ? selectedWorkspaceId === workspace.id
               : workspace.kind === 'main';
-            const workspaceConversations = conversations
+            const workspaceConversations = safeConversations
               .filter((conversation) => conversation.currentWorkspaceId === workspace.id && conversation.status === 'active')
               .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
               .slice(0, 3);
@@ -437,7 +441,8 @@ function V2NavLink({
 }
 
 async function togglePinnedProject(projectId: string, queryClient: QueryClient) {
-  const pinned: string[] = await preferencesApi.getPinnedProjects();
+  const pinnedValue = await preferencesApi.getPinnedProjects();
+  const pinned: string[] = Array.isArray(pinnedValue) ? pinnedValue : [];
   const next = pinned.includes(projectId)
     ? pinned.filter((id) => id !== projectId)
     : [...pinned, projectId];

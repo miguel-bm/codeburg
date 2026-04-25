@@ -91,13 +91,15 @@ export function V2ConversationDetailPage() {
   const isActiveConversation = conversation?.status === 'active';
   const { snapshot: liveSnapshot, connected, connecting, error, sendMessage, abort } = usePiConversation(conversationId ?? '', isActiveConversation);
   const snapshot: PiConversationSnapshot | null = liveSnapshot ?? stateSnapshot ?? null;
+  const safeWorkspaces = Array.isArray(workspaces) ? workspaces : [];
+  const safeWorkspaceHistory = Array.isArray(workspaceHistory) ? workspaceHistory : [];
   const attachedWorkspace = useMemo(
-    () => workspaces?.find((workspace) => workspace.id === conversation?.currentWorkspaceId),
-    [workspaces, conversation?.currentWorkspaceId],
+    () => safeWorkspaces.find((workspace) => workspace.id === conversation?.currentWorkspaceId),
+    [safeWorkspaces, conversation?.currentWorkspaceId],
   );
   const activeWorkspace = attachedWorkspace
-    ?? workspaces?.find((workspace) => workspace.kind === 'main')
-    ?? workspaces?.[0]
+    ?? safeWorkspaces.find((workspace) => workspace.kind === 'main')
+    ?? safeWorkspaces[0]
     ?? null;
   const activeWorkspaceId = activeWorkspace?.id ?? null;
   const activeWorkspaceTab = mainSurface !== 'conversation' ? tabs[mainSurface.index] : null;
@@ -147,9 +149,11 @@ export function V2ConversationDetailPage() {
     },
     enabled: !!project && !!activeWorkspaceId,
   });
+  const safeTerminals = Array.isArray(terminals) ? terminals : [];
+  const safeWorkspaceConversations = Array.isArray(workspaceConversations) ? workspaceConversations : [];
   const createTerminal = useMutation({
     mutationFn: () => v2Api.createTerminal(activeWorkspaceId!, {
-      title: `Terminal #${terminals.length + 1}`,
+      title: `Terminal #${safeTerminals.length + 1}`,
     }),
     onSuccess: async (terminal) => {
       await queryClient.invalidateQueries({ queryKey: ['v2-terminals', terminal.workspaceId] });
@@ -238,7 +242,7 @@ export function V2ConversationDetailPage() {
   };
 
   const workspaceValue = selectedWorkspaceId || conversation?.currentWorkspaceId || '';
-  const sortedTerminals = [...terminals].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const sortedTerminals = [...safeTerminals].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const shell = (
     <V2Screen>
       <div className="flex h-10 shrink-0 items-center justify-between gap-3 bg-canvas px-4">
@@ -274,7 +278,7 @@ export function V2ConversationDetailPage() {
             </>
           )}
         </div>
-        {workspaceConversations.map((candidate) => (
+        {safeWorkspaceConversations.map((candidate) => (
           <button
             key={candidate.id}
             type="button"
@@ -305,7 +309,7 @@ export function V2ConversationDetailPage() {
         <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
           <Sparkles size={13} />
           <span className="truncate font-medium text-[var(--color-text-primary)]">{conversation?.title ?? 'Conversation'}</span>
-          {(workspaceHistory?.length ?? 0) > 1 && <span>{workspaceHistory?.length} moves</span>}
+          {safeWorkspaceHistory.length > 1 && <span>{safeWorkspaceHistory.length} moves</span>}
         </div>
         <div className="relative flex shrink-0 items-center gap-1">
           <button type="button" onClick={() => setConversationActionsOpen((value) => !value)} className="rounded-md px-2 py-1 text-xs text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]">
@@ -315,7 +319,7 @@ export function V2ConversationDetailPage() {
             <>
               <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close conversation actions" onClick={() => setConversationActionsOpen(false)} />
               <div className="absolute right-0 top-7 z-50 w-80 rounded-xl bg-card p-3 shadow-[var(--shadow-card)]">
-                {conversation && <CompactWorkspaceMenu value={workspaceValue} workspaces={workspaces ?? []} pending={updateWorkspace.isPending} onChange={setSelectedWorkspaceId} onSave={() => updateWorkspace.mutate(workspaceValue || '')} />}
+                {conversation && <CompactWorkspaceMenu value={workspaceValue} workspaces={safeWorkspaces} pending={updateWorkspace.isPending} onChange={setSelectedWorkspaceId} onSave={() => updateWorkspace.mutate(workspaceValue || '')} />}
                 <div className="mt-3 flex items-center gap-2">
                   <V2Input value={forkTitle} onChange={(event) => setForkTitle(event.target.value)} placeholder="Fork title" className="min-w-0 flex-1" />
                   <Button size="xs" variant="secondary" icon={<GitBranchPlus size={13} />} loading={forkConversation.isPending} onClick={() => forkConversation.mutate()} title="Fork conversation">Fork</Button>
