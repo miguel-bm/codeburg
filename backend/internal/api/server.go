@@ -308,6 +308,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/conversations", s.handleListConversations)
 		r.Get("/api/conversations/{id}", s.handleGetConversation)
 		r.Patch("/api/conversations/{id}", s.handleUpdateConversation)
+		r.Delete("/api/conversations/{id}", s.handleDeleteConversation)
 		r.Get("/api/conversations/{id}/workspaces", s.handleListConversationWorkspaceLinks)
 		r.Post("/api/conversations/{id}/workspace", s.handleSwitchConversationWorkspace)
 		r.Post("/api/conversations/{id}/pause", s.handlePauseConversation)

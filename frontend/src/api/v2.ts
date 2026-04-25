@@ -161,6 +161,9 @@ export const v2Api = {
   archiveConversation: (conversationId: string) =>
     api.post<Conversation>(`/conversations/${conversationId}/archive`, {}),
 
+  deleteConversation: (conversationId: string) =>
+    api.delete(`/conversations/${conversationId}`),
+
   getConversationState: (conversationId: string) =>
     api.get<PiConversationSnapshot>(`/conversations/${conversationId}/state`),
 

@@ -1,22 +1,29 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  Archive,
+  Ellipsis,
   FolderGit2,
+  FolderPlus,
   GitBranch,
   MessageSquarePlus,
   MessageSquareText,
+  Pencil,
+  Pin,
   Search,
   Settings,
   Sparkles,
   TerminalSquare,
 } from 'lucide-react';
-import { projectsApi } from '../../api';
+import { preferencesApi, projectsApi } from '../../api';
 import type { Conversation, Project, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { Badge } from '../../components/ui/Badge';
 import { CodeburgIcon, CodeburgWordmark } from '../../components/ui/CodeburgIcon';
 import { getDesktopTitleBarInsetTop, isDesktopShell } from '../../platform/runtimeConfig';
+import type { QueryClient } from '@tanstack/react-query';
+import type { NavigateFunction } from 'react-router-dom';
 
 export function V2Layout() {
   const location = useLocation();
@@ -27,8 +34,9 @@ export function V2Layout() {
     queryFn: () => projectsApi.list(),
   });
 
+  const visibleProjects = (projects ?? []).filter((project) => !project.hidden);
   const workspaceQueries = useQueries({
-    queries: (projects ?? []).map((project) => ({
+    queries: visibleProjects.map((project) => ({
       queryKey: ['v2-workspaces', project.id],
       queryFn: () => v2Api.listWorkspaces(project.id),
       enabled: !!project.id,
@@ -36,9 +44,9 @@ export function V2Layout() {
     })),
   });
   const conversationQueries = useQueries({
-    queries: (projects ?? []).map((project) => ({
+    queries: visibleProjects.map((project) => ({
       queryKey: ['v2-project-conversations', project.id, 'sidebar'],
-      queryFn: () => v2Api.listProjectConversations(project.id, { provider: 'pi' }),
+      queryFn: () => v2Api.listProjectConversations(project.id, { provider: 'pi', status: 'active' }),
       enabled: !!project.id,
       staleTime: 20_000,
     })),
@@ -46,7 +54,7 @@ export function V2Layout() {
 
   const workspacesByProject = new Map<string, Workspace[]>();
   const conversationsByProject = new Map<string, Conversation[]>();
-  (projects ?? []).forEach((project, index) => {
+  visibleProjects.forEach((project, index) => {
     workspacesByProject.set(project.id, workspaceQueries[index]?.data ?? []);
     conversationsByProject.set(project.id, conversationQueries[index]?.data ?? []);
   });
@@ -63,6 +71,25 @@ export function V2Layout() {
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', conversation.projectId, 'sidebar'] }),
       ]);
       navigate(`/v2/conversations/${conversation.id}`);
+    },
+  });
+  const archiveOrDeleteConversation = useMutation({
+    mutationFn: async (conversation: Conversation) => {
+      const snapshot = await v2Api.getConversationState(conversation.id).catch(() => null);
+      if (!snapshot || snapshot.messages.length === 0) {
+        await v2Api.deleteConversation(conversation.id);
+        return { projectId: conversation.projectId };
+      }
+      const archived = await v2Api.archiveConversation(conversation.id);
+      return { projectId: archived.projectId };
+    },
+    onSuccess: async ({ projectId }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', projectId, 'sidebar'] }),
+      ]);
+      if (location.pathname.match(/^\/v2\/conversations\/[^/]+/)) navigate('/v2');
     },
   });
 
@@ -101,7 +128,7 @@ export function V2Layout() {
 
         <div className="mt-5 flex items-center justify-between px-4 text-[11px] font-medium uppercase tracking-wide text-dim">
           <span>Projects</span>
-          <span>{projects?.length ?? 0}</span>
+          <span>{visibleProjects.length}</span>
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
@@ -113,7 +140,7 @@ export function V2Layout() {
             </div>
           )}
 
-          {(projects ?? []).map((project) => (
+          {visibleProjects.map((project) => (
             <ProjectTree
               key={project.id}
               project={project}
@@ -122,7 +149,9 @@ export function V2Layout() {
               pathname={location.pathname}
               search={location.search}
               creating={createConversation.isPending}
+              archivingConversation={archiveOrDeleteConversation.isPending}
               onNewConversation={(workspace) => createConversation.mutate({ project, workspace })}
+              onArchiveConversation={(conversation) => archiveOrDeleteConversation.mutate(conversation)}
             />
           ))}
         </div>
@@ -156,7 +185,9 @@ function ProjectTree({
   pathname,
   search,
   creating,
+  archivingConversation,
   onNewConversation,
+  onArchiveConversation,
 }: {
   project: Project;
   workspaces: Workspace[];
@@ -164,8 +195,13 @@ function ProjectTree({
   pathname: string;
   search: string;
   creating: boolean;
+  archivingConversation: boolean;
   onNewConversation: (workspace?: Workspace) => void;
+  onArchiveConversation: (conversation: Conversation) => void;
 }) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const projectActive = pathname.startsWith(`/v2/projects/${project.id}`);
   const activeConversationId = pathname.match(/^\/v2\/conversations\/([^/]+)/)?.[1];
   const conversationActive = conversations.some((conversation) => conversation.id === activeConversationId);
@@ -175,14 +211,13 @@ function ProjectTree({
     if (a.kind !== b.kind) return a.kind === 'main' ? -1 : 1;
     return a.createdAt.localeCompare(b.createdAt);
   });
-  const mainWorkspace = orderedWorkspaces.find((workspace) => workspace.kind === 'main') ?? orderedWorkspaces[0];
   const recentProjectConversations = [...conversations]
-    .filter((conversation) => !conversation.currentWorkspaceId)
+    .filter((conversation) => !conversation.currentWorkspaceId && conversation.status === 'active')
     .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
     .slice(0, 3);
 
   return (
-    <div className="mb-1">
+    <div className="relative mb-1">
       <div
         className={`group flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
           treeOpen
@@ -196,14 +231,33 @@ function ProjectTree({
         </Link>
         <button
           type="button"
-          disabled={creating}
-          onClick={() => onNewConversation(mainWorkspace)}
+          onClick={() => navigate(`/v2/projects/${project.id}?newWorkspace=1`)}
           className="rounded p-1 text-dim opacity-0 transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 group-hover:opacity-100"
-          title="New conversation"
+          title="New workspace"
         >
-          <MessageSquarePlus size={13} />
+          <FolderPlus size={13} />
+        </button>
+        <button
+          type="button"
+          onClick={() => setProjectMenuOpen((value) => !value)}
+          className="rounded p-1 text-dim opacity-0 transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] group-hover:opacity-100"
+          title="Project actions"
+        >
+          <Ellipsis size={13} />
         </button>
       </div>
+      {projectMenuOpen && (
+        <>
+          <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close project menu" onClick={() => setProjectMenuOpen(false)} />
+          <div className="absolute right-1 top-8 z-50 w-52 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
+            <ProjectMenuItem icon={<FolderPlus size={14} />} onClick={() => navigate(`/v2/projects/${project.id}?newWorkspace=1`)}>New workspace</ProjectMenuItem>
+            <ProjectMenuItem icon={<Pin size={14} />} onClick={() => void togglePinnedProject(project.id, queryClient)}>Pin project</ProjectMenuItem>
+            <ProjectMenuItem icon={<Pencil size={14} />} onClick={() => void renameProject(project, queryClient)}>Rename project</ProjectMenuItem>
+            <ProjectMenuItem icon={<Settings size={14} />} onClick={() => navigate(`/v2/projects/${project.id}/settings`)}>Settings</ProjectMenuItem>
+            <ProjectMenuItem icon={<Archive size={14} />} danger onClick={() => void archiveProject(project, queryClient, navigate)}>Archive project</ProjectMenuItem>
+          </div>
+        </>
+      )}
 
       {treeOpen && (
         <div className="mt-1 space-y-1 pl-5 pr-1">
@@ -212,7 +266,7 @@ function ProjectTree({
               ? selectedWorkspaceId === workspace.id
               : workspace.kind === 'main';
             const workspaceConversations = conversations
-              .filter((conversation) => conversation.currentWorkspaceId === workspace.id)
+              .filter((conversation) => conversation.currentWorkspaceId === workspace.id && conversation.status === 'active')
               .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
               .slice(0, 3);
             return (
@@ -241,18 +295,13 @@ function ProjectTree({
                 {workspaceConversations.length > 0 && (
                   <div className="ml-5 mt-0.5 space-y-0.5">
                     {workspaceConversations.map((conversation) => (
-                      <Link
+                      <ConversationSidebarRow
                         key={conversation.id}
-                        to={`/v2/conversations/${conversation.id}`}
-                        className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ${
-                          conversation.id === activeConversationId
-                            ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
-                            : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
-                        }`}
-                      >
-                        <MessageSquareText size={12} />
-                        <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
-                      </Link>
+                        conversation={conversation}
+                        active={conversation.id === activeConversationId}
+                        pending={archivingConversation}
+                        onArchive={() => onArchiveConversation(conversation)}
+                      />
                     ))}
                   </div>
                 )}
@@ -260,22 +309,71 @@ function ProjectTree({
             );
           })}
           {recentProjectConversations.map((conversation) => (
-            <Link
+            <ConversationSidebarRow
               key={conversation.id}
-              to={`/v2/conversations/${conversation.id}`}
-              className={`ml-5 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ${
-                conversation.id === activeConversationId
-                  ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
-                  : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
-              }`}
-            >
-              <MessageSquareText size={12} />
-              <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
-            </Link>
+              conversation={conversation}
+              active={conversation.id === activeConversationId}
+              pending={archivingConversation}
+              onArchive={() => onArchiveConversation(conversation)}
+              className="ml-5"
+            />
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+function ConversationSidebarRow({
+  conversation,
+  active,
+  pending,
+  onArchive,
+  className = '',
+}: {
+  conversation: Conversation;
+  active: boolean;
+  pending: boolean;
+  onArchive: () => void;
+  className?: string;
+}) {
+  return (
+    <div className={`group/conversation flex items-center rounded-md ${
+      active ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]' : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
+    } ${className}`}>
+      <Link to={`/v2/conversations/${conversation.id}`} className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1 text-xs">
+        <MessageSquareText size={12} />
+        <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
+      </Link>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onArchive();
+        }}
+        className="mr-1 rounded p-0.5 text-dim opacity-0 hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 group-hover/conversation:opacity-100"
+        title="Archive conversation"
+      >
+        <Archive size={12} />
+      </button>
+    </div>
+  );
+}
+
+function ProjectMenuItem({ icon, children, onClick, danger = false }: { icon: ReactNode; children: ReactNode; onClick: () => void; danger?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs ${
+        danger ? 'text-[var(--color-error)] hover:bg-[var(--color-error)]/10' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]'
+      }`}
+    >
+      {icon}
+      <span>{children}</span>
+    </button>
   );
 }
 
@@ -316,4 +414,30 @@ function V2NavLink({
       <span>{label}</span>
     </Link>
   );
+}
+
+async function togglePinnedProject(projectId: string, queryClient: QueryClient) {
+  const pinned: string[] = await preferencesApi.getPinnedProjects();
+  const next = pinned.includes(projectId)
+    ? pinned.filter((id) => id !== projectId)
+    : [...pinned, projectId];
+  await preferencesApi.setPinnedProjects(next);
+  await queryClient.invalidateQueries({ queryKey: ['pinned-projects'] });
+}
+
+async function renameProject(project: Project, queryClient: QueryClient) {
+  const nextName = window.prompt('Rename project', project.name)?.trim();
+  if (!nextName || nextName === project.name) return;
+  await projectsApi.update(project.id, { name: nextName });
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['v2-projects'] }),
+    queryClient.invalidateQueries({ queryKey: ['project', project.id] }),
+  ]);
+}
+
+async function archiveProject(project: Project, queryClient: QueryClient, navigate: NavigateFunction) {
+  if (!window.confirm(`Archive ${project.name}? It will be hidden from the active project list.`)) return;
+  await projectsApi.update(project.id, { hidden: true });
+  await queryClient.invalidateQueries({ queryKey: ['v2-projects'] });
+  navigate('/v2');
 }

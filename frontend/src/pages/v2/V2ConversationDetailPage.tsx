@@ -4,14 +4,11 @@ import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
-  CheckCircle2,
   ChevronDown,
   FileText,
   GitBranchPlus,
   GitCommitHorizontal,
   PanelRightOpen,
-  PauseCircle,
-  PlayCircle,
   Send,
   Sparkles,
   SquareTerminal,
@@ -20,7 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { projectsApi } from '../../api';
-import type { ConversationStatus, PiConversationMessage, PiConversationSnapshot, Workspace } from '../../api/types';
+import type { PiConversationMessage, PiConversationSnapshot, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
 import { DiffTab } from '../../components/workspace/DiffTab';
@@ -30,6 +27,7 @@ import { fileName } from '../../components/workspace/editorUtils';
 import { usePiConversation } from '../../hooks/usePiConversation';
 import { useWorkspaceStore, type WorkspaceTab } from '../../stores/workspace';
 import { Button, V2Empty, V2Input, V2Screen, V2Select, V2Textarea } from './v2-ui';
+import { V2QuickActionsMenu } from './V2QuickActionsMenu';
 import { V2WorkspaceTools, type V2HelperTab } from './V2WorkspaceTools';
 
 type MainSurface = 'conversation' | { type: 'workspaceTab'; index: number };
@@ -40,7 +38,6 @@ export function V2ConversationDetailPage() {
   const resetWorkspaceTabs = useWorkspaceStore((state) => state.resetTabs);
   const tabs = useWorkspaceStore((state) => state.tabs);
   const activeTabIndex = useWorkspaceStore((state) => state.activeTabIndex);
-  const setActiveTab = useWorkspaceStore((state) => state.setActiveTab);
   const closeTab = useWorkspaceStore((state) => state.closeTab);
 
   const [draft, setDraft] = useState('');
@@ -94,10 +91,10 @@ export function V2ConversationDetailPage() {
     ?? workspaces?.find((workspace) => workspace.kind === 'main')
     ?? workspaces?.[0]
     ?? null;
-  const workspaceTabs = tabs
-    .map((tab, index) => ({ tab, index }))
-    .filter((entry): entry is { tab: Extract<WorkspaceTab, { type: 'editor' | 'diff' }>; index: number } => entry.tab.type === 'editor' || entry.tab.type === 'diff');
   const activeWorkspaceTab = mainSurface !== 'conversation' ? tabs[mainSurface.index] : null;
+  const activePreviewTab = activeWorkspaceTab?.type === 'editor' || activeWorkspaceTab?.type === 'diff'
+    ? activeWorkspaceTab
+    : null;
 
   useEffect(() => {
     resetWorkspaceTabs();
@@ -198,22 +195,12 @@ export function V2ConversationDetailPage() {
     <V2Screen>
       <div className="flex h-10 shrink-0 items-center justify-between gap-3 bg-canvas px-4">
         <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
-          <Sparkles size={14} />
-          <span className="truncate font-medium text-[var(--color-text-primary)]">{conversation?.title ?? 'Conversation'}</span>
           <span className="truncate">{project?.name ?? 'Project'}</span>
-          <span>{conversation?.status ?? 'loading'}</span>
           {activeWorkspace && <span className="truncate">on {activeWorkspace.name}</span>}
-          {(workspaceHistory?.length ?? 0) > 0 && <span>{workspaceHistory?.length} workspace moves</span>}
           {connected ? <span className="text-[var(--color-success)]">connected</span> : connecting ? <span>connecting</span> : error ? <span className="text-[var(--color-error)]">{error}</span> : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {conversation && <CompactWorkspaceMenu value={workspaceValue} workspaces={workspaces ?? []} pending={updateWorkspace.isPending} onChange={setSelectedWorkspaceId} onSave={() => updateWorkspace.mutate(workspaceValue || '')} />}
-          <V2Input value={forkTitle} onChange={(event) => setForkTitle(event.target.value)} placeholder="Fork title" className="hidden w-36 lg:block" />
-          <Button size="xs" variant="secondary" icon={<GitBranchPlus size={13} />} loading={forkConversation.isPending} onClick={() => forkConversation.mutate()}>Fork</Button>
-          <LifecycleButton status={conversation?.status} target="pause" icon={<PauseCircle size={13} />} label="Pause" pending={transitionConversation.isPending} onClick={() => transitionConversation.mutate('pause')} />
-          <LifecycleButton status={conversation?.status} target="resume" icon={<PlayCircle size={13} />} label="Resume" pending={transitionConversation.isPending} onClick={() => transitionConversation.mutate('resume')} />
-          <LifecycleButton status={conversation?.status} target="complete" icon={<CheckCircle2 size={13} />} label="Complete" pending={transitionConversation.isPending} onClick={() => transitionConversation.mutate('complete')} />
-          {conversation?.status !== 'archived' && <Button size="xs" variant="ghost" icon={<Archive size={13} />} disabled={transitionConversation.isPending} onClick={() => transitionConversation.mutate('archive')}>Archive</Button>}
+          <V2QuickActionsMenu projectId={project?.id} workspaceId={activeWorkspace?.id} disabled={!project || !activeWorkspace || activeWorkspace.status !== 'active'} />
           {activeWorkspace && (
             <Link to={`/v2/projects/${activeWorkspace.projectId}?workspace=${activeWorkspace.id}`}>
               <Button size="xs" variant="ghost" icon={<SquareTerminal size={13} />}>Workspace</Button>
@@ -221,22 +208,32 @@ export function V2ConversationDetailPage() {
           )}
         </div>
       </div>
+      <div className="flex h-10 shrink-0 items-center justify-between gap-3 bg-primary px-4">
+        <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
+          <Sparkles size={14} />
+          <span className="truncate font-medium text-[var(--color-text-primary)]">{conversation?.title ?? 'Conversation'}</span>
+          <span>{conversation?.status ?? 'loading'}</span>
+          {(workspaceHistory?.length ?? 0) > 0 && <span>{workspaceHistory?.length} workspace moves</span>}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {conversation && <CompactWorkspaceMenu value={workspaceValue} workspaces={workspaces ?? []} pending={updateWorkspace.isPending} onChange={setSelectedWorkspaceId} onSave={() => updateWorkspace.mutate(workspaceValue || '')} />}
+          <V2Input value={forkTitle} onChange={(event) => setForkTitle(event.target.value)} placeholder="Fork title" className="hidden w-36 lg:block" />
+          <Button size="xs" variant="secondary" icon={<GitBranchPlus size={13} />} loading={forkConversation.isPending} onClick={() => forkConversation.mutate()}>Fork</Button>
+          {conversation?.status !== 'archived' && <Button size="xs" variant="ghost" icon={<Archive size={13} />} disabled={transitionConversation.isPending} onClick={() => transitionConversation.mutate('archive')}>Archive</Button>}
+        </div>
+      </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <section className="flex min-w-0 flex-1 flex-col bg-primary">
-          <ConversationTabBar
-            activeSurface={mainSurface}
-            workspaceTabs={workspaceTabs}
-            onConversation={() => setMainSurface('conversation')}
-            onSelectTab={(index) => {
-              setActiveTab(index);
-              setMainSurface({ type: 'workspaceTab', index });
-            }}
-            onCloseTab={(index) => {
-              closeTab(index);
-              setMainSurface('conversation');
-            }}
-          />
+          {activePreviewTab && mainSurface !== 'conversation' && (
+            <FileSurfaceBar
+              tab={activePreviewTab}
+              onClose={() => {
+                closeTab(mainSurface.index);
+                setMainSurface('conversation');
+              }}
+            />
+          )}
 
           <div className="min-h-0 flex-1 overflow-hidden">
             {activeWorkspaceTab?.type === 'editor' ? (
@@ -445,89 +442,24 @@ function CompactWorkspaceMenu({
   );
 }
 
-function ConversationTabBar({
-  activeSurface,
-  workspaceTabs,
-  onConversation,
-  onSelectTab,
-  onCloseTab,
+function FileSurfaceBar({
+  tab,
+  onClose,
 }: {
-  activeSurface: MainSurface;
-  workspaceTabs: Array<{ tab: Extract<WorkspaceTab, { type: 'editor' | 'diff' }>; index: number }>;
-  onConversation: () => void;
-  onSelectTab: (index: number) => void;
-  onCloseTab: (index: number) => void;
+  tab: Extract<WorkspaceTab, { type: 'editor' | 'diff' }>;
+  onClose: () => void;
 }) {
   return (
-    <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto bg-canvas px-2 scrollbar-none">
-      <button
-        type="button"
-        onClick={onConversation}
-        className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs ${
-          activeSurface === 'conversation' ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]' : 'text-dim hover:bg-[var(--color-card)]'
-        }`}
-      >
-        <Sparkles size={13} />
-        Conversation
+    <div className="flex h-9 shrink-0 items-center justify-between gap-3 bg-canvas px-3">
+      <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
+        {tab.type === 'editor' ? <FileText size={13} /> : <GitCommitHorizontal size={13} />}
+        <span className="truncate font-medium text-[var(--color-text-primary)]">{previewTabLabel(tab)}</span>
+      </div>
+      <button type="button" onClick={onClose} className="rounded-md p-1 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]" title="Close file surface">
+        <X size={13} />
       </button>
-      {workspaceTabs.map(({ tab, index }) => (
-        <button
-          key={`${tab.type}:${index}:${tab.type === 'editor' ? tab.path : tab.file}`}
-          type="button"
-          onClick={() => onSelectTab(index)}
-          className={`inline-flex h-7 max-w-[15rem] items-center gap-1.5 rounded-md px-2 text-xs ${
-            activeSurface !== 'conversation' && activeSurface.index === index
-              ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
-              : 'bg-[var(--color-card)] text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)]'
-          }`}
-        >
-          {tab.type === 'editor' ? <FileText size={13} /> : <GitCommitHorizontal size={13} />}
-          <span className="truncate">{previewTabLabel(tab)}</span>
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(event) => {
-              event.stopPropagation();
-              onCloseTab(index);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                event.stopPropagation();
-                onCloseTab(index);
-              }
-            }}
-            className="text-dim hover:text-[var(--color-text-primary)]"
-          >
-            <X size={12} />
-          </span>
-        </button>
-      ))}
     </div>
   );
-}
-
-function LifecycleButton({
-  status,
-  target,
-  icon,
-  label,
-  pending,
-  onClick,
-}: {
-  status?: ConversationStatus;
-  target: 'pause' | 'resume' | 'complete';
-  icon: ReactNode;
-  label: string;
-  pending: boolean;
-  onClick: () => void;
-}) {
-  const visible =
-    (target === 'pause' && status === 'active') ||
-    (target === 'resume' && (status === 'paused' || status === 'completed')) ||
-    (target === 'complete' && (status === 'active' || status === 'paused'));
-  if (!visible) return null;
-  return <Button size="xs" variant="secondary" icon={icon} disabled={pending} onClick={onClick}>{label}</Button>;
 }
 
 function previewTabLabel(tab: Extract<WorkspaceTab, { type: 'editor' | 'diff' }>) {

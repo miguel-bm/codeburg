@@ -132,7 +132,7 @@ export function V2ProjectSettingsPage() {
         <V2Panel>
           <V2PanelHeader
             title="Quick run actions"
-            subtitle="Named project commands. For now these are configured here and will appear as workspace run buttons in the next UI slice."
+            subtitle="Named project commands shown in the Run menu for project and conversation screens."
           />
           <div className="space-y-3 p-4">
             <div className="grid gap-2 md:grid-cols-[14rem_minmax(0,1fr)_auto]">

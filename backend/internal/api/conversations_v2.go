@@ -216,6 +216,20 @@ func (s *Server) handleGetConversation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, conversation)
 }
 
+func (s *Server) handleDeleteConversation(w http.ResponseWriter, r *http.Request) {
+	conversationID := urlParam(r, "id")
+	if _, err := s.db.GetConversation(conversationID); err != nil {
+		writeDBError(w, err, "conversation")
+		return
+	}
+	s.pi.StopConversation(conversationID)
+	if err := s.db.DeleteConversation(conversationID); err != nil {
+		writeDBError(w, err, "conversation")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleListConversationWorkspaceLinks(w http.ResponseWriter, r *http.Request) {
 	conversationID := urlParam(r, "id")
 	if _, err := s.db.GetConversation(conversationID); err != nil {

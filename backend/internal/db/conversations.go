@@ -227,6 +227,21 @@ func (db *DB) UpdateConversation(id string, input UpdateConversationInput) (*Con
 	return db.GetConversation(id)
 }
 
+func (db *DB) DeleteConversation(id string) error {
+	result, err := db.conn.Exec(`DELETE FROM conversations WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete conversation: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func nullableTrimmedString(value *string) sql.NullString {
 	if value == nil {
 		return sql.NullString{}
