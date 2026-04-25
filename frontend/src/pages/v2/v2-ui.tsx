@@ -33,7 +33,7 @@ export function V2Header({
   actions?: ReactNode;
 }) {
   return (
-    <header className="shrink-0 border-b border-[var(--color-card-border)] bg-canvas px-5 py-4">
+    <header className="shrink-0 bg-canvas px-5 py-3">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           {backTo && (
@@ -46,7 +46,7 @@ export function V2Header({
             </Link>
           )}
           {eyebrow && <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-dim">{eyebrow}</div>}
-          <h1 className="mt-1 truncate text-xl font-semibold tracking-[-0.03em]">{title}</h1>
+          <h1 className="mt-1 truncate text-lg font-semibold tracking-[-0.03em]">{title}</h1>
           {subtitle && <div className="mt-1 max-w-3xl text-sm leading-5 text-dim">{subtitle}</div>}
         </div>
         {actions && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div>}
@@ -73,7 +73,7 @@ export function V2Panel({
   className?: string;
 }) {
   return (
-    <section className={`rounded-xl border border-[var(--color-card-border)] bg-card shadow-[var(--shadow-card)] ${className}`}>
+    <section className={`rounded-xl bg-card shadow-[var(--shadow-card)] ${className}`}>
       {children}
     </section>
   );
@@ -89,7 +89,7 @@ export function V2PanelHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex min-h-11 items-center justify-between gap-3 border-b border-[var(--color-card-border)] px-4 py-3">
+    <div className="flex min-h-11 items-center justify-between gap-3 px-4 py-3">
       <div className="min-w-0">
         <div className="truncate text-sm font-medium">{title}</div>
         {subtitle && <div className="mt-0.5 truncate text-xs text-dim">{subtitle}</div>}

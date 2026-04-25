@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { Link, Outlet, useLocation } from 'react-router-dom';
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   FolderGit2,
   GitBranch,
@@ -12,7 +12,7 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import { projectsApi } from '../../api';
-import type { Project, Workspace } from '../../api/types';
+import type { Conversation, Project, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { Badge } from '../../components/ui/Badge';
 import { CodeburgIcon, CodeburgWordmark } from '../../components/ui/CodeburgIcon';
@@ -20,6 +20,8 @@ import { getDesktopTitleBarInsetTop, isDesktopShell } from '../../platform/runti
 
 export function V2Layout() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { data: projects, isLoading } = useQuery({
     queryKey: ['v2-projects'],
     queryFn: () => projectsApi.list(),
@@ -33,10 +35,35 @@ export function V2Layout() {
       staleTime: 30_000,
     })),
   });
+  const conversationQueries = useQueries({
+    queries: (projects ?? []).map((project) => ({
+      queryKey: ['v2-project-conversations', project.id, 'sidebar'],
+      queryFn: () => v2Api.listProjectConversations(project.id, { provider: 'pi' }),
+      enabled: !!project.id,
+      staleTime: 20_000,
+    })),
+  });
 
   const workspacesByProject = new Map<string, Workspace[]>();
+  const conversationsByProject = new Map<string, Conversation[]>();
   (projects ?? []).forEach((project, index) => {
     workspacesByProject.set(project.id, workspaceQueries[index]?.data ?? []);
+    conversationsByProject.set(project.id, conversationQueries[index]?.data ?? []);
+  });
+  const createConversation = useMutation({
+    mutationFn: ({ project, workspace }: { project: Project; workspace?: Workspace }) =>
+      v2Api.createConversation(project.id, {
+        title: `New ${project.name} conversation`,
+        currentWorkspaceId: workspace?.id,
+      }),
+    onSuccess: async (conversation) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', conversation.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', conversation.projectId, 'sidebar'] }),
+      ]);
+      navigate(`/v2/conversations/${conversation.id}`);
+    },
   });
 
   const desktopTopInset = isDesktopShell() ? getDesktopTitleBarInsetTop() : 0;
@@ -69,12 +96,7 @@ export function V2Layout() {
             icon={<FolderGit2 size={15} />}
             label="Projects"
           />
-          <V2NavLink
-            to="/v2/conversations"
-            active={location.pathname.startsWith('/v2/conversations')}
-            icon={<MessageSquareText size={15} />}
-            label="Conversations"
-          />
+          <SidebarAction icon={<MessageSquareText size={15} />} label="All conversations" onClick={() => navigate('/v2/conversations')} />
         </nav>
 
         <div className="mt-5 flex items-center justify-between px-4 text-[11px] font-medium uppercase tracking-wide text-dim">
@@ -96,8 +118,11 @@ export function V2Layout() {
               key={project.id}
               project={project}
               workspaces={workspacesByProject.get(project.id) ?? []}
+              conversations={conversationsByProject.get(project.id) ?? []}
               pathname={location.pathname}
               search={location.search}
+              creating={createConversation.isPending}
+              onNewConversation={(workspace) => createConversation.mutate({ project, workspace })}
             />
           ))}
         </div>
@@ -127,13 +152,19 @@ export function V2Layout() {
 function ProjectTree({
   project,
   workspaces,
+  conversations,
   pathname,
   search,
+  creating,
+  onNewConversation,
 }: {
   project: Project;
   workspaces: Workspace[];
+  conversations: Conversation[];
   pathname: string;
   search: string;
+  creating: boolean;
+  onNewConversation: (workspace?: Workspace) => void;
 }) {
   const projectActive = pathname.startsWith(`/v2/projects/${project.id}`);
   const selectedWorkspaceId = new URLSearchParams(search).get('workspace');
@@ -141,47 +172,112 @@ function ProjectTree({
     if (a.kind !== b.kind) return a.kind === 'main' ? -1 : 1;
     return a.createdAt.localeCompare(b.createdAt);
   });
+  const mainWorkspace = orderedWorkspaces.find((workspace) => workspace.kind === 'main') ?? orderedWorkspaces[0];
+  const recentProjectConversations = [...conversations]
+    .filter((conversation) => !conversation.currentWorkspaceId)
+    .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
+    .slice(0, 3);
 
   return (
     <div className="mb-1">
-      <Link
-        to={`/v2/projects/${project.id}`}
+      <div
         className={`group flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
           projectActive
             ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]'
             : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
         }`}
       >
-        <FolderGit2 size={15} className={projectActive ? 'text-accent' : 'text-dim'} />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{project.name}</span>
-        <Plus size={13} className="text-dim opacity-0 transition-opacity group-hover:opacity-100" />
-      </Link>
+        <Link to={`/v2/projects/${project.id}`} className="flex min-w-0 flex-1 items-center gap-2">
+          <FolderGit2 size={15} className={projectActive ? 'text-accent' : 'text-dim'} />
+          <span className="min-w-0 flex-1 truncate text-sm font-medium">{project.name}</span>
+        </Link>
+        <button
+          type="button"
+          disabled={creating}
+          onClick={() => onNewConversation(mainWorkspace)}
+          className="rounded p-1 text-dim opacity-0 transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 group-hover:opacity-100"
+          title="New conversation"
+        >
+          <Plus size={13} />
+        </button>
+      </div>
 
       {projectActive && (
-        <div className="mt-1 space-y-0.5 pl-5 pr-1">
+        <div className="mt-1 space-y-1 pl-5 pr-1">
           {orderedWorkspaces.map((workspace) => {
             const active = selectedWorkspaceId
               ? selectedWorkspaceId === workspace.id
               : workspace.kind === 'main';
+            const workspaceConversations = conversations
+              .filter((conversation) => conversation.currentWorkspaceId === workspace.id)
+              .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
+              .slice(0, 3);
             return (
-              <Link
-                key={workspace.id}
-                to={`/v2/projects/${project.id}?workspace=${workspace.id}`}
-                className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors ${
-                  active
-                    ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
-                    : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-secondary)]'
-                }`}
-              >
-                {workspace.kind === 'main' ? <TerminalSquare size={13} /> : <GitBranch size={13} />}
-                <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
-                <span className="shrink-0 text-[10px] uppercase">{workspace.status}</span>
-              </Link>
+              <div key={workspace.id}>
+                <div
+                  className={`group/workspace flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors ${
+                    active
+                      ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
+                      : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-secondary)]'
+                  }`}
+                >
+                  <Link to={`/v2/projects/${project.id}?workspace=${workspace.id}`} className="flex min-w-0 flex-1 items-center gap-2">
+                    {workspace.kind === 'main' ? <TerminalSquare size={13} /> : <GitBranch size={13} />}
+                    <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
+                  </Link>
+                  <button
+                    type="button"
+                    disabled={creating}
+                    onClick={() => onNewConversation(workspace)}
+                    className="rounded p-0.5 opacity-0 hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:opacity-50 group-hover/workspace:opacity-100"
+                    title="New conversation in this workspace"
+                  >
+                    <Plus size={12} />
+                  </button>
+                </div>
+                {workspaceConversations.length > 0 && (
+                  <div className="ml-5 mt-0.5 space-y-0.5">
+                    {workspaceConversations.map((conversation) => (
+                      <Link
+                        key={conversation.id}
+                        to={`/v2/conversations/${conversation.id}`}
+                        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]"
+                      >
+                        <MessageSquareText size={12} />
+                        <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
             );
           })}
+          {recentProjectConversations.map((conversation) => (
+            <Link
+              key={conversation.id}
+              to={`/v2/conversations/${conversation.id}`}
+              className="ml-5 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]"
+            >
+              <MessageSquareText size={12} />
+              <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
+            </Link>
+          ))}
         </div>
       )}
     </div>
+  );
+}
+
+function SidebarAction({ icon, label, onClick }: { icon: ReactNode; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-8 w-full items-center gap-2 rounded-lg px-3 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]"
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
   );
 }
 

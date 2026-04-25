@@ -8,9 +8,7 @@ import {
   Files,
   GitBranch,
   GitCommitHorizontal,
-  GitFork,
   Hammer,
-  MessageSquareText,
   PanelRightClose,
   PanelRightOpen,
   Plus,
@@ -37,7 +35,6 @@ import { useWorkspaceStore, type WorkspaceTab } from '../../stores/workspace';
 import {
   Button,
   V2Empty,
-  V2Header,
   V2Input,
   V2Screen,
   V2ToolbarButton,
@@ -265,43 +262,8 @@ export function V2ProjectPage() {
 
   const content = (
     <V2Screen>
-      <V2Header
-        eyebrow="Project workspace"
-        title={project?.name ?? 'Project'}
-        subtitle={
-          <span className="inline-flex min-w-0 items-center gap-2">
-            <span className="truncate">{project?.path}</span>
-            {activeWorkspace && <Badge variant="label" color={statusColor(activeWorkspace.status)}>{activeWorkspace.name}</Badge>}
-          </span>
-        }
-        actions={
-          project && (
-            <>
-              <Button size="xs" variant="ghost" icon={<MessageSquareText size={13} />} onClick={() => navigate(`/v2/projects/${project.id}/conversations`)}>
-                Conversations
-              </Button>
-              <Button size="xs" variant="ghost" icon={<Hammer size={13} />} onClick={() => navigate(`/v2/projects/${project.id}/skills`)}>
-                Skills
-              </Button>
-              <Button size="xs" variant="ghost" icon={<Settings2 size={13} />} onClick={() => navigate(`/v2/projects/${project.id}/pi`)}>
-                Pi
-              </Button>
-              <Button size="xs" variant="secondary" icon={<GitFork size={13} />} disabled={!activeWorkspaceId} onClick={() => setComposerMode('fork')}>
-                Fork
-              </Button>
-              <Button size="xs" variant="secondary" icon={<Plus size={13} />} onClick={() => setComposerMode('create')}>
-                Worktree
-              </Button>
-              <Button size="xs" variant="primary" icon={<Plus size={13} />} disabled={terminalDisabled} loading={createTerminal.isPending} onClick={() => createTerminal.mutate()}>
-                Terminal
-              </Button>
-            </>
-          )
-        }
-      />
-
       {composerMode && (
-        <div className="border-b border-[var(--color-card-border)] bg-card px-5 py-3">
+        <div className="bg-card px-5 py-3">
           <div className="flex flex-wrap items-end gap-2">
             <label className="min-w-56">
               <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-dim">
@@ -323,23 +285,32 @@ export function V2ProjectPage() {
       )}
 
       {activeWorkspace && (
-        <div className="flex h-10 shrink-0 items-center justify-between border-b border-[var(--color-card-border)] bg-canvas px-4">
+        <div className="flex h-10 shrink-0 items-center justify-between bg-canvas px-4">
           <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
             <GitBranch size={14} />
+            <span className="truncate font-medium text-[var(--color-text-primary)]">{project?.name}</span>
             <span className="truncate">{activeWorkspace.branchName}</span>
             <span>{activeWorkspace.kind}</span>
-            <span>{activeWorkspace.status}</span>
+            <Badge variant="label" color={statusColor(activeWorkspace.status)}>{activeWorkspace.status}</Badge>
           </div>
-          <WorkspaceActions
-            workspace={activeWorkspace}
-            pending={workspacePending}
-            onSync={() => syncWorkspace.mutate(activeWorkspace.id)}
-            onMerge={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'merge' })}
-            onAbandon={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'abandon' })}
-            onReactivate={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'activate' })}
-            onArchive={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'archive' })}
-            onDelete={() => deleteWorkspace.mutate(activeWorkspace.id)}
-          />
+          <div className="flex items-center gap-1">
+            {project && (
+              <>
+                <Button size="xs" variant="ghost" icon={<Hammer size={13} />} onClick={() => navigate(`/v2/projects/${project.id}/skills`)}>Skills</Button>
+                <Button size="xs" variant="ghost" icon={<Settings2 size={13} />} onClick={() => navigate(`/v2/projects/${project.id}/pi`)}>Pi</Button>
+              </>
+            )}
+            <WorkspaceActions
+              workspace={activeWorkspace}
+              pending={workspacePending}
+              onSync={() => syncWorkspace.mutate(activeWorkspace.id)}
+              onMerge={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'merge' })}
+              onAbandon={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'abandon' })}
+              onReactivate={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'activate' })}
+              onArchive={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'archive' })}
+              onDelete={() => deleteWorkspace.mutate(activeWorkspace.id)}
+            />
+          </div>
         </div>
       )}
 
@@ -365,6 +336,9 @@ export function V2ProjectPage() {
               closeTab(index);
               setMainSurface(null);
             }}
+            onCreateTerminal={() => createTerminal.mutate()}
+            createTerminalDisabled={terminalDisabled}
+            createTerminalPending={createTerminal.isPending}
           />
 
           <div className="min-h-0 flex-1 overflow-hidden">
@@ -487,6 +461,9 @@ function MainTabBar({
   onRenameTerminal,
   onSelectWorkspaceTab,
   onCloseWorkspaceTab,
+  onCreateTerminal,
+  createTerminalDisabled,
+  createTerminalPending,
 }: {
   terminals: TerminalSession[];
   terminalPending: boolean;
@@ -498,13 +475,19 @@ function MainTabBar({
   onRenameTerminal: (terminal: TerminalSession, title: string) => void;
   onSelectWorkspaceTab: (index: number) => void;
   onCloseWorkspaceTab: (index: number) => void;
+  onCreateTerminal: () => void;
+  createTerminalDisabled: boolean;
+  createTerminalPending: boolean;
 }) {
   const workspaceTabs = tabs
     .map((tab, index) => ({ tab, index }))
     .filter((entry): entry is { tab: Extract<WorkspaceTab, { type: 'editor' | 'diff' }>; index: number } => entry.tab.type === 'editor' || entry.tab.type === 'diff');
 
   return (
-    <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--color-card-border)] bg-canvas px-2 scrollbar-none">
+    <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto bg-canvas px-2 scrollbar-none">
+      <Button size="xs" variant="ghost" icon={<Plus size={13} />} disabled={createTerminalDisabled} loading={createTerminalPending} onClick={onCreateTerminal}>
+        Terminal
+      </Button>
       {terminals.map((terminal) => (
         <TerminalTab
           key={terminal.id}
