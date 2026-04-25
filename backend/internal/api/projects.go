@@ -252,60 +252,16 @@ func (s *Server) handleSyncProjectDefaultBranch(w http.ResponseWriter, r *http.R
 	if branch == "" {
 		branch = "main"
 	}
-	remoteRef := "origin/" + branch
-
-	if _, err := runGit(project.Path, "fetch", "--prune"); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to fetch remote: "+err.Error())
-		return
-	}
-
-	if _, err := runGit(project.Path, "rev-parse", "--verify", remoteRef); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("remote tracking branch %q not found", remoteRef))
-		return
-	}
-
-	beforeHash := ""
-	if out, err := runGit(project.Path, "rev-parse", "--verify", branch); err == nil {
-		beforeHash = strings.TrimSpace(out)
-	}
-
-	if _, err := runGit(project.Path, "fetch", ".", fmt.Sprintf("%s:%s", remoteRef, branch)); err != nil {
-		// If the branch is checked out in any worktree, git fetch-refspec refuses.
-		// In that case we can fast-forward by pulling in that checked-out worktree.
-		checkedOutPath := checkedOutPathFromFetchError(err.Error())
-		if checkedOutPath == "" {
-			writeError(w, http.StatusConflict, fmt.Sprintf("failed to fast-forward %s to %s: %v", branch, remoteRef, err))
-			return
-		}
-
-		currentBranchOut, currentBranchErr := runGit(checkedOutPath, "branch", "--show-current")
-		if currentBranchErr != nil {
-			writeError(w, http.StatusConflict, fmt.Sprintf("failed to inspect checked-out branch at %s: %v", checkedOutPath, currentBranchErr))
-			return
-		}
-		currentBranch := strings.TrimSpace(currentBranchOut)
-		if currentBranch != branch {
-			writeError(w, http.StatusConflict, fmt.Sprintf("cannot sync %s: it is checked out at %s on branch %s", branch, checkedOutPath, currentBranch))
-			return
-		}
-
-		if _, pullErr := runGit(checkedOutPath, "pull", "--ff-only", "origin", branch); pullErr != nil {
-			writeError(w, http.StatusConflict, fmt.Sprintf("failed to fast-forward %s in checked-out worktree at %s: %v", branch, checkedOutPath, pullErr))
-			return
-		}
-	}
-
-	afterOut, err := runGit(project.Path, "rev-parse", "--verify", branch)
+	remoteRef, updated, err := syncLocalBranchWithRemoteDetails(project.Path, branch)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to read updated %s revision: %v", branch, err))
+		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	afterHash := strings.TrimSpace(afterOut)
 
 	writeJSON(w, http.StatusOK, syncProjectDefaultBranchResponse{
 		Branch:  branch,
 		Remote:  remoteRef,
-		Updated: beforeHash == "" || beforeHash != afterHash,
+		Updated: updated,
 	})
 }
 

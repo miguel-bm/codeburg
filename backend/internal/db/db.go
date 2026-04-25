@@ -37,9 +37,13 @@ func Open(path string) (*DB, error) {
 	}
 
 	// Open database with WAL mode for better concurrency
-	conn, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)")
+	conn, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
+	}
+	if path == ":memory:" {
+		conn.SetMaxOpenConns(1)
+		conn.SetMaxIdleConns(1)
 	}
 
 	// Test connection

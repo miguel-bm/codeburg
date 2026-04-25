@@ -66,6 +66,9 @@ git checkout --detach --force "$COMMIT"
 echo "==> Syncing agent skills..."
 ./deploy/sync-agent-skills.sh
 
+echo "==> Configuring runtime user environment..."
+./deploy/configure-runtime-user-env.sh
+
 echo "==> Installing frontend dependencies..."
 pnpm --dir frontend install --frozen-lockfile
 

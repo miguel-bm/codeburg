@@ -8,3 +8,6 @@ backend/codeburg
 desktop/macos/node_modules/
 desktop/macos/dist/
 desktop/macos/frontend-dist/
+
+# Local reference repos used during V2 implementation
+reference-repos/

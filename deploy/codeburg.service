@@ -15,6 +15,9 @@ KillMode=process
 Environment=HOME=/home/codeburg
 Environment=TERM=xterm-256color
 Environment=PATH=/home/codeburg/.local/bin:/home/codeburg/go/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
+Environment=NPM_CONFIG_PREFIX=/home/codeburg/.local
+Environment=npm_config_prefix=/home/codeburg/.local
+Environment=NODE_PATH=/home/codeburg/.local/lib/node_modules
 
 # Security hardening
 NoNewPrivileges=true

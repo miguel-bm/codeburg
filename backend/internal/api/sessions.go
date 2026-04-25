@@ -908,7 +908,9 @@ func (sm *SessionManager) StartCleanupLoop(ctx context.Context, server *Server) 
 		}
 
 		checked, cleaned := sm.cleanupZombieSessions(server)
-		slog.Debug("cleanup tick", "checked", checked, "cleaned", cleaned)
+		if checked > 0 || cleaned > 0 {
+			slog.Debug("cleanup tick", "checked", checked, "cleaned", cleaned)
+		}
 	}
 }
 

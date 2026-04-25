@@ -314,4 +314,180 @@ var migrations = []migration{
 			CREATE INDEX idx_agent_messages_session_seq ON agent_messages(session_id, seq);
 		`,
 	},
+	{
+		version: 17,
+		sql: `
+			-- V2-style project workspaces (one canonical default-branch workspace per project)
+			CREATE TABLE workspaces (
+				id TEXT PRIMARY KEY,
+				project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+				name TEXT NOT NULL,
+				kind TEXT NOT NULL CHECK (kind IN ('main', 'worktree')),
+				status TEXT NOT NULL CHECK (status IN ('active', 'merged', 'abandoned', 'archived')),
+				branch_name TEXT NOT NULL,
+				base_branch TEXT,
+				worktree_path TEXT,
+				parent_workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
+				origin TEXT NOT NULL DEFAULT 'direct' CHECK (origin IN ('direct', 'promoted', 'forked')),
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				closed_at DATETIME
+			);
+			CREATE INDEX idx_workspaces_project ON workspaces(project_id);
+			CREATE INDEX idx_workspaces_status ON workspaces(status);
+			CREATE INDEX idx_workspaces_parent ON workspaces(parent_workspace_id);
+
+			INSERT INTO workspaces (id, project_id, name, kind, status, branch_name, origin, created_at, updated_at)
+			SELECT
+				lower(hex(randomblob(16))),
+				id,
+				COALESCE(NULLIF(default_branch, ''), 'main'),
+				'main',
+				'active',
+				COALESCE(NULLIF(default_branch, ''), 'main'),
+				'direct',
+				CURRENT_TIMESTAMP,
+				CURRENT_TIMESTAMP
+			FROM projects
+			WHERE NOT EXISTS (
+				SELECT 1 FROM workspaces w WHERE w.project_id = projects.id AND w.kind = 'main'
+			);
+
+			-- Persistent workspace-attached terminal sessions for V2
+			CREATE TABLE terminal_sessions (
+				id TEXT PRIMARY KEY,
+				workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+				title TEXT,
+				status TEXT NOT NULL CHECK (status IN ('starting', 'running', 'waiting_input', 'stopped', 'failed')),
+				shell TEXT,
+				cwd TEXT,
+				provider_hint TEXT,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				started_at DATETIME,
+				ended_at DATETIME,
+				last_activity_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE INDEX idx_terminal_sessions_workspace ON terminal_sessions(workspace_id);
+			CREATE INDEX idx_terminal_sessions_status ON terminal_sessions(status);
+			CREATE INDEX idx_terminal_sessions_activity ON terminal_sessions(last_activity_at DESC);
+		`,
+	},
+	{
+		version: 18,
+		sql: `
+			-- Defensive follow-up for early V2 installs where migration 17 may have been
+			-- recorded without the new tables being present.
+			CREATE TABLE IF NOT EXISTS workspaces (
+				id TEXT PRIMARY KEY,
+				project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+				name TEXT NOT NULL,
+				kind TEXT NOT NULL CHECK (kind IN ('main', 'worktree')),
+				status TEXT NOT NULL CHECK (status IN ('active', 'merged', 'abandoned', 'archived')),
+				branch_name TEXT NOT NULL,
+				base_branch TEXT,
+				worktree_path TEXT,
+				parent_workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
+				origin TEXT NOT NULL DEFAULT 'direct' CHECK (origin IN ('direct', 'promoted', 'forked')),
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				closed_at DATETIME
+			);
+			CREATE INDEX IF NOT EXISTS idx_workspaces_project ON workspaces(project_id);
+			CREATE INDEX IF NOT EXISTS idx_workspaces_status ON workspaces(status);
+			CREATE INDEX IF NOT EXISTS idx_workspaces_parent ON workspaces(parent_workspace_id);
+
+			INSERT INTO workspaces (id, project_id, name, kind, status, branch_name, origin, created_at, updated_at)
+			SELECT
+				lower(hex(randomblob(16))),
+				id,
+				COALESCE(NULLIF(default_branch, ''), 'main'),
+				'main',
+				'active',
+				COALESCE(NULLIF(default_branch, ''), 'main'),
+				'direct',
+				CURRENT_TIMESTAMP,
+				CURRENT_TIMESTAMP
+			FROM projects
+			WHERE NOT EXISTS (
+				SELECT 1 FROM workspaces w WHERE w.project_id = projects.id AND w.kind = 'main'
+			);
+
+			CREATE TABLE IF NOT EXISTS terminal_sessions (
+				id TEXT PRIMARY KEY,
+				workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+				title TEXT,
+				status TEXT NOT NULL CHECK (status IN ('starting', 'running', 'waiting_input', 'stopped', 'failed')),
+				shell TEXT,
+				cwd TEXT,
+				provider_hint TEXT,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				started_at DATETIME,
+				ended_at DATETIME,
+				last_activity_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE INDEX IF NOT EXISTS idx_terminal_sessions_workspace ON terminal_sessions(workspace_id);
+			CREATE INDEX IF NOT EXISTS idx_terminal_sessions_status ON terminal_sessions(status);
+			CREATE INDEX IF NOT EXISTS idx_terminal_sessions_activity ON terminal_sessions(last_activity_at DESC);
+		`,
+	},
+	{
+		version: 19,
+		sql: `
+			-- Durable V2 conversations, independent from tasks and terminal sessions.
+			CREATE TABLE conversations (
+				id TEXT PRIMARY KEY,
+				project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+				current_workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
+				parent_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+				provider TEXT NOT NULL,
+				title TEXT NOT NULL,
+				status TEXT NOT NULL CHECK (status IN ('active', 'paused', 'completed', 'archived')),
+				preferred_surface TEXT NOT NULL CHECK (preferred_surface IN ('chat', 'terminal')),
+				summary TEXT,
+				provider_session_id TEXT,
+				last_activity_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				archived_at DATETIME
+			);
+			CREATE INDEX idx_conversations_project ON conversations(project_id);
+			CREATE INDEX idx_conversations_workspace ON conversations(current_workspace_id);
+			CREATE INDEX idx_conversations_status ON conversations(status);
+			CREATE INDEX idx_conversations_activity ON conversations(last_activity_at DESC);
+			CREATE INDEX idx_conversations_parent ON conversations(parent_conversation_id);
+		`,
+	},
+	{
+		version: 20,
+		sql: `
+			-- Historical workspace attachments for V2 conversations.
+			CREATE TABLE conversation_workspace_links (
+				id TEXT PRIMARY KEY,
+				conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+				workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
+				reason TEXT NOT NULL DEFAULT 'attached',
+				active BOOLEAN NOT NULL DEFAULT TRUE,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				detached_at DATETIME
+			);
+			CREATE INDEX idx_conversation_workspace_links_conversation ON conversation_workspace_links(conversation_id, created_at DESC);
+			CREATE INDEX idx_conversation_workspace_links_workspace ON conversation_workspace_links(workspace_id);
+			CREATE INDEX idx_conversation_workspace_links_active ON conversation_workspace_links(conversation_id, active);
+
+			INSERT INTO conversation_workspace_links (id, conversation_id, workspace_id, reason, active, created_at)
+			SELECT
+				lower(hex(randomblob(16))),
+				id,
+				current_workspace_id,
+				'backfilled',
+				1,
+				created_at
+			FROM conversations
+			WHERE NOT EXISTS (
+				SELECT 1
+				FROM conversation_workspace_links l
+				WHERE l.conversation_id = conversations.id
+			);
+		`,
+	},
 }

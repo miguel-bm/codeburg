@@ -16,6 +16,14 @@ import { CommandPalette, useCommandPalette } from './components/common/CommandPa
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useNotifications } from './hooks/useNotifications';
 import { useSidebarRealtimeUpdates } from './hooks/useSidebarData';
+import { V2Layout } from './pages/v2/V2Layout';
+import { V2ConversationsPage } from './pages/v2/V2ConversationsPage';
+import { V2ConversationDetailPage } from './pages/v2/V2ConversationDetailPage';
+import { V2ProjectsPage } from './pages/v2/V2ProjectsPage';
+import { V2ProjectConversationsPage } from './pages/v2/V2ProjectConversationsPage';
+import { V2ProjectPage } from './pages/v2/V2ProjectPage';
+import { V2ProjectSkillsPage } from './pages/v2/V2ProjectSkillsPage';
+import { V2ProjectPiPage } from './pages/v2/V2ProjectPiPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,6 +64,15 @@ function MainAppShell() {
   return (
     <>
       <Routes>
+        <Route path="/v2" element={<V2Layout />}>
+          <Route index element={<V2ProjectsPage />} />
+          <Route path="conversations" element={<V2ConversationsPage />} />
+          <Route path="conversations/:conversationId" element={<V2ConversationDetailPage />} />
+          <Route path="projects/:id" element={<V2ProjectPage />} />
+          <Route path="projects/:id/conversations" element={<V2ProjectConversationsPage />} />
+          <Route path="projects/:id/skills" element={<V2ProjectSkillsPage />} />
+          <Route path="projects/:id/pi" element={<V2ProjectPiPage />} />
+        </Route>
         <Route path="/" element={<Layout><DashboardWithPanels /></Layout>}>
           <Route path="tasks/quick" element={<QuickTaskWizard />} />
           <Route path="tasks/new" element={<TaskCreate />} />

@@ -42,6 +42,7 @@ interface UseTerminalOptions {
   sessionStatus?: string;
   debug?: boolean;
   onDebugEvent?: (message: string) => void;
+  targetType?: 'session' | 'terminal';
 }
 
 export interface UseTerminalReturn {
@@ -105,12 +106,13 @@ export function useTerminal(
 
   // Build the WebSocket URL (stable across reconnects)
   const wsUrl = useCallback(() => {
-    let path = `/ws/terminal?session=${encodeURIComponent(sessionId)}`;
+    const targetType = options?.targetType === 'terminal' ? 'terminal' : 'session';
+    let path = `/ws/terminal?${targetType}=${encodeURIComponent(sessionId)}`;
     if (token) {
       path += `&token=${encodeURIComponent(token)}`;
     }
     return buildWsUrl(path);
-  }, [sessionId, token]);
+  }, [options?.targetType, sessionId, token]);
 
   // Create terminal + initial WS connection
   useEffect(() => {

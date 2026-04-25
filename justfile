@@ -96,6 +96,14 @@ check-runtime:
 install-agent-skills:
     ./deploy/sync-agent-skills.sh
 
+# Configure a consistent user-local runtime environment on the current machine
+configure-runtime-env:
+    ./deploy/configure-runtime-user-env.sh
+
+# Install or update a supported runtime tool for the current user (example: just install-runtime-tool codex / pi)
+install-runtime-tool tool:
+    ./deploy/install-runtime-tool.sh "{{tool}}"
+
 # --- Deploy ---
 
 # Deploy to production server (optionally specify branch, default: main)
@@ -105,6 +113,26 @@ deploy branch="main":
 # Deploy frontend only (no server restart, sessions stay alive)
 deploy-fe branch="main":
     ssh codeburg-server '/opt/codeburg/deploy/deploy-fe.sh {{branch}}'
+
+# Deploy the current local working tree to the server and restart the service
+deploy-current host="codeburg-server" target="/opt/codeburg":
+    ./deploy/deploy-current.sh "{{host}}" "{{target}}"
+
+# Deploy the current local working tree frontend only (no service restart)
+deploy-current-fe host="codeburg-server" target="/opt/codeburg":
+    ./deploy/deploy-current-fe.sh "{{host}}" "{{target}}"
+
+# Install or update a low-risk Paseo trial under the remote codeburg user
+paseo-trial-install host="codeburg-server" home="/home/codeburg/.paseo-trial" port="6767":
+    ssh {{host}} 'bash -lc "cd /opt/codeburg && export PATH=\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin && PASEO_HOME={{home}} PASEO_PORT={{port}} ./deploy/paseo-trial-install.sh"'
+
+# Print the pairing link for the remote Paseo trial
+paseo-trial-pair host="codeburg-server" home="/home/codeburg/.paseo-trial":
+    ssh {{host}} 'bash -lc "export PATH=\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin && PASEO_HOME={{home}} paseo daemon pair --home {{home}}"'
+
+# Show remote Paseo trial status
+paseo-trial-status host="codeburg-server" home="/home/codeburg/.paseo-trial":
+    ssh {{host}} 'bash -lc "export PATH=\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin && PASEO_HOME={{home}} paseo daemon status --home {{home}} --json"'
 
 # Deploy after a clean slate (full restart, kills active sessions)
 deploy-clean branch="main":

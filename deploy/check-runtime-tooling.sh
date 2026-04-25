@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT_DIR="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 required_cmds=(git go node npm pnpm just bash)
-optional_cmds=(gh cloudflared claude codex)
+optional_cmds=(gh cloudflared claude codex pi)
 frontend_bins=(tsc vite vitest eslint)
 
 echo "==> Runtime tooling check"
@@ -54,6 +54,20 @@ else
             missing_required+=("$bin")
         fi
     done
+fi
+
+echo
+echo "Node/npm global prefix:"
+if command -v npm >/dev/null 2>&1; then
+    prefix="$(npm config get prefix 2>/dev/null || true)"
+    root="$(npm root -g 2>/dev/null || true)"
+    printf "  prefix: %s\n" "${prefix:-unknown}"
+    printf "  root:   %s\n" "${root:-unknown}"
+    if [[ -n "${prefix}" && -w "${prefix}" ]]; then
+        echo "  [ok] npm global prefix is writable"
+    else
+        echo "  [warn] npm global prefix is not writable by current user"
+    fi
 fi
 
 echo

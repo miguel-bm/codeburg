@@ -8,9 +8,10 @@ import { TerminalContextMenu } from '../terminal/TerminalContextMenu';
 interface TerminalViewProps {
   sessionId: string;
   sessionStatus?: string; // Current session status (for retry suppression)
+  targetType?: 'session' | 'terminal';
 }
 
-export function TerminalView({ sessionId, sessionStatus }: TerminalViewProps) {
+export function TerminalView({ sessionId, sessionStatus, targetType }: TerminalViewProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const debugEnabled = useMemo(() => {
     try {
@@ -24,7 +25,7 @@ export function TerminalView({ sessionId, sessionStatus }: TerminalViewProps) {
   const pushDebug = (message: string) => {
     setDebugEvents((prev) => [message, ...prev].slice(0, 6));
   };
-  const { sendInput, actions } = useTerminal(terminalRef, sessionId, { sessionStatus, debug: debugEnabled, onDebugEvent: pushDebug });
+  const { sendInput, actions } = useTerminal(terminalRef, sessionId, { sessionStatus, debug: debugEnabled, onDebugEvent: pushDebug, targetType });
   const isMobile = useMobile();
   const { keyboardVisible } = useVirtualKeyboard();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);

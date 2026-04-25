@@ -6,11 +6,13 @@ import type { TunnelInfo } from './tunnels';
 // --- Scoped API factories ---
 // These create API functions scoped to either a project or task prefix.
 
-export type WorkspaceScopeType = 'project' | 'task';
+export type WorkspaceScopeType = 'project' | 'task' | 'workspace';
 
 /** Build a scoped API prefix: /projects/{id} or /tasks/{id} */
 function scopePrefix(type: WorkspaceScopeType, id: string): string {
-  return type === 'project' ? `/projects/${id}` : `/tasks/${id}`;
+  if (type === 'project') return `/projects/${id}`;
+  if (type === 'task') return `/tasks/${id}`;
+  return `/workspaces/${id}`;
 }
 
 // --- Sessions ---

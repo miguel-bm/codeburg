@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo } from 'react';
-import type { Project, Task } from '../../api/types';
+import type { Project, Task, Workspace } from '../../api/types';
 import type { WorkspaceScopeType } from '../../api/workspace';
 import {
   createSessionsApi,
@@ -11,7 +11,8 @@ import {
 
 export type WorkspaceScope =
   | { type: 'project'; projectId: string; project: Project }
-  | { type: 'task'; taskId: string; task: Task; project: Project };
+  | { type: 'task'; taskId: string; task: Task; project: Project }
+  | { type: 'workspace'; workspaceId: string; workspace: Workspace; project: Project };
 
 export interface WorkspaceContextValue {
   scope: WorkspaceScope;
@@ -48,10 +49,13 @@ interface WorkspaceProviderProps {
 
 export function WorkspaceProvider({ scope, children }: WorkspaceProviderProps) {
   const value = useMemo<WorkspaceContextValue>(() => {
-    const scopeType: WorkspaceScopeType = scope.type === 'project' ? 'project' : 'task';
-    const scopeId = scope.type === 'project' ? scope.projectId : scope.taskId;
+    const scopeType: WorkspaceScopeType =
+      scope.type === 'project' ? 'project' : scope.type === 'task' ? 'task' : 'workspace';
+    const scopeId =
+      scope.type === 'project' ? scope.projectId : scope.type === 'task' ? scope.taskId : scope.workspaceId;
     const project = scope.project;
-    const projectId = scope.type === 'project' ? scope.projectId : scope.task.projectId;
+    const projectId =
+      scope.type === 'project' ? scope.projectId : scope.type === 'task' ? scope.task.projectId : scope.workspace.projectId;
 
     return {
       scope,

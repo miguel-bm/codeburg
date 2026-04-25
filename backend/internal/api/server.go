@@ -68,6 +68,7 @@ type Server struct {
 	wsHub                  *WSHub
 	sessions               *SessionManager
 	chat                   *ChatManager
+	pi                     *piConversationManager
 	tunnels                *tunnel.Manager
 	portSuggest            *portsuggest.Manager
 	gitclone               gitclone.Config
@@ -102,6 +103,7 @@ func NewServer(database *db.DB) *Server {
 		wsHub:                  wsHub,
 		sessions:               NewSessionManager(),
 		chat:                   NewChatManager(database),
+		pi:                     newPiConversationManager(database),
 		tunnels:                tunnel.NewManager(),
 		portSuggest:            portsuggest.NewManager(nil),
 		gitclone:               gitclone.DefaultConfig(),
@@ -196,6 +198,7 @@ func (s *Server) setupRoutes() {
 	r.Get("/ws", s.handleWebSocket)
 	r.Get("/ws/terminal", s.handleTerminalWS)
 	r.Get("/ws/chat", s.handleChatWS)
+	r.Get("/ws/conversation", s.handleConversationWS)
 
 	// Hook endpoint (auth handled inline — accepts scoped hook tokens or full JWTs)
 	r.Post("/api/sessions/{id}/hook", s.handleSessionHook)
@@ -231,6 +234,21 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/projects/{id}", s.handleGetProject)
 		r.Patch("/api/projects/{id}", s.handleUpdateProject)
 		r.Delete("/api/projects/{id}", s.handleDeleteProject)
+		r.Get("/api/projects/{id}/workspaces", s.handleListWorkspaces)
+		r.Post("/api/projects/{id}/workspaces", s.handleCreateWorkspace)
+		r.Get("/api/projects/{id}/conversations", s.handleListProjectConversations)
+		r.Post("/api/projects/{id}/conversations", s.handleCreateProjectConversation)
+		r.Get("/api/projects/{id}/skills", s.handleListProjectSkills)
+		r.Post("/api/projects/{id}/skills", s.handleInstallProjectSkill)
+		r.Post("/api/projects/{id}/skills/catalog", s.handleInstallCatalogSkill)
+		r.Delete("/api/projects/{id}/skills/{target}/{name}", s.handleDeleteProjectSkill)
+		r.Get("/api/projects/{id}/pi/config", s.handleGetProjectPiConfig)
+		r.Put("/api/projects/{id}/pi/settings", s.handlePutProjectPiSettings)
+		r.Post("/api/projects/{id}/pi/packages/install", s.handleInstallProjectPiPackage)
+		r.Post("/api/projects/{id}/pi/packages/remove", s.handleRemoveProjectPiPackage)
+		r.Post("/api/projects/{id}/pi/packages/update", s.handleUpdateProjectPiPackages)
+		r.Post("/api/projects/{id}/pi/extensions", s.handleAddProjectPiExtension)
+		r.Post("/api/projects/{id}/pi/extensions/remove", s.handleRemoveProjectPiExtension)
 		r.Post("/api/projects/{id}/sync-default-branch", s.handleSyncProjectDefaultBranch)
 		r.Post("/api/projects/{id}/push-default-branch", s.handlePushProjectDefaultBranch)
 		r.Get("/api/projects/{id}/files", s.handleListProjectFiles)
@@ -282,6 +300,63 @@ func (s *Server) setupRoutes() {
 		// Worktrees
 		r.Post("/api/tasks/{id}/worktree", s.handleCreateWorktree)
 		r.Delete("/api/tasks/{id}/worktree", s.handleDeleteWorktree)
+
+		// V2 workspaces and persistent terminals
+		r.Get("/api/conversations", s.handleListConversations)
+		r.Get("/api/conversations/{id}", s.handleGetConversation)
+		r.Patch("/api/conversations/{id}", s.handleUpdateConversation)
+		r.Get("/api/conversations/{id}/workspaces", s.handleListConversationWorkspaceLinks)
+		r.Post("/api/conversations/{id}/workspace", s.handleSwitchConversationWorkspace)
+		r.Post("/api/conversations/{id}/pause", s.handlePauseConversation)
+		r.Post("/api/conversations/{id}/resume", s.handleResumeConversation)
+		r.Post("/api/conversations/{id}/complete", s.handleCompleteConversation)
+		r.Post("/api/conversations/{id}/archive", s.handleArchiveConversation)
+		r.Post("/api/conversations/{id}/fork", s.handleForkConversation)
+		r.Get("/api/conversations/{id}/state", s.handleGetConversationState)
+		r.Post("/api/conversations/{id}/prompt", s.handlePromptConversation)
+		r.Post("/api/conversations/{id}/abort", s.handleAbortConversation)
+		r.Get("/api/skills", s.handleListSkills)
+		r.Get("/api/skills/catalog", s.handleListSkillCatalog)
+		r.Get("/api/pi/status", s.handlePiStatus)
+		r.Get("/api/pi/config", s.handleGetPiConfig)
+		r.Put("/api/pi/settings", s.handlePutPiGlobalSettings)
+		r.Put("/api/pi/models", s.handlePutPiModels)
+		r.Post("/api/pi/packages/install", s.handleInstallPiPackage)
+		r.Post("/api/pi/packages/remove", s.handleRemovePiPackage)
+		r.Post("/api/pi/packages/update", s.handleUpdatePiPackages)
+		r.Post("/api/pi/extensions", s.handleAddPiExtension)
+		r.Post("/api/pi/extensions/remove", s.handleRemovePiExtension)
+		r.Get("/api/workspaces/{id}", s.handleGetWorkspace)
+		r.Post("/api/workspaces/{id}/fork", s.handleForkWorkspace)
+		r.Post("/api/workspaces/{id}/sync", s.handleSyncWorkspace)
+		r.Post("/api/workspaces/{id}/activate", s.handleActivateWorkspace)
+		r.Post("/api/workspaces/{id}/merge", s.handleMergeWorkspace)
+		r.Post("/api/workspaces/{id}/abandon", s.handleAbandonWorkspace)
+		r.Post("/api/workspaces/{id}/archive", s.handleArchiveWorkspace)
+		r.Delete("/api/workspaces/{id}", s.handleDeleteWorkspace)
+		r.Get("/api/workspaces/{id}/terminals", s.handleListWorkspaceTerminals)
+		r.Post("/api/workspaces/{id}/terminals", s.handleCreateWorkspaceTerminal)
+		r.Get("/api/workspaces/{id}/files", s.handleListWorkspaceFiles)
+		r.Get("/api/workspaces/{id}/file", s.handleReadWorkspaceFile)
+		r.Put("/api/workspaces/{id}/file", s.handlePutWorkspaceFile)
+		r.Post("/api/workspaces/{id}/files", s.handleCreateWorkspaceFileEntry)
+		r.Delete("/api/workspaces/{id}/file", s.handleDeleteWorkspaceFile)
+		r.Post("/api/workspaces/{id}/file/rename", s.handleRenameWorkspaceFile)
+		r.Post("/api/workspaces/{id}/file/duplicate", s.handleDuplicateWorkspaceFile)
+		r.Post("/api/workspaces/{id}/files/search", s.handleSearchWorkspaceFiles)
+		r.Get("/api/workspaces/{id}/git/status", s.handleWorkspaceGitStatus)
+		r.Get("/api/workspaces/{id}/git/diff", s.handleWorkspaceGitDiff)
+		r.Get("/api/workspaces/{id}/git/diff-content", s.handleWorkspaceGitDiffContent)
+		r.Post("/api/workspaces/{id}/git/stage", s.handleWorkspaceGitStage)
+		r.Post("/api/workspaces/{id}/git/unstage", s.handleWorkspaceGitUnstage)
+		r.Post("/api/workspaces/{id}/git/revert", s.handleWorkspaceGitRevert)
+		r.Post("/api/workspaces/{id}/git/commit", s.handleWorkspaceGitCommit)
+		r.Post("/api/workspaces/{id}/git/pull", s.handleWorkspaceGitPull)
+		r.Post("/api/workspaces/{id}/git/push", s.handleWorkspaceGitPush)
+		r.Post("/api/workspaces/{id}/git/stash", s.handleWorkspaceGitStash)
+		r.Get("/api/workspaces/{id}/git/log", s.handleWorkspaceGitLog)
+		r.Get("/api/terminals/{id}", s.handleGetTerminalSession)
+		r.Delete("/api/terminals/{id}", s.handleDeleteTerminalSession)
 
 		// Task files
 		r.Get("/api/tasks/{id}/files", s.handleListTaskFiles)

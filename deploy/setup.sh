@@ -127,19 +127,7 @@ chmod 0440 /etc/sudoers.d/codeburg
 echo "    Sudoers configured for systemctl"
 
 # --- Shell environment for codeburg user ---
-sudo -u "${CODEBURG_USER}" mkdir -p /home/${CODEBURG_USER}/go/bin
-
-# Write a clean profile block (idempotent — only add once)
-MARKER="# --- Codeburg environment ---"
-BASHRC="/home/${CODEBURG_USER}/.bashrc"
-if ! grep -qF "${MARKER}" "${BASHRC}" 2>/dev/null; then
-    cat >> "${BASHRC}" << 'BASHEOF'
-
-# --- Codeburg environment ---
-export PATH="/usr/local/go/bin:$HOME/go/bin:/usr/local/bin:/usr/bin:$PATH"
-export GOTOOLCHAIN=auto
-BASHEOF
-fi
+sudo -u "${CODEBURG_USER}" mkdir -p /home/${CODEBURG_USER}/go/bin /home/${CODEBURG_USER}/.local/bin /home/${CODEBURG_USER}/.local/lib
 
 # --- Clone repository ---
 echo ""
@@ -165,6 +153,14 @@ sudo -u "${CODEBURG_USER}" git config --global --add safe.directory "${INSTALL_D
 
 # --- Create data directory ---
 sudo -u "${CODEBURG_USER}" mkdir -p "/home/${CODEBURG_USER}/.codeburg"
+
+echo ""
+echo "==> Configuring runtime environment for ${CODEBURG_USER}..."
+sudo -u "${CODEBURG_USER}" bash -lc "
+    set -euo pipefail
+    cd ${INSTALL_DIR}
+    ./deploy/configure-runtime-user-env.sh
+"
 
 # --- Initial build ---
 echo ""
@@ -269,7 +265,11 @@ echo "   # Claude Code (native installer, auto-updates)"
 echo "   curl -fsSL https://claude.ai/install.sh | bash"
 echo "   claude  # Follow login prompts"
 echo ""
-echo "   # Codex"
-echo "   npm install -g @openai/codex"
+echo "   # Codex (installs into /home/codeburg/.local)"
+echo "   /opt/codeburg/deploy/install-runtime-tool.sh codex"
 echo "   codex  # Follow login prompts"
+echo ""
+echo "   # pi (installs into /home/codeburg/.local)"
+echo "   /opt/codeburg/deploy/install-runtime-tool.sh pi"
+echo "   pi  # Then use /login and /model"
 echo ""

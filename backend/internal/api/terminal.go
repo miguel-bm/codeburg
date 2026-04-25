@@ -21,6 +21,7 @@ type TerminalSession struct {
 	sessionID string
 	server    *Server
 	lastInput time.Time
+	mode      string
 }
 
 const (
@@ -30,7 +31,8 @@ const (
 
 // handleTerminalWS handles websocket connections for terminal access.
 // Query params:
-//   - session: codeburg session ID (required)
+//   - session: codeburg session ID
+//   - terminal: v2 terminal session ID
 func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	token := authTokenFromWSRequest(r)
 	if token == "" || !s.auth.ValidateToken(token) {
@@ -39,15 +41,30 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionID := r.URL.Query().Get("session")
-	if sessionID == "" {
-		http.Error(w, "session parameter required", http.StatusBadRequest)
+	terminalID := r.URL.Query().Get("terminal")
+	if sessionID == "" && terminalID == "" {
+		http.Error(w, "session or terminal parameter required", http.StatusBadRequest)
 		return
 	}
 
-	// Verify session exists before upgrading.
-	if _, err := s.db.GetSession(sessionID); err != nil {
-		writeDBError(w, err, "session")
-		return
+	mode := "session"
+	targetID := sessionID
+	if terminalID != "" {
+		mode = "terminal"
+		targetID = terminalID
+	}
+
+	// Verify target exists before upgrading.
+	if mode == "session" {
+		if _, err := s.db.GetSession(targetID); err != nil {
+			writeDBError(w, err, "session")
+			return
+		}
+	} else {
+		if _, err := s.db.GetTerminalSession(targetID); err != nil {
+			writeDBError(w, err, "terminal session")
+			return
+		}
 	}
 
 	upgrader := s.wsUpgrader()
@@ -57,7 +74,7 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	snapshot, stream, cancel, err := s.sessions.runtime.Attach(sessionID)
+	snapshot, stream, cancel, err := s.sessions.runtime.Attach(targetID)
 	if err != nil {
 		code := websocket.CloseInternalServerErr
 		if err == ptyruntime.ErrSessionNotFound {
@@ -71,8 +88,9 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	ts := &TerminalSession{
 		conn:      conn,
 		cancel:    cancel,
-		sessionID: sessionID,
+		sessionID: targetID,
 		server:    s,
+		mode:      mode,
 	}
 
 	go ts.readFromRuntime(snapshot, stream)
@@ -180,10 +198,20 @@ func (ts *TerminalSession) handleUserInput(message []byte) {
 		return
 	}
 	ts.lastInput = time.Now()
+	if ts.mode == "terminal" {
+		return
+	}
 	go ts.server.sessions.setSessionRunning(ts.sessionID, ts.server)
 }
 
 func (ts *TerminalSession) trackActivity() {
+	if ts.mode == "terminal" {
+		now := time.Now()
+		go ts.server.db.UpdateTerminalSession(ts.sessionID, db.UpdateTerminalSessionInput{
+			LastActivityAt: &now,
+		})
+		return
+	}
 	session := ts.server.sessions.getOrRestore(ts.sessionID, ts.server.db)
 	if session == nil {
 		return

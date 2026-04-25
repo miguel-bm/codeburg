@@ -125,12 +125,26 @@ func (db *DB) CreateProject(input CreateProjectInput) (*Project, error) {
 		workflowJSON = sql.NullString{String: string(data), Valid: true}
 	}
 
-	_, err := db.conn.Exec(`
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
 		INSERT INTO projects (id, name, path, git_origin, default_branch, symlink_paths, secret_files, setup_script, teardown_script, workflow, hidden, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, ?, ?)
 	`, id, input.Name, input.Path, NullString(input.GitOrigin), defaultBranch, symlinkPathsJSON, secretFilesJSON, NullString(input.SetupScript), NullString(input.TeardownScript), workflowJSON, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("insert project: %w", err)
+	}
+
+	if err := db.createDefaultWorkspaceTx(tx, id, defaultBranch); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit project create: %w", err)
 	}
 
 	return db.GetProject(id)

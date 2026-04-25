@@ -218,3 +218,206 @@ export interface PasskeyInfo {
 export interface AuthToken {
   token: string;
 }
+
+export type WorkspaceKind = 'main' | 'worktree';
+export type WorkspaceStatus = 'active' | 'merged' | 'abandoned' | 'archived';
+
+export interface Workspace {
+  id: string;
+  projectId: string;
+  name: string;
+  kind: WorkspaceKind;
+  status: WorkspaceStatus;
+  branchName: string;
+  baseBranch?: string;
+  worktreePath?: string;
+  parentWorkspaceId?: string;
+  origin: 'direct' | 'promoted' | 'forked';
+  createdAt: string;
+  updatedAt: string;
+  closedAt?: string;
+}
+
+export type TerminalSessionStatus = 'starting' | 'running' | 'waiting_input' | 'stopped' | 'failed';
+
+export interface TerminalSession {
+  id: string;
+  workspaceId: string;
+  title?: string;
+  status: TerminalSessionStatus;
+  shell?: string;
+  cwd?: string;
+  providerHint?: string;
+  createdAt: string;
+  startedAt?: string;
+  endedAt?: string;
+  lastActivityAt: string;
+}
+
+export type ConversationStatus = 'active' | 'paused' | 'completed' | 'archived';
+export type ConversationSurface = 'chat' | 'terminal';
+
+export interface Conversation {
+  id: string;
+  projectId: string;
+  currentWorkspaceId?: string;
+  parentConversationId?: string;
+  provider: string;
+  title: string;
+  status: ConversationStatus;
+  preferredSurface: ConversationSurface;
+  summary?: string;
+  providerSessionId?: string;
+  lastActivityAt: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string;
+}
+
+export interface ConversationWorkspaceLink {
+  id: string;
+  conversationId: string;
+  workspaceId?: string;
+  reason: string;
+  active: boolean;
+  createdAt: string;
+  detachedAt?: string;
+}
+
+export interface ManagedSkill {
+  name: string;
+  title: string;
+  description?: string;
+  path: string;
+  scope: string;
+  target: string;
+  sourcePath?: string;
+  symlinked: boolean;
+}
+
+export interface SkillCatalogEntry {
+  sourceId: string;
+  sourceName: string;
+  repoUrl: string;
+  repoRef: string;
+  skillPath: string;
+  name: string;
+  title: string;
+  description?: string;
+}
+
+export interface ProjectSkillsResponse {
+  installed: ManagedSkill[];
+  available: ManagedSkill[];
+}
+
+export interface PiAuthProvider {
+  provider: string;
+  type: string;
+}
+
+export interface PiCustomProviderInfo {
+  id: string;
+  modelCount: number;
+}
+
+export interface PiStatus {
+  installed: boolean;
+  version?: string;
+  agentDir: string;
+  authPath: string;
+  modelsPath: string;
+  settingsPath: string;
+  authConfigured: boolean;
+  authProviders?: PiAuthProvider[];
+  customProviders?: PiCustomProviderInfo[];
+  loadWarnings?: string[];
+}
+
+export interface PiConfigDocument {
+  path: string;
+  exists: boolean;
+  valid: boolean;
+  content: string;
+  updatedAt?: string;
+  parseError?: string;
+}
+
+export interface PiConfigResponse {
+  status: PiStatus;
+  globalSettings: PiConfigDocument;
+  models: PiConfigDocument;
+  projectSettings?: PiConfigDocument;
+  globalPackages?: PiPackageEntry[];
+  projectPackages?: PiPackageEntry[];
+  globalExtensions?: PiExtensionEntry[];
+  projectExtensions?: PiExtensionEntry[];
+}
+
+export interface PiPackageEntry {
+  source: string;
+  scope: string;
+  sourceType: string;
+  pinned: boolean;
+  filtered: boolean;
+  extensionCount: number;
+  skillCount: number;
+  promptCount: number;
+  themeCount: number;
+}
+
+export interface PiExtensionEntry {
+  path: string;
+  scope: string;
+}
+
+export interface PiConversationModel {
+  provider: string;
+  id: string;
+}
+
+export interface PiConversationToolCall {
+  id: string;
+  name: string;
+  arguments?: string;
+}
+
+export interface PiConversationMessage {
+  id: string;
+  role: string;
+  text?: string;
+  thinking?: string;
+  toolName?: string;
+  toolCalls?: PiConversationToolCall[];
+  isError?: boolean;
+  timestamp?: string;
+}
+
+export interface PiStreamingAssistant {
+  text?: string;
+  thinking?: string;
+  toolCalls?: PiConversationToolCall[];
+}
+
+export interface PiToolExecution {
+  toolCallId: string;
+  toolName: string;
+  status: string;
+  output?: string;
+  isError?: boolean;
+}
+
+export interface PiConversationSnapshot {
+  conversationId: string;
+  runtimeActive: boolean;
+  streaming: boolean;
+  workDir: string;
+  model?: PiConversationModel;
+  sessionFile?: string;
+  sessionName?: string;
+  messages: PiConversationMessage[];
+  pending?: PiStreamingAssistant;
+  tools?: PiToolExecution[];
+  lastError?: string;
+  updatedAt: string;
+}

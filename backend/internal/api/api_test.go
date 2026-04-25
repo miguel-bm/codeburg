@@ -65,6 +65,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 		wsHub:                  wsHub,
 		sessions:               NewSessionManager(),
 		chat:                   NewChatManager(database),
+		pi:                     newPiConversationManager(database),
 		tunnels:                tunnel.NewManager(),
 		portSuggest:            portsuggest.NewManager(nil),
 		gitclone:               gitclone.Config{BaseDir: filepath.Join(tmpDir, "repos")},
