@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -11,6 +11,8 @@ import {
   GitFork,
   Hammer,
   MessageSquareText,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   RefreshCw,
   Search,
@@ -23,19 +25,26 @@ import { projectsApi } from '../../api';
 import type { TerminalSession, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { TerminalView } from '../../components/session/TerminalView';
-import { Button } from '../../components/ui/Button';
-import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
-import { WorkspaceProvider } from '../../components/workspace/WorkspaceContext';
+import { DiffTab } from '../../components/workspace/DiffTab';
+import { EditorTab } from '../../components/workspace/EditorTab';
 import { FileExplorer } from '../../components/workspace/FileExplorer';
 import { FileSearchPanel } from '../../components/workspace/FileSearchPanel';
 import { GitPanel } from '../../components/workspace/GitPanel';
-import { EditorTab } from '../../components/workspace/EditorTab';
-import { DiffTab } from '../../components/workspace/DiffTab';
+import { WorkspaceProvider } from '../../components/workspace/WorkspaceContext';
 import { fileName } from '../../components/workspace/editorUtils';
 import { useWorkspaceStore, type WorkspaceTab } from '../../stores/workspace';
+import {
+  Button,
+  V2Empty,
+  V2Header,
+  V2Input,
+  V2Screen,
+  V2ToolbarButton,
+} from './v2-ui';
 
 type HelperTab = 'files' | 'search' | 'git';
+type MainSurface = { type: 'terminal'; terminalId: string } | { type: 'workspaceTab'; index: number } | null;
 
 export function V2ProjectPage() {
   const { id } = useParams<{ id: string }>();
@@ -43,16 +52,23 @@ export function V2ProjectPage() {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const resetWorkspaceTabs = useWorkspaceStore((state) => state.resetTabs);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
-  const [selectedTerminalId, setSelectedTerminalId] = useState<string | null>(null);
+  const tabs = useWorkspaceStore((state) => state.tabs);
+  const activeTabIndex = useWorkspaceStore((state) => state.activeTabIndex);
+  const setActiveTab = useWorkspaceStore((state) => state.setActiveTab);
+  const closeTab = useWorkspaceStore((state) => state.closeTab);
+
   const [helperTab, setHelperTab] = useState<HelperTab>('files');
+  const [toolsOpen, setToolsOpen] = useState(true);
+  const [toolsWidth, setToolsWidth] = useState(360);
   const [composerMode, setComposerMode] = useState<'create' | 'fork' | null>(null);
   const [workspaceName, setWorkspaceName] = useState('');
   const [workspaceBaseBranch, setWorkspaceBaseBranch] = useState('');
+  const [mainSurface, setMainSurface] = useState<MainSurface>(null);
+  const resizeStart = useRef<{ x: number; width: number } | null>(null);
 
-  const workspacesQueryKey = ['v2-workspaces', id] as const;
   const requestedWorkspaceId = searchParams.get('workspace');
   const requestedTerminalId = searchParams.get('terminal');
+  const workspacesQueryKey = ['v2-workspaces', id] as const;
 
   const { data: project } = useQuery({
     queryKey: ['project', id],
@@ -66,12 +82,13 @@ export function V2ProjectPage() {
     enabled: !!id,
   });
 
-  const activeWorkspaceId = selectedWorkspaceId ?? workspaces?.[0]?.id ?? null;
-  const activeWorkspace = workspaces?.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces?.[0] ?? null;
-
-  useEffect(() => {
-    resetWorkspaceTabs();
-  }, [activeWorkspaceId, resetWorkspaceTabs]);
+  const sortedWorkspaces = useMemo(() => [...(workspaces ?? [])].sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === 'main' ? -1 : 1;
+    return a.createdAt.localeCompare(b.createdAt);
+  }), [workspaces]);
+  const defaultWorkspace = sortedWorkspaces.find((workspace) => workspace.kind === 'main') ?? sortedWorkspaces[0] ?? null;
+  const activeWorkspace = sortedWorkspaces.find((workspace) => workspace.id === requestedWorkspaceId) ?? defaultWorkspace;
+  const activeWorkspaceId = activeWorkspace?.id ?? null;
 
   const { data: terminals } = useQuery({
     queryKey: ['v2-terminals', activeWorkspaceId],
@@ -80,22 +97,63 @@ export function V2ProjectPage() {
     refetchInterval: 5000,
   });
 
-  const activeTerminalId = selectedTerminalId ?? terminals?.[0]?.id ?? null;
-  const activeTerminal = terminals?.find((terminal) => terminal.id === activeTerminalId) ?? terminals?.[0] ?? null;
+  const sortedTerminals = useMemo(() => [...(terminals ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [terminals]);
+  const activeTerminal = mainSurface?.type === 'terminal'
+    ? sortedTerminals.find((terminal) => terminal.id === mainSurface.terminalId) ?? null
+    : requestedTerminalId
+      ? sortedTerminals.find((terminal) => terminal.id === requestedTerminalId) ?? null
+      : null;
+  const activeWorkspaceTab = mainSurface?.type === 'workspaceTab' ? tabs[mainSurface.index] : null;
+
+  useEffect(() => {
+    resetWorkspaceTabs();
+    setMainSurface(null);
+  }, [activeWorkspaceId, resetWorkspaceTabs]);
+
+  useEffect(() => {
+    if (!requestedTerminalId || !sortedTerminals.some((terminal) => terminal.id === requestedTerminalId)) return;
+    setMainSurface((current) => {
+      if (current?.type === 'terminal' && current.terminalId === requestedTerminalId) return current;
+      return { type: 'terminal', terminalId: requestedTerminalId };
+    });
+  }, [requestedTerminalId, sortedTerminals]);
+
+  useEffect(() => {
+    if (tabs.length === 0) return;
+    const activeTab = tabs[activeTabIndex];
+    if (activeTab?.type === 'editor' || activeTab?.type === 'diff') {
+      setMainSurface({ type: 'workspaceTab', index: activeTabIndex });
+    }
+  }, [tabs, activeTabIndex]);
+
+  const invalidateTerminals = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['v2-terminals', activeWorkspaceId] });
+  };
 
   const createTerminal = useMutation({
-    mutationFn: () => v2Api.createTerminal(activeWorkspaceId!, {}),
+    mutationFn: () => v2Api.createTerminal(activeWorkspaceId!, {
+      title: undefined,
+    }),
     onSuccess: async (terminal) => {
-      setSelectedTerminalId(terminal.id);
-      await queryClient.invalidateQueries({ queryKey: ['v2-terminals', activeWorkspaceId] });
+      setMainSurface({ type: 'terminal', terminalId: terminal.id });
+      navigate(`/v2/projects/${id}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`, { replace: true });
+      await invalidateTerminals();
     },
   });
 
-  const stopTerminal = useMutation({
+  const renameTerminal = useMutation({
+    mutationFn: ({ terminalId, title }: { terminalId: string; title: string }) =>
+      v2Api.updateTerminal(terminalId, { title }),
+    onSuccess: invalidateTerminals,
+  });
+
+  const closeTerminal = useMutation({
     mutationFn: (terminalId: string) => v2Api.deleteTerminal(terminalId),
     onSuccess: async (_, terminalId) => {
-      if (selectedTerminalId === terminalId) setSelectedTerminalId(null);
-      await queryClient.invalidateQueries({ queryKey: ['v2-terminals', activeWorkspaceId] });
+      if (mainSurface?.type === 'terminal' && mainSurface.terminalId === terminalId) {
+        setMainSurface(null);
+      }
+      await invalidateTerminals();
     },
   });
 
@@ -103,8 +161,7 @@ export function V2ProjectPage() {
     mutationFn: (input: { name: string; baseBranch?: string }) => v2Api.createWorkspace(id!, input),
     onSuccess: async (response) => {
       clearComposer();
-      setSelectedWorkspaceId(response.workspace.id);
-      setSelectedTerminalId(null);
+      navigate(`/v2/projects/${id}?workspace=${response.workspace.id}`);
       await queryClient.invalidateQueries({ queryKey: workspacesQueryKey });
     },
   });
@@ -114,19 +171,15 @@ export function V2ProjectPage() {
       v2Api.forkWorkspace(activeWorkspaceId!, input),
     onSuccess: async (response) => {
       clearComposer();
-      setSelectedWorkspaceId(response.workspace.id);
-      setSelectedTerminalId(null);
+      navigate(`/v2/projects/${id}?workspace=${response.workspace.id}`);
       await queryClient.invalidateQueries({ queryKey: workspacesQueryKey });
     },
   });
 
   const deleteWorkspace = useMutation({
     mutationFn: (workspaceId: string) => v2Api.deleteWorkspace(workspaceId),
-    onSuccess: async (_, workspaceId) => {
-      if (selectedWorkspaceId === workspaceId) {
-        setSelectedWorkspaceId(null);
-        setSelectedTerminalId(null);
-      }
+    onSuccess: async () => {
+      navigate(`/v2/projects/${id}`);
       await queryClient.invalidateQueries({ queryKey: workspacesQueryKey });
     },
   });
@@ -139,7 +192,7 @@ export function V2ProjectPage() {
       return v2Api.archiveWorkspace(workspaceId);
     },
     onSuccess: async (workspace) => {
-      if (workspace.status !== 'active') setSelectedTerminalId(null);
+      if (workspace.status !== 'active') setMainSurface(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: workspacesQueryKey }),
         queryClient.invalidateQueries({ queryKey: ['v2-terminals', workspace.id] }),
@@ -166,19 +219,15 @@ export function V2ProjectPage() {
     }
   }, [composerMode, activeWorkspace, project]);
 
-  useEffect(() => {
-    if (!workspaces?.length) return;
-    if (requestedWorkspaceId && workspaces.some((workspace) => workspace.id === requestedWorkspaceId)) {
-      setSelectedWorkspaceId((current) => current ?? requestedWorkspaceId);
-    }
-  }, [requestedWorkspaceId, workspaces]);
-
-  useEffect(() => {
-    if (!terminals?.length) return;
-    if (requestedTerminalId && terminals.some((terminal) => terminal.id === requestedTerminalId)) {
-      setSelectedTerminalId((current) => current ?? requestedTerminalId);
-    }
-  }, [requestedTerminalId, terminals]);
+  const workspacePending =
+    createWorkspace.isPending ||
+    forkWorkspace.isPending ||
+    deleteWorkspace.isPending ||
+    mutateWorkspaceStatus.isPending ||
+    syncWorkspace.isPending;
+  const workspaceError =
+    createWorkspace.error ?? forkWorkspace.error ?? deleteWorkspace.error ?? mutateWorkspaceStatus.error ?? syncWorkspace.error;
+  const terminalDisabled = !activeWorkspaceId || activeWorkspace?.status !== 'active' || createTerminal.isPending;
 
   const clearComposer = () => {
     setComposerMode(null);
@@ -187,38 +236,46 @@ export function V2ProjectPage() {
   };
 
   const submitWorkspaceComposer = () => {
-    const payload = {
-      name: workspaceName.trim(),
-      baseBranch: workspaceBaseBranch.trim() || undefined,
-    };
+    const payload = { name: workspaceName.trim(), baseBranch: workspaceBaseBranch.trim() || undefined };
     if (!payload.name) return;
     if (composerMode === 'fork') forkWorkspace.mutate(payload);
     else createWorkspace.mutate(payload);
   };
 
-  const workspaceError =
-    createWorkspace.error ?? forkWorkspace.error ?? deleteWorkspace.error ?? mutateWorkspaceStatus.error ?? syncWorkspace.error;
-  const workspacePending =
-    createWorkspace.isPending ||
-    forkWorkspace.isPending ||
-    deleteWorkspace.isPending ||
-    mutateWorkspaceStatus.isPending ||
-    syncWorkspace.isPending;
+  const beginResize = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    resizeStart.current = { x: event.clientX, width: toolsWidth };
+    const onMove = (moveEvent: MouseEvent) => {
+      if (!resizeStart.current) return;
+      const delta = resizeStart.current.x - moveEvent.clientX;
+      setToolsWidth(Math.max(280, Math.min(640, resizeStart.current.width + delta)));
+    };
+    const onUp = () => {
+      resizeStart.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [toolsWidth]);
 
-  const terminalDisabled = !activeWorkspaceId || activeWorkspace?.status !== 'active' || createTerminal.isPending;
-
-  return (
-    <div className="flex h-full min-h-0 flex-col bg-canvas">
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--color-card-border)] px-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-medium">{project?.name ?? 'Project'}</div>
-            <div className="truncate text-xs text-dim">{project?.path}</div>
-          </div>
-          {activeWorkspace && <Badge variant="label" color={statusColor(activeWorkspace.status)}>{activeWorkspace.status}</Badge>}
-        </div>
-        <div className="flex items-center gap-2">
-          {project && (
+  const content = (
+    <V2Screen>
+      <V2Header
+        eyebrow="Project workspace"
+        title={project?.name ?? 'Project'}
+        subtitle={
+          <span className="inline-flex min-w-0 items-center gap-2">
+            <span className="truncate">{project?.path}</span>
+            {activeWorkspace && <Badge variant="label" color={statusColor(activeWorkspace.status)}>{activeWorkspace.name}</Badge>}
+          </span>
+        }
+        actions={
+          project && (
             <>
               <Button size="xs" variant="ghost" icon={<MessageSquareText size={13} />} onClick={() => navigate(`/v2/projects/${project.id}/conversations`)}>
                 Conversations
@@ -229,159 +286,140 @@ export function V2ProjectPage() {
               <Button size="xs" variant="ghost" icon={<Settings2 size={13} />} onClick={() => navigate(`/v2/projects/${project.id}/pi`)}>
                 Pi
               </Button>
+              <Button size="xs" variant="secondary" icon={<GitFork size={13} />} disabled={!activeWorkspaceId} onClick={() => setComposerMode('fork')}>
+                Fork
+              </Button>
+              <Button size="xs" variant="secondary" icon={<Plus size={13} />} onClick={() => setComposerMode('create')}>
+                Worktree
+              </Button>
+              <Button size="xs" variant="primary" icon={<Plus size={13} />} disabled={terminalDisabled} loading={createTerminal.isPending} onClick={() => createTerminal.mutate()}>
+                Terminal
+              </Button>
             </>
-          )}
-          <Button size="xs" variant="secondary" icon={<Plus size={13} />} onClick={() => setComposerMode('create')}>
-            Worktree
-          </Button>
-          <Button size="xs" variant="primary" icon={<Plus size={13} />} loading={createTerminal.isPending} disabled={terminalDisabled} onClick={() => createTerminal.mutate()}>
-            Terminal
-          </Button>
-        </div>
-      </header>
+          )
+        }
+      />
 
-      <div className="grid min-h-0 flex-1 grid-cols-[17rem_minmax(0,1fr)_34rem] overflow-hidden">
-        <aside className="min-h-0 border-r border-[var(--color-card-border)] bg-canvas">
-          <div className="flex h-full min-h-0 flex-col">
-            <div className="border-b border-[var(--color-card-border)] p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <div className="text-xs font-medium text-dim">Workspaces</div>
-                <Button size="xs" variant="ghost" icon={<GitFork size={13} />} disabled={!activeWorkspaceId} onClick={() => setComposerMode('fork')}>
-                  Fork
-                </Button>
+      {composerMode && (
+        <div className="border-b border-[var(--color-card-border)] bg-card px-5 py-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="min-w-56">
+              <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-dim">
+                {composerMode === 'fork' ? 'Fork name' : 'Workspace name'}
               </div>
-              {composerMode && (
-                <Card padding="sm" className="space-y-2">
-                  <input
-                    value={workspaceName}
-                    onChange={(event) => setWorkspaceName(event.target.value)}
-                    placeholder={composerMode === 'fork' ? 'Fork name' : 'Workspace name'}
-                    className="h-8 w-full rounded-md border border-[var(--color-card-border)] bg-primary px-2 text-sm outline-none"
-                  />
-                  <input
-                    value={workspaceBaseBranch}
-                    onChange={(event) => setWorkspaceBaseBranch(event.target.value)}
-                    placeholder={project?.defaultBranch ?? 'main'}
-                    className="h-8 w-full rounded-md border border-[var(--color-card-border)] bg-primary px-2 text-sm outline-none"
-                  />
-                  <div className="flex gap-2">
-                    <Button size="xs" variant="primary" loading={workspacePending} disabled={!workspaceName.trim()} onClick={submitWorkspaceComposer}>
-                      Create
-                    </Button>
-                    <Button size="xs" variant="ghost" onClick={clearComposer}>Cancel</Button>
-                  </div>
-                </Card>
-              )}
-              {workspaceError instanceof Error && (
-                <div className="mt-2 rounded-md bg-[var(--color-error)]/10 px-2 py-1.5 text-xs text-[var(--color-error)]">
-                  {workspaceError.message}
-                </div>
-              )}
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-auto p-2">
-              {(workspaces ?? []).map((workspace) => (
-                <WorkspaceRow
-                  key={workspace.id}
-                  workspace={workspace}
-                  active={workspace.id === activeWorkspaceId}
-                  onClick={() => {
-                    setSelectedWorkspaceId(workspace.id);
-                    setSelectedTerminalId(null);
-                  }}
-                />
-              ))}
-            </div>
-
-            {activeWorkspace && (
-              <div className="border-t border-[var(--color-card-border)] p-2">
-                <WorkspaceActions
-                  workspace={activeWorkspace}
-                  pending={workspacePending}
-                  onSync={() => syncWorkspace.mutate(activeWorkspace.id)}
-                  onMerge={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'merge' })}
-                  onAbandon={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'abandon' })}
-                  onReactivate={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'activate' })}
-                  onArchive={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'archive' })}
-                  onDelete={() => deleteWorkspace.mutate(activeWorkspace.id)}
-                />
-              </div>
-            )}
-          </div>
-        </aside>
-
-        <section className="flex min-w-0 flex-col bg-primary">
-          <div className="flex h-10 shrink-0 items-center justify-between border-b border-[var(--color-card-border)] px-3">
-            <div className="flex min-w-0 items-center gap-2 text-sm">
-              <SquareTerminal size={15} className="text-dim" />
-              <span className="truncate">{activeTerminal?.title || 'Persistent terminal'}</span>
-            </div>
-            <Button size="xs" variant="secondary" icon={<Plus size={13} />} disabled={terminalDisabled} loading={createTerminal.isPending} onClick={() => createTerminal.mutate()}>
-              New
+              <V2Input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder="feat/runtime-polish" />
+            </label>
+            <label className="min-w-44">
+              <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-dim">Base branch</div>
+              <V2Input value={workspaceBaseBranch} onChange={(event) => setWorkspaceBaseBranch(event.target.value)} placeholder={project?.defaultBranch ?? 'main'} />
+            </label>
+            <Button size="sm" variant="primary" loading={workspacePending} disabled={!workspaceName.trim()} onClick={submitWorkspaceComposer}>
+              Create
             </Button>
+            <Button size="sm" variant="ghost" onClick={clearComposer}>Cancel</Button>
+            {workspaceError instanceof Error && <span className="text-xs text-[var(--color-error)]">{workspaceError.message}</span>}
           </div>
+        </div>
+      )}
 
-          {(terminals?.length ?? 0) > 0 && (
-            <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--color-card-border)] px-2 scrollbar-none">
-              {terminals?.map((terminal) => (
-                <TerminalChip
-                  key={terminal.id}
-                  terminal={terminal}
-                  active={terminal.id === activeTerminalId}
-                  onSelect={() => setSelectedTerminalId(terminal.id)}
-                  onClose={() => stopTerminal.mutate(terminal.id)}
-                />
-              ))}
-            </div>
-          )}
+      {activeWorkspace && (
+        <div className="flex h-10 shrink-0 items-center justify-between border-b border-[var(--color-card-border)] bg-canvas px-4">
+          <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
+            <GitBranch size={14} />
+            <span className="truncate">{activeWorkspace.branchName}</span>
+            <span>{activeWorkspace.kind}</span>
+            <span>{activeWorkspace.status}</span>
+          </div>
+          <WorkspaceActions
+            workspace={activeWorkspace}
+            pending={workspacePending}
+            onSync={() => syncWorkspace.mutate(activeWorkspace.id)}
+            onMerge={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'merge' })}
+            onAbandon={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'abandon' })}
+            onReactivate={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'activate' })}
+            onArchive={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'archive' })}
+            onDelete={() => deleteWorkspace.mutate(activeWorkspace.id)}
+          />
+        </div>
+      )}
 
-          {createTerminal.error instanceof Error && (
-            <div className="border-b border-[var(--color-error)]/20 bg-[var(--color-error)]/10 px-3 py-2 text-xs text-[var(--color-error)]">
-              {createTerminal.error.message}
-            </div>
-          )}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <section className="flex min-w-0 flex-1 flex-col bg-primary">
+          <MainTabBar
+            terminals={sortedTerminals}
+            terminalPending={closeTerminal.isPending || renameTerminal.isPending}
+            activeSurface={mainSurface}
+            tabs={tabs}
+            activeTabIndex={activeTabIndex}
+            onSelectTerminal={(terminal) => {
+              setMainSurface({ type: 'terminal', terminalId: terminal.id });
+              navigate(`/v2/projects/${id}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`, { replace: true });
+            }}
+            onCloseTerminal={(terminal) => closeTerminal.mutate(terminal.id)}
+            onRenameTerminal={(terminal, title) => renameTerminal.mutate({ terminalId: terminal.id, title })}
+            onSelectWorkspaceTab={(index) => {
+              setActiveTab(index);
+              setMainSurface({ type: 'workspaceTab', index });
+            }}
+            onCloseWorkspaceTab={(index) => {
+              closeTab(index);
+              setMainSurface(null);
+            }}
+          />
 
-          <div className="min-h-0 flex-1">
+          <div className="min-h-0 flex-1 overflow-hidden">
             {activeTerminal ? (
               <TerminalView sessionId={activeTerminal.id} targetType="terminal" />
+            ) : activeWorkspaceTab?.type === 'editor' ? (
+              <EditorTab path={activeWorkspaceTab.path} line={activeWorkspaceTab.line} />
+            ) : activeWorkspaceTab?.type === 'diff' ? (
+              <DiffTab file={activeWorkspaceTab.file} staged={activeWorkspaceTab.staged} base={activeWorkspaceTab.base} commit={activeWorkspaceTab.commit} />
             ) : (
-              <EmptyTerminal onCreate={() => createTerminal.mutate()} disabled={terminalDisabled} workspace={activeWorkspace} />
+              <V2Empty
+                icon={<SquareTerminal size={32} />}
+                title="Choose a terminal, file, or diff"
+                body={activeWorkspace?.status !== 'active'
+                  ? `This workspace is ${activeWorkspace?.status}. Reactivate it before starting terminals.`
+                  : 'Start a terminal, or open files and diffs from the tools panel.'}
+                action={<Button size="sm" variant="primary" icon={<Plus size={14} />} disabled={terminalDisabled} loading={createTerminal.isPending} onClick={() => createTerminal.mutate()}>Start Terminal</Button>}
+              />
             )}
           </div>
         </section>
 
-        <aside className="min-h-0 border-l border-[var(--color-card-border)] bg-canvas">
-          {project && activeWorkspace ? (
-            <WorkspaceProvider scope={{ type: 'workspace', workspaceId: activeWorkspace.id, workspace: activeWorkspace, project }}>
-              <V2WorkspaceInspector helperTab={helperTab} onSelectHelperTab={setHelperTab} />
-            </WorkspaceProvider>
-          ) : (
-            <div className="flex h-full items-center justify-center px-5 text-sm text-dim">Select a workspace</div>
-          )}
-        </aside>
-      </div>
-    </div>
-  );
-}
+        {toolsOpen && (
+          <>
+            <div className="w-1.5 shrink-0 cursor-col-resize bg-canvas hover:bg-accent/30" onMouseDown={beginResize} />
+            <aside className="min-h-0 shrink-0 border-l border-[var(--color-card-border)] bg-canvas" style={{ width: toolsWidth }}>
+              <V2WorkspaceTools
+                helperTab={helperTab}
+                onSelectHelperTab={setHelperTab}
+                onClose={() => setToolsOpen(false)}
+              />
+            </aside>
+          </>
+        )}
 
-function WorkspaceRow({ workspace, active, onClick }: { workspace: Workspace; active: boolean; onClick: () => void }) {
+        {!toolsOpen && (
+          <button
+            type="button"
+            onClick={() => setToolsOpen(true)}
+            className="flex w-9 shrink-0 items-center justify-center border-l border-[var(--color-card-border)] bg-canvas text-dim hover:text-[var(--color-text-primary)]"
+            title="Open tools"
+          >
+            <PanelRightOpen size={16} />
+          </button>
+        )}
+      </div>
+    </V2Screen>
+  );
+
+  if (!project || !activeWorkspace) return content;
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`mb-1 block w-full rounded-lg px-3 py-2 text-left transition-colors ${
-        active ? 'bg-[var(--color-card)]' : 'hover:bg-[var(--color-card)]'
-      }`}
-    >
-      <div className="flex items-center gap-2">
-        <GitBranch size={14} className={active ? 'text-accent' : 'text-dim'} />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{workspace.name}</span>
-      </div>
-      <div className="mt-1 flex items-center gap-2 pl-6 text-xs text-dim">
-        <span className="truncate">{workspace.branchName}</span>
-        <span>{workspace.kind}</span>
-      </div>
-    </button>
+    <WorkspaceProvider scope={{ type: 'workspace', workspaceId: activeWorkspace.id, workspace: activeWorkspace, project }}>
+      {content}
+    </WorkspaceProvider>
   );
 }
 
@@ -406,166 +444,188 @@ function WorkspaceActions({
 }) {
   if (workspace.kind === 'main') {
     return (
-      <Button className="w-full" size="xs" variant="secondary" icon={<RefreshCw size={13} />} disabled={pending || workspace.status !== 'active'} onClick={onSync}>
+      <Button size="xs" variant="secondary" icon={<RefreshCw size={13} />} disabled={pending || workspace.status !== 'active'} onClick={onSync}>
         Sync branch
       </Button>
     );
   }
-
   if (workspace.status !== 'active') {
     return (
-      <div className="grid gap-1">
-        <Button size="xs" variant="secondary" icon={<Plus size={13} />} disabled={pending} onClick={onReactivate}>
-          Reactivate
-        </Button>
-        {workspace.status !== 'archived' && (
-          <Button size="xs" variant="ghost" icon={<Archive size={13} />} disabled={pending} onClick={onArchive}>
-            Archive
-          </Button>
-        )}
-        <Button size="xs" variant="danger" icon={<Trash2 size={13} />} disabled={pending} onClick={onDelete}>
-          Delete
-        </Button>
+      <div className="flex items-center gap-1">
+        <Button size="xs" variant="secondary" icon={<Plus size={13} />} disabled={pending} onClick={onReactivate}>Reactivate</Button>
+        {workspace.status !== 'archived' && <Button size="xs" variant="ghost" icon={<Archive size={13} />} disabled={pending} onClick={onArchive}>Archive</Button>}
+        <Button size="xs" variant="danger" icon={<Trash2 size={13} />} disabled={pending} onClick={onDelete}>Delete</Button>
       </div>
     );
   }
-
   return (
-    <div className="grid gap-1">
-      <Button size="xs" variant="secondary" icon={<RefreshCw size={13} />} disabled={pending} onClick={onSync}>
-        Sync
-      </Button>
-      <Button size="xs" variant="secondary" icon={<GitCommitHorizontal size={13} />} disabled={pending} onClick={onMerge}>
-        Merge
-      </Button>
-      <Button size="xs" variant="ghost" icon={<CircleSlash size={13} />} disabled={pending} onClick={onAbandon}>
-        Abandon
-      </Button>
-      <Button size="xs" variant="danger" icon={<Trash2 size={13} />} disabled={pending} onClick={onDelete}>
-        Delete
-      </Button>
+    <div className="flex items-center gap-1">
+      <Button size="xs" variant="secondary" icon={<RefreshCw size={13} />} disabled={pending} onClick={onSync}>Sync</Button>
+      <Button size="xs" variant="secondary" icon={<GitCommitHorizontal size={13} />} disabled={pending} onClick={onMerge}>Merge</Button>
+      <Button size="xs" variant="ghost" icon={<CircleSlash size={13} />} disabled={pending} onClick={onAbandon}>Abandon</Button>
+      <Button size="xs" variant="danger" icon={<Trash2 size={13} />} disabled={pending} onClick={onDelete}>Delete</Button>
     </div>
   );
 }
 
-function TerminalChip({
+function MainTabBar({
+  terminals,
+  terminalPending,
+  activeSurface,
+  tabs,
+  activeTabIndex,
+  onSelectTerminal,
+  onCloseTerminal,
+  onRenameTerminal,
+  onSelectWorkspaceTab,
+  onCloseWorkspaceTab,
+}: {
+  terminals: TerminalSession[];
+  terminalPending: boolean;
+  activeSurface: MainSurface;
+  tabs: WorkspaceTab[];
+  activeTabIndex: number;
+  onSelectTerminal: (terminal: TerminalSession) => void;
+  onCloseTerminal: (terminal: TerminalSession) => void;
+  onRenameTerminal: (terminal: TerminalSession, title: string) => void;
+  onSelectWorkspaceTab: (index: number) => void;
+  onCloseWorkspaceTab: (index: number) => void;
+}) {
+  const workspaceTabs = tabs
+    .map((tab, index) => ({ tab, index }))
+    .filter((entry): entry is { tab: Extract<WorkspaceTab, { type: 'editor' | 'diff' }>; index: number } => entry.tab.type === 'editor' || entry.tab.type === 'diff');
+
+  return (
+    <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--color-card-border)] bg-canvas px-2 scrollbar-none">
+      {terminals.map((terminal) => (
+        <TerminalTab
+          key={terminal.id}
+          terminal={terminal}
+          active={activeSurface?.type === 'terminal' && activeSurface.terminalId === terminal.id}
+          pending={terminalPending}
+          onSelect={() => onSelectTerminal(terminal)}
+          onClose={() => onCloseTerminal(terminal)}
+          onRename={(title) => onRenameTerminal(terminal, title)}
+        />
+      ))}
+      {workspaceTabs.map(({ tab, index }) => (
+        <button
+          key={previewTabKey(tab, index)}
+          type="button"
+          onClick={() => onSelectWorkspaceTab(index)}
+          className={`inline-flex h-7 max-w-[15rem] items-center gap-1.5 rounded-md px-2 text-xs ${
+            activeSurface?.type === 'workspaceTab' && activeSurface.index === index
+              ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
+              : 'bg-[var(--color-card)] text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)]'
+          }`}
+        >
+          {tab.type === 'editor' ? <Files size={13} /> : <GitCommitHorizontal size={13} />}
+          <span className="truncate">{previewTabLabel(tab)}</span>
+          {index === activeTabIndex && tab.ephemeral && <span className="text-dim">preview</span>}
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(event) => {
+              event.stopPropagation();
+              onCloseWorkspaceTab(index);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                event.stopPropagation();
+                onCloseWorkspaceTab(index);
+              }
+            }}
+            className="text-dim hover:text-[var(--color-text-primary)]"
+          >
+            <X size={12} />
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function TerminalTab({
   terminal,
   active,
+  pending,
   onSelect,
   onClose,
+  onRename,
 }: {
   terminal: TerminalSession;
   active: boolean;
+  pending: boolean;
   onSelect: () => void;
   onClose: () => void;
+  onRename: (title: string) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(terminal.title ?? '');
+
+  useEffect(() => {
+    setDraft(terminal.title ?? '');
+  }, [terminal.title]);
+
+  const save = () => {
+    const title = draft.trim();
+    setEditing(false);
+    if (title && title !== terminal.title) onRename(title);
+  };
+
   return (
-    <div className={`inline-flex h-6 items-center overflow-hidden rounded-md text-xs ${active ? 'bg-[var(--color-card-hover)]' : 'bg-[var(--color-card)]'}`}>
-      <button type="button" onClick={onSelect} className="px-2">
-        {terminal.title || terminal.id.slice(0, 8)}
-      </button>
-      <button type="button" onClick={onClose} className="px-1.5 text-dim hover:text-[var(--color-text-primary)]" aria-label="Close terminal">
+    <div className={`inline-flex h-7 items-center overflow-hidden rounded-md text-xs ${active ? 'bg-[var(--color-card-hover)]' : 'bg-[var(--color-card)]'}`}>
+      {editing ? (
+        <input
+          autoFocus
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={save}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') save();
+            if (event.key === 'Escape') setEditing(false);
+          }}
+          className="h-7 w-28 bg-transparent px-2 outline-none"
+        />
+      ) : (
+        <button type="button" onClick={onSelect} onDoubleClick={() => setEditing(true)} className="flex h-full items-center gap-1.5 px-2">
+          <SquareTerminal size={13} />
+          <span className="max-w-32 truncate">{terminal.title || 'Terminal'}</span>
+        </button>
+      )}
+      <button type="button" disabled={pending} onClick={onClose} className="px-1.5 text-dim hover:text-[var(--color-text-primary)]" aria-label="Close terminal">
         <X size={12} />
       </button>
     </div>
   );
 }
 
-function EmptyTerminal({ onCreate, disabled, workspace }: { onCreate: () => void; disabled: boolean; workspace: Workspace | null }) {
-  return (
-    <div className="flex h-full items-center justify-center p-6">
-      <div className="max-w-sm text-center">
-        <SquareTerminal size={32} className="mx-auto mb-3 text-dim" />
-        <div className="text-sm font-medium">No terminal selected</div>
-        <div className="mt-2 text-xs leading-5 text-dim">
-          {workspace?.status && workspace.status !== 'active'
-            ? `This workspace is ${workspace.status}. Reactivate it before starting another terminal.`
-            : 'Start a persistent workspace terminal and keep it alive across page reloads.'}
-        </div>
-        <Button className="mt-4" size="sm" variant="primary" icon={<Plus size={14} />} disabled={disabled} onClick={onCreate}>
-          Start terminal
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function V2WorkspaceInspector({ helperTab, onSelectHelperTab }: { helperTab: HelperTab; onSelectHelperTab: (tab: HelperTab) => void }) {
-  const tabs = useWorkspaceStore((state) => state.tabs);
-  const activeTabIndex = useWorkspaceStore((state) => state.activeTabIndex);
-  const setActiveTab = useWorkspaceStore((state) => state.setActiveTab);
-  const closeTab = useWorkspaceStore((state) => state.closeTab);
-
-  const activeTab = tabs[activeTabIndex];
-  const inspectorTabs = tabs.filter((tab): tab is Extract<WorkspaceTab, { type: 'editor' | 'diff' }> => tab.type === 'editor' || tab.type === 'diff');
-
+function V2WorkspaceTools({
+  helperTab,
+  onSelectHelperTab,
+  onClose,
+}: {
+  helperTab: HelperTab;
+  onSelectHelperTab: (tab: HelperTab) => void;
+  onClose: () => void;
+}) {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-[var(--color-card-border)] p-2">
-        <div className="grid grid-cols-3 gap-1">
+      <div className="flex h-10 items-center justify-between border-b border-[var(--color-card-border)] px-2">
+        <div className="flex items-center gap-1">
           <HelperButton active={helperTab === 'files'} icon={<Files size={14} />} onClick={() => onSelectHelperTab('files')}>Files</HelperButton>
           <HelperButton active={helperTab === 'search'} icon={<Search size={14} />} onClick={() => onSelectHelperTab('search')}>Search</HelperButton>
           <HelperButton active={helperTab === 'git'} icon={<GitCommitHorizontal size={14} />} onClick={() => onSelectHelperTab('git')}>Git</HelperButton>
         </div>
+        <button type="button" onClick={onClose} className="rounded-md p-1.5 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]">
+          <PanelRightClose size={15} />
+        </button>
       </div>
-
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(14rem,0.9fr)_minmax(18rem,1.1fr)]">
-        <div className="min-h-0 overflow-hidden border-b border-[var(--color-card-border)]">
-          {helperTab === 'files' && <FileExplorer />}
-          {helperTab === 'search' && <FileSearchPanel />}
-          {helperTab === 'git' && <GitPanel />}
-        </div>
-
-        <div className="min-h-0 overflow-hidden">
-          {inspectorTabs.length > 0 ? (
-            <div className="flex h-full min-h-0 flex-col">
-              <div className="flex h-9 items-center gap-1 overflow-x-auto border-b border-[var(--color-card-border)] px-2 scrollbar-none">
-                {inspectorTabs.map((tab) => {
-                  const index = tabs.findIndex((candidate) => candidate === tab);
-                  const active = index === activeTabIndex;
-                  return (
-                    <button
-                      key={previewTabKey(tab, index)}
-                      type="button"
-                      onClick={() => setActiveTab(index)}
-                      className={`inline-flex h-6 max-w-[12rem] items-center gap-1.5 rounded-md px-2 text-xs ${
-                        active ? 'bg-[var(--color-card-hover)]' : 'bg-[var(--color-card)] hover:bg-[var(--color-card-hover)]'
-                      }`}
-                    >
-                      <span className="truncate">{previewTabLabel(tab)}</span>
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          closeTab(index);
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            closeTab(index);
-                          }
-                        }}
-                      >
-                        <X size={11} />
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-hidden">
-                {activeTab?.type === 'editor' && <EditorTab path={activeTab.path} line={activeTab.line} />}
-                {activeTab?.type === 'diff' && <DiffTab file={activeTab.file} staged={activeTab.staged} base={activeTab.base} commit={activeTab.commit} />}
-              </div>
-            </div>
-          ) : (
-            <div className="flex h-full items-center justify-center p-5 text-center text-xs text-dim">
-              Open a file or diff to preview it here.
-            </div>
-          )}
-        </div>
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {helperTab === 'files' && <FileExplorer />}
+        {helperTab === 'search' && <FileSearchPanel />}
+        {helperTab === 'git' && <GitPanel />}
       </div>
     </div>
   );
@@ -573,16 +633,10 @@ function V2WorkspaceInspector({ helperTab, onSelectHelperTab }: { helperTab: Hel
 
 function HelperButton({ active, icon, onClick, children }: { active: boolean; icon: ReactNode; onClick: () => void; children: ReactNode }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex h-7 items-center justify-center gap-1.5 rounded-md text-xs transition-colors ${
-        active ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]' : 'text-dim hover:bg-[var(--color-card)]'
-      }`}
-    >
+    <V2ToolbarButton active={active} onClick={onClick}>
       {icon}
       {children}
-    </button>
+    </V2ToolbarButton>
   );
 }
 

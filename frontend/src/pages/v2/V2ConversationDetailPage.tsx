@@ -1,27 +1,14 @@
 import { startTransition, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  ArrowLeft,
-  Archive,
-  CheckCircle2,
-  FolderGit2,
-  GitBranchPlus,
-  Loader2,
-  MessagesSquare,
-  PauseCircle,
-  PlayCircle,
-  Send,
-  Sparkles,
-  SquareTerminal,
-  StopCircle,
-  Wrench,
-} from 'lucide-react';
+import { Archive, CheckCircle2, GitBranchPlus, MessageSquareText, PauseCircle, PlayCircle, Send, SquareTerminal, StopCircle } from 'lucide-react';
 import { projectsApi } from '../../api';
-import type { ConversationWorkspaceLink, PiConversationMessage, PiConversationSnapshot } from '../../api/types';
+import type { ConversationStatus, PiConversationMessage, PiConversationSnapshot } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
 import { usePiConversation } from '../../hooks/usePiConversation';
+import { Button, V2Content, V2Empty, V2Header, V2Panel, V2PanelHeader, V2Row, V2Screen, V2Select, V2Textarea } from './v2-ui';
 
 export function V2ConversationDetailPage() {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -62,28 +49,24 @@ export function V2ConversationDetailPage() {
   });
 
   const isActiveConversation = conversation?.status === 'active';
-  const { snapshot: liveSnapshot, connected, connecting, error, sendMessage, abort } = usePiConversation(
-    conversationId ?? '',
-    isActiveConversation,
-  );
+  const { snapshot: liveSnapshot, connected, connecting, error, sendMessage, abort } = usePiConversation(conversationId ?? '', isActiveConversation);
   const snapshot: PiConversationSnapshot | null = liveSnapshot ?? stateSnapshot ?? null;
   const attachedWorkspace = useMemo(
     () => workspaces?.find((workspace) => workspace.id === conversation?.currentWorkspaceId),
     [workspaces, conversation?.currentWorkspaceId],
   );
 
-  const updateConversation = useMutation({
-    mutationFn: (input: { currentWorkspaceId?: string }) =>
-      v2Api.switchConversationWorkspace(conversationId!, input),
-    onSuccess: async (updatedConversation) => {
-      startTransition(() => {
-        setSelectedWorkspaceId(updatedConversation.currentWorkspaceId ?? '');
-      });
-      await queryClient.invalidateQueries({ queryKey: ['v2-conversation', conversationId] });
-      await queryClient.invalidateQueries({ queryKey: ['v2-conversation-state', conversationId] });
-      await queryClient.invalidateQueries({ queryKey: ['v2-conversation-workspaces', conversationId] });
-      await queryClient.invalidateQueries({ queryKey: ['v2-conversations'] });
-      await queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updatedConversation.projectId] });
+  const updateWorkspace = useMutation({
+    mutationFn: (currentWorkspaceId?: string) => v2Api.switchConversationWorkspace(conversationId!, { currentWorkspaceId }),
+    onSuccess: async (updated) => {
+      startTransition(() => setSelectedWorkspaceId(updated.currentWorkspaceId ?? ''));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-conversation', conversationId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-conversation-state', conversationId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-conversation-workspaces', conversationId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId] }),
+      ]);
     },
   });
 
@@ -93,34 +76,27 @@ export function V2ConversationDetailPage() {
         title: forkTitle.trim() || `${conversation?.title ?? 'Conversation'} fork`,
         currentWorkspaceId: selectedWorkspaceId || conversation?.currentWorkspaceId,
       }),
-    onSuccess: async (forkedConversation) => {
-      startTransition(() => {
-        setForkTitle('');
-      });
+    onSuccess: async (forked) => {
+      setForkTitle('');
       await queryClient.invalidateQueries({ queryKey: ['v2-conversations'] });
-      await queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forkedConversation.projectId] });
+      await queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.projectId] });
     },
   });
 
   const transitionConversation = useMutation({
-    mutationFn: async (nextState: 'pause' | 'resume' | 'complete' | 'archive') => {
-      switch (nextState) {
-        case 'pause':
-          return v2Api.pauseConversation(conversationId!);
-        case 'resume':
-          return v2Api.resumeConversation(conversationId!);
-        case 'complete':
-          return v2Api.completeConversation(conversationId!);
-        case 'archive':
-          return v2Api.archiveConversation(conversationId!);
-      }
+    mutationFn: (nextState: 'pause' | 'resume' | 'complete' | 'archive') => {
+      if (nextState === 'pause') return v2Api.pauseConversation(conversationId!);
+      if (nextState === 'resume') return v2Api.resumeConversation(conversationId!);
+      if (nextState === 'complete') return v2Api.completeConversation(conversationId!);
+      return v2Api.archiveConversation(conversationId!);
     },
-    onSuccess: async (updatedConversation) => {
-      await queryClient.invalidateQueries({ queryKey: ['v2-conversation', conversationId] });
-      await queryClient.invalidateQueries({ queryKey: ['v2-conversation-state', conversationId] });
-      await queryClient.invalidateQueries({ queryKey: ['v2-conversation-workspaces', conversationId] });
-      await queryClient.invalidateQueries({ queryKey: ['v2-conversations'] });
-      await queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updatedConversation.projectId] });
+    onSuccess: async (updated) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-conversation', conversationId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-conversation-state', conversationId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId] }),
+      ]);
     },
   });
 
@@ -136,430 +112,180 @@ export function V2ConversationDetailPage() {
     }
   };
 
-  const handleWorkspaceSave = () => {
-    if (!conversationId) return;
-    updateConversation.mutate({
-      currentWorkspaceId: selectedWorkspaceId || '',
-    });
-  };
-
   const workspaceValue = selectedWorkspaceId || conversation?.currentWorkspaceId || '';
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden px-6 py-6 lg:px-8">
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <Link
-            to={conversation ? `/v2/projects/${conversation.projectId}/conversations` : '/v2/conversations'}
-            className="inline-flex items-center gap-2 text-sm text-neutral-500 transition-colors hover:text-neutral-900"
-          >
-            <ArrowLeft size={15} />
-            Back to conversations
-          </Link>
-          <div className="mt-4 text-[11px] uppercase tracking-[0.28em] text-neutral-500">Pi conversation</div>
-          <h1 className="mt-3 text-[2rem] font-semibold tracking-[-0.05em] text-neutral-950">
-            {conversation?.title ?? 'Conversation'}
-          </h1>
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-neutral-500">
-            <span>{project?.name ?? conversation?.projectId}</span>
-            <span>{conversation?.provider ?? 'pi'}</span>
-            <span>{conversation?.status ?? 'active'}</span>
-          </div>
-        </div>
+    <V2Screen>
+      <V2Header
+        backTo={conversation ? `/v2/projects/${conversation.projectId}/conversations` : '/v2/conversations'}
+        backLabel="Back to conversations"
+        eyebrow="Pi conversation"
+        title={conversation?.title ?? 'Conversation'}
+        subtitle={`${project?.name ?? conversation?.projectId ?? 'Project'} · ${conversation?.status ?? 'loading'} · ${attachedWorkspace?.name ?? 'default workspace'}`}
+        actions={
+          <>
+            <LifecycleButton status={conversation?.status} target="pause" icon={<PauseCircle size={13} />} label="Pause" pending={transitionConversation.isPending} onClick={() => transitionConversation.mutate('pause')} />
+            <LifecycleButton status={conversation?.status} target="resume" icon={<PlayCircle size={13} />} label="Resume" pending={transitionConversation.isPending} onClick={() => transitionConversation.mutate('resume')} />
+            <LifecycleButton status={conversation?.status} target="complete" icon={<CheckCircle2 size={13} />} label="Complete" pending={transitionConversation.isPending} onClick={() => transitionConversation.mutate('complete')} />
+            {conversation?.status !== 'archived' && <Button size="xs" variant="ghost" icon={<Archive size={13} />} disabled={transitionConversation.isPending} onClick={() => transitionConversation.mutate('archive')}>Archive</Button>}
+            {attachedWorkspace && (
+              <Link to={`/v2/projects/${attachedWorkspace.projectId}?workspace=${attachedWorkspace.id}`}>
+                <Button size="xs" variant="secondary" icon={<SquareTerminal size={13} />}>Workspace</Button>
+              </Link>
+            )}
+          </>
+        }
+      />
 
-        <div className="flex flex-wrap items-center gap-2">
-          <LifecycleButton
-            icon={<PauseCircle size={15} />}
-            label="Pause"
-            visible={conversation?.status === 'active'}
-            pending={transitionConversation.isPending}
-            onClick={() => transitionConversation.mutate('pause')}
+      <V2Content className="grid min-h-0 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <V2Panel className="flex min-h-0 flex-col overflow-hidden">
+          <V2PanelHeader
+            title="Thread"
+            subtitle={connected ? 'Connected' : connecting ? 'Connecting' : error ?? 'Provider-native history'}
+            actions={<Button size="xs" variant="danger" icon={<StopCircle size={13} />} disabled={!snapshot?.streaming || !isActiveConversation} onClick={() => void abort()}>Abort</Button>}
           />
-          <LifecycleButton
-            icon={<PlayCircle size={15} />}
-            label="Resume"
-            visible={conversation?.status === 'paused' || conversation?.status === 'completed'}
-            pending={transitionConversation.isPending}
-            onClick={() => transitionConversation.mutate('resume')}
-          />
-          <LifecycleButton
-            icon={<CheckCircle2 size={15} />}
-            label="Complete"
-            visible={conversation?.status === 'active' || conversation?.status === 'paused'}
-            pending={transitionConversation.isPending}
-            onClick={() => transitionConversation.mutate('complete')}
-          />
-          <LifecycleButton
-            icon={<Archive size={15} />}
-            label="Archive"
-            visible={conversation?.status !== 'archived'}
-            pending={transitionConversation.isPending}
-            onClick={() => transitionConversation.mutate('archive')}
-          />
-          {attachedWorkspace && (
-            <Link
-              to={`/v2/projects/${attachedWorkspace.projectId}`}
-              className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white/80 px-4 py-2 text-sm text-neutral-700 shadow-[0_10px_20px_rgba(31,24,16,0.04)]"
-            >
-              <SquareTerminal size={15} />
-              Open workspace
-            </Link>
-          )}
-          <button
-            type="button"
-            onClick={() => void abort()}
-            className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700"
-            disabled={!snapshot?.streaming || !isActiveConversation}
-          >
-            <StopCircle size={15} />
-            Abort
-          </button>
-        </div>
-      </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden rounded-[2rem] border border-white/75 bg-white/60 shadow-[0_30px_60px_rgba(30,20,8,0.08)] backdrop-blur-xl">
-        <div className="grid h-full min-h-0 gap-0 lg:grid-cols-[minmax(0,1.25fr)_22rem]">
-          <section className="flex min-h-0 flex-col border-b border-black/6 lg:border-b-0 lg:border-r">
-            <div className="border-b border-black/6 px-6 py-4">
-              <div className="flex flex-wrap items-center gap-3 text-sm text-neutral-500">
-                <StatusDot active={connected} />
-                <span>{connected ? 'Connected to pi runtime' : connecting ? 'Connecting to pi runtime' : 'Disconnected'}</span>
-                {snapshot?.model && (
-                  <>
-                    <span className="h-1 w-1 rounded-full bg-neutral-300" />
-                    <span>{snapshot.model.provider}/{snapshot.model.id}</span>
-                  </>
-                )}
-                {attachedWorkspace && (
-                  <>
-                    <span className="h-1 w-1 rounded-full bg-neutral-300" />
-                    <span>{attachedWorkspace.name} · {attachedWorkspace.branchName}</span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-auto px-6 py-6">
-              <div className="space-y-6">
-                {(snapshot?.messages ?? []).map((message) => (
-                  <ConversationMessageRow key={message.id} message={message} />
+          <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
+            {snapshot?.messages?.length ? (
+              <div className="space-y-4">
+                {snapshot.messages.map((message, index) => (
+                  <MessageBubble key={message.id || `${message.role}-${index}`} message={message} />
                 ))}
-
-                {snapshot?.pending && (
-                  <div className="rounded-[1.4rem] border border-blue-200 bg-blue-50/80 px-5 py-4">
-                    <div className="mb-3 flex items-center gap-2 text-sm font-medium text-blue-900">
-                      <Loader2 size={15} className="animate-spin" />
-                      pi is responding
-                    </div>
-                    {snapshot.pending.thinking && (
-                      <div className="mb-4 rounded-2xl bg-white/80 px-4 py-3 text-sm text-neutral-600">
-                        <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-neutral-400">Thinking</div>
-                        <div className="whitespace-pre-wrap leading-6">{snapshot.pending.thinking}</div>
-                      </div>
-                    )}
-                    {snapshot.pending.text && (
-                      <div className="prose-md text-[14px] leading-7 text-neutral-900">
-                        <MarkdownRenderer>{snapshot.pending.text}</MarkdownRenderer>
-                      </div>
-                    )}
-                    {(snapshot.pending.toolCalls?.length ?? 0) > 0 && (
-                      <div className="mt-4 space-y-3">
-                        {snapshot.pending.toolCalls?.map((toolCall) => (
-                          <ToolCard key={toolCall.id} name={toolCall.name} body={toolCall.arguments} />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {!(snapshot?.messages.length || snapshot?.pending) && (
-                  <div className="rounded-[1.5rem] border border-dashed border-black/10 bg-[#faf8f4] px-8 py-12 text-center">
-                    <Sparkles size={28} className="mx-auto mb-4 text-neutral-400" />
-                    <div className="text-base font-medium text-neutral-950">Ready for the first prompt</div>
-                    <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-neutral-500">
-                      This is now a provider-native pi conversation. The transcript lives in pi’s session format; Codeburg is
-                      attaching project and workspace context around it.
-                    </p>
+                {snapshot.pending && (
+                  <div className="rounded-lg border border-[var(--color-card-border)] bg-inset px-4 py-3 text-sm">
+                    {snapshot.pending.thinking && <div className="mb-3 text-xs text-dim">Thinking: {snapshot.pending.thinking}</div>}
+                    {snapshot.pending.text && <MarkdownRenderer>{snapshot.pending.text}</MarkdownRenderer>}
                   </div>
                 )}
               </div>
+            ) : (
+              <V2Empty
+                icon={<MessageSquareText size={28} />}
+                title="Ready for the first prompt"
+                body="Send a message to start or resume the pi thread. Codeburg tracks the thread lifecycle and workspace context; pi owns the transcript."
+              />
+            )}
+          </div>
+
+          <div className="border-t border-[var(--color-card-border)] p-4">
+            <V2Textarea
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={conversation?.status === 'active' ? 'Send a prompt to pi...' : 'Resume the conversation before sending a prompt'}
+              disabled={!isActiveConversation || sending}
+              className="min-h-24 w-full resize-none"
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                  event.preventDefault();
+                  void handleSubmit();
+                }
+              }}
+            />
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <div className="text-xs text-dim">Cmd/Ctrl Enter to send</div>
+              <Button size="sm" variant="primary" icon={<Send size={14} />} loading={sending} disabled={!draft.trim() || !isActiveConversation} onClick={() => void handleSubmit()}>
+                Send
+              </Button>
             </div>
+          </div>
+        </V2Panel>
 
-            <div className="border-t border-black/6 px-6 py-5">
-              <div className="rounded-[1.6rem] border border-black/8 bg-[#faf8f4] px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
-                <textarea
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  placeholder="Ask pi to inspect, plan, or modify this project..."
-                  className="min-h-[7rem] w-full resize-none bg-transparent text-[15px] leading-7 text-neutral-900 outline-none placeholder:text-neutral-400"
-                />
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                  <div className="text-sm text-neutral-500">
-                    {error ?? snapshot?.lastError ?? 'Provider-native session history, Codeburg-managed workspace context.'}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleSubmit()}
-                    disabled={sending || !draft.trim() || !isActiveConversation}
-                    className="inline-flex items-center gap-2 rounded-full bg-neutral-950 px-4 py-2.5 text-sm font-medium text-white shadow-[0_16px_28px_rgba(17,17,17,0.16)] disabled:opacity-50"
-                  >
-                    {sending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-                    Send
-                  </button>
-                </div>
-              </div>
+        <div className="space-y-4 overflow-auto">
+          <V2Panel>
+            <V2PanelHeader title="Workspace attachment" subtitle="Move this thread when the code context changes" />
+            <div className="space-y-3 p-4">
+              <V2Select value={workspaceValue} onChange={(event) => setSelectedWorkspaceId(event.target.value)} className="w-full">
+                <option value="">Project default</option>
+                {(workspaces ?? []).map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>{workspace.name} · {workspace.branchName}</option>
+                ))}
+              </V2Select>
+              <Button className="w-full" size="sm" variant="secondary" loading={updateWorkspace.isPending} onClick={() => updateWorkspace.mutate(selectedWorkspaceId || '')}>
+                Save attachment
+              </Button>
             </div>
-          </section>
+          </V2Panel>
 
-          <aside className="flex min-h-0 flex-col bg-[linear-gradient(180deg,rgba(248,246,240,0.92),rgba(241,238,231,0.96))]">
-            <div className="border-b border-black/6 px-5 py-5">
-              <div className="text-[11px] uppercase tracking-[0.24em] text-neutral-500">Context</div>
-              <div className="mt-3 text-lg font-medium tracking-[-0.03em] text-neutral-950">Conversation state</div>
+          <V2Panel>
+            <V2PanelHeader title="Fork thread" subtitle="Create a new branch of the conversation" />
+            <div className="space-y-3 p-4">
+              <input value={forkTitle} onChange={(event) => setForkTitle(event.target.value)} placeholder="Optional fork title" className="h-8 w-full rounded-md border border-[var(--color-card-border)] bg-primary px-2.5 text-sm outline-none" />
+              <Button className="w-full" size="sm" variant="secondary" icon={<GitBranchPlus size={14} />} loading={forkConversation.isPending} onClick={() => forkConversation.mutate()}>
+                Fork conversation
+              </Button>
             </div>
+          </V2Panel>
 
-            <div className="min-h-0 flex-1 space-y-5 overflow-auto px-5 py-5">
-              <InfoCard title="Workspace">
-                <div className="space-y-4">
-                  <div className="flex items-start gap-3">
-                    <FolderGit2 size={16} className="mt-0.5 text-neutral-400" />
-                    <div>
-                      <div className="font-medium text-neutral-900">
-                        {attachedWorkspace ? `${attachedWorkspace.name} · ${attachedWorkspace.branchName}` : 'Project root'}
-                      </div>
-                      <div className="mt-1 break-all text-xs leading-5 text-neutral-500">
-                        {snapshot?.workDir ?? project?.path ?? 'Loading...'}
-                      </div>
-                    </div>
-                  </div>
-
-                  <label className="block">
-                    <div className="mb-2 text-[11px] uppercase tracking-[0.22em] text-neutral-500">Reattach workspace</div>
-                    <select
-                      value={workspaceValue}
-                      onChange={(event) => setSelectedWorkspaceId(event.target.value)}
-                      className="w-full rounded-2xl border border-black/8 bg-white/80 px-4 py-3 text-sm text-neutral-900 outline-none transition focus:border-black/15"
-                    >
-                      <option value="">Project root / default branch</option>
-                      {(workspaces ?? []).map((workspace) => (
-                        <option key={workspace.id} value={workspace.id}>
-                          {workspace.name} · {workspace.branchName}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <button
-                    type="button"
-                    onClick={handleWorkspaceSave}
-                    disabled={updateConversation.isPending || workspaceValue === (conversation?.currentWorkspaceId ?? '')}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-neutral-950 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
-                  >
-                    {updateConversation.isPending ? <Loader2 size={15} className="animate-spin" /> : <FolderGit2 size={15} />}
-                    Save workspace
-                  </button>
-                </div>
-              </InfoCard>
-
-              <InfoCard title="Fork thread">
-                <div className="space-y-3">
-                  <input
-                    value={forkTitle}
-                    onChange={(event) => setForkTitle(event.target.value)}
-                    placeholder={`${conversation?.title ?? 'Conversation'} fork`}
-                    className="w-full rounded-2xl border border-black/8 bg-white/80 px-4 py-3 text-sm text-neutral-900 outline-none transition focus:border-black/15"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => forkConversation.mutate()}
-                    disabled={forkConversation.isPending}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-black/8 bg-[#f7f4ee] px-4 py-2.5 text-sm text-neutral-700 disabled:opacity-50"
-                  >
-                    {forkConversation.isPending ? <Loader2 size={15} className="animate-spin" /> : <GitBranchPlus size={15} />}
-                    Create fork
-                  </button>
-                  <div className="text-xs leading-5 text-neutral-500">
-                    Forking keeps the project context and current workspace attachment, but starts a fresh provider session.
-                  </div>
-                </div>
-              </InfoCard>
-
-              <InfoCard title="Session">
-                <div className="space-y-3 text-sm text-neutral-600">
-                  <div className="flex items-center justify-between gap-3">
-                    <span>Runtime</span>
-                    <span className="font-medium text-neutral-900">{snapshot?.runtimeActive ? 'Active' : 'Idle'}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span>Streaming</span>
-                    <span className="font-medium text-neutral-900">{snapshot?.streaming ? 'Yes' : 'No'}</span>
-                  </div>
-                  <div className="break-all rounded-2xl bg-[#f7f4ee] px-4 py-3 text-xs leading-5 text-neutral-500">
-                    {snapshot?.sessionFile ?? 'Session file not known yet'}
-                  </div>
-                </div>
-              </InfoCard>
-
-              <InfoCard title="Workspace history">
-                {(workspaceHistory?.length ?? 0) > 0 ? (
-                  <div className="space-y-3">
-                    {workspaceHistory?.map((link) => (
-                      <WorkspaceHistoryRow key={link.id} link={link} workspaces={workspaces ?? []} />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-sm text-neutral-500">No workspace transitions recorded yet.</div>
-                )}
-              </InfoCard>
-
-              <InfoCard title="Tool activity">
-                {(snapshot?.tools?.length ?? 0) > 0 ? (
-                  <div className="space-y-3">
-                    {snapshot?.tools?.map((tool) => (
-                      <div key={tool.toolCallId} className="rounded-2xl bg-[#f7f4ee] px-4 py-3">
-                        <div className="flex items-center gap-2 text-sm font-medium text-neutral-900">
-                          <Wrench size={14} />
-                          {tool.toolName}
-                        </div>
-                        <div className="mt-1 text-xs uppercase tracking-[0.2em] text-neutral-400">{tool.status}</div>
-                        {tool.output && (
-                          <pre className="mt-3 overflow-auto whitespace-pre-wrap rounded-xl bg-white px-3 py-3 text-xs leading-5 text-neutral-600">
-                            {tool.output}
-                          </pre>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-sm text-neutral-500">No active tool executions right now.</div>
-                )}
-              </InfoCard>
+          <V2Panel>
+            <V2PanelHeader title="Runtime" subtitle={snapshot?.model ? `${snapshot.model.provider} · ${snapshot.model.id}` : 'No model snapshot'} />
+            <div className="space-y-2 p-4 text-sm text-[var(--color-text-secondary)]">
+              <MetaRow label="Runtime" value={snapshot?.runtimeActive ? 'Active' : 'Idle'} />
+              <MetaRow label="Streaming" value={snapshot?.streaming ? 'Yes' : 'No'} />
+              <div className="break-all rounded-lg bg-inset px-3 py-2 font-mono text-xs text-dim">{snapshot?.workDir ?? 'No workdir yet'}</div>
+              {snapshot?.lastError && <div className="text-xs text-[var(--color-error)]">{snapshot.lastError}</div>}
             </div>
-          </aside>
+          </V2Panel>
+
+          <V2Panel>
+            <V2PanelHeader title="Workspace history" />
+            {(workspaceHistory ?? []).map((link) => (
+              <V2Row key={link.id} className="rounded-none border-b border-[var(--color-card-border)]">
+                <div className="text-sm">{link.reason}</div>
+                <div className="mt-1 text-xs text-dim">{new Date(link.createdAt).toLocaleString()}</div>
+              </V2Row>
+            ))}
+            {(workspaceHistory?.length ?? 0) === 0 && <div className="p-4 text-sm text-dim">No workspace transitions recorded.</div>}
+          </V2Panel>
         </div>
-      </div>
-    </div>
+      </V2Content>
+    </V2Screen>
   );
 }
 
 function LifecycleButton({
+  status,
+  target,
   icon,
   label,
-  visible,
   pending,
   onClick,
 }: {
-  icon: React.ReactNode;
+  status?: ConversationStatus;
+  target: 'pause' | 'resume' | 'complete';
+  icon: ReactNode;
   label: string;
-  visible: boolean;
   pending: boolean;
   onClick: () => void;
 }) {
+  const visible =
+    (target === 'pause' && status === 'active') ||
+    (target === 'resume' && (status === 'paused' || status === 'completed')) ||
+    (target === 'complete' && (status === 'active' || status === 'paused'));
   if (!visible) return null;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={pending}
-      className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white/80 px-4 py-2 text-sm text-neutral-700 disabled:opacity-50"
-    >
-      {pending ? <Loader2 size={15} className="animate-spin" /> : icon}
-      {label}
-    </button>
-  );
+  return <Button size="xs" variant="secondary" icon={icon} disabled={pending} onClick={onClick}>{label}</Button>;
 }
 
-function WorkspaceHistoryRow({
-  link,
-  workspaces,
-}: {
-  link: ConversationWorkspaceLink;
-  workspaces: Array<{ id: string; name: string; branchName: string }>;
-}) {
-  const workspace = workspaces.find((item) => item.id === link.workspaceId);
+function MessageBubble({ message }: { message: PiConversationMessage }) {
+  const isUser = message.role === 'user';
   return (
-    <div className="rounded-2xl bg-[#f7f4ee] px-4 py-3 text-sm text-neutral-600">
-      <div className="font-medium text-neutral-900">
-        {workspace ? `${workspace.name} · ${workspace.branchName}` : 'Project root / detached'}
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+      <div className={`max-w-[min(88%,46rem)] rounded-lg border px-4 py-3 text-sm ${
+        isUser ? 'border-[var(--color-accent)]/20 bg-[var(--color-accent)]/10' : message.isError ? 'border-[var(--color-error)]/30 bg-[var(--color-error)]/10 text-[var(--color-error)]' : 'border-[var(--color-card-border)] bg-inset'
+      }`}>
+        <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-dim">{message.role}</div>
+        {message.thinking && <div className="mb-3 rounded-md bg-card px-3 py-2 text-xs text-dim">Thinking: {message.thinking}</div>}
+        {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
+        {message.toolName && <div className="mt-2 text-xs text-dim">Tool: {message.toolName}</div>}
       </div>
-      <div className="mt-1 text-xs uppercase tracking-[0.2em] text-neutral-400">
-        {link.reason} · {link.active ? 'active' : 'historical'}
-      </div>
-      <div className="mt-2 text-xs text-neutral-500">{new Date(link.createdAt).toLocaleString()}</div>
     </div>
   );
 }
 
-function ConversationMessageRow({ message }: { message: PiConversationMessage }) {
-  if (message.role === 'user') {
-    return (
-      <div className="flex justify-end">
-        <div className="max-w-[min(88%,46rem)] rounded-[1.6rem] rounded-br-md border border-[rgba(33,110,255,0.16)] bg-[rgba(33,110,255,0.08)] px-5 py-4">
-          <MarkdownRenderer className="text-[14px] leading-7">{message.text ?? ''}</MarkdownRenderer>
-        </div>
-      </div>
-    );
-  }
-
-  if (message.role === 'assistant') {
-    return (
-      <div className="space-y-4">
-        {message.thinking && (
-          <div className="rounded-[1.25rem] border border-black/8 bg-[#faf8f4] px-4 py-3 text-sm text-neutral-600">
-            <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-neutral-400">Thinking</div>
-            <div className="whitespace-pre-wrap leading-6">{message.thinking}</div>
-          </div>
-        )}
-        {message.text && (
-          <div className="prose-md text-[14px] leading-7 text-neutral-900">
-            <MarkdownRenderer>{message.text}</MarkdownRenderer>
-          </div>
-        )}
-        {(message.toolCalls?.length ?? 0) > 0 && (
-          <div className="space-y-3">
-            {message.toolCalls?.map((toolCall) => (
-              <ToolCard key={toolCall.id} name={toolCall.name} body={toolCall.arguments} />
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
+function MetaRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className={`rounded-[1.25rem] border px-4 py-3 text-sm ${
-      message.isError ? 'border-red-200 bg-red-50 text-red-700' : 'border-black/8 bg-[#faf8f4] text-neutral-700'
-    }`}>
-      <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-neutral-400">
-        <MessagesSquare size={13} />
-        <span>{message.toolName || message.role}</span>
-      </div>
-      {message.text && <pre className="whitespace-pre-wrap break-words font-sans leading-6">{message.text}</pre>}
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-dim">{label}</span>
+      <span>{value}</span>
     </div>
-  );
-}
-
-function ToolCard({ name, body }: { name: string; body?: string }) {
-  return (
-    <div className="rounded-[1.2rem] border border-black/8 bg-[#faf8f4] px-4 py-3">
-      <div className="text-sm font-medium text-neutral-900">{name}</div>
-      {body && (
-        <pre className="mt-3 overflow-auto whitespace-pre-wrap rounded-xl bg-white px-3 py-3 text-xs leading-5 text-neutral-600">
-          {body}
-        </pre>
-      )}
-    </div>
-  );
-}
-
-function StatusDot({ active }: { active: boolean }) {
-  return <span className={`h-2.5 w-2.5 rounded-full ${active ? 'bg-emerald-500' : 'bg-amber-500'}`} />;
-}
-
-function InfoCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-[1.5rem] border border-white/75 bg-white/78 px-4 py-4 shadow-[0_14px_28px_rgba(30,20,8,0.05)]">
-      <div className="mb-4 text-sm font-medium text-neutral-950">{title}</div>
-      {children}
-    </section>
   );
 }

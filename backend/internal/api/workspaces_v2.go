@@ -370,9 +370,14 @@ func (s *Server) handleCreateWorkspaceTerminal(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	title := cleanOptionalString(req.Title)
+	if title == nil {
+		title = strPtr(defaultTerminalTitle(s.db, workspaceID))
+	}
+
 	session, err := s.db.CreateTerminalSession(db.CreateTerminalSessionInput{
 		WorkspaceID:  workspaceID,
-		Title:        req.Title,
+		Title:        title,
 		Shell:        strPtr(command),
 		Cwd:          &cwd,
 		ProviderHint: req.ProviderHint,
@@ -1662,6 +1667,30 @@ func (s *Server) handleGetTerminalSession(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, session)
 }
 
+type updateTerminalSessionRequest struct {
+	Title *string `json:"title,omitempty"`
+}
+
+func (s *Server) handleUpdateTerminalSession(w http.ResponseWriter, r *http.Request) {
+	sessionID := urlParam(r, "id")
+	var req updateTerminalSessionRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	title := cleanOptionalString(req.Title)
+	if title == nil {
+		writeError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+	session, err := s.db.UpdateTerminalSession(sessionID, db.UpdateTerminalSessionInput{Title: title})
+	if err != nil {
+		writeDBError(w, err, "terminal session")
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
+}
+
 func (s *Server) handleDeleteTerminalSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := urlParam(r, "id")
 	if _, err := s.db.GetTerminalSession(sessionID); err != nil {
@@ -1669,17 +1698,40 @@ func (s *Server) handleDeleteTerminalSession(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	_ = s.sessions.runtime.Stop(sessionID)
-	now := time.Now()
-	status := db.TerminalSessionStatusStopped
-	if _, err := s.db.UpdateTerminalSession(sessionID, db.UpdateTerminalSessionInput{
-		Status:         &status,
-		EndedAt:        &now,
-		LastActivityAt: &now,
-	}); err != nil {
+	if err := s.db.DeleteTerminalSession(sessionID); err != nil {
 		writeDBError(w, err, "terminal session")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func defaultTerminalTitle(database *db.DB, workspaceID string) string {
+	terminals, err := database.ListTerminalSessionsByWorkspace(workspaceID)
+	if err != nil {
+		return "Terminal #1"
+	}
+	maxNumber := 0
+	for _, terminal := range terminals {
+		if terminal.Title == nil {
+			continue
+		}
+		var number int
+		if _, err := fmt.Sscanf(strings.TrimSpace(*terminal.Title), "Terminal #%d", &number); err == nil && number > maxNumber {
+			maxNumber = number
+		}
+	}
+	return fmt.Sprintf("Terminal #%d", maxNumber+1)
+}
+
+func cleanOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cleaned := strings.TrimSpace(*value)
+	if cleaned == "" {
+		return nil
+	}
+	return &cleaned
 }
 
 func resolveWorkspaceTerminalCommand(shellOverride *string) (string, []string, error) {

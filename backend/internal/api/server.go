@@ -359,6 +359,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/workspaces/{id}/git/stash", s.handleWorkspaceGitStash)
 		r.Get("/api/workspaces/{id}/git/log", s.handleWorkspaceGitLog)
 		r.Get("/api/terminals/{id}", s.handleGetTerminalSession)
+		r.Patch("/api/terminals/{id}", s.handleUpdateTerminalSession)
 		r.Delete("/api/terminals/{id}", s.handleDeleteTerminalSession)
 
 		// Task files

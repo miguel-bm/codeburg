@@ -249,6 +249,9 @@ export const v2Api = {
   getTerminal: (terminalId: string) =>
     api.get<TerminalSession>(`/terminals/${terminalId}`),
 
+  updateTerminal: (terminalId: string, input: { title?: string }) =>
+    api.patch<TerminalSession>(`/terminals/${terminalId}`, input),
+
   deleteTerminal: (terminalId: string) =>
     api.delete(`/terminals/${terminalId}`),
 
