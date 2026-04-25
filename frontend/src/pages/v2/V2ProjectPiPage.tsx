@@ -6,7 +6,7 @@ import { CheckCircle2, CircleSlash, PackagePlus, PlayCircle, PlugZap, RefreshCcw
 import { projectsApi } from '../../api';
 import type { PiConfigDocument, PiPackageEntry } from '../../api/types';
 import { v2Api } from '../../api/v2';
-import { Button, V2Content, V2Header, V2Input, V2Panel, V2PanelHeader, V2Row, V2Screen, V2Textarea } from './v2-ui';
+import { Button, V2Input, V2Screen, V2Textarea } from './v2-ui';
 
 export function V2ProjectPiPage() {
   const { id } = useParams<{ id: string }>();
@@ -25,13 +25,11 @@ export function V2ProjectPiPage() {
     queryFn: () => projectsApi.get(id!),
     enabled: !!id,
   });
-
   const { data: workspaces } = useQuery({
     queryKey: ['v2-workspaces', id],
     queryFn: () => v2Api.listWorkspaces(id!),
     enabled: !!id,
   });
-
   const { data: piConfig } = useQuery({
     queryKey: ['v2-project-pi-config', id],
     queryFn: () => v2Api.getProjectPiConfig(id!),
@@ -85,120 +83,110 @@ export function V2ProjectPiPage() {
 
   return (
     <V2Screen>
-      <V2Header
-        backTo={project ? `/v2/projects/${project.id}` : '/v2'}
-        backLabel="Back to workspace"
-        eyebrow="Pi settings"
-        title={project?.name ?? 'Project'}
-        subtitle="Configure pi by editing its real config files. Authentication remains terminal-first and provider-native."
-        actions={project && (
-          <Link to={`/v2/projects/${project.id}/conversations`}>
-            <Button size="xs" variant="secondary" icon={<Wrench size={13} />}>Conversations</Button>
-          </Link>
-        )}
-      />
-
-      <V2Content className="grid min-h-0 gap-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
-        <div className="space-y-4 overflow-auto">
-          <ConfigEditorCard
-            title="Global settings"
-            subtitle={piConfig?.globalSettings.path ?? '~/.pi/agent/settings.json'}
-            document={piConfig?.globalSettings}
-            draft={globalSettingsDraft}
-            onChange={setGlobalSettingsDraft}
-            onSave={() => saveGlobalSettings.mutate()}
-            pending={saveGlobalSettings.isPending}
-            error={saveGlobalSettings.error}
-          />
-          <ConfigEditorCard
-            title="Custom models"
-            subtitle={piConfig?.models.path ?? '~/.pi/agent/models.json'}
-            document={piConfig?.models}
-            draft={modelsDraft}
-            onChange={setModelsDraft}
-            onSave={() => saveModels.mutate()}
-            pending={saveModels.isPending}
-            error={saveModels.error}
-          />
-          <ConfigEditorCard
-            title="Project override"
-            subtitle={piConfig?.projectSettings?.path ?? `${project?.path ?? '.'}/.pi/settings.json`}
-            document={piConfig?.projectSettings}
-            draft={projectSettingsDraft}
-            onChange={setProjectSettingsDraft}
-            onSave={() => saveProjectSettings.mutate()}
-            pending={saveProjectSettings.isPending}
-            error={saveProjectSettings.error}
-          />
+      <div className="flex h-12 shrink-0 items-center justify-between bg-canvas px-6">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold">Pi configuration</div>
+          <div className="text-xs text-dim">{project?.name ?? 'Project'} overrides plus global pi files.</div>
         </div>
+        <Link to={project ? `/v2/projects/${project.id}/settings` : '/v2/settings'}>
+          <Button size="sm" variant="ghost">Project settings</Button>
+        </Link>
+      </div>
 
-        <div className="space-y-4 overflow-auto">
-          <V2Panel>
-            <V2PanelHeader
-              title="Pi readiness"
-              subtitle={piConfig?.status.version ?? 'pi version unavailable'}
-              actions={<StatusPill ok={!!piConfig?.status.installed} label={piConfig?.status.installed ? 'Installed' : 'Missing'} />}
+      <main className="min-h-0 flex-1 overflow-auto px-6 py-6">
+        <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_20rem]">
+          <div className="space-y-10">
+            <ConfigEditorSection
+              title="Global settings"
+              subtitle={piConfig?.globalSettings.path ?? '~/.pi/agent/settings.json'}
+              document={piConfig?.globalSettings}
+              draft={globalSettingsDraft}
+              onChange={setGlobalSettingsDraft}
+              onSave={() => saveGlobalSettings.mutate()}
+              pending={saveGlobalSettings.isPending}
+              error={saveGlobalSettings.error}
             />
-            <div className="space-y-3 p-4 text-sm text-[var(--color-text-secondary)]">
-              <div className="flex items-center justify-between gap-3">
-                <span>Authentication</span>
-                <StatusPill ok={!!piConfig?.status.authConfigured} label={piConfig?.status.authConfigured ? 'Configured' : 'Needs login'} />
+            <ConfigEditorSection
+              title="Custom models"
+              subtitle={piConfig?.models.path ?? '~/.pi/agent/models.json'}
+              document={piConfig?.models}
+              draft={modelsDraft}
+              onChange={setModelsDraft}
+              onSave={() => saveModels.mutate()}
+              pending={saveModels.isPending}
+              error={saveModels.error}
+            />
+            <ConfigEditorSection
+              title="Project override"
+              subtitle={piConfig?.projectSettings?.path ?? `${project?.path ?? '.'}/.pi/settings.json`}
+              document={piConfig?.projectSettings}
+              draft={projectSettingsDraft}
+              onChange={setProjectSettingsDraft}
+              onSave={() => saveProjectSettings.mutate()}
+              pending={saveProjectSettings.isPending}
+              error={saveProjectSettings.error}
+            />
+          </div>
+
+          <aside className="space-y-8">
+            <SettingsSection icon={<PlugZap size={15} />} title="Runtime" description={piConfig?.status.version ?? 'pi version unavailable'}>
+              <div className="space-y-2 text-sm">
+                <StatusLine label="Installed" ok={!!piConfig?.status.installed} value={piConfig?.status.installed ? 'Yes' : 'No'} />
+                <StatusLine label="Auth" ok={!!piConfig?.status.authConfigured} value={piConfig?.status.authConfigured ? 'Configured' : 'Needs login'} />
+                <div className="break-all py-2 font-mono text-xs text-dim">{piConfig?.status.agentDir ?? '~/.pi/agent'}</div>
+                <Button size="sm" variant="primary" icon={<PlayCircle size={14} />} disabled={!mainWorkspace} loading={openLoginTerminal.isPending} onClick={() => openLoginTerminal.mutate()}>
+                  Open login terminal
+                </Button>
               </div>
-              <div className="break-all rounded-lg bg-inset px-3 py-2 font-mono text-xs text-dim">{piConfig?.status.agentDir ?? '~/.pi/agent'}</div>
-              <Button className="w-full" size="sm" variant="primary" icon={<PlayCircle size={14} />} disabled={!mainWorkspace} loading={openLoginTerminal.isPending} onClick={() => openLoginTerminal.mutate()}>
-                Open login terminal
-              </Button>
-              <div className="rounded-lg bg-inset px-3 py-2 font-mono text-xs leading-5 text-dim">pi<br />/login<br />/model</div>
-              {openLoginTerminal.error instanceof Error && <div className="text-xs text-[var(--color-error)]">{openLoginTerminal.error.message}</div>}
-            </div>
-          </V2Panel>
+            </SettingsSection>
 
-          <ResourceManager
-            title="Project packages"
-            value={packageSource}
-            placeholder="npm:@scope/pkg · ./relative/path"
-            onChange={setPackageSource}
-            onSubmit={() => installProjectPackage.mutate(deferredPackageSource)}
-            submitDisabled={!deferredPackageSource}
-            submitPending={installProjectPackage.isPending}
-            submitIcon={<PackagePlus size={14} />}
-            submitLabel="Install"
-            onRefresh={() => updateProjectPackages.mutate()}
-            refreshPending={updateProjectPackages.isPending}
-            items={(piConfig?.projectPackages ?? []).map((pkg) => ({
-              key: pkg.source,
-              title: pkg.source,
-              detail: describePiPackage(pkg),
-              onRemove: () => removeProjectPackage.mutate(pkg.source),
-              removePending: removeProjectPackage.isPending,
-            }))}
-          />
+            <ResourceManager
+              title="Project packages"
+              value={packageSource}
+              placeholder="npm:@scope/pkg · ./relative/path"
+              onChange={setPackageSource}
+              onSubmit={() => installProjectPackage.mutate(deferredPackageSource)}
+              submitDisabled={!deferredPackageSource}
+              submitPending={installProjectPackage.isPending}
+              submitIcon={<PackagePlus size={14} />}
+              submitLabel="Install"
+              onRefresh={() => updateProjectPackages.mutate()}
+              refreshPending={updateProjectPackages.isPending}
+              items={(piConfig?.projectPackages ?? []).map((pkg) => ({
+                key: pkg.source,
+                title: pkg.source,
+                detail: describePiPackage(pkg),
+                onRemove: () => removeProjectPackage.mutate(pkg.source),
+                removePending: removeProjectPackage.isPending,
+              }))}
+            />
 
-          <ResourceManager
-            title="Project extensions"
-            value={extensionPath}
-            placeholder=".pi/extensions/my-extension.ts"
-            onChange={setExtensionPath}
-            onSubmit={() => addProjectExtension.mutate(deferredExtensionPath)}
-            submitDisabled={!deferredExtensionPath}
-            submitPending={addProjectExtension.isPending}
-            submitIcon={<PlugZap size={14} />}
-            submitLabel="Add"
-            items={(piConfig?.projectExtensions ?? []).map((extension) => ({
-              key: extension.path,
-              title: extension.path,
-              detail: 'Project-local extension path',
-              onRemove: () => removeProjectExtension.mutate(extension.path),
-              removePending: removeProjectExtension.isPending,
-            }))}
-          />
+            <ResourceManager
+              title="Project extensions"
+              value={extensionPath}
+              placeholder=".pi/extensions/my-extension.ts"
+              onChange={setExtensionPath}
+              onSubmit={() => addProjectExtension.mutate(deferredExtensionPath)}
+              submitDisabled={!deferredExtensionPath}
+              submitPending={addProjectExtension.isPending}
+              submitIcon={<PlugZap size={14} />}
+              submitLabel="Add"
+              items={(piConfig?.projectExtensions ?? []).map((extension) => ({
+                key: extension.path,
+                title: extension.path,
+                detail: 'Project-local extension path',
+                onRemove: () => removeProjectExtension.mutate(extension.path),
+                removePending: removeProjectExtension.isPending,
+              }))}
+            />
+          </aside>
         </div>
-      </V2Content>
+      </main>
     </V2Screen>
   );
 }
 
-function ConfigEditorCard({
+function ConfigEditorSection({
   title,
   subtitle,
   document,
@@ -218,26 +206,24 @@ function ConfigEditorCard({
   error: unknown;
 }) {
   return (
-    <V2Panel>
-      <V2PanelHeader
-        title={title}
-        subtitle={subtitle}
-        actions={
-          <>
-            <StatusPill ok={document?.valid ?? true} label={(document?.valid ?? true) ? 'Valid JSON' : 'Invalid JSON'} />
-            <Button size="xs" variant="primary" icon={<Save size={13} />} loading={pending} disabled={!draft.trim()} onClick={onSave}>Save</Button>
-          </>
-        }
-      />
-      <div className="p-4">
-        {document?.parseError && <div className="mb-3 rounded-lg bg-[var(--color-warning)]/10 px-3 py-2 text-xs text-[var(--color-warning)]">{document.parseError}</div>}
-        <V2Textarea value={draft} onChange={(event) => onChange(event.target.value)} spellCheck={false} className="min-h-[15rem] w-full font-mono text-[13px] leading-6" />
-        <div className="mt-2 flex items-center justify-between gap-3 text-xs text-dim">
-          <span>{document?.exists ? 'Existing file' : 'Will be created on save'}</span>
-          {error instanceof Error && <span className="text-[var(--color-error)]">{error.message}</span>}
+    <SettingsSection
+      icon={<Wrench size={15} />}
+      title={title}
+      description={subtitle}
+      action={
+        <div className="flex items-center gap-2">
+          <StatusPill ok={document?.valid ?? true} label={(document?.valid ?? true) ? 'Valid JSON' : 'Invalid JSON'} />
+          <Button size="xs" variant="primary" icon={<Save size={13} />} loading={pending} disabled={!draft.trim()} onClick={onSave}>Save</Button>
         </div>
+      }
+    >
+      {document?.parseError && <div className="mb-3 text-xs text-[var(--color-warning)]">{document.parseError}</div>}
+      <V2Textarea value={draft} onChange={(event) => onChange(event.target.value)} spellCheck={false} className="min-h-[15rem] w-full font-mono text-[13px] leading-6" />
+      <div className="mt-2 flex items-center justify-between gap-3 text-xs text-dim">
+        <span>{document?.exists ? 'Existing file' : 'Will be created on save'}</span>
+        {error instanceof Error && <span className="text-[var(--color-error)]">{error.message}</span>}
       </div>
-    </V2Panel>
+    </SettingsSection>
   );
 }
 
@@ -269,32 +255,58 @@ function ResourceManager({
   items: Array<{ key: string; title: string; detail: string; onRemove: () => void; removePending: boolean }>;
 }) {
   return (
-    <V2Panel>
-      <V2PanelHeader
-        title={title}
-        actions={onRefresh && <Button size="xs" variant="secondary" icon={<RefreshCcw size={13} />} loading={refreshPending} onClick={onRefresh}>Update</Button>}
-      />
-      <div className="space-y-3 p-4">
-        <V2Input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="w-full" />
-        <Button className="w-full" size="sm" variant="primary" icon={submitIcon} loading={submitPending} disabled={submitDisabled} onClick={onSubmit}>
+    <SettingsSection icon={<PackagePlus size={15} />} title={title} description="Project-scoped pi resources." action={onRefresh && <Button size="xs" variant="secondary" icon={<RefreshCcw size={13} />} loading={refreshPending} onClick={onRefresh}>Update</Button>}>
+      <div className="flex gap-2">
+        <V2Input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="min-w-0 flex-1" />
+        <Button size="sm" variant="primary" icon={submitIcon} loading={submitPending} disabled={submitDisabled} onClick={onSubmit}>
           {submitLabel}
         </Button>
       </div>
-      <div className="border-t border-[var(--color-card-border)]">
+      <div className="mt-4 space-y-2">
         {items.map((item) => (
-          <V2Row key={item.key} className="rounded-none border-b border-[var(--color-card-border)] px-4 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="truncate font-mono text-xs">{item.title}</div>
-                <div className="mt-1 text-xs text-dim">{item.detail}</div>
-              </div>
-              <Button size="xs" variant="danger" icon={<Trash2 size={13} />} loading={item.removePending} onClick={item.onRemove}>Remove</Button>
+          <div key={item.key} className="flex items-start justify-between gap-3 py-2">
+            <div className="min-w-0">
+              <div className="truncate font-mono text-xs">{item.title}</div>
+              <div className="mt-1 text-xs text-dim">{item.detail}</div>
             </div>
-          </V2Row>
+            <button type="button" disabled={item.removePending} onClick={item.onRemove} className="rounded-md p-1 text-dim hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)] disabled:opacity-50">
+              <Trash2 size={13} />
+            </button>
+          </div>
         ))}
-        {items.length === 0 && <div className="px-4 py-6 text-sm text-dim">None configured.</div>}
+        {items.length === 0 && <div className="py-3 text-sm text-dim">None configured.</div>}
       </div>
-    </V2Panel>
+    </SettingsSection>
+  );
+}
+
+function SettingsSection({ icon, title, description, action, children }: { icon: ReactNode; title: string; description: string; action?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="border-t border-[var(--color-card-border)] pt-5 first:border-t-0 first:pt-0">
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="mt-0.5 text-dim">{icon}</div>
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold">{title}</h2>
+            <p className="mt-1 truncate text-xs text-dim">{description}</p>
+          </div>
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function StatusLine({ label, value, ok }: { label: string; value: string; ok: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1">
+      <span className="text-dim">{label}</span>
+      <span className="inline-flex items-center gap-1.5">
+        {ok ? <CheckCircle2 size={13} className="text-[var(--color-success)]" /> : <CircleSlash size={13} className="text-dim" />}
+        {value}
+      </span>
+    </div>
   );
 }
 

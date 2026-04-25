@@ -1,14 +1,18 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
   ChevronDown,
   FileText,
+  GitBranch,
   GitBranchPlus,
   GitCommitHorizontal,
+  MessageSquarePlus,
+  MessageSquareText,
   PanelRightOpen,
+  PlusCircle,
   Send,
   Sparkles,
   SquareTerminal,
@@ -19,6 +23,7 @@ import {
 import { projectsApi } from '../../api';
 import type { PiConversationMessage, PiConversationSnapshot, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
+import { Badge } from '../../components/ui/Badge';
 import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
 import { DiffTab } from '../../components/workspace/DiffTab';
 import { EditorTab } from '../../components/workspace/EditorTab';
@@ -34,6 +39,7 @@ type MainSurface = 'conversation' | { type: 'workspaceTab'; index: number };
 
 export function V2ConversationDetailPage() {
   const { conversationId } = useParams<{ conversationId: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const resetWorkspaceTabs = useWorkspaceStore((state) => state.resetTabs);
   const tabs = useWorkspaceStore((state) => state.tabs);
@@ -48,6 +54,8 @@ export function V2ConversationDetailPage() {
   const [toolsOpen, setToolsOpen] = useState(true);
   const [toolsWidth, setToolsWidth] = useState(360);
   const [mainSurface, setMainSurface] = useState<MainSurface>('conversation');
+  const [newTabOpen, setNewTabOpen] = useState(false);
+  const [conversationActionsOpen, setConversationActionsOpen] = useState(false);
   const resizeStart = useRef<{ x: number; width: number } | null>(null);
 
   const { data: conversation } = useQuery({
@@ -91,6 +99,7 @@ export function V2ConversationDetailPage() {
     ?? workspaces?.find((workspace) => workspace.kind === 'main')
     ?? workspaces?.[0]
     ?? null;
+  const activeWorkspaceId = activeWorkspace?.id ?? null;
   const activeWorkspaceTab = mainSurface !== 'conversation' ? tabs[mainSurface.index] : null;
   const activePreviewTab = activeWorkspaceTab?.type === 'editor' || activeWorkspaceTab?.type === 'diff'
     ? activeWorkspaceTab
@@ -121,6 +130,44 @@ export function V2ConversationDetailPage() {
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId, 'sidebar'] }),
       ]);
+    },
+  });
+  const { data: terminals = [] } = useQuery({
+    queryKey: ['v2-terminals', activeWorkspaceId],
+    queryFn: () => v2Api.listTerminals(activeWorkspaceId!),
+    enabled: !!activeWorkspaceId,
+    refetchInterval: 5000,
+  });
+  const { data: workspaceConversations = [] } = useQuery({
+    queryKey: ['v2-workspace-conversations', activeWorkspaceId],
+    queryFn: async () => {
+      if (!project || !activeWorkspaceId) return [];
+      const conversations = await v2Api.listProjectConversations(project.id, { provider: 'pi', status: 'active' });
+      return conversations.filter((candidate) => candidate.currentWorkspaceId === activeWorkspaceId);
+    },
+    enabled: !!project && !!activeWorkspaceId,
+  });
+  const createTerminal = useMutation({
+    mutationFn: () => v2Api.createTerminal(activeWorkspaceId!, {
+      title: `Terminal #${terminals.length + 1}`,
+    }),
+    onSuccess: async (terminal) => {
+      await queryClient.invalidateQueries({ queryKey: ['v2-terminals', terminal.workspaceId] });
+      navigate(`/v2/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`);
+    },
+  });
+  const createConversation = useMutation({
+    mutationFn: () => v2Api.createConversation(conversation!.projectId, {
+      title: `New ${activeWorkspace?.name ?? project?.name ?? 'workspace'} conversation`,
+      currentWorkspaceId: activeWorkspaceId ?? undefined,
+    }),
+    onSuccess: async (created) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', created.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', created.projectId, 'sidebar'] }),
+      ]);
+      navigate(`/v2/conversations/${created.id}`);
     },
   });
 
@@ -191,35 +238,96 @@ export function V2ConversationDetailPage() {
   };
 
   const workspaceValue = selectedWorkspaceId || conversation?.currentWorkspaceId || '';
+  const sortedTerminals = [...terminals].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const shell = (
     <V2Screen>
       <div className="flex h-10 shrink-0 items-center justify-between gap-3 bg-canvas px-4">
         <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
-          <span className="truncate">{project?.name ?? 'Project'}</span>
-          {activeWorkspace && <span className="truncate">on {activeWorkspace.name}</span>}
+          <GitBranch size={14} />
+          <span className="truncate font-medium text-[var(--color-text-primary)]">{activeWorkspace?.name ?? 'Workspace'}</span>
+          {activeWorkspace && activeWorkspace.branchName !== activeWorkspace.name && <span className="truncate">{activeWorkspace.branchName}</span>}
+          {activeWorkspace && <Badge variant="label" color={statusColor(activeWorkspace.status)}>{activeWorkspace.status}</Badge>}
           {connected ? <span className="text-[var(--color-success)]">connected</span> : connecting ? <span>connecting</span> : error ? <span className="text-[var(--color-error)]">{error}</span> : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <V2QuickActionsMenu projectId={project?.id} workspaceId={activeWorkspace?.id} disabled={!project || !activeWorkspace || activeWorkspace.status !== 'active'} />
-          {activeWorkspace && (
-            <Link to={`/v2/projects/${activeWorkspace.projectId}?workspace=${activeWorkspace.id}`}>
-              <Button size="xs" variant="ghost" icon={<SquareTerminal size={13} />}>Workspace</Button>
-            </Link>
-          )}
         </div>
       </div>
-      <div className="flex h-10 shrink-0 items-center justify-between gap-3 bg-primary px-4">
-        <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
-          <Sparkles size={14} />
-          <span className="truncate font-medium text-[var(--color-text-primary)]">{conversation?.title ?? 'Conversation'}</span>
-          <span>{conversation?.status ?? 'loading'}</span>
-          {(workspaceHistory?.length ?? 0) > 0 && <span>{workspaceHistory?.length} workspace moves</span>}
+      <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto bg-canvas px-2 scrollbar-none">
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            disabled={!activeWorkspace || activeWorkspace.status !== 'active'}
+            onClick={() => setNewTabOpen((value) => !value)}
+            className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
+            title="New tab"
+          >
+            <PlusCircle size={15} />
+          </button>
+          {newTabOpen && (
+            <>
+              <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close new tab menu" onClick={() => setNewTabOpen(false)} />
+              <div className="absolute left-0 top-8 z-50 w-44 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
+                <NewTabMenuItem icon={<MessageSquarePlus size={14} />} disabled={createConversation.isPending} onClick={() => { setNewTabOpen(false); createConversation.mutate(); }}>Conversation</NewTabMenuItem>
+                <NewTabMenuItem icon={<SquareTerminal size={14} />} disabled={createTerminal.isPending || !activeWorkspace} onClick={() => { setNewTabOpen(false); createTerminal.mutate(); }}>Terminal</NewTabMenuItem>
+              </div>
+            </>
+          )}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {conversation && <CompactWorkspaceMenu value={workspaceValue} workspaces={workspaces ?? []} pending={updateWorkspace.isPending} onChange={setSelectedWorkspaceId} onSave={() => updateWorkspace.mutate(workspaceValue || '')} />}
-          <V2Input value={forkTitle} onChange={(event) => setForkTitle(event.target.value)} placeholder="Fork title" className="hidden w-32 lg:block" />
-          <Button size="xs" variant="secondary" icon={<GitBranchPlus size={13} />} loading={forkConversation.isPending} onClick={() => forkConversation.mutate()} title="Fork conversation">Fork</Button>
-          {conversation?.status !== 'archived' && <Button size="xs" variant="ghost" icon={<Archive size={13} />} disabled={transitionConversation.isPending} onClick={() => transitionConversation.mutate('archive')} title="Archive conversation" />}
+        {workspaceConversations.map((candidate) => (
+          <button
+            key={candidate.id}
+            type="button"
+            onClick={() => navigate(`/v2/conversations/${candidate.id}`)}
+            className={`inline-flex h-7 max-w-[15rem] items-center gap-1.5 rounded-md px-2 text-xs ${
+              candidate.id === conversationId
+                ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
+                : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]'
+            }`}
+          >
+            <MessageSquareText size={13} />
+            <span className="truncate">{candidate.title}</span>
+          </button>
+        ))}
+        {sortedTerminals.map((terminal) => (
+          <button
+            key={terminal.id}
+            type="button"
+            onClick={() => navigate(`/v2/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`)}
+            className="inline-flex h-7 max-w-[12rem] items-center gap-1.5 rounded-md px-2 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]"
+          >
+            <SquareTerminal size={13} />
+            <span className="truncate">{terminal.title || 'Terminal'}</span>
+          </button>
+        ))}
+      </div>
+      <div className="flex h-9 shrink-0 items-center justify-between gap-3 bg-primary px-4">
+        <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
+          <Sparkles size={13} />
+          <span className="truncate font-medium text-[var(--color-text-primary)]">{conversation?.title ?? 'Conversation'}</span>
+          {(workspaceHistory?.length ?? 0) > 1 && <span>{workspaceHistory?.length} moves</span>}
+        </div>
+        <div className="relative flex shrink-0 items-center gap-1">
+          <button type="button" onClick={() => setConversationActionsOpen((value) => !value)} className="rounded-md px-2 py-1 text-xs text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]">
+            Actions
+          </button>
+          {conversationActionsOpen && (
+            <>
+              <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close conversation actions" onClick={() => setConversationActionsOpen(false)} />
+              <div className="absolute right-0 top-7 z-50 w-80 rounded-xl bg-card p-3 shadow-[var(--shadow-card)]">
+                {conversation && <CompactWorkspaceMenu value={workspaceValue} workspaces={workspaces ?? []} pending={updateWorkspace.isPending} onChange={setSelectedWorkspaceId} onSave={() => updateWorkspace.mutate(workspaceValue || '')} />}
+                <div className="mt-3 flex items-center gap-2">
+                  <V2Input value={forkTitle} onChange={(event) => setForkTitle(event.target.value)} placeholder="Fork title" className="min-w-0 flex-1" />
+                  <Button size="xs" variant="secondary" icon={<GitBranchPlus size={13} />} loading={forkConversation.isPending} onClick={() => forkConversation.mutate()} title="Fork conversation">Fork</Button>
+                </div>
+                {conversation?.status !== 'archived' && (
+                  <Button className="mt-3 w-full" size="xs" variant="ghost" icon={<Archive size={13} />} disabled={transitionConversation.isPending} onClick={() => transitionConversation.mutate('archive')} title="Archive conversation">
+                    Archive conversation
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -430,7 +538,7 @@ function CompactWorkspaceMenu({
   onSave: () => void;
 }) {
   return (
-    <div className="hidden items-center gap-1 xl:flex">
+    <div className="flex items-center gap-1">
       <V2Select value={value} onChange={(event) => onChange(event.target.value)} className="w-48">
         <option value="">Project default</option>
         {workspaces.map((workspace) => (
@@ -441,6 +549,20 @@ function CompactWorkspaceMenu({
         Save
       </Button>
     </div>
+  );
+}
+
+function NewTabMenuItem({ icon, children, disabled, onClick }: { icon: ReactNode; children: ReactNode; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
+    >
+      {icon}
+      <span>{children}</span>
+    </button>
   );
 }
 
@@ -469,4 +591,15 @@ function previewTabLabel(tab: Extract<WorkspaceTab, { type: 'editor' | 'diff' }>
   if (tab.file) return fileName(tab.file);
   if (tab.commit) return tab.commit.slice(0, 7);
   return 'All changes';
+}
+
+function terminalWorkspaceProjectId(project?: { id: string } | null, conversation?: { projectId: string } | null) {
+  return project?.id ?? conversation?.projectId ?? '';
+}
+
+function statusColor(status: Workspace['status']): 'blue' | 'green' | 'yellow' | 'gray' {
+  if (status === 'active') return 'blue';
+  if (status === 'merged') return 'green';
+  if (status === 'abandoned') return 'yellow';
+  return 'gray';
 }

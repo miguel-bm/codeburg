@@ -61,8 +61,8 @@ export function V2ProjectSkillsPage() {
   return (
     <V2Screen>
       <V2Header
-        backTo={project ? `/v2/projects/${project.id}` : '/v2'}
-        backLabel="Back to workspace"
+        backTo={project ? `/v2/projects/${project.id}/settings` : '/v2/settings'}
+        backLabel="Back to project settings"
         eyebrow="Project skills"
         title={project?.name ?? 'Project'}
         subtitle="Skills are filesystem resources. Codeburg links or copies standard skill directories into project skill roots without inventing a private format."

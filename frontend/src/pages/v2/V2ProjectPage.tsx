@@ -9,8 +9,8 @@ import {
   GitCommitHorizontal,
   MessageSquarePlus,
   MessageSquareText,
-  PanelTopOpen,
   PanelRightOpen,
+  PlusCircle,
   RefreshCw,
   SquareTerminal,
   Trash2,
@@ -26,6 +26,7 @@ import { EditorTab } from '../../components/workspace/EditorTab';
 import { WorkspaceProvider } from '../../components/workspace/WorkspaceContext';
 import { fileName } from '../../components/workspace/editorUtils';
 import { useWorkspaceStore, type WorkspaceTab } from '../../stores/workspace';
+import type { ReactNode } from 'react';
 import {
   Button,
   V2Empty,
@@ -515,18 +516,33 @@ function MainTabBar({
   createTerminalPending: boolean;
   createConversationPending: boolean;
 }) {
+  const [newTabOpen, setNewTabOpen] = useState(false);
   const workspaceTabs = tabs
     .map((tab, index) => ({ tab, index }))
     .filter((entry): entry is { tab: Extract<WorkspaceTab, { type: 'editor' | 'diff' }>; index: number } => entry.tab.type === 'editor' || entry.tab.type === 'diff');
 
   return (
     <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto bg-canvas px-2 scrollbar-none">
-      <Button size="xs" variant="ghost" icon={<PanelTopOpen size={13} />} disabled={createTerminalDisabled && createConversationPending} loading={createTerminalPending || createConversationPending} onClick={onCreateConversation}>
-        New chat
-      </Button>
-      <Button size="xs" variant="ghost" icon={<SquareTerminal size={13} />} disabled={createTerminalDisabled} loading={createTerminalPending} onClick={onCreateTerminal}>
-        Terminal
-      </Button>
+      <div className="relative shrink-0">
+        <button
+          type="button"
+          disabled={createTerminalDisabled && createConversationPending}
+          onClick={() => setNewTabOpen((value) => !value)}
+          className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
+          title="New tab"
+        >
+          <PlusCircle size={15} />
+        </button>
+        {newTabOpen && (
+          <>
+            <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close new tab menu" onClick={() => setNewTabOpen(false)} />
+            <div className="absolute left-0 top-8 z-50 w-44 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
+              <NewTabMenuItem icon={<MessageSquarePlus size={14} />} disabled={createConversationPending} onClick={() => { setNewTabOpen(false); onCreateConversation(); }}>Conversation</NewTabMenuItem>
+              <NewTabMenuItem icon={<SquareTerminal size={14} />} disabled={createTerminalDisabled || createTerminalPending} onClick={() => { setNewTabOpen(false); onCreateTerminal(); }}>Terminal</NewTabMenuItem>
+            </div>
+          </>
+        )}
+      </div>
       {conversations.map((conversation) => (
         <button
           key={conversation.id}
@@ -584,6 +600,20 @@ function MainTabBar({
         </button>
       ))}
     </div>
+  );
+}
+
+function NewTabMenuItem({ icon, children, disabled, onClick }: { icon: ReactNode; children: ReactNode; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
+    >
+      {icon}
+      <span>{children}</span>
+    </button>
   );
 }
 
