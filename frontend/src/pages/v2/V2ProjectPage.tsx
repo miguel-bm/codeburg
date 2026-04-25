@@ -391,11 +391,19 @@ export function V2ProjectPage() {
           <>
             <div className="w-1.5 shrink-0 cursor-col-resize bg-canvas hover:bg-accent/30" onMouseDown={beginResize} />
             <aside className="min-h-0 shrink-0 border-l border-[var(--color-card-border)] bg-canvas" style={{ width: toolsWidth }}>
-              <V2WorkspaceTools
-                helperTab={helperTab}
-                onSelectHelperTab={setHelperTab}
-                onClose={() => setToolsOpen(false)}
-              />
+              {project && activeWorkspace ? (
+                <V2WorkspaceTools
+                  helperTab={helperTab}
+                  onSelectHelperTab={setHelperTab}
+                  onClose={() => setToolsOpen(false)}
+                />
+              ) : (
+                <V2Empty
+                  icon={<Files size={24} />}
+                  title="Loading workspace tools"
+                  body="Files, search, and git actions will appear once the project workspace is ready."
+                />
+              )}
             </aside>
           </>
         )}
