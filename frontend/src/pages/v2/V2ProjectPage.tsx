@@ -7,16 +7,17 @@ import {
   Files,
   GitBranch,
   GitCommitHorizontal,
-  Hammer,
+  MessageSquarePlus,
+  MessageSquareText,
+  PanelTopOpen,
   PanelRightOpen,
   RefreshCw,
-  Settings2,
   SquareTerminal,
   Trash2,
   X,
 } from 'lucide-react';
 import { projectsApi } from '../../api';
-import type { TerminalSession, Workspace } from '../../api/types';
+import type { Conversation, TerminalSession, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { TerminalView } from '../../components/session/TerminalView';
 import { Badge } from '../../components/ui/Badge';
@@ -87,6 +88,15 @@ export function V2ProjectPage() {
     enabled: !!activeWorkspaceId,
     refetchInterval: 5000,
   });
+  const { data: workspaceConversations = [] } = useQuery({
+    queryKey: ['v2-workspace-conversations', activeWorkspaceId],
+    queryFn: async () => {
+      if (!project || !activeWorkspaceId) return [];
+      const conversations = await v2Api.listProjectConversations(project.id, { provider: 'pi', status: 'active' });
+      return conversations.filter((conversation) => conversation.currentWorkspaceId === activeWorkspaceId);
+    },
+    enabled: !!project && !!activeWorkspaceId,
+  });
 
   const sortedTerminals = useMemo(() => [...(terminals ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [terminals]);
   const activeTerminal = mainSurface?.type === 'terminal'
@@ -130,6 +140,20 @@ export function V2ProjectPage() {
       setMainSurface({ type: 'terminal', terminalId: terminal.id });
       navigate(`/v2/projects/${id}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`, { replace: true });
       await invalidateTerminals();
+    },
+  });
+  const createConversation = useMutation({
+    mutationFn: () => v2Api.createConversation(id!, {
+      title: `New ${activeWorkspace?.name ?? project?.name ?? 'workspace'} conversation`,
+      currentWorkspaceId: activeWorkspaceId ?? undefined,
+    }),
+    onSuccess: async (conversation) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', id] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', id, 'sidebar'] }),
+      ]);
+      navigate(`/v2/conversations/${conversation.id}`);
     },
   });
 
@@ -287,19 +311,13 @@ export function V2ProjectPage() {
         <div className="flex h-10 shrink-0 items-center justify-between bg-canvas px-4">
           <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
             <GitBranch size={14} />
-            <span className="truncate font-medium text-[var(--color-text-primary)]">{project?.name}</span>
-            <span className="truncate">{activeWorkspace.branchName}</span>
-            <span>{activeWorkspace.kind}</span>
+            <span className="truncate font-medium text-[var(--color-text-primary)]">{activeWorkspace.name}</span>
+            {activeWorkspace.branchName !== activeWorkspace.name && <span className="truncate">{activeWorkspace.branchName}</span>}
             <Badge variant="label" color={statusColor(activeWorkspace.status)}>{activeWorkspace.status}</Badge>
           </div>
           <div className="flex items-center gap-1">
             {project && (
-              <>
-                <V2QuickActionsMenu projectId={project.id} workspaceId={activeWorkspace.id} disabled={terminalDisabled} />
-                <Button size="xs" variant="ghost" icon={<Hammer size={13} />} onClick={() => navigate(`/v2/projects/${project.id}/skills`)}>Skills</Button>
-                <Button size="xs" variant="ghost" icon={<Settings2 size={13} />} onClick={() => navigate(`/v2/projects/${project.id}/pi`)}>Pi</Button>
-                <Button size="xs" variant="ghost" icon={<Settings2 size={13} />} onClick={() => navigate(`/v2/projects/${project.id}/settings`)}>Settings</Button>
-              </>
+              <V2QuickActionsMenu projectId={project.id} workspaceId={activeWorkspace.id} disabled={terminalDisabled} />
             )}
             <WorkspaceActions
               workspace={activeWorkspace}
@@ -329,6 +347,9 @@ export function V2ProjectPage() {
             }}
             onCloseTerminal={(terminal) => closeTerminal.mutate(terminal.id)}
             onRenameTerminal={(terminal, title) => renameTerminal.mutate({ terminalId: terminal.id, title })}
+            conversations={workspaceConversations}
+            onSelectConversation={(conversation) => navigate(`/v2/conversations/${conversation.id}`)}
+            onCreateConversation={() => createConversation.mutate()}
             onSelectWorkspaceTab={(index) => {
               setActiveTab(index);
               setMainSurface({ type: 'workspaceTab', index });
@@ -340,6 +361,7 @@ export function V2ProjectPage() {
             onCreateTerminal={() => createTerminal.mutate(undefined)}
             createTerminalDisabled={terminalDisabled}
             createTerminalPending={createTerminal.isPending}
+            createConversationPending={createConversation.isPending}
           />
 
           <div className="min-h-0 flex-1 overflow-hidden">
@@ -353,10 +375,15 @@ export function V2ProjectPage() {
               <V2Empty
                 icon={<SquareTerminal size={32} />}
                 title="Choose a terminal, file, or diff"
-                body={activeWorkspace?.status !== 'active'
-                  ? `This workspace is ${activeWorkspace?.status}. Reactivate it before starting terminals.`
-                  : 'Start a terminal, or open files and diffs from the tools panel.'}
-                action={<Button size="sm" variant="primary" icon={<SquareTerminal size={14} />} disabled={terminalDisabled} loading={createTerminal.isPending} onClick={() => createTerminal.mutate(undefined)}>Start terminal</Button>}
+            body={activeWorkspace?.status !== 'active'
+              ? `This workspace is ${activeWorkspace?.status}. Reactivate it before starting terminals.`
+              : 'Open a conversation, terminal, file, or diff from the workspace controls.'}
+                action={
+                  <div className="flex items-center justify-center gap-2">
+                    <Button size="sm" variant="primary" icon={<MessageSquarePlus size={14} />} disabled={!activeWorkspaceId || activeWorkspace?.status !== 'active'} loading={createConversation.isPending} onClick={() => createConversation.mutate()}>New conversation</Button>
+                    <Button size="sm" variant="secondary" icon={<SquareTerminal size={14} />} disabled={terminalDisabled} loading={createTerminal.isPending} onClick={() => createTerminal.mutate(undefined)}>New terminal</Button>
+                  </div>
+                }
               />
             )}
           </div>
@@ -428,7 +455,7 @@ function WorkspaceActions({
   if (workspace.kind === 'main') {
     return (
       <Button size="xs" variant="secondary" icon={<RefreshCw size={13} />} disabled={pending || workspace.status !== 'active'} onClick={onSync}>
-        Sync branch
+        <span title="Fetch the default branch and fast-forward this main workspace branch when possible.">Sync branch</span>
       </Button>
     );
   }
@@ -460,11 +487,15 @@ function MainTabBar({
   onSelectTerminal,
   onCloseTerminal,
   onRenameTerminal,
+  conversations,
+  onSelectConversation,
+  onCreateConversation,
   onSelectWorkspaceTab,
   onCloseWorkspaceTab,
   onCreateTerminal,
   createTerminalDisabled,
   createTerminalPending,
+  createConversationPending,
 }: {
   terminals: TerminalSession[];
   terminalPending: boolean;
@@ -474,11 +505,15 @@ function MainTabBar({
   onSelectTerminal: (terminal: TerminalSession) => void;
   onCloseTerminal: (terminal: TerminalSession) => void;
   onRenameTerminal: (terminal: TerminalSession, title: string) => void;
+  conversations: Conversation[];
+  onSelectConversation: (conversation: Conversation) => void;
+  onCreateConversation: () => void;
   onSelectWorkspaceTab: (index: number) => void;
   onCloseWorkspaceTab: (index: number) => void;
   onCreateTerminal: () => void;
   createTerminalDisabled: boolean;
   createTerminalPending: boolean;
+  createConversationPending: boolean;
 }) {
   const workspaceTabs = tabs
     .map((tab, index) => ({ tab, index }))
@@ -486,9 +521,23 @@ function MainTabBar({
 
   return (
     <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto bg-canvas px-2 scrollbar-none">
-      <Button size="xs" variant="ghost" icon={<SquareTerminal size={13} />} disabled={createTerminalDisabled} loading={createTerminalPending} onClick={onCreateTerminal}>
-        New terminal
+      <Button size="xs" variant="ghost" icon={<PanelTopOpen size={13} />} disabled={createTerminalDisabled && createConversationPending} loading={createTerminalPending || createConversationPending} onClick={onCreateConversation}>
+        New chat
       </Button>
+      <Button size="xs" variant="ghost" icon={<SquareTerminal size={13} />} disabled={createTerminalDisabled} loading={createTerminalPending} onClick={onCreateTerminal}>
+        Terminal
+      </Button>
+      {conversations.map((conversation) => (
+        <button
+          key={conversation.id}
+          type="button"
+          onClick={() => onSelectConversation(conversation)}
+          className="inline-flex h-7 max-w-[15rem] items-center gap-1.5 rounded-md px-2 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]"
+        >
+          <MessageSquareText size={13} />
+          <span className="truncate">{conversation.title}</span>
+        </button>
+      ))}
       {terminals.map((terminal) => (
         <TerminalTab
           key={terminal.id}

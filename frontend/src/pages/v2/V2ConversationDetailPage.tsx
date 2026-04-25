@@ -217,9 +217,9 @@ export function V2ConversationDetailPage() {
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {conversation && <CompactWorkspaceMenu value={workspaceValue} workspaces={workspaces ?? []} pending={updateWorkspace.isPending} onChange={setSelectedWorkspaceId} onSave={() => updateWorkspace.mutate(workspaceValue || '')} />}
-          <V2Input value={forkTitle} onChange={(event) => setForkTitle(event.target.value)} placeholder="Fork title" className="hidden w-36 lg:block" />
-          <Button size="xs" variant="secondary" icon={<GitBranchPlus size={13} />} loading={forkConversation.isPending} onClick={() => forkConversation.mutate()}>Fork</Button>
-          {conversation?.status !== 'archived' && <Button size="xs" variant="ghost" icon={<Archive size={13} />} disabled={transitionConversation.isPending} onClick={() => transitionConversation.mutate('archive')}>Archive</Button>}
+          <V2Input value={forkTitle} onChange={(event) => setForkTitle(event.target.value)} placeholder="Fork title" className="hidden w-32 lg:block" />
+          <Button size="xs" variant="secondary" icon={<GitBranchPlus size={13} />} loading={forkConversation.isPending} onClick={() => forkConversation.mutate()} title="Fork conversation">Fork</Button>
+          {conversation?.status !== 'archived' && <Button size="xs" variant="ghost" icon={<Archive size={13} />} disabled={transitionConversation.isPending} onClick={() => transitionConversation.mutate('archive')} title="Archive conversation" />}
         </div>
       </div>
 
@@ -324,8 +324,8 @@ function ConversationSurface({
         ) : (
           <V2Empty
             icon={<Sparkles size={28} />}
-            title="Ready for the first prompt"
-            body="Send a message to start or resume the pi thread. The sidebar will keep this conversation under its workspace."
+            title="Start with a prompt"
+            body="This conversation is attached to the current workspace."
           />
         )}
       </div>
@@ -437,7 +437,9 @@ function CompactWorkspaceMenu({
           <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
         ))}
       </V2Select>
-      <Button size="xs" variant="ghost" loading={pending} onClick={onSave}>Attach</Button>
+      <Button size="xs" variant="ghost" loading={pending} onClick={onSave} title="Attach conversation to selected workspace">
+        Save
+      </Button>
     </div>
   );
 }

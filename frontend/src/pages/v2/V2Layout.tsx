@@ -11,6 +11,8 @@ import {
   MessageSquareText,
   Pencil,
   Pin,
+  PinOff,
+  PlugZap,
   Search,
   Settings,
   Sparkles,
@@ -33,8 +35,19 @@ export function V2Layout() {
     queryKey: ['v2-projects'],
     queryFn: () => projectsApi.list(),
   });
+  const { data: pinnedProjectIds = [] } = useQuery({
+    queryKey: ['pinned-projects'],
+    queryFn: () => preferencesApi.getPinnedProjects(),
+  });
 
-  const visibleProjects = (projects ?? []).filter((project) => !project.hidden);
+  const visibleProjects = (projects ?? [])
+    .filter((project) => !project.hidden)
+    .sort((a, b) => {
+      const pinnedA = pinnedProjectIds.includes(a.id);
+      const pinnedB = pinnedProjectIds.includes(b.id);
+      if (pinnedA !== pinnedB) return pinnedA ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
   const workspaceQueries = useQueries({
     queries: visibleProjects.map((project) => ({
       queryKey: ['v2-workspaces', project.id],
@@ -123,6 +136,7 @@ export function V2Layout() {
             icon={<FolderGit2 size={15} />}
             label="Projects"
           />
+          <SidebarAction icon={<PlugZap size={15} />} label="Pi setup" onClick={() => navigate('/v2/settings')} />
           <SidebarAction icon={<MessageSquareText size={15} />} label="All conversations" onClick={() => navigate('/v2/conversations')} />
         </nav>
 
@@ -144,6 +158,7 @@ export function V2Layout() {
             <ProjectTree
               key={project.id}
               project={project}
+              pinned={pinnedProjectIds.includes(project.id)}
               workspaces={workspacesByProject.get(project.id) ?? []}
               conversations={conversationsByProject.get(project.id) ?? []}
               pathname={location.pathname}
@@ -158,7 +173,7 @@ export function V2Layout() {
 
         <div className="border-t border-[var(--color-card-border)] p-2">
           <Link
-            to="/settings"
+            to="/v2/settings"
             className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]"
           >
             <Settings size={15} />
@@ -180,6 +195,7 @@ export function V2Layout() {
 
 function ProjectTree({
   project,
+  pinned,
   workspaces,
   conversations,
   pathname,
@@ -190,6 +206,7 @@ function ProjectTree({
   onArchiveConversation,
 }: {
   project: Project;
+  pinned: boolean;
   workspaces: Workspace[];
   conversations: Conversation[];
   pathname: string;
@@ -220,7 +237,7 @@ function ProjectTree({
     <div className="relative mb-1">
       <div
         className={`group flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
-          treeOpen
+          projectMenuOpen || treeOpen
             ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]'
             : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
         }`}
@@ -229,10 +246,11 @@ function ProjectTree({
           <FolderGit2 size={15} className={treeOpen ? 'text-accent' : 'text-dim'} />
           <span className="min-w-0 flex-1 truncate text-sm font-medium">{project.name}</span>
         </Link>
+        {pinned && <Pin size={12} className="text-accent" />}
         <button
           type="button"
           onClick={() => navigate(`/v2/projects/${project.id}?newWorkspace=1`)}
-          className="rounded p-1 text-dim opacity-0 transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 group-hover:opacity-100"
+          className={`rounded p-1 text-dim transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${projectMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
           title="New workspace"
         >
           <FolderPlus size={13} />
@@ -240,7 +258,7 @@ function ProjectTree({
         <button
           type="button"
           onClick={() => setProjectMenuOpen((value) => !value)}
-          className="rounded p-1 text-dim opacity-0 transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] group-hover:opacity-100"
+          className={`rounded p-1 text-dim transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] ${projectMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
           title="Project actions"
         >
           <Ellipsis size={13} />
@@ -251,7 +269,9 @@ function ProjectTree({
           <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close project menu" onClick={() => setProjectMenuOpen(false)} />
           <div className="absolute right-1 top-8 z-50 w-52 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
             <ProjectMenuItem icon={<FolderPlus size={14} />} onClick={() => navigate(`/v2/projects/${project.id}?newWorkspace=1`)}>New workspace</ProjectMenuItem>
-            <ProjectMenuItem icon={<Pin size={14} />} onClick={() => void togglePinnedProject(project.id, queryClient)}>Pin project</ProjectMenuItem>
+            <ProjectMenuItem icon={pinned ? <PinOff size={14} /> : <Pin size={14} />} onClick={() => void togglePinnedProject(project.id, queryClient)}>
+              {pinned ? 'Unpin project' : 'Pin project'}
+            </ProjectMenuItem>
             <ProjectMenuItem icon={<Pencil size={14} />} onClick={() => void renameProject(project, queryClient)}>Rename project</ProjectMenuItem>
             <ProjectMenuItem icon={<Settings size={14} />} onClick={() => navigate(`/v2/projects/${project.id}/settings`)}>Settings</ProjectMenuItem>
             <ProjectMenuItem icon={<Archive size={14} />} danger onClick={() => void archiveProject(project, queryClient, navigate)}>Archive project</ProjectMenuItem>
