@@ -21,7 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { projectsApi } from '../../api';
-import type { PiConversationMessage, PiConversationSnapshot, Workspace } from '../../api/types';
+import type { Conversation, PiConversationMessage, PiConversationSnapshot, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { Badge } from '../../components/ui/Badge';
 import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
@@ -174,6 +174,19 @@ export function V2ConversationDetailPage() {
       navigate(`/v2/conversations/${created.id}`);
     },
   });
+  const renameConversation = useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) =>
+      v2Api.updateConversation(id, { title }),
+    onSuccess: async (updated) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-conversation', updated.id] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId, 'sidebar'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
+      ]);
+    },
+  });
 
   const forkConversation = useMutation({
     mutationFn: () =>
@@ -186,6 +199,7 @@ export function V2ConversationDetailPage() {
       await queryClient.invalidateQueries({ queryKey: ['v2-conversations'] });
       await queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.projectId] });
       await queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.projectId, 'sidebar'] });
+      navigate(`/v2/conversations/${forked.id}`);
     },
   });
 
@@ -262,19 +276,13 @@ export function V2ConversationDetailPage() {
           <div className="flex h-9 shrink-0 items-center gap-1 bg-canvas px-2">
             <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
               {safeWorkspaceConversations.map((candidate) => (
-                <button
+                <ConversationTab
                   key={candidate.id}
-                  type="button"
-                  onClick={() => navigate(`/v2/conversations/${candidate.id}`)}
-                  className={`inline-flex h-7 max-w-[15rem] shrink-0 items-center gap-1.5 rounded-md px-2 text-xs ${
-                    candidate.id === conversationId
-                      ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
-                      : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]'
-                  }`}
-                >
-                  <MessageSquareText size={13} />
-                  <span className="truncate">{candidate.title}</span>
-                </button>
+                  conversation={candidate}
+                  active={candidate.id === conversationId}
+                  onSelect={() => navigate(`/v2/conversations/${candidate.id}`)}
+                  onRename={(title) => renameConversation.mutate({ id: candidate.id, title })}
+                />
               ))}
               {sortedTerminals.map((terminal) => (
                 <button
@@ -568,6 +576,68 @@ function NewTabMenuItem({ icon, children, disabled, onClick }: { icon: ReactNode
       {icon}
       <span>{children}</span>
     </button>
+  );
+}
+
+function ConversationTab({
+  conversation,
+  active,
+  onSelect,
+  onRename,
+}: {
+  conversation: Conversation;
+  active: boolean;
+  onSelect: () => void;
+  onRename: (title: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(conversation.title);
+
+  useEffect(() => {
+    setDraft(conversation.title);
+  }, [conversation.title]);
+
+  const save = () => {
+    const title = draft.trim();
+    setEditing(false);
+    if (title && title !== conversation.title) onRename(title);
+    else setDraft(conversation.title);
+  };
+
+  return (
+    <div className={`inline-flex h-7 max-w-[15rem] shrink-0 items-center gap-1.5 rounded-md px-2 text-xs ${
+      active
+        ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
+        : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]'
+    }`}>
+      <MessageSquareText size={13} className="shrink-0" />
+      {editing ? (
+        <input
+          autoFocus
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={save}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') save();
+            if (event.key === 'Escape') {
+              setEditing(false);
+              setDraft(conversation.title);
+            }
+          }}
+          className="h-6 min-w-0 bg-transparent outline-none"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={onSelect}
+          onDoubleClick={() => setEditing(true)}
+          className="min-w-0 truncate"
+          title="Double-click to rename"
+        >
+          {conversation.title}
+        </button>
+      )}
+    </div>
   );
 }
 

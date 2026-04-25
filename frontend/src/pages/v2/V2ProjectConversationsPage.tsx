@@ -1,5 +1,5 @@
 import { useDeferredValue, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, GitBranchPlus, MessageSquarePlus, MessageSquareText, Search, Settings2, Sparkles } from 'lucide-react';
 import { projectsApi } from '../../api';
@@ -11,6 +11,7 @@ import { Button, V2Content, V2Empty, V2Header, V2Input, V2Panel, V2PanelHeader, 
 export function V2ProjectConversationsPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [title, setTitle] = useState('');
   const [workspaceId, setWorkspaceId] = useState('');
   const [search, setSearch] = useState('');
@@ -49,9 +50,10 @@ export function V2ProjectConversationsPage() {
         title: `${conversation.title} fork`,
         currentWorkspaceId: conversation.currentWorkspaceId,
       }),
-    onSuccess: async () => {
+    onSuccess: async (forked) => {
       await queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', id] });
       await queryClient.invalidateQueries({ queryKey: ['v2-conversations'] });
+      navigate(`/v2/conversations/${forked.id}`);
     },
   });
 

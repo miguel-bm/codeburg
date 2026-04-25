@@ -132,6 +132,19 @@ export function V2Layout() {
       if (location.pathname.match(/^\/v2\/conversations\/[^/]+/)) navigate('/v2');
     },
   });
+  const renameConversation = useMutation({
+    mutationFn: ({ conversation, title }: { conversation: Conversation; title: string }) =>
+      v2Api.updateConversation(conversation.id, { title }),
+    onSuccess: async (updated) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-conversation', updated.id] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId, 'sidebar'] }),
+      ]);
+    },
+  });
 
   const desktopTopInset = isDesktopShell() ? getDesktopTitleBarInsetTop() : 0;
 
@@ -219,6 +232,7 @@ export function V2Layout() {
               conversationStateById={conversationStateById}
               onNewConversation={(workspace) => createConversation.mutate({ project, workspace })}
               onArchiveConversation={(conversation) => archiveOrDeleteConversation.mutate(conversation)}
+              onRenameConversation={(conversation, title) => renameConversation.mutate({ conversation, title })}
             />
           ))}
         </div>
@@ -255,6 +269,7 @@ function ProjectTree({
   conversationStateById,
   onNewConversation,
   onArchiveConversation,
+  onRenameConversation,
 }: {
   project: Project;
   pinned: boolean;
@@ -267,6 +282,7 @@ function ProjectTree({
   conversationStateById: Map<string, PiConversationSnapshot>;
   onNewConversation: (workspace?: Workspace) => void;
   onArchiveConversation: (conversation: Conversation) => void;
+  onRenameConversation: (conversation: Conversation, title: string) => void;
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -297,7 +313,7 @@ function ProjectTree({
   }, [projectInPath, userToggled]);
 
   return (
-    <div className="relative mb-1">
+    <div className="relative mb-3">
       <div
         className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 transition-colors ${
           projectMenuOpen || projectIsSelectedLeaf
@@ -397,6 +413,7 @@ function ProjectTree({
                         pending={archivingConversation}
                         snapshot={conversationStateById.get(conversation.id)}
                         onArchive={() => onArchiveConversation(conversation)}
+                        onRename={(title) => onRenameConversation(conversation, title)}
                       />
                     ))}
                   </div>
@@ -412,6 +429,7 @@ function ProjectTree({
               pending={archivingConversation}
               snapshot={conversationStateById.get(conversation.id)}
               onArchive={() => onArchiveConversation(conversation)}
+              onRename={(title) => onRenameConversation(conversation, title)}
             />
           ))}
         </div>
@@ -426,6 +444,7 @@ function ConversationSidebarRow({
   pending,
   snapshot,
   onArchive,
+  onRename,
   className = '',
 }: {
   conversation: Conversation;
@@ -433,16 +452,60 @@ function ConversationSidebarRow({
   pending: boolean;
   snapshot?: PiConversationSnapshot;
   onArchive: () => void;
+  onRename: (title: string) => void;
   className?: string;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(conversation.title);
+
+  useEffect(() => {
+    setDraft(conversation.title);
+  }, [conversation.title]);
+
+  const save = () => {
+    const title = draft.trim();
+    setEditing(false);
+    if (title && title !== conversation.title) onRename(title);
+    else setDraft(conversation.title);
+  };
+
   return (
     <div className={`group/conversation flex items-center rounded-md ${
       active ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]' : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
     } ${className}`}>
-      <Link to={`/v2/conversations/${conversation.id}`} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-xs">
-        <ConversationStateIndicator conversation={conversation} snapshot={snapshot} />
-        <span className="min-w-0 flex-1 truncate font-normal">{conversation.title}</span>
-      </Link>
+      <div className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-xs">
+        <Link to={`/v2/conversations/${conversation.id}`} className="shrink-0">
+          <ConversationStateIndicator conversation={conversation} snapshot={snapshot} />
+        </Link>
+        {editing ? (
+          <input
+            autoFocus
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onBlur={save}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') save();
+              if (event.key === 'Escape') {
+                setEditing(false);
+                setDraft(conversation.title);
+              }
+            }}
+            className="h-5 min-w-0 flex-1 bg-transparent outline-none"
+          />
+        ) : (
+          <Link
+            to={`/v2/conversations/${conversation.id}`}
+            onDoubleClick={(event) => {
+              event.preventDefault();
+              setEditing(true);
+            }}
+            className="min-w-0 flex-1 truncate font-normal"
+            title="Double-click to rename"
+          >
+            {conversation.title}
+          </Link>
+        )}
+      </div>
       <button
         type="button"
         disabled={pending}
