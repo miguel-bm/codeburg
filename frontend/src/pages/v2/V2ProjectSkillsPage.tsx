@@ -1,7 +1,7 @@
 import { useDeferredValue, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Globe2, Link2, Plus, Search, Trash2 } from 'lucide-react';
+import { Globe2, Link2, PackagePlus, Search, Trash2 } from 'lucide-react';
 import { projectsApi } from '../../api';
 import { v2Api } from '../../api/v2';
 import { Button, V2Content, V2Empty, V2Header, V2Input, V2Panel, V2PanelHeader, V2Row, V2Screen, V2Select } from './v2-ui';
@@ -108,7 +108,7 @@ export function V2ProjectSkillsPage() {
                   <option value="copy">copy</option>
                 </V2Select>
               </div>
-              <Button className="w-full" size="sm" variant="primary" icon={<Plus size={14} />} loading={installSkill.isPending} disabled={!sourcePath.trim()} onClick={() => installSkill.mutate({ sourcePath: sourcePath.trim(), target, mode })}>
+              <Button className="w-full" size="sm" variant="primary" icon={<PackagePlus size={14} />} loading={installSkill.isPending} disabled={!sourcePath.trim()} onClick={() => installSkill.mutate({ sourcePath: sourcePath.trim(), target, mode })}>
                 Install skill
               </Button>
               {installSkill.error instanceof Error && <div className="text-xs text-[var(--color-error)]">{installSkill.error.message}</div>}
@@ -146,7 +146,7 @@ export function V2ProjectSkillsPage() {
                     <div className="mt-1 text-xs text-dim">{entry.sourceName}</div>
                     {entry.description && <div className="mt-2 text-sm text-[var(--color-text-secondary)]">{entry.description}</div>}
                   </div>
-                  <Button size="xs" variant="secondary" icon={<Plus size={13} />} disabled={installCatalogSkill.isPending} onClick={() => installCatalogSkill.mutate({ sourceId: entry.sourceId, skillPath: entry.skillPath, target: 'agents', name: entry.name })}>
+                  <Button size="xs" variant="secondary" icon={<PackagePlus size={13} />} disabled={installCatalogSkill.isPending} onClick={() => installCatalogSkill.mutate({ sourceId: entry.sourceId, skillPath: entry.skillPath, target: 'agents', name: entry.name })}>
                     Install
                   </Button>
                 </div>

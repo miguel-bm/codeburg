@@ -1,7 +1,7 @@
 import { useDeferredValue, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, GitBranchPlus, MessageSquareText, Plus, Search, Settings2, Sparkles } from 'lucide-react';
+import { ArrowRight, GitBranchPlus, MessageSquarePlus, MessageSquareText, Search, Settings2, Sparkles } from 'lucide-react';
 import { projectsApi } from '../../api';
 import type { Conversation, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
@@ -102,7 +102,7 @@ export function V2ProjectConversationsPage() {
                   <option key={workspace.id} value={workspace.id}>{workspace.name} · {workspace.branchName}</option>
                 ))}
               </V2Select>
-              <Button size="sm" variant="primary" icon={<Plus size={14} />} loading={createConversation.isPending} disabled={!title.trim()} onClick={submit}>
+              <Button size="sm" variant="primary" icon={<MessageSquarePlus size={14} />} loading={createConversation.isPending} disabled={!title.trim()} onClick={submit}>
                 New
               </Button>
             </div>

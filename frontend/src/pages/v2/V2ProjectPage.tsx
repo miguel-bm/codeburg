@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -9,11 +8,8 @@ import {
   GitBranch,
   GitCommitHorizontal,
   Hammer,
-  PanelRightClose,
   PanelRightOpen,
-  Plus,
   RefreshCw,
-  Search,
   Settings2,
   SquareTerminal,
   Trash2,
@@ -26,9 +22,6 @@ import { TerminalView } from '../../components/session/TerminalView';
 import { Badge } from '../../components/ui/Badge';
 import { DiffTab } from '../../components/workspace/DiffTab';
 import { EditorTab } from '../../components/workspace/EditorTab';
-import { FileExplorer } from '../../components/workspace/FileExplorer';
-import { FileSearchPanel } from '../../components/workspace/FileSearchPanel';
-import { GitPanel } from '../../components/workspace/GitPanel';
 import { WorkspaceProvider } from '../../components/workspace/WorkspaceContext';
 import { fileName } from '../../components/workspace/editorUtils';
 import { useWorkspaceStore, type WorkspaceTab } from '../../stores/workspace';
@@ -37,10 +30,9 @@ import {
   V2Empty,
   V2Input,
   V2Screen,
-  V2ToolbarButton,
 } from './v2-ui';
+import { V2WorkspaceTools, type V2HelperTab } from './V2WorkspaceTools';
 
-type HelperTab = 'files' | 'search' | 'git';
 type MainSurface = { type: 'terminal'; terminalId: string } | { type: 'workspaceTab'; index: number } | null;
 
 export function V2ProjectPage() {
@@ -54,7 +46,7 @@ export function V2ProjectPage() {
   const setActiveTab = useWorkspaceStore((state) => state.setActiveTab);
   const closeTab = useWorkspaceStore((state) => state.closeTab);
 
-  const [helperTab, setHelperTab] = useState<HelperTab>('files');
+  const [helperTab, setHelperTab] = useState<V2HelperTab>('files');
   const [toolsOpen, setToolsOpen] = useState(true);
   const [toolsWidth, setToolsWidth] = useState(360);
   const [composerMode, setComposerMode] = useState<'create' | 'fork' | null>(null);
@@ -129,7 +121,7 @@ export function V2ProjectPage() {
 
   const createTerminal = useMutation({
     mutationFn: () => v2Api.createTerminal(activeWorkspaceId!, {
-      title: undefined,
+      title: `Terminal #${sortedTerminals.length + 1}`,
     }),
     onSuccess: async (terminal) => {
       setMainSurface({ type: 'terminal', terminalId: terminal.id });
@@ -298,6 +290,7 @@ export function V2ProjectPage() {
               <>
                 <Button size="xs" variant="ghost" icon={<Hammer size={13} />} onClick={() => navigate(`/v2/projects/${project.id}/skills`)}>Skills</Button>
                 <Button size="xs" variant="ghost" icon={<Settings2 size={13} />} onClick={() => navigate(`/v2/projects/${project.id}/pi`)}>Pi</Button>
+                <Button size="xs" variant="ghost" icon={<Settings2 size={13} />} onClick={() => navigate(`/v2/projects/${project.id}/settings`)}>Settings</Button>
               </>
             )}
             <WorkspaceActions
@@ -355,7 +348,7 @@ export function V2ProjectPage() {
                 body={activeWorkspace?.status !== 'active'
                   ? `This workspace is ${activeWorkspace?.status}. Reactivate it before starting terminals.`
                   : 'Start a terminal, or open files and diffs from the tools panel.'}
-                action={<Button size="sm" variant="primary" icon={<Plus size={14} />} disabled={terminalDisabled} loading={createTerminal.isPending} onClick={() => createTerminal.mutate()}>Start Terminal</Button>}
+                action={<Button size="sm" variant="primary" icon={<SquareTerminal size={14} />} disabled={terminalDisabled} loading={createTerminal.isPending} onClick={() => createTerminal.mutate()}>Start terminal</Button>}
               />
             )}
           </div>
@@ -434,7 +427,7 @@ function WorkspaceActions({
   if (workspace.status !== 'active') {
     return (
       <div className="flex items-center gap-1">
-        <Button size="xs" variant="secondary" icon={<Plus size={13} />} disabled={pending} onClick={onReactivate}>Reactivate</Button>
+        <Button size="xs" variant="secondary" icon={<RefreshCw size={13} />} disabled={pending} onClick={onReactivate}>Reactivate</Button>
         {workspace.status !== 'archived' && <Button size="xs" variant="ghost" icon={<Archive size={13} />} disabled={pending} onClick={onArchive}>Archive</Button>}
         <Button size="xs" variant="danger" icon={<Trash2 size={13} />} disabled={pending} onClick={onDelete}>Delete</Button>
       </div>
@@ -485,8 +478,8 @@ function MainTabBar({
 
   return (
     <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto bg-canvas px-2 scrollbar-none">
-      <Button size="xs" variant="ghost" icon={<Plus size={13} />} disabled={createTerminalDisabled} loading={createTerminalPending} onClick={onCreateTerminal}>
-        Terminal
+      <Button size="xs" variant="ghost" icon={<SquareTerminal size={13} />} disabled={createTerminalDisabled} loading={createTerminalPending} onClick={onCreateTerminal}>
+        New terminal
       </Button>
       {terminals.map((terminal) => (
         <TerminalTab
@@ -589,45 +582,6 @@ function TerminalTab({
         <X size={12} />
       </button>
     </div>
-  );
-}
-
-function V2WorkspaceTools({
-  helperTab,
-  onSelectHelperTab,
-  onClose,
-}: {
-  helperTab: HelperTab;
-  onSelectHelperTab: (tab: HelperTab) => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-10 items-center justify-between border-b border-[var(--color-card-border)] px-2">
-        <div className="flex items-center gap-1">
-          <HelperButton active={helperTab === 'files'} icon={<Files size={14} />} onClick={() => onSelectHelperTab('files')}>Files</HelperButton>
-          <HelperButton active={helperTab === 'search'} icon={<Search size={14} />} onClick={() => onSelectHelperTab('search')}>Search</HelperButton>
-          <HelperButton active={helperTab === 'git'} icon={<GitCommitHorizontal size={14} />} onClick={() => onSelectHelperTab('git')}>Git</HelperButton>
-        </div>
-        <button type="button" onClick={onClose} className="rounded-md p-1.5 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]">
-          <PanelRightClose size={15} />
-        </button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {helperTab === 'files' && <FileExplorer />}
-        {helperTab === 'search' && <FileSearchPanel />}
-        {helperTab === 'git' && <GitPanel />}
-      </div>
-    </div>
-  );
-}
-
-function HelperButton({ active, icon, onClick, children }: { active: boolean; icon: ReactNode; onClick: () => void; children: ReactNode }) {
-  return (
-    <V2ToolbarButton active={active} onClick={onClick}>
-      {icon}
-      {children}
-    </V2ToolbarButton>
   );
 }
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Pencil, Trash2, Plus, CheckCircle2, RefreshCw, AlertTriangle } from 'lucide-react';
+import { KeyRound, Pencil, Trash2, FilePlus2, CheckCircle2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { projectsApi } from '../../api';
 import type { Project, ProjectSecretFile } from '../../api';
 import type { ProjectSecretFileStatus } from '../../api/projects';
@@ -126,7 +126,7 @@ export function SecretsSection({ project }: SecretsProps) {
         icon={<KeyRound size={15} />}
         action={
           <Button variant="secondary" size="xs" onClick={() => setShowAdd(true)}>
-            <Plus size={12} /> Add secret
+            <FilePlus2 size={12} /> Add secret
           </Button>
         }
       />

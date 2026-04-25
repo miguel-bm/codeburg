@@ -4,8 +4,8 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import {
   FolderGit2,
   GitBranch,
+  MessageSquarePlus,
   MessageSquareText,
-  Plus,
   Search,
   Settings,
   Sparkles,
@@ -167,6 +167,9 @@ function ProjectTree({
   onNewConversation: (workspace?: Workspace) => void;
 }) {
   const projectActive = pathname.startsWith(`/v2/projects/${project.id}`);
+  const activeConversationId = pathname.match(/^\/v2\/conversations\/([^/]+)/)?.[1];
+  const conversationActive = conversations.some((conversation) => conversation.id === activeConversationId);
+  const treeOpen = projectActive || conversationActive;
   const selectedWorkspaceId = new URLSearchParams(search).get('workspace');
   const orderedWorkspaces = [...workspaces].sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === 'main' ? -1 : 1;
@@ -182,13 +185,13 @@ function ProjectTree({
     <div className="mb-1">
       <div
         className={`group flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
-          projectActive
+          treeOpen
             ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]'
             : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
         }`}
       >
         <Link to={`/v2/projects/${project.id}`} className="flex min-w-0 flex-1 items-center gap-2">
-          <FolderGit2 size={15} className={projectActive ? 'text-accent' : 'text-dim'} />
+          <FolderGit2 size={15} className={treeOpen ? 'text-accent' : 'text-dim'} />
           <span className="min-w-0 flex-1 truncate text-sm font-medium">{project.name}</span>
         </Link>
         <button
@@ -198,11 +201,11 @@ function ProjectTree({
           className="rounded p-1 text-dim opacity-0 transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 group-hover:opacity-100"
           title="New conversation"
         >
-          <Plus size={13} />
+          <MessageSquarePlus size={13} />
         </button>
       </div>
 
-      {projectActive && (
+      {treeOpen && (
         <div className="mt-1 space-y-1 pl-5 pr-1">
           {orderedWorkspaces.map((workspace) => {
             const active = selectedWorkspaceId
@@ -232,7 +235,7 @@ function ProjectTree({
                     className="rounded p-0.5 opacity-0 hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:opacity-50 group-hover/workspace:opacity-100"
                     title="New conversation in this workspace"
                   >
-                    <Plus size={12} />
+                    <MessageSquarePlus size={12} />
                   </button>
                 </div>
                 {workspaceConversations.length > 0 && (
@@ -241,7 +244,11 @@ function ProjectTree({
                       <Link
                         key={conversation.id}
                         to={`/v2/conversations/${conversation.id}`}
-                        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]"
+                        className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ${
+                          conversation.id === activeConversationId
+                            ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
+                            : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
+                        }`}
                       >
                         <MessageSquareText size={12} />
                         <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
@@ -256,7 +263,11 @@ function ProjectTree({
             <Link
               key={conversation.id}
               to={`/v2/conversations/${conversation.id}`}
-              className="ml-5 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]"
+              className={`ml-5 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ${
+                conversation.id === activeConversationId
+                  ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
+                  : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
+              }`}
             >
               <MessageSquareText size={12} />
               <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
