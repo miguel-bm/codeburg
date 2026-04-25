@@ -525,7 +525,65 @@ function MainTabBar({
     .filter((entry): entry is { tab: Extract<WorkspaceTab, { type: 'editor' | 'diff' }>; index: number } => entry.tab.type === 'editor' || entry.tab.type === 'diff');
 
   return (
-    <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto bg-canvas px-2 scrollbar-none">
+    <div className="flex h-9 shrink-0 items-center gap-1 bg-canvas px-2">
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
+        {conversations.map((conversation) => (
+          <button
+            key={conversation.id}
+            type="button"
+            onClick={() => onSelectConversation(conversation)}
+            className="inline-flex h-7 max-w-[15rem] shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]"
+          >
+            <MessageSquareText size={13} />
+            <span className="truncate">{conversation.title}</span>
+          </button>
+        ))}
+        {terminals.map((terminal) => (
+          <TerminalTab
+            key={terminal.id}
+            terminal={terminal}
+            active={activeSurface?.type === 'terminal' && activeSurface.terminalId === terminal.id}
+            pending={terminalPending}
+            onSelect={() => onSelectTerminal(terminal)}
+            onClose={() => onCloseTerminal(terminal)}
+            onRename={(title) => onRenameTerminal(terminal, title)}
+          />
+        ))}
+        {workspaceTabs.map(({ tab, index }) => (
+          <button
+            key={previewTabKey(tab, index)}
+            type="button"
+            onClick={() => onSelectWorkspaceTab(index)}
+            className={`inline-flex h-7 max-w-[15rem] shrink-0 items-center gap-1.5 rounded-md px-2 text-xs ${
+              activeSurface?.type === 'workspaceTab' && activeSurface.index === index
+                ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
+                : 'bg-[var(--color-card)] text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)]'
+            }`}
+          >
+            {tab.type === 'editor' ? <Files size={13} /> : <GitCommitHorizontal size={13} />}
+            <span className="truncate">{previewTabLabel(tab)}</span>
+            {index === activeTabIndex && tab.ephemeral && <span className="text-dim">preview</span>}
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(event) => {
+                event.stopPropagation();
+                onCloseWorkspaceTab(index);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onCloseWorkspaceTab(index);
+                }
+              }}
+              className="text-dim hover:text-[var(--color-text-primary)]"
+            >
+              <X size={12} />
+            </span>
+          </button>
+        ))}
+      </div>
       <div className="relative shrink-0">
         <button
           type="button"
@@ -546,62 +604,6 @@ function MainTabBar({
           </>
         )}
       </div>
-      {conversations.map((conversation) => (
-        <button
-          key={conversation.id}
-          type="button"
-          onClick={() => onSelectConversation(conversation)}
-          className="inline-flex h-7 max-w-[15rem] items-center gap-1.5 rounded-md px-2 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]"
-        >
-          <MessageSquareText size={13} />
-          <span className="truncate">{conversation.title}</span>
-        </button>
-      ))}
-      {terminals.map((terminal) => (
-        <TerminalTab
-          key={terminal.id}
-          terminal={terminal}
-          active={activeSurface?.type === 'terminal' && activeSurface.terminalId === terminal.id}
-          pending={terminalPending}
-          onSelect={() => onSelectTerminal(terminal)}
-          onClose={() => onCloseTerminal(terminal)}
-          onRename={(title) => onRenameTerminal(terminal, title)}
-        />
-      ))}
-      {workspaceTabs.map(({ tab, index }) => (
-        <button
-          key={previewTabKey(tab, index)}
-          type="button"
-          onClick={() => onSelectWorkspaceTab(index)}
-          className={`inline-flex h-7 max-w-[15rem] items-center gap-1.5 rounded-md px-2 text-xs ${
-            activeSurface?.type === 'workspaceTab' && activeSurface.index === index
-              ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
-              : 'bg-[var(--color-card)] text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)]'
-          }`}
-        >
-          {tab.type === 'editor' ? <Files size={13} /> : <GitCommitHorizontal size={13} />}
-          <span className="truncate">{previewTabLabel(tab)}</span>
-          {index === activeTabIndex && tab.ephemeral && <span className="text-dim">preview</span>}
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(event) => {
-              event.stopPropagation();
-              onCloseWorkspaceTab(index);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                event.stopPropagation();
-                onCloseWorkspaceTab(index);
-              }
-            }}
-            className="text-dim hover:text-[var(--color-text-primary)]"
-          >
-            <X size={12} />
-          </span>
-        </button>
-      ))}
     </div>
   );
 }

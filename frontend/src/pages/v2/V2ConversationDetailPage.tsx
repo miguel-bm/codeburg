@@ -257,86 +257,87 @@ export function V2ConversationDetailPage() {
           <V2QuickActionsMenu projectId={project?.id} workspaceId={activeWorkspace?.id} disabled={!project || !activeWorkspace || activeWorkspace.status !== 'active'} />
         </div>
       </div>
-      <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto bg-canvas px-2 scrollbar-none">
-        <div className="relative shrink-0">
-          <button
-            type="button"
-            disabled={!activeWorkspace || activeWorkspace.status !== 'active'}
-            onClick={() => setNewTabOpen((value) => !value)}
-            className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
-            title="New tab"
-          >
-            <PlusCircle size={15} />
-          </button>
-          {newTabOpen && (
-            <>
-              <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close new tab menu" onClick={() => setNewTabOpen(false)} />
-              <div className="absolute left-0 top-8 z-50 w-44 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
-                <NewTabMenuItem icon={<MessageSquarePlus size={14} />} disabled={createConversation.isPending} onClick={() => { setNewTabOpen(false); createConversation.mutate(); }}>Conversation</NewTabMenuItem>
-                <NewTabMenuItem icon={<SquareTerminal size={14} />} disabled={createTerminal.isPending || !activeWorkspace} onClick={() => { setNewTabOpen(false); createTerminal.mutate(); }}>Terminal</NewTabMenuItem>
-              </div>
-            </>
-          )}
-        </div>
-        {safeWorkspaceConversations.map((candidate) => (
-          <button
-            key={candidate.id}
-            type="button"
-            onClick={() => navigate(`/v2/conversations/${candidate.id}`)}
-            className={`inline-flex h-7 max-w-[15rem] items-center gap-1.5 rounded-md px-2 text-xs ${
-              candidate.id === conversationId
-                ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
-                : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]'
-            }`}
-          >
-            <MessageSquareText size={13} />
-            <span className="truncate">{candidate.title}</span>
-          </button>
-        ))}
-        {sortedTerminals.map((terminal) => (
-          <button
-            key={terminal.id}
-            type="button"
-            onClick={() => navigate(`/v2/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`)}
-            className="inline-flex h-7 max-w-[12rem] items-center gap-1.5 rounded-md px-2 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]"
-          >
-            <SquareTerminal size={13} />
-            <span className="truncate">{terminal.title || 'Terminal'}</span>
-          </button>
-        ))}
-      </div>
-      <div className="flex h-9 shrink-0 items-center justify-between gap-3 bg-primary px-4">
-        <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
-          <Sparkles size={13} />
-          <span className="truncate font-medium text-[var(--color-text-primary)]">{conversation?.title ?? 'Conversation'}</span>
-          {safeWorkspaceHistory.length > 1 && <span>{safeWorkspaceHistory.length} moves</span>}
-        </div>
-        <div className="relative flex shrink-0 items-center gap-1">
-          <button type="button" onClick={() => setConversationActionsOpen((value) => !value)} className="rounded-md px-2 py-1 text-xs text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]">
-            Actions
-          </button>
-          {conversationActionsOpen && (
-            <>
-              <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close conversation actions" onClick={() => setConversationActionsOpen(false)} />
-              <div className="absolute right-0 top-7 z-50 w-80 rounded-xl bg-card p-3 shadow-[var(--shadow-card)]">
-                {conversation && <CompactWorkspaceMenu value={workspaceValue} workspaces={safeWorkspaces} pending={updateWorkspace.isPending} onChange={setSelectedWorkspaceId} onSave={() => updateWorkspace.mutate(workspaceValue || '')} />}
-                <div className="mt-3 flex items-center gap-2">
-                  <V2Input value={forkTitle} onChange={(event) => setForkTitle(event.target.value)} placeholder="Fork title" className="min-w-0 flex-1" />
-                  <Button size="xs" variant="secondary" icon={<GitBranchPlus size={13} />} loading={forkConversation.isPending} onClick={() => forkConversation.mutate()} title="Fork conversation">Fork</Button>
-                </div>
-                {conversation?.status !== 'archived' && (
-                  <Button className="mt-3 w-full" size="xs" variant="ghost" icon={<Archive size={13} />} disabled={transitionConversation.isPending} onClick={() => transitionConversation.mutate('archive')} title="Archive conversation">
-                    Archive conversation
-                  </Button>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <section className="flex min-w-0 flex-1 flex-col bg-primary">
+          <div className="flex h-9 shrink-0 items-center gap-1 bg-canvas px-2">
+            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
+              {safeWorkspaceConversations.map((candidate) => (
+                <button
+                  key={candidate.id}
+                  type="button"
+                  onClick={() => navigate(`/v2/conversations/${candidate.id}`)}
+                  className={`inline-flex h-7 max-w-[15rem] shrink-0 items-center gap-1.5 rounded-md px-2 text-xs ${
+                    candidate.id === conversationId
+                      ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
+                      : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]'
+                  }`}
+                >
+                  <MessageSquareText size={13} />
+                  <span className="truncate">{candidate.title}</span>
+                </button>
+              ))}
+              {sortedTerminals.map((terminal) => (
+                <button
+                  key={terminal.id}
+                  type="button"
+                  onClick={() => navigate(`/v2/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`)}
+                  className="inline-flex h-7 max-w-[12rem] shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]"
+                >
+                  <SquareTerminal size={13} />
+                  <span className="truncate">{terminal.title || 'Terminal'}</span>
+                </button>
+              ))}
+            </div>
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                disabled={!activeWorkspace || activeWorkspace.status !== 'active'}
+                onClick={() => setNewTabOpen((value) => !value)}
+                className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
+                title="New tab"
+              >
+                <PlusCircle size={15} />
+              </button>
+              {newTabOpen && (
+                <>
+                  <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close new tab menu" onClick={() => setNewTabOpen(false)} />
+                  <div className="absolute right-0 top-8 z-50 w-44 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
+                    <NewTabMenuItem icon={<MessageSquarePlus size={14} />} disabled={createConversation.isPending} onClick={() => { setNewTabOpen(false); createConversation.mutate(); }}>Conversation</NewTabMenuItem>
+                    <NewTabMenuItem icon={<SquareTerminal size={14} />} disabled={createTerminal.isPending || !activeWorkspace} onClick={() => { setNewTabOpen(false); createTerminal.mutate(); }}>Terminal</NewTabMenuItem>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+          <div className="mx-auto flex h-9 w-full max-w-5xl shrink-0 items-center justify-between gap-3 px-6">
+            <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
+              <Sparkles size={13} />
+              <span className="truncate font-medium text-[var(--color-text-primary)]">{conversation?.title ?? 'Conversation'}</span>
+              {safeWorkspaceHistory.length > 1 && <span>{safeWorkspaceHistory.length} moves</span>}
+            </div>
+            <div className="relative flex shrink-0 items-center gap-1">
+              <button type="button" onClick={() => setConversationActionsOpen((value) => !value)} className="rounded-md px-2 py-1 text-xs text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]">
+                Actions
+              </button>
+              {conversationActionsOpen && (
+                <>
+                  <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close conversation actions" onClick={() => setConversationActionsOpen(false)} />
+                  <div className="absolute right-0 top-7 z-50 w-80 rounded-xl bg-card p-3 shadow-[var(--shadow-card)]">
+                    {conversation && <CompactWorkspaceMenu value={workspaceValue} workspaces={safeWorkspaces} pending={updateWorkspace.isPending} onChange={setSelectedWorkspaceId} onSave={() => updateWorkspace.mutate(workspaceValue || '')} />}
+                    <div className="mt-3 flex items-center gap-2">
+                      <V2Input value={forkTitle} onChange={(event) => setForkTitle(event.target.value)} placeholder="Fork title" className="min-w-0 flex-1" />
+                      <Button size="xs" variant="secondary" icon={<GitBranchPlus size={13} />} loading={forkConversation.isPending} onClick={() => forkConversation.mutate()} title="Fork conversation">Fork</Button>
+                    </div>
+                    {conversation?.status !== 'archived' && (
+                      <Button className="mt-3 w-full" size="xs" variant="ghost" icon={<Archive size={13} />} disabled={transitionConversation.isPending} onClick={() => transitionConversation.mutate('archive')} title="Archive conversation">
+                        Archive conversation
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
           {activePreviewTab && mainSurface !== 'conversation' && (
             <FileSurfaceBar
               tab={activePreviewTab}

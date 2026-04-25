@@ -1,10 +1,13 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
+  ChevronDown,
+  ChevronRight,
   Ellipsis,
-  FolderGit2,
+  Folder,
+  FolderOpen,
   FolderPlus,
   GitBranch,
   MessageSquarePlus,
@@ -16,7 +19,6 @@ import {
   Search,
   Settings,
   Sparkles,
-  TerminalSquare,
 } from 'lucide-react';
 import { preferencesApi, projectsApi } from '../../api';
 import type { Conversation, Project, Workspace } from '../../api/types';
@@ -135,7 +137,7 @@ export function V2Layout() {
           <V2NavLink
             to="/v2"
             active={location.pathname === '/v2'}
-            icon={<FolderGit2 size={15} />}
+            icon={<Folder size={15} />}
             label="Projects"
           />
           <SidebarAction icon={<PlugZap size={15} />} label="Pi setup" onClick={() => navigate('/v2/settings')} />
@@ -221,10 +223,13 @@ function ProjectTree({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
-  const projectActive = pathname.startsWith(`/v2/projects/${project.id}`);
+  const [expanded, setExpanded] = useState(false);
+  const projectRouteActive = pathname === `/v2/projects/${project.id}`;
+  const projectDescendantActive = pathname.startsWith(`/v2/projects/${project.id}/`);
   const activeConversationId = pathname.match(/^\/v2\/conversations\/([^/]+)/)?.[1];
   const conversationActive = conversations.some((conversation) => conversation.id === activeConversationId);
-  const treeOpen = projectActive || conversationActive;
+  const projectInPath = projectRouteActive || projectDescendantActive || conversationActive;
+  const treeOpen = expanded || projectInPath;
   const selectedWorkspaceId = new URLSearchParams(search).get('workspace');
   const safeWorkspaces = Array.isArray(workspaces) ? workspaces : [];
   const safeConversations = Array.isArray(conversations) ? conversations : [];
@@ -236,18 +241,30 @@ function ProjectTree({
     .filter((conversation) => !conversation.currentWorkspaceId && conversation.status === 'active')
     .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
     .slice(0, 3);
+  const projectIsSelectedLeaf = projectRouteActive && orderedWorkspaces.length === 0 && !selectedWorkspaceId;
+  useEffect(() => {
+    if (projectInPath) setExpanded(true);
+  }, [projectInPath]);
 
   return (
     <div className="relative mb-1">
       <div
         className={`group flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
-          projectMenuOpen || treeOpen
+          projectMenuOpen || projectIsSelectedLeaf
             ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]'
             : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
         }`}
       >
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          className="rounded p-0.5 text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]"
+          title={treeOpen ? 'Collapse project' : 'Expand project'}
+        >
+          {treeOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        </button>
         <Link to={`/v2/projects/${project.id}`} className="flex min-w-0 flex-1 items-center gap-2">
-          <FolderGit2 size={15} className={treeOpen ? 'text-accent' : 'text-dim'} />
+          {treeOpen ? <FolderOpen size={15} className={projectInPath ? 'text-accent' : 'text-dim'} /> : <Folder size={15} className="text-dim" />}
           <span className="min-w-0 flex-1 truncate text-sm font-medium">{project.name}</span>
         </Link>
         {pinned && <Pin size={12} className="text-accent" />}
@@ -286,9 +303,9 @@ function ProjectTree({
       {treeOpen && (
         <div className="mt-1 space-y-1 pl-5 pr-1">
           {orderedWorkspaces.map((workspace) => {
-            const active = selectedWorkspaceId
+            const active = !conversationActive && (selectedWorkspaceId
               ? selectedWorkspaceId === workspace.id
-              : workspace.kind === 'main';
+              : projectRouteActive && workspace.kind === 'main');
             const workspaceConversations = safeConversations
               .filter((conversation) => conversation.currentWorkspaceId === workspace.id && conversation.status === 'active')
               .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
@@ -303,7 +320,7 @@ function ProjectTree({
                   }`}
                 >
                   <Link to={`/v2/projects/${project.id}?workspace=${workspace.id}`} className="flex min-w-0 flex-1 items-center gap-2">
-                    {workspace.kind === 'main' ? <TerminalSquare size={13} /> : <GitBranch size={13} />}
+                    {workspace.kind === 'worktree' && <GitBranch size={13} />}
                     <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
                   </Link>
                   <button
