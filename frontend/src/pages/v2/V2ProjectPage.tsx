@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
+  Bolt,
   CircleSlash,
   Files,
   GitBranch,
@@ -15,7 +16,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { projectsApi } from '../../api';
+import { preferencesApi, projectsApi } from '../../api';
 import type { TerminalSession, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { TerminalView } from '../../components/session/TerminalView';
@@ -34,6 +35,11 @@ import {
 import { V2WorkspaceTools, type V2HelperTab } from './V2WorkspaceTools';
 
 type MainSurface = { type: 'terminal'; terminalId: string } | { type: 'workspaceTab'; index: number } | null;
+interface QuickRunAction {
+  id: string;
+  name: string;
+  command: string;
+}
 
 export function V2ProjectPage() {
   const { id } = useParams<{ id: string }>();
@@ -58,6 +64,7 @@ export function V2ProjectPage() {
   const requestedWorkspaceId = searchParams.get('workspace');
   const requestedTerminalId = searchParams.get('terminal');
   const workspacesQueryKey = ['v2-workspaces', id] as const;
+  const quickActionKey = `v2.quick_actions.${id ?? 'unknown'}`;
 
   const { data: project } = useQuery({
     queryKey: ['project', id],
@@ -68,6 +75,12 @@ export function V2ProjectPage() {
   const { data: workspaces } = useQuery({
     queryKey: workspacesQueryKey,
     queryFn: () => v2Api.listWorkspaces(id!),
+    enabled: !!id,
+  });
+
+  const { data: quickActions = [] } = useQuery({
+    queryKey: ['v2-quick-actions', id],
+    queryFn: () => preferencesApi.get<QuickRunAction[]>(quickActionKey).catch(() => []),
     enabled: !!id,
   });
 
@@ -120,8 +133,9 @@ export function V2ProjectPage() {
   };
 
   const createTerminal = useMutation({
-    mutationFn: () => v2Api.createTerminal(activeWorkspaceId!, {
-      title: `Terminal #${sortedTerminals.length + 1}`,
+    mutationFn: (input?: { title?: string; initialCommand?: string }) => v2Api.createTerminal(activeWorkspaceId!, {
+      title: input?.title ?? `Terminal #${sortedTerminals.length + 1}`,
+      initialCommand: input?.initialCommand,
     }),
     onSuccess: async (terminal) => {
       setMainSurface({ type: 'terminal', terminalId: terminal.id });
@@ -288,6 +302,19 @@ export function V2ProjectPage() {
           <div className="flex items-center gap-1">
             {project && (
               <>
+                {quickActions.slice(0, 3).map((action) => (
+                  <Button
+                    key={action.id}
+                    size="xs"
+                    variant="ghost"
+                    icon={<Bolt size={13} />}
+                    disabled={terminalDisabled}
+                    loading={createTerminal.isPending}
+                    onClick={() => createTerminal.mutate({ title: action.name, initialCommand: action.command })}
+                  >
+                    {action.name}
+                  </Button>
+                ))}
                 <Button size="xs" variant="ghost" icon={<Hammer size={13} />} onClick={() => navigate(`/v2/projects/${project.id}/skills`)}>Skills</Button>
                 <Button size="xs" variant="ghost" icon={<Settings2 size={13} />} onClick={() => navigate(`/v2/projects/${project.id}/pi`)}>Pi</Button>
                 <Button size="xs" variant="ghost" icon={<Settings2 size={13} />} onClick={() => navigate(`/v2/projects/${project.id}/settings`)}>Settings</Button>
@@ -329,7 +356,7 @@ export function V2ProjectPage() {
               closeTab(index);
               setMainSurface(null);
             }}
-            onCreateTerminal={() => createTerminal.mutate()}
+            onCreateTerminal={() => createTerminal.mutate(undefined)}
             createTerminalDisabled={terminalDisabled}
             createTerminalPending={createTerminal.isPending}
           />
@@ -348,7 +375,7 @@ export function V2ProjectPage() {
                 body={activeWorkspace?.status !== 'active'
                   ? `This workspace is ${activeWorkspace?.status}. Reactivate it before starting terminals.`
                   : 'Start a terminal, or open files and diffs from the tools panel.'}
-                action={<Button size="sm" variant="primary" icon={<SquareTerminal size={14} />} disabled={terminalDisabled} loading={createTerminal.isPending} onClick={() => createTerminal.mutate()}>Start terminal</Button>}
+                action={<Button size="sm" variant="primary" icon={<SquareTerminal size={14} />} disabled={terminalDisabled} loading={createTerminal.isPending} onClick={() => createTerminal.mutate(undefined)}>Start terminal</Button>}
               />
             )}
           </div>
