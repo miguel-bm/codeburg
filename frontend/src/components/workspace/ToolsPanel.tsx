@@ -118,6 +118,7 @@ export function ToolsPanel() {
                 key={`${recipe.source}:${recipe.name}`}
                 recipe={recipe}
                 isRunning={runningRecipe === recipe.command}
+                isMobile={isMobile}
                 onRun={() => setPendingRecipe(recipe)}
               />
             ))}
@@ -212,9 +213,17 @@ export function ToolsPanel() {
         )}
       >
         <div className="px-5 py-4 space-y-2">
+          {pendingRecipe?.source && (
+            <div className="inline-flex items-center rounded-full border border-subtle bg-secondary px-2 py-0.5 text-[10px] uppercase tracking-wide text-dim">
+              {pendingRecipe.source}
+            </div>
+          )}
           <p className="text-xs text-[var(--color-text-primary)]">
             Start a terminal session for <span className="font-mono text-accent">{pendingRecipe?.name}</span>?
           </p>
+          {pendingRecipe?.description && (
+            <p className="text-xs text-dim">{pendingRecipe.description}</p>
+          )}
           {pendingRecipe?.command && (
             <pre className="text-[11px] font-mono text-[var(--color-text-primary)] bg-secondary rounded px-2 py-1 whitespace-pre-wrap break-all">
               {pendingRecipe.command}
@@ -316,10 +325,12 @@ function TunnelEntry({
 function RecipeEntry({
   recipe,
   isRunning,
+  isMobile,
   onRun,
 }: {
   recipe: Recipe;
   isRunning: boolean;
+  isMobile: boolean;
   onRun: () => void;
 }) {
   const [tooltip, setTooltip] = useState<{ x: number; y: number } | null>(null);
@@ -327,12 +338,13 @@ function RecipeEntry({
   const rowRef = useRef<HTMLDivElement>(null);
 
   const showTooltip = useCallback(() => {
+    if (isMobile) return;
     if (!rowRef.current) return;
     const rect = rowRef.current.getBoundingClientRect();
     timerRef.current = setTimeout(() => {
       setTooltip({ x: rect.right + 8, y: rect.top });
     }, 400);
-  }, []);
+  }, [isMobile]);
 
   const hideTooltip = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -356,14 +368,15 @@ function RecipeEntry({
         <button
           onClick={onRun}
           disabled={isRunning}
+          aria-label={`Run recipe: ${recipe.name}`}
           className="p-0.5 text-dim hover:text-accent sm:opacity-0 sm:group-hover:opacity-100 shrink-0 disabled:opacity-50"
-          title={`Run: ${recipe.command}`}
+          title={isMobile ? undefined : `Run: ${recipe.command}`}
         >
           <Play size={12} />
         </button>
       </div>
 
-      {tooltip && <RecipeTooltip recipe={recipe} position={tooltip} />}
+      {!isMobile && tooltip && <RecipeTooltip recipe={recipe} position={tooltip} />}
     </>
   );
 }

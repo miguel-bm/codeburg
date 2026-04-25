@@ -22,9 +22,8 @@ install -o root -g root -m 0644 \
     /etc/systemd/system/codeburg-apply-unit.service
 
 echo "==> Ensuring helper script is executable"
-install -o root -g root -m 0755 \
-    "$INSTALL_DIR/deploy/apply-systemd-unit.sh" \
-    "$INSTALL_DIR/deploy/apply-systemd-unit.sh"
+chown root:root "$INSTALL_DIR/deploy/apply-systemd-unit.sh"
+chmod 0755 "$INSTALL_DIR/deploy/apply-systemd-unit.sh"
 
 echo "==> Writing sudoers policy for ${CODEBURG_USER}"
 cat > /etc/sudoers.d/codeburg << 'SUDOEOF'

@@ -2,6 +2,7 @@ package db
 
 import (
 	"fmt"
+	"strings"
 )
 
 // Migrate runs all database migrations
@@ -50,7 +51,12 @@ func (db *DB) runMigration(m migration) error {
 	defer tx.Rollback()
 
 	if _, err := tx.Exec(m.sql); err != nil {
-		return err
+		// Some preview builds used migration numbers that later collided with
+		// mainline migrations. Allow compatibility add-column migrations to be
+		// marked applied when the target column already exists.
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return err
+		}
 	}
 
 	if _, err := tx.Exec("INSERT INTO migrations (version) VALUES (?)", m.version); err != nil {
@@ -317,6 +323,13 @@ var migrations = []migration{
 	{
 		version: 17,
 		sql: `
+			-- Optional user-defined name for session labels
+			ALTER TABLE agent_sessions ADD COLUMN display_name TEXT;
+		`,
+	},
+	{
+		version: 18,
+		sql: `
 			-- V2-style project workspaces (one canonical default-branch workspace per project)
 			CREATE TABLE workspaces (
 				id TEXT PRIMARY KEY,
@@ -373,7 +386,7 @@ var migrations = []migration{
 		`,
 	},
 	{
-		version: 18,
+		version: 19,
 		sql: `
 			-- Defensive follow-up for early V2 installs where migration 17 may have been
 			-- recorded without the new tables being present.
@@ -431,7 +444,7 @@ var migrations = []migration{
 		`,
 	},
 	{
-		version: 19,
+		version: 20,
 		sql: `
 			-- Durable V2 conversations, independent from tasks and terminal sessions.
 			CREATE TABLE conversations (
@@ -458,10 +471,18 @@ var migrations = []migration{
 		`,
 	},
 	{
-		version: 20,
+		version: 21,
+		sql: `
+			-- Compatibility for preview V2 databases that already used versions
+			-- 17-20 before the session-label migration reached main.
+			ALTER TABLE agent_sessions ADD COLUMN display_name TEXT;
+		`,
+	},
+	{
+		version: 22,
 		sql: `
 			-- Historical workspace attachments for V2 conversations.
-			CREATE TABLE conversation_workspace_links (
+			CREATE TABLE IF NOT EXISTS conversation_workspace_links (
 				id TEXT PRIMARY KEY,
 				conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
 				workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
@@ -470,9 +491,9 @@ var migrations = []migration{
 				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 				detached_at DATETIME
 			);
-			CREATE INDEX idx_conversation_workspace_links_conversation ON conversation_workspace_links(conversation_id, created_at DESC);
-			CREATE INDEX idx_conversation_workspace_links_workspace ON conversation_workspace_links(workspace_id);
-			CREATE INDEX idx_conversation_workspace_links_active ON conversation_workspace_links(conversation_id, active);
+			CREATE INDEX IF NOT EXISTS idx_conversation_workspace_links_conversation ON conversation_workspace_links(conversation_id, created_at DESC);
+			CREATE INDEX IF NOT EXISTS idx_conversation_workspace_links_workspace ON conversation_workspace_links(workspace_id);
+			CREATE INDEX IF NOT EXISTS idx_conversation_workspace_links_active ON conversation_workspace_links(conversation_id, active);
 
 			INSERT INTO conversation_workspace_links (id, conversation_id, workspace_id, reason, active, created_at)
 			SELECT

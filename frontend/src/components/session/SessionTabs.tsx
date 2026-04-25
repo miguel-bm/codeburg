@@ -2,6 +2,7 @@ import type { AgentSession, SessionStatus } from '../../api/sessions';
 import { Plus, Sparkles, X } from 'lucide-react';
 import { getSessionStatusMeta } from '../../lib/sessionStatus';
 import { ProviderIcon } from './ProviderIcon';
+import { sessionLabel } from '../../lib/sessionLabel';
 
 interface Props {
   sessions: AgentSession[];
@@ -54,7 +55,7 @@ export function SessionTabs({
           >
             <ProviderIcon provider={session.provider} />
             <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${getStatusDotClass(session.status)}`} />
-            <span>#{i + 1}</span>
+            <span>{sessionLabel(session, i + 1)}</span>
             {session.sessionType === 'chat' && (
               <span className="text-[10px] px-1 py-0.5 rounded border border-subtle text-dim uppercase tracking-[0.08em]">
                 chat

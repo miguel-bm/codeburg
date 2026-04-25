@@ -9,6 +9,7 @@ export interface AgentSession {
   taskId?: string;
   projectId: string;
   provider: SessionProvider;
+  displayName?: string;
   sessionType: SessionType;
   providerSessionId?: string;
   status: SessionStatus;
@@ -29,12 +30,19 @@ export interface StartSessionInput {
   autoApprove?: boolean;
 }
 
+export interface UpdateSessionInput {
+  displayName: string;
+}
+
 export const sessionsApi = {
   list: (taskId: string) =>
     api.get<AgentSession[]>(`/tasks/${taskId}/sessions`),
 
   get: (id: string) =>
     api.get<AgentSession>(`/sessions/${id}`),
+
+  update: (id: string, input: UpdateSessionInput) =>
+    api.patch<AgentSession>(`/sessions/${id}`, input),
 
   start: (taskId: string, input: StartSessionInput) =>
     api.post<AgentSession>(`/tasks/${taskId}/sessions`, input),

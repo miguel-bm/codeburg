@@ -68,11 +68,21 @@ func TestBuildChatTurnCommand_CodexResume(t *testing.T) {
 	if command != "codex" {
 		t.Fatalf("expected command codex, got %q", command)
 	}
-	if len(args) < 3 || args[0] != "exec" || args[1] != "resume" || args[2] != "--json" {
+	execIdx := -1
+	for i, arg := range args {
+		if arg == "exec" {
+			execIdx = i
+			break
+		}
+	}
+	if execIdx < 0 || len(args) <= execIdx+2 || args[execIdx+1] != "resume" || args[execIdx+2] != "--json" {
 		t.Fatalf("unexpected resume args prefix: %v", args)
 	}
 	if !containsArg(args, "--full-auto") {
 		t.Fatalf("expected --full-auto in args, got %v", args)
+	}
+	if !containsArg(args, "--dangerously-bypass-approvals-and-sandbox") {
+		t.Fatalf("expected codex no-sandbox flag in args, got %v", args)
 	}
 	if !containsArg(args, "session-123") {
 		t.Fatalf("expected session id in args, got %v", args)
@@ -94,6 +104,9 @@ func TestBuildChatTurnCommand_AutoApproveOff(t *testing.T) {
 	}
 	if containsArg(codexArgs, "--full-auto") {
 		t.Fatalf("expected codex chat auto-approval disabled, got args %v", codexArgs)
+	}
+	if containsArg(codexArgs, "--dangerously-bypass-approvals-and-sandbox") {
+		t.Fatalf("expected codex chat no-sandbox flag disabled, got args %v", codexArgs)
 	}
 }
 

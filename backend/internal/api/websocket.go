@@ -392,6 +392,7 @@ func (c *WSClient) handleMessage(s *Server, message []byte) {
 		ID        string `json:"id"`
 		SessionID string `json:"sessionId"`
 		Content   string `json:"content"`
+		Focused   bool   `json:"focused"`
 		Token     string `json:"token"`
 	}
 
@@ -459,6 +460,16 @@ func (c *WSClient) handleMessage(s *Server, message []byte) {
 			s.handleWSMessage(msg.SessionID, msg.Content)
 		}
 
+	case "session_focus":
+		if !c.isAuthenticated() {
+			c.closeUnauthorized("authentication required")
+			return
+		}
+		if strings.TrimSpace(msg.SessionID) == "" {
+			return
+		}
+		s.telegramUpdateSessionFocus(strings.TrimSpace(msg.SessionID), msg.Focused)
+
 	case "ping":
 		c.sendJSON(map[string]string{"type": "pong"})
 	}
@@ -508,7 +519,7 @@ func (s *Server) handleWSMessage(sessionID string, content string) {
 		return
 	}
 
-	if err := s.sessions.runtime.Write(sessionID, []byte(content+"\n")); err != nil {
+	if err := s.sendTerminalInput(sessionID, content); err != nil {
 		slog.Error("failed to send websocket message to session", "session_id", sessionID, "error", err)
 		s.wsHub.BroadcastToSession(sessionID, "error", map[string]string{
 			"message": "Failed to deliver message: " + err.Error(),

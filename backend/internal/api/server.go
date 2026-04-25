@@ -82,6 +82,8 @@ type Server struct {
 	telegramBotMu          sync.Mutex
 	telegramReplyMapMu     sync.Mutex
 	telegramReplyToSession map[string]string // chatID:messageID -> sessionID
+	telegramFocusMu        sync.Mutex
+	telegramFocusedSession map[string]time.Time // sessionID -> last-focused timestamp
 	telegramMemoryMu       sync.Mutex
 	telegramMemory         map[int64][]telegramAssistantMemoryTurn
 	httpServer             *http.Server
@@ -111,6 +113,7 @@ func NewServer(database *db.DB) *Server {
 		challenges:             newChallengeStore(),
 		allowedOrigins:         []string{"http://localhost:*"},
 		telegramReplyToSession: make(map[string]string),
+		telegramFocusedSession: make(map[string]time.Time),
 		telegramMemory:         make(map[int64][]telegramAssistantMemoryTurn),
 	}
 
@@ -372,6 +375,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/tasks/{taskId}/sessions", s.handleListSessions)
 		r.Post("/api/tasks/{taskId}/sessions", s.handleStartSession)
 		r.Get("/api/sessions/{id}", s.handleGetSession)
+		r.Patch("/api/sessions/{id}", s.handleUpdateSession)
 		r.Post("/api/sessions/{id}/message", s.handleSendMessage)
 		r.Post("/api/sessions/{id}/stop", s.handleStopSession)
 		r.Delete("/api/sessions/{id}", s.handleDeleteSession)

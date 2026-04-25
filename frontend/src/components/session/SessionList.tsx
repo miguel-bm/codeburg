@@ -1,6 +1,7 @@
 import { Terminal } from 'lucide-react';
 import type { AgentSession, SessionStatus } from '../../api/sessions';
 import { getSessionStatusMeta } from '../../lib/sessionStatus';
+import { buildSessionOrdinalMap, sessionLabel } from '../../lib/sessionLabel';
 
 interface SessionListProps {
   sessions: AgentSession[];
@@ -10,6 +11,8 @@ interface SessionListProps {
 }
 
 export function SessionList({ sessions, activeSessionId, onSelect, onResume }: SessionListProps) {
+  const ordinals = buildSessionOrdinalMap(sessions);
+
   if (sessions.length === 0) {
     return (
       <div className="p-6 text-center text-sm text-dim flex flex-col items-center gap-2">
@@ -33,7 +36,7 @@ export function SessionList({ sessions, activeSessionId, onSelect, onResume }: S
         >
           <div className="flex items-center justify-between">
             <span className="text-sm font-mono">
-              {session.id.slice(0, 8)}...
+              {sessionLabel(session, ordinals.get(session.id))}
             </span>
             <SessionStatusBadge status={session.status} />
           </div>

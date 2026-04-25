@@ -21,6 +21,7 @@ import {
 import { sidebarApi, projectsApi, TASK_STATUS } from '../../api';
 import type { TaskStatus, SidebarSession } from '../../api';
 import { usePanelNavigation } from '../../hooks/usePanelNavigation';
+import { sidebarSessionLabel } from '../../lib/sessionLabel';
 
 interface CommandPaletteProps {
   onClose: () => void;
@@ -238,7 +239,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
                       {sessionIcon(session)}
                       <div className="flex-1 min-w-0">
                         <div className="text-sm truncate">
-                          {session.provider} #{session.number}
+                          {sidebarSessionLabel(session)}
                         </div>
                         <div className="text-[10px] text-dim truncate">
                           {taskTitle} &middot; waiting for input

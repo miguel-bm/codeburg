@@ -24,6 +24,7 @@ import { V2ProjectConversationsPage } from './pages/v2/V2ProjectConversationsPag
 import { V2ProjectPage } from './pages/v2/V2ProjectPage';
 import { V2ProjectSkillsPage } from './pages/v2/V2ProjectSkillsPage';
 import { V2ProjectPiPage } from './pages/v2/V2ProjectPiPage';
+import { useSessionFocusPresence } from './hooks/useSessionFocusPresence';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -59,6 +60,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 function MainAppShell() {
   useSidebarRealtimeUpdates();
   useNotifications();
+  useSessionFocusPresence();
   const { open: paletteOpen, setOpen: setPaletteOpen } = useCommandPalette();
 
   return (

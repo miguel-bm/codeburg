@@ -324,7 +324,7 @@ func (s *Server) telegramCommandReply(args string) (string, error) {
 		}
 		return fmt.Sprintf("Sent message to chat session %s.", shortID(session.ID)), nil
 	}
-	if err := s.sessions.runtime.Write(session.ID, []byte(content+"\n")); err != nil {
+	if err := s.sendTerminalInput(session.ID, content); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Sent message to terminal session %s.", shortID(session.ID)), nil
@@ -1561,7 +1561,7 @@ func (s *Server) telegramRunToolCall(name, rawArgs string) map[string]any {
 				return map[string]any{"ok": false, "error": err.Error()}
 			}
 		} else {
-			if err := s.sessions.runtime.Write(session.ID, []byte(content+"\n")); err != nil {
+			if err := s.sendTerminalInput(session.ID, content); err != nil {
 				return map[string]any{"ok": false, "error": err.Error()}
 			}
 		}
@@ -1754,26 +1754,45 @@ func (s *Server) telegramRenderAssistantError(err error) string {
 	return "I could not process that right now. " + msg
 }
 
-func (s *Server) notifyTelegramSessionNeedsAttention(sessionID, taskID, reason string) {
+func (s *Server) notifyTelegramSessionNeedsAttention(sessionID, taskID, _ string) {
+	if !s.telegramNotificationsEnabled() {
+		slog.Debug("telegram notify skipped: disabled by preference", "session_id", sessionID, "task_id", taskID)
+		return
+	}
+	if s.telegramSuppressFocusedSessionNotifications() && s.telegramSessionFocusedRecently(sessionID, 20*time.Second) {
+		slog.Debug("telegram notify skipped: session actively focused in UI", "session_id", sessionID, "task_id", taskID)
+		return
+	}
+
 	s.telegramBotMu.Lock()
 	bot := s.telegramBot
 	s.telegramBotMu.Unlock()
 	if bot == nil {
+		slog.Debug("telegram notify skipped: bot not running", "session_id", sessionID, "task_id", taskID)
 		return
 	}
 	chatIDRaw, err := s.telegramPreferenceString("telegram_user_id")
 	if err != nil || strings.TrimSpace(chatIDRaw) == "" {
+		slog.Debug("telegram notify skipped: telegram_user_id not configured", "session_id", sessionID, "task_id", taskID, "error", err)
 		return
 	}
 	chatID, err := strconv.ParseInt(strings.TrimSpace(chatIDRaw), 10, 64)
 	if err != nil {
+		slog.Warn("telegram notify skipped: invalid telegram_user_id", "session_id", sessionID, "task_id", taskID, "value", chatIDRaw, "error", err)
 		return
 	}
 
 	title := ""
 	providerLabel := "Agent"
+	tabLabel := ""
 	if session, err := s.db.GetSession(sessionID); err == nil {
 		providerLabel = telegramProviderLabel(session.Provider)
+		if session.DisplayName != nil {
+			tabLabel = strings.TrimSpace(*session.DisplayName)
+		}
+	}
+	if tabLabel == "" {
+		tabLabel = fmt.Sprintf("%s %s", providerLabel, shortID(sessionID))
 	}
 	if taskID != "" {
 		if task, err := s.db.GetTask(taskID); err == nil {
@@ -1789,27 +1808,104 @@ func (s *Server) notifyTelegramSessionNeedsAttention(sessionID, taskID, reason s
 	if taskLabel == "" {
 		taskLabel = shortID(taskID)
 	}
-	sessionLabel := html.EscapeString(providerLabel)
-	text := fmt.Sprintf("%s is waiting for a reply.", sessionLabel)
+	tabLabelHTML := html.EscapeString(tabLabel)
+	htmlText := fmt.Sprintf("%s needs your attention.", tabLabelHTML)
+	plainText := fmt.Sprintf("%s needs your attention.", tabLabel)
 	if origin != "" && taskID != "" {
 		sessionURL := strings.TrimSuffix(origin, "/") + "/tasks/" + taskID + "/session/" + sessionID
 		taskURL := strings.TrimSuffix(origin, "/") + "/tasks/" + taskID
-		text = fmt.Sprintf("<a href=\"%s\">%s</a> is waiting for a reply on task <a href=\"%s\">%s</a>.",
-			html.EscapeString(sessionURL), sessionLabel, html.EscapeString(taskURL), taskLabel)
+		htmlText = fmt.Sprintf("Session tab <a href=\"%s\">%s</a> needs your attention on task <a href=\"%s\">%s</a>.",
+			html.EscapeString(sessionURL), tabLabelHTML, html.EscapeString(taskURL), taskLabel)
+		plainText = fmt.Sprintf("Session tab %s needs your attention on task %s.\nSession: %s\nTask: %s", tabLabel, strings.TrimSpace(title), sessionURL, taskURL)
 	} else if taskID != "" {
-		text = fmt.Sprintf("%s is waiting for a reply on task _%s_.", sessionLabel, taskLabel)
+		htmlText = fmt.Sprintf("Session tab %s needs your attention on task %s.", tabLabelHTML, taskLabel)
+		plainText = fmt.Sprintf("Session tab %s needs your attention on task %s.", tabLabel, strings.TrimSpace(title))
 	}
-	if strings.TrimSpace(reason) != "" {
-		text += fmt.Sprintf("\n\nReason: %s", html.EscapeString(reason))
-	}
-	text += fmt.Sprintf("\n\nReply to this message to answer, or use /reply %s <message>.", sessionID)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	messageID, err := bot.SendMessageWithOptions(ctx, chatID, text, telegram.SendMessageOptions{ParseMode: "HTML"})
+	messageID, err := bot.SendMessageWithOptions(ctx, chatID, htmlText, telegram.SendMessageOptions{ParseMode: "HTML"})
+	if err != nil {
+		slog.Warn("telegram notification send failed, retrying plain text",
+			"session_id", sessionID,
+			"task_id", taskID,
+			"chat_id", chatID,
+			"error", err,
+		)
+		messageID, err = bot.SendMessageWithOptions(ctx, chatID, plainText, telegram.SendMessageOptions{})
+	}
 	if err == nil && messageID != 0 {
 		s.telegramStoreReplySession(chatID, messageID, sessionID)
+		slog.Debug("telegram notification sent", "session_id", sessionID, "task_id", taskID, "chat_id", chatID, "message_id", messageID)
+	} else if err != nil {
+		slog.Warn("telegram notification delivery failed",
+			"session_id", sessionID,
+			"task_id", taskID,
+			"chat_id", chatID,
+			"error", err,
+		)
 	}
+}
+
+func (s *Server) telegramNotificationsEnabled() bool {
+	raw, err := s.telegramPreferenceString("telegram_notifications_enabled")
+	if err != nil {
+		return true
+	}
+	enabled, parseErr := strconv.ParseBool(strings.TrimSpace(raw))
+	if parseErr != nil {
+		return true
+	}
+	return enabled
+}
+
+func (s *Server) telegramSuppressFocusedSessionNotifications() bool {
+	raw, err := s.telegramPreferenceString("telegram_notifications_suppress_when_active")
+	if err != nil {
+		return true
+	}
+	enabled, parseErr := strconv.ParseBool(strings.TrimSpace(raw))
+	if parseErr != nil {
+		return true
+	}
+	return enabled
+}
+
+func (s *Server) telegramUpdateSessionFocus(sessionID string, focused bool) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	s.telegramFocusMu.Lock()
+	if s.telegramFocusedSession == nil {
+		s.telegramFocusedSession = make(map[string]time.Time)
+	}
+	if focused {
+		s.telegramFocusedSession[sessionID] = time.Now()
+	} else {
+		delete(s.telegramFocusedSession, sessionID)
+	}
+	s.telegramFocusMu.Unlock()
+}
+
+func (s *Server) telegramSessionFocusedRecently(sessionID string, within time.Duration) bool {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" || within <= 0 {
+		return false
+	}
+	s.telegramFocusMu.Lock()
+	last, ok := s.telegramFocusedSession[sessionID]
+	if !ok {
+		s.telegramFocusMu.Unlock()
+		return false
+	}
+	if time.Since(last) > within {
+		delete(s.telegramFocusedSession, sessionID)
+		s.telegramFocusMu.Unlock()
+		return false
+	}
+	s.telegramFocusMu.Unlock()
+	return true
 }
 
 func telegramProviderLabel(provider string) string {
@@ -1876,7 +1972,7 @@ func (s *Server) telegramSendReplyToSession(ctx context.Context, sessionID strin
 		}
 		return fmt.Sprintf("Sent message to %s session %s.", telegramProviderLabel(session.Provider), shortID(session.ID)), nil
 	}
-	if err := s.sessions.runtime.Write(session.ID, []byte(content+"\n")); err != nil {
+	if err := s.sendTerminalInput(session.ID, content); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Sent message to terminal session %s.", shortID(session.ID)), nil

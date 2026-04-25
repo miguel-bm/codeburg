@@ -107,7 +107,11 @@ func buildChatTurnCommand(provider, prompt, model, providerSessionID string, aut
 
 	case "codex":
 		if providerSessionID != "" {
-			args := []string{"exec", "resume", "--json"}
+			args := []string{}
+			if autoApprove {
+				args = append(args, "--dangerously-bypass-approvals-and-sandbox")
+			}
+			args = append(args, "exec", "resume", "--json")
 			if autoApprove {
 				args = append(args, "--full-auto")
 			}
@@ -118,7 +122,11 @@ func buildChatTurnCommand(provider, prompt, model, providerSessionID string, aut
 			return "codex", args, nil
 		}
 
-		args := []string{"exec", "--json"}
+		args := []string{}
+		if autoApprove {
+			args = append(args, "--dangerously-bypass-approvals-and-sandbox")
+		}
+		args = append(args, "exec", "--json")
 		if autoApprove {
 			args = append(args, "--full-auto")
 		}

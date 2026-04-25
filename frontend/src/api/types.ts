@@ -190,6 +190,7 @@ export interface SidebarTask {
 export interface SidebarSession {
   id: string;
   provider: SessionProvider;
+  displayName?: string;
   status: SessionStatus;
   number: number;
 }
