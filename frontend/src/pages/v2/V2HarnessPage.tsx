@@ -1,6 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
@@ -41,7 +40,7 @@ export function V2HarnessPage() {
   const [modelsDraft, setModelsDraft] = useState('');
   const [packageSource, setPackageSource] = useState('');
   const [extensionPath, setExtensionPath] = useState('');
-  const [checkLatest, setCheckLatest] = useState(false);
+  const [latestRequested, setLatestRequested] = useState(false);
   const [activeUpdate, setActiveUpdate] = useState<HarnessToolId | null>(null);
   const [dialogTool, setDialogTool] = useState<HarnessToolId | null>(null);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
@@ -53,9 +52,9 @@ export function V2HarnessPage() {
     queryKey: ['v2-pi-config'],
     queryFn: () => v2Api.getPiConfig(),
   });
-  const { data: harnessStatus, isFetching: harnessFetching } = useQuery({
-    queryKey: ['harness-status', checkLatest],
-    queryFn: () => v2Api.getHarnessStatus(checkLatest),
+  const { data: harnessStatus } = useQuery({
+    queryKey: ['harness-status'],
+    queryFn: () => v2Api.getHarnessStatus(latestRequested),
   });
 
   useEffect(() => {
@@ -90,6 +89,16 @@ export function V2HarnessPage() {
   });
   const removeGlobalExtension = useMutation({ mutationFn: (path: string) => v2Api.removePiExtension(path), onSuccess: refreshHarnessState });
 
+  const checkLatestVersions = useMutation({
+    mutationFn: () => v2Api.getHarnessStatus(true),
+    onMutate: () => {
+      setLatestRequested(true);
+    },
+    onSuccess: (status) => {
+      queryClient.setQueryData(['harness-status'], status);
+    },
+  });
+
   const addUpdateLog = (event: HarnessUpdateEvent) => {
     const text = event.event === 'done' ? formatDoneEvent(event.data) : event.data;
     if (!text.trim()) return;
@@ -122,14 +131,6 @@ export function V2HarnessPage() {
 
   const piTool = useMemo(() => tools.find((tool) => tool.id === 'pi'), [tools]);
 
-  const checkLatestVersions = () => {
-    if (!checkLatest) {
-      setCheckLatest(true);
-      return;
-    }
-    void queryClient.invalidateQueries({ queryKey: ['harness-status', true] });
-  };
-
   return (
     <V2Screen>
       <div className="flex min-h-14 shrink-0 items-center justify-between gap-4 bg-canvas px-6 py-2">
@@ -137,39 +138,30 @@ export function V2HarnessPage() {
           <div className="truncate text-sm font-semibold">Harness</div>
           <div className="text-xs text-dim">Global agent runtimes, login state, and Pi configuration.</div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button size="sm" variant="secondary" icon={<RefreshCcw size={14} />} loading={harnessFetching} onClick={checkLatestVersions}>
-            Check latest
-          </Button>
-          <Link to="/v2/settings">
-            <Button size="sm" variant="ghost">Settings</Button>
-          </Link>
-        </div>
       </div>
 
       <main className="min-h-0 flex-1 overflow-auto px-6 py-6">
         <div className="space-y-10">
           <section className="space-y-4">
             <div className="flex items-start justify-between gap-4">
-              <SectionTitle icon={<Bot size={15} />} title="Harness runtimes" description="Installed tools used by Codeburg conversations and terminals. Latest versions are fetched when you press Check latest." />
+              <SectionTitle icon={<Bot size={15} />} title="Harness runtimes" description="Installed tools used by Codeburg conversations and terminals." />
               {harnessStatus?.update?.running && (
                 <StatusPill ok={false} label={`Updating ${harnessStatus.update.tool ?? 'tool'}`} />
               )}
             </div>
             <div className="grid gap-3 xl:grid-cols-3">
-              {tools.map((tool) => (
+              {tools.length > 0 ? tools.map((tool) => (
                 <HarnessToolCard
                   key={tool.id}
                   tool={tool}
                   updating={runningTool === tool.id}
                   disabled={updateLocked && runningTool !== tool.id}
-                  latestChecked={harnessStatus?.checkedLatest ?? checkLatest}
+                  latestChecked={Boolean(harnessStatus?.checkedLatest)}
+                  checkingLatest={checkLatestVersions.isPending}
+                  onCheckLatest={() => checkLatestVersions.mutate()}
                   onUpdate={() => updateHarness.mutate(tool.id)}
                 />
-              ))}
-              {tools.length === 0 && (
-                <div className="rounded-xl bg-card p-4 text-sm text-dim shadow-[var(--shadow-card)]">Loading harness runtimes...</div>
-              )}
+              )) : <HarnessToolLoadingCards />}
             </div>
           </section>
 
@@ -279,12 +271,16 @@ function HarnessToolCard({
   updating,
   disabled,
   latestChecked,
+  checkingLatest,
+  onCheckLatest,
   onUpdate,
 }: {
   tool: HarnessToolStatus;
   updating: boolean;
   disabled: boolean;
   latestChecked: boolean;
+  checkingLatest: boolean;
+  onCheckLatest: () => void;
   onUpdate: () => void;
 }) {
   const stale = Boolean(tool.latestVersion && tool.version && !tool.version.includes(tool.latestVersion));
@@ -304,7 +300,12 @@ function HarnessToolCard({
       <div className="mt-4 space-y-2 text-sm">
         <StatusLine label="Installed" ok={tool.installed} value={tool.installed ? 'Yes' : 'No'} />
         <InfoLine label="Current" value={tool.version ?? 'Unavailable'} mono />
-        <InfoLine label="Latest" value={tool.latestVersion ?? (latestChecked ? 'Unavailable' : 'Check latest first')} mono />
+        <LatestVersionLine
+          version={tool.latestVersion}
+          latestChecked={latestChecked}
+          checkingLatest={checkingLatest}
+          onCheckLatest={onCheckLatest}
+        />
         <div className="break-all py-1 font-mono text-xs text-dim">{tool.binaryPath ?? 'No binary on PATH'}</div>
       </div>
 
@@ -325,6 +326,85 @@ function HarnessToolCard({
         </div>
       </div>
     </article>
+  );
+}
+
+function HarnessToolLoadingCards() {
+  const placeholders: Array<{ id: HarnessToolId; name: string; packageName: string }> = [
+    { id: 'pi', name: 'Pi', packageName: '@mariozechner/pi-coding-agent' },
+    { id: 'codex', name: 'Codex', packageName: '@openai/codex' },
+    { id: 'claude', name: 'Claude Code', packageName: '@anthropic-ai/claude-code' },
+  ];
+
+  return (
+    <>
+      {placeholders.map((tool) => (
+        <article key={tool.id} className="flex min-h-[15rem] flex-col rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-3">
+              <HarnessToolLogo tool={tool.id} />
+              <div className="min-w-0">
+                <h2 className="truncate text-sm font-semibold">{tool.name}</h2>
+                <p className="mt-1 truncate font-mono text-xs text-dim">{tool.packageName}</p>
+              </div>
+            </div>
+            <StatusPill ok={false} label="Checking" />
+          </div>
+          <div className="mt-4 space-y-3 text-sm">
+            <LoadingLine label="Installed" />
+            <LoadingLine label="Current" />
+            <LoadingLine label="Latest" />
+            <div className="h-3 w-3/4 animate-pulse rounded bg-[var(--color-card-hover)]" />
+          </div>
+          <div className="mt-auto pt-4">
+            <div className="mb-3 h-3 w-2/3 animate-pulse rounded bg-[var(--color-card-hover)]" />
+            <div className="h-8 w-24 animate-pulse rounded-md bg-[var(--color-card-hover)]" />
+          </div>
+        </article>
+      ))}
+    </>
+  );
+}
+
+function LoadingLine({ label }: { label: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1">
+      <span className="text-dim">{label}</span>
+      <span className="h-3 w-24 animate-pulse rounded bg-[var(--color-card-hover)]" />
+    </div>
+  );
+}
+
+function LatestVersionLine({
+  version,
+  latestChecked,
+  checkingLatest,
+  onCheckLatest,
+}: {
+  version?: string;
+  latestChecked: boolean;
+  checkingLatest: boolean;
+  onCheckLatest: () => void;
+}) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3 py-1">
+      <span className="text-dim">Latest</span>
+      {version ? (
+        <span className="min-w-0 truncate font-mono text-xs">{version}</span>
+      ) : latestChecked ? (
+        <span className="min-w-0 truncate font-mono text-xs">Unavailable</span>
+      ) : (
+        <button
+          type="button"
+          disabled={checkingLatest}
+          onClick={onCheckLatest}
+          className="inline-flex min-w-0 items-center gap-1.5 truncate rounded-md px-1.5 py-0.5 text-xs font-medium text-accent hover:bg-[var(--color-card-hover)] disabled:text-dim"
+        >
+          {checkingLatest && <RefreshCcw size={12} className="animate-spin" />}
+          {checkingLatest ? 'Checking...' : 'Check latest'}
+        </button>
+      )}
+    </div>
   );
 }
 

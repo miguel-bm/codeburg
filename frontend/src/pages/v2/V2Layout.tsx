@@ -400,11 +400,11 @@ export function V2Layout() {
 
       <div className="border-t border-[var(--color-card-border)] p-2">
         <Link
-          to="/v2/settings"
+          to="/v2/harness"
           className="flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] md:min-h-0 md:py-2"
         >
-          <Settings size={15} />
-          Settings
+          <PlugZap size={15} />
+          Harness
         </Link>
       </div>
 
@@ -446,7 +446,7 @@ export function V2Layout() {
           pathname={location.pathname}
           onHome={() => navigate('/v2')}
           onConversations={() => navigate('/v2/conversations')}
-          onSettings={() => navigate('/v2/settings')}
+          onSettings={() => navigate('/v2/harness')}
         />
       </div>
     );
@@ -519,7 +519,7 @@ function V2MobileBottomNav({
       <div className="grid h-[64px] grid-cols-3">
         <V2MobileNavButton active={homeActive} icon={<Folder size={18} />} label="Home" onClick={onHome} />
         <V2MobileNavButton active={conversationsActive} icon={<MessageSquareText size={18} />} label="Chat" onClick={onConversations} />
-        <V2MobileNavButton active={settingsActive} icon={<Settings size={18} />} label="Settings" onClick={onSettings} />
+        <V2MobileNavButton active={settingsActive} icon={<PlugZap size={18} />} label="Harness" onClick={onSettings} />
       </div>
     </nav>
   );

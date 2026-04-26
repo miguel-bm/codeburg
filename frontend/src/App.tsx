@@ -26,7 +26,6 @@ import { V2ProjectSkillsPage } from './pages/v2/V2ProjectSkillsPage';
 import { V2ProjectPiPage } from './pages/v2/V2ProjectPiPage';
 import { V2ProjectSettingsPage } from './pages/v2/V2ProjectSettingsPage';
 import { V2HarnessPage } from './pages/v2/V2HarnessPage';
-import { V2SettingsPage } from './pages/v2/V2SettingsPage';
 import { useSessionFocusPresence } from './hooks/useSessionFocusPresence';
 
 const queryClient = new QueryClient({
@@ -79,7 +78,7 @@ function MainAppShell() {
           <Route path="projects/:id/skills" element={<V2ProjectSkillsPage />} />
           <Route path="projects/:id/pi" element={<V2ProjectPiPage />} />
           <Route path="projects/:id/settings" element={<V2ProjectSettingsPage />} />
-          <Route path="settings" element={<V2SettingsPage />} />
+          <Route path="settings" element={<Navigate to="/v2/harness" replace />} />
         </Route>
         <Route path="/" element={<Layout><DashboardWithPanels /></Layout>}>
           <Route path="tasks/quick" element={<QuickTaskWizard />} />
