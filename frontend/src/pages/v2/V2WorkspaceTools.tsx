@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Files, GitCommitHorizontal, PanelRightClose, Search } from 'lucide-react';
+import { Files, GitBranch, PanelRightClose, Search } from 'lucide-react';
 import { FileExplorer } from '../../components/workspace/FileExplorer';
 import { FileSearchPanel } from '../../components/workspace/FileSearchPanel';
 import { GitPanel } from '../../components/workspace/GitPanel';
@@ -22,7 +22,7 @@ export function V2WorkspaceTools({
         <div className="flex items-center gap-1">
           <HelperButton active={helperTab === 'files'} icon={<Files size={14} />} onClick={() => onSelectHelperTab('files')}>Files</HelperButton>
           <HelperButton active={helperTab === 'search'} icon={<Search size={14} />} onClick={() => onSelectHelperTab('search')}>Search</HelperButton>
-          <HelperButton active={helperTab === 'git'} icon={<GitCommitHorizontal size={14} />} onClick={() => onSelectHelperTab('git')}>Git</HelperButton>
+          <HelperButton active={helperTab === 'git'} icon={<GitBranch size={14} />} onClick={() => onSelectHelperTab('git')}>Git</HelperButton>
         </div>
         <button type="button" onClick={onClose} className="rounded-md p-1.5 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]">
           <PanelRightClose size={15} />

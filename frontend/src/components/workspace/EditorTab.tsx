@@ -3,13 +3,16 @@ import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { EditorView } from '@codemirror/view';
 import { openSearchPanel } from '@codemirror/search';
 import { oneDark } from '@codemirror/theme-one-dark';
-import { Save } from 'lucide-react';
+import { RotateCcw, Save, SquareArrowOutUpRight } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { useWorkspaceFiles } from '../../hooks/useWorkspaceFiles';
 import { useSharedWebSocket } from '../../hooks/useSharedWebSocket';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { getLanguageExtension, fileName, darkEditorTheme, lightEditorTheme } from './editorUtils';
 import { getResolvedTheme, subscribeToThemeChange } from '../../lib/theme';
 import { StyledPath } from './StyledPath';
+import { preferencesApi } from '../../api';
+import { useWorkspace } from './WorkspaceContext';
 
 interface EditorTabProps {
   path: string;
@@ -18,6 +21,7 @@ interface EditorTabProps {
 
 export function EditorTab({ path, line }: EditorTabProps) {
   const { readFile, writeFile } = useWorkspaceFiles();
+  const { scope, project } = useWorkspace();
   const { markDirty } = useWorkspaceStore();
   const [content, setContent] = useState<string | null>(null);
   const [originalContent, setOriginalContent] = useState<string | null>(null);
@@ -28,10 +32,17 @@ export function EditorTab({ path, line }: EditorTabProps) {
   const [truncated, setTruncated] = useState(false);
   const [editorTheme, setEditorTheme] = useState<'dark' | 'light'>(() => getResolvedTheme());
   const cmRef = useRef<ReactCodeMirrorRef>(null);
+  const editorRootRef = useRef<HTMLDivElement>(null);
   const lastScrolledLine = useRef<number | undefined>(undefined);
   const isDirtyRef = useRef(false);
   const loadingRef = useRef(true);
   const savingRef = useRef(false);
+
+  const { data: editorConfig } = useQuery({
+    queryKey: ['preferences', 'editor-config'],
+    queryFn: () => preferencesApi.getEditorConfig(),
+    staleTime: 30_000,
+  });
 
   useEffect(() => {
     setEditorTheme(getResolvedTheme());
@@ -91,6 +102,8 @@ export function EditorTab({ path, line }: EditorTabProps) {
 
   const refreshFromDisk = useCallback(async () => {
     if (isDirtyRef.current || loadingRef.current || savingRef.current) return;
+    const activeElement = document.activeElement;
+    if (activeElement && editorRootRef.current?.contains(activeElement)) return;
     try {
       const res = await readFile(path);
       if (isDirtyRef.current) return;
@@ -145,6 +158,27 @@ export function EditorTab({ path, line }: EditorTabProps) {
     }
   }, [content, binary, truncated, writeFile, path, markDirty]);
 
+  const handleReset = useCallback(() => {
+    if (originalContent === null || saving) return;
+    setContent(originalContent);
+    markDirty(path, false);
+  }, [markDirty, originalContent, path, saving]);
+
+  const openInCursor = useCallback(() => {
+    const rootPath = scope.type === 'workspace'
+      ? scope.workspace.worktreePath ?? project.path
+      : scope.type === 'task'
+        ? scope.task.worktreePath ?? project.path
+        : project.path;
+    const absolutePath = `${rootPath.replace(/\/$/, '')}/${path}`;
+    const encodedPath = encodeURI(absolutePath);
+    const sshHost = editorConfig?.sshHost;
+    const uri = sshHost
+      ? `cursor://vscode-remote/ssh-remote+${sshHost}${encodedPath}`
+      : `cursor://file${encodedPath}`;
+    window.open(uri, '_self');
+  }, [editorConfig?.sshHost, path, project.path, scope]);
+
   useEffect(() => {
     const onKeyDown = (ev: KeyboardEvent) => {
       if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 's') {
@@ -178,10 +212,21 @@ export function EditorTab({ path, line }: EditorTabProps) {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div ref={editorRootRef} className="flex flex-col h-full">
       {/* Editor toolbar */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-subtle bg-secondary">
-        <StyledPath path={path} />
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-subtle bg-canvas">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <StyledPath path={path} />
+          <button
+            type="button"
+            onClick={openInCursor}
+            className="shrink-0 rounded p-1 text-dim hover:bg-tertiary hover:text-accent"
+            title="Open in Cursor"
+            aria-label="Open in Cursor"
+          >
+            <SquareArrowOutUpRight size={12} />
+          </button>
+        </div>
         <div className="flex items-center gap-1.5">
           {truncated && (
             <span className="text-[10px] text-yellow-500">truncated</span>
@@ -190,6 +235,17 @@ export function EditorTab({ path, line }: EditorTabProps) {
             <span className="text-[10px] text-accent">modified</span>
           )}
           <button
+            type="button"
+            onClick={handleReset}
+            disabled={!isDirty || saving}
+            className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary disabled:opacity-30 transition-colors"
+            title="Reset changes"
+          >
+            <RotateCcw size={11} />
+            Reset
+          </button>
+          <button
+            type="button"
             onClick={handleSave}
             disabled={!isDirty || saving}
             className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded text-dim hover:text-accent hover:bg-accent/10 disabled:opacity-30 transition-colors"

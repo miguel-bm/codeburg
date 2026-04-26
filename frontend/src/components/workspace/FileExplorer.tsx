@@ -628,7 +628,7 @@ function FileTreeActionButton({
     tooltip: hoverTooltip,
     handleMouseEnter,
     handleMouseLeave,
-  } = useHoverTooltip({ delay: 450 });
+  } = useHoverTooltip({ delay: 250 });
 
   return (
     <>

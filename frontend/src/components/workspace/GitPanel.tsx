@@ -92,6 +92,11 @@ export function GitPanel() {
     const activeTab = state.tabs[state.activeTabIndex];
     return activeTab?.type === 'diff' ? activeTab : null;
   });
+  const activeDiffTabIndex = useWorkspaceStore((state) => {
+    const activeTab = state.tabs[state.activeTabIndex];
+    return activeTab?.type === 'diff' ? state.activeTabIndex : -1;
+  });
+  const closeTab = useWorkspaceStore((state) => state.closeTab);
   const [commitMsg, setCommitMsg] = useState('');
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     branch: true,
@@ -101,7 +106,6 @@ export function GitPanel() {
   });
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
 
   // Draggable divider state — stored as fraction (0..1) of available height
@@ -129,15 +133,6 @@ export function GitPanel() {
       handleCommit();
     }
   };
-
-  // Auto-resize textarea
-  useEffect(() => {
-    const ta = textareaRef.current;
-    if (ta) {
-      ta.style.height = 'auto';
-      ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
-    }
-  }, [commitMsg]);
 
   const confirmRevert = (tracked: string[], untracked: string[], label: string) => {
     if (!tracked.length && !untracked.length) return;
@@ -186,6 +181,20 @@ export function GitPanel() {
   const isBaseDiffTab = activeDiffTab?.base === true && !activeDiffTab.commit;
   const isStagedDiffTab = activeDiffTab?.staged === true && !activeDiffTab.base && !activeDiffTab.commit;
   const isUnstagedDiffTab = !!activeDiffTab && activeDiffTab.base !== true && activeDiffTab.staged !== true && !activeDiffTab.commit;
+  const isDiffActive = useCallback((opts: { file?: string; staged?: boolean; base?: boolean; commit?: string }) => (
+    !!activeDiffTab &&
+    activeDiffTab.file === opts.file &&
+    activeDiffTab.staged === opts.staged &&
+    activeDiffTab.base === opts.base &&
+    activeDiffTab.commit === opts.commit
+  ), [activeDiffTab]);
+  const selectDiff = useCallback((opts: { file?: string; staged?: boolean; base?: boolean; commit?: string }) => {
+    if (isDiffActive(opts) && activeDiffTabIndex >= 0) {
+      closeTab(activeDiffTabIndex);
+      return;
+    }
+    openDiff(opts.file, opts.staged, opts.base, opts.commit);
+  }, [activeDiffTabIndex, closeTab, isDiffActive, openDiff]);
 
   // Keep the relevant section open when a diff tab becomes active from the tab strip.
   useEffect(() => {
@@ -296,57 +305,60 @@ export function GitPanel() {
         {/* Changes pane */}
         <div className="overflow-auto" style={{ height: `${splitFraction * 100}%` }}>
           {/* Sticky header: commit input + error + branch */}
-          <div className="sticky top-0 z-10 bg-card">
-            {/* Commit section */}
-            <div className="px-2 py-2 border-b border-subtle space-y-1.5">
-              <textarea
-                ref={textareaRef}
-                value={commitMsg}
-                onChange={(e) => setCommitMsg(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Commit message..."
-                rows={1}
-                className="w-full px-2 py-1.5 text-xs bg-primary border border-subtle rounded-md resize-none focus:border-accent focus:outline-none"
-              />
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={handleCommit}
-                  disabled={!commitMsg.trim() || status.staged.length === 0 || isCommitting}
-                  className="flex-1 px-2 py-1 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent-dim disabled:opacity-40 transition-colors"
-                >
-                  {isCommitting ? 'Committing...' : 'Commit'}
-                </button>
-                <button
-                  ref={menuBtnRef}
-                  onClick={openMenu}
-                  className="px-1.5 py-1 text-dim bg-secondary rounded-md hover:text-[var(--color-text-primary)] hover:bg-tertiary transition-colors"
-                  title="More actions"
-                >
-                  <MoreVertical size={14} />
-                </button>
+          <div className="sticky top-0 z-10 bg-canvas">
+            <div className="flex items-center gap-1 px-2 py-2">
+              <div className="relative min-w-0 flex-1">
+                <GitCommit size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-dim" />
+                <input
+                  type="text"
+                  value={commitMsg}
+                  onChange={(e) => setCommitMsg(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Commit message"
+                  className="w-full rounded-md border border-subtle bg-primary py-1.5 pl-7 pr-2 text-xs focus:border-accent focus:outline-none"
+                />
               </div>
+              <button
+                type="button"
+                onClick={handleCommit}
+                disabled={!commitMsg.trim() || status.staged.length === 0 || isCommitting}
+                className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-accent px-2 text-xs font-medium text-white transition-colors hover:bg-accent-dim disabled:opacity-40"
+                title="Commit staged changes"
+              >
+                <GitCommit size={13} />
+                {isCommitting ? '...' : 'Commit'}
+              </button>
+              <button
+                ref={menuBtnRef}
+                type="button"
+                onClick={openMenu}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-dim transition-colors hover:bg-tertiary hover:text-[var(--color-text-primary)]"
+                title="More actions"
+              >
+                <MoreVertical size={15} />
+              </button>
             </div>
-
             {/* Error bar */}
             {error && (
               <div className="px-2 py-1.5 border-b border-subtle flex items-center gap-1.5 text-xs text-[var(--color-error)] bg-[var(--color-error)]/5">
                 <span className="flex-1 truncate">
                   {error instanceof Error ? error.message : String(error)}
                 </span>
-                <button onClick={clearErrors} className="shrink-0 p-0.5 hover:bg-[var(--color-error)]/10 rounded">
+                <button type="button" onClick={clearErrors} className="shrink-0 p-0.5 hover:bg-[var(--color-error)]/10 rounded">
                   <X size={12} />
                 </button>
               </div>
             )}
 
             {/* Branch + sync */}
-            <div className="px-2 py-1.5 border-b border-subtle flex items-center gap-2 text-xs">
-              <GitBranch size={12} className="text-dim shrink-0" />
+            <div className="flex items-center gap-2 px-2 pb-2 text-xs">
+              <GitBranch size={13} className="text-dim shrink-0" />
               <span className="font-mono text-dim truncate">{status.branch}</span>
               {(showSyncCounts || showPublish) && (
                 <div className="flex items-center gap-1 ml-auto">
                   {status.behind > 0 && (
                     <button
+                      type="button"
                       onClick={() => pull()}
                       disabled={isPulling}
                       className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-tertiary text-dim"
@@ -357,6 +369,7 @@ export function GitPanel() {
                   )}
                   {status.ahead > 0 && (
                     <button
+                      type="button"
                       onClick={() => push({})}
                       disabled={isPushing}
                       className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-tertiary text-dim"
@@ -367,6 +380,7 @@ export function GitPanel() {
                   )}
                   {showPublish && (
                     <button
+                      type="button"
                       onClick={() => push({})}
                       disabled={isPushing}
                       className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-tertiary text-dim"
@@ -388,7 +402,7 @@ export function GitPanel() {
             onToggle={() => toggleSection('branch')}
             actions={
               <button
-                onClick={() => openDiff(undefined, undefined, true)}
+                onClick={() => selectDiff({ base: true })}
                 disabled={!baseDiff?.diff}
                 className={`text-[10px] disabled:opacity-40 flex items-center gap-0.5 ${
                   isBaseDiffTab && !activeDiffFile ? 'text-accent' : 'text-dim hover:text-[var(--color-text-primary)]'
@@ -409,7 +423,7 @@ export function GitPanel() {
                     className={`flex items-center gap-1 px-2 py-0.5 group cursor-pointer text-xs ${
                       isActive ? 'bg-accent/10 text-accent' : 'hover:bg-tertiary'
                     }`}
-                    onClick={() => openDiff(f.path, undefined, true)}
+                  onClick={() => selectDiff({ file: f.path, base: true })}
                   >
                     <span className="w-4 text-center text-[10px] font-mono text-dim">&Delta;</span>
                     <span className="flex-1 truncate">{f.path}</span>
@@ -450,7 +464,7 @@ export function GitPanel() {
                   file={f}
                   section="staged"
                   onUnstage={() => unstage([f.path])}
-                  onClick={() => openDiff(f.path, true)}
+                  onClick={() => selectDiff({ file: f.path, staged: true })}
                   active={isStagedDiffTab && activeDiffFile === f.path}
                 />
               ))}
@@ -497,7 +511,7 @@ export function GitPanel() {
                   section="unstaged"
                   onStage={() => stage([f.path])}
                   onRevert={() => confirmRevert([f.path], [], f.path)}
-                  onClick={() => openDiff(f.path, false)}
+                  onClick={() => selectDiff({ file: f.path, staged: false })}
                   active={isUnstagedDiffTab && activeDiffFile === f.path}
                 />
               ))}
@@ -544,7 +558,7 @@ export function GitPanel() {
                   section="untracked"
                   onStage={() => stage([path])}
                   onRevert={() => confirmRevert([], [path], path)}
-                  onClick={() => openDiff(path, false)}
+                  onClick={() => selectDiff({ file: path, staged: false })}
                   active={isUnstagedDiffTab && activeDiffFile === path}
                 />
               ))}
@@ -570,7 +584,7 @@ export function GitPanel() {
               <CommitEntry
                 key={c.hash}
                 commit={c}
-                onOpenDiff={(hash) => openDiff(undefined, undefined, undefined, hash)}
+                onOpenDiff={(hash) => selectDiff({ commit: hash })}
                 isActive={activeDiffTab?.commit === c.hash}
               />
             ))
@@ -632,7 +646,7 @@ function CommitEntry({
     const rect = rowRef.current.getBoundingClientRect();
     timerRef.current = setTimeout(() => {
       setTooltip({ x: rect.right + 8, y: rect.top });
-    }, 400);
+    }, 250);
   }, []);
 
   const hideTooltip = useCallback(() => {
@@ -691,7 +705,7 @@ function CommitTooltip({ commit, position }: { commit: GitLogEntry; position: { 
   return createPortal(
     <div
       ref={ref}
-      className="fixed z-[200] w-80 bg-card rounded-lg border border-[var(--color-card-border)] shadow-[var(--shadow-card-hover)] overflow-hidden pointer-events-none"
+      className="fixed z-[200] w-72 bg-card rounded-lg border border-[var(--color-card-border)] shadow-[var(--shadow-card-hover)] overflow-hidden pointer-events-none"
       style={{ left: position.x, top: position.y }}
     >
       {/* Header */}

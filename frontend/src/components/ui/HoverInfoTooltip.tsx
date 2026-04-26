@@ -33,12 +33,11 @@ export function HoverInfoTooltip({ x, y, text }: Props) {
   return createPortal(
     <div
       ref={setEl}
-      className="fixed z-[200] bg-elevated border border-subtle rounded-lg shadow-lg max-w-xs w-72 text-xs animate-fadeIn pointer-events-none px-3 py-2"
+      className="fixed z-[200] bg-elevated border border-subtle rounded-md shadow-lg max-w-[12rem] w-max text-xs animate-fadeIn pointer-events-none px-2 py-1.5"
       style={{ left: pos.x, top: pos.y }}
     >
-      <div className="text-[11px] text-[var(--color-text-secondary)] leading-relaxed whitespace-pre-wrap">{text}</div>
+      <div className="text-[11px] text-[var(--color-text-secondary)] leading-snug whitespace-normal">{text}</div>
     </div>,
     document.body,
   );
 }
-
