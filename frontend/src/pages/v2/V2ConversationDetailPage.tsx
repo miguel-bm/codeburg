@@ -109,6 +109,7 @@ export function V2ConversationDetailPage() {
   const activePreviewTab = activeWorkspaceTab?.type === 'editor' || activeWorkspaceTab?.type === 'diff'
     ? activeWorkspaceTab
     : null;
+  const workspaceContextReady = !!project && !!activeWorkspace;
 
   useEffect(() => {
     resetWorkspaceTabs();
@@ -405,9 +406,9 @@ export function V2ConversationDetailPage() {
           )}
 
           <div className="min-h-0 flex-1 overflow-hidden">
-            {activeWorkspaceTab?.type === 'editor' ? (
+            {activeWorkspaceTab?.type === 'editor' && workspaceContextReady ? (
               <EditorTab path={activeWorkspaceTab.path} line={activeWorkspaceTab.line} />
-            ) : activeWorkspaceTab?.type === 'diff' ? (
+            ) : activeWorkspaceTab?.type === 'diff' && workspaceContextReady ? (
               <DiffTab file={activeWorkspaceTab.file} staged={activeWorkspaceTab.staged} base={activeWorkspaceTab.base} commit={activeWorkspaceTab.commit} />
             ) : (
               <ConversationSurface

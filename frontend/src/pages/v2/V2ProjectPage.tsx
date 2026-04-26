@@ -109,6 +109,7 @@ export function V2ProjectPage() {
       ? sortedTerminals.find((terminal) => terminal.id === requestedTerminalId) ?? null
       : null;
   const activeWorkspaceTab = mainSurface?.type === 'workspaceTab' ? tabs[mainSurface.index] : null;
+  const workspaceContextReady = !!project && !!activeWorkspace;
 
   useEffect(() => {
     resetWorkspaceTabs();
@@ -385,9 +386,9 @@ export function V2ProjectPage() {
           <div className="min-h-0 flex-1 overflow-hidden">
             {activeTerminal ? (
               <TerminalView sessionId={activeTerminal.id} targetType="terminal" />
-            ) : activeWorkspaceTab?.type === 'editor' ? (
+            ) : activeWorkspaceTab?.type === 'editor' && workspaceContextReady ? (
               <EditorTab path={activeWorkspaceTab.path} line={activeWorkspaceTab.line} />
-            ) : activeWorkspaceTab?.type === 'diff' ? (
+            ) : activeWorkspaceTab?.type === 'diff' && workspaceContextReady ? (
               <DiffTab file={activeWorkspaceTab.file} staged={activeWorkspaceTab.staged} base={activeWorkspaceTab.base} commit={activeWorkspaceTab.commit} />
             ) : (
               <V2Empty
