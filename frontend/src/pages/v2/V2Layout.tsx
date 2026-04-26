@@ -766,6 +766,13 @@ function ProjectTree({
             ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]'
             : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
         }`}
+        onClick={() => {
+          if (longPressTriggered.current) {
+            longPressTriggered.current = false;
+            return;
+          }
+          setProjectMenuOpen(true);
+        }}
         onPointerDown={() => startLongPress(() => setProjectMenuOpen(true))}
         onPointerUp={cancelLongPress}
         onPointerCancel={cancelLongPress}
@@ -773,7 +780,9 @@ function ProjectTree({
       >
         <button
           type="button"
-          onClick={() => {
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
             if (longPressTriggered.current) {
               longPressTriggered.current = false;
               return;
@@ -781,26 +790,34 @@ function ProjectTree({
             setUserToggled(true);
             setExpanded((value) => !value);
           }}
-          className={`flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md text-left ${mobile ? 'min-h-[34px] py-0' : 'py-0.5'}`}
+          className={`flex w-5 shrink-0 cursor-pointer items-center justify-center rounded-md text-left hover:bg-accent/10 hover:text-accent ${mobile ? 'min-h-[34px] py-0' : 'py-0.5'}`}
           title={treeOpen ? 'Collapse project' : 'Expand project'}
         >
           <span className="flex w-5 shrink-0 justify-center">
             {treeOpen ? <FolderOpen size={15} className={projectInPath ? 'text-accent' : 'text-dim'} /> : <Folder size={15} className={projectInPath ? 'text-accent' : 'text-dim'} />}
           </span>
-          <span className="min-w-0 flex-1 truncate text-sm font-medium">{project.name}</span>
         </button>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{project.name}</span>
         {pinned && <Pin size={12} className="text-accent" />}
         <button
           type="button"
-          onClick={() => navigate(`/v2/projects/${project.id}?newWorkspace=1`)}
           className={`inline-flex cursor-pointer items-center justify-center rounded text-dim transition-opacity hover:bg-accent/10 hover:text-accent disabled:opacity-50 ${mobile ? 'h-9 w-9' : 'p-1'} ${projectActionVisibility}`}
           title="New workspace"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            navigate(`/v2/projects/${project.id}?newWorkspace=1`);
+          }}
         >
           <FolderPlus size={13} />
         </button>
         <button
           type="button"
-          onClick={() => setProjectMenuOpen((value) => !value)}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setProjectMenuOpen((value) => !value);
+          }}
           className={`inline-flex cursor-pointer items-center justify-center rounded text-dim transition-opacity hover:bg-accent/10 hover:text-accent ${mobile ? 'h-9 w-9' : 'p-1'} ${projectActionVisibility}`}
           title="Project actions"
         >
@@ -814,6 +831,16 @@ function ProjectTree({
             ? 'fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'
             : 'absolute right-1 top-8 z-50 w-52 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'}
           >
+            <ProjectMenuItem icon={<FolderOpen size={14} />} onClick={() => runProjectAction(() => navigate(`/v2/projects/${project.id}`))}>Open project</ProjectMenuItem>
+            <ProjectMenuItem
+              icon={treeOpen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              onClick={() => runProjectAction(() => {
+                setUserToggled(true);
+                setExpanded((value) => !value);
+              })}
+            >
+              {treeOpen ? 'Collapse project' : 'Expand project'}
+            </ProjectMenuItem>
             <ProjectMenuItem icon={<FolderPlus size={14} />} onClick={() => runProjectAction(() => navigate(`/v2/projects/${project.id}?newWorkspace=1`))}>New workspace</ProjectMenuItem>
             <ProjectMenuItem icon={pinned ? <PinOff size={14} /> : <Pin size={14} />} onClick={() => runProjectAction(() => void togglePinnedProject(project.id, queryClient))}>
               {pinned ? 'Unpin project' : 'Pin project'}
@@ -836,7 +863,7 @@ function ProjectTree({
         }`}
         style={{ pointerEvents: treeOpen ? undefined : 'none' }}
       >
-        <div className="min-h-0 overflow-hidden">
+        <div className={`min-h-0 ${treeOpen ? 'overflow-visible' : 'overflow-hidden'}`}>
           <div className={`${mobile ? 'mt-0.5 space-y-0' : 'mt-1 space-y-0.5'} pr-1`}>
           {orderedWorkspaces.map((workspace) => {
             const active = !conversationActive && (selectedWorkspaceId
@@ -860,30 +887,34 @@ function ProjectTree({
                       ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
                       : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-secondary)]'
                   }`}
+                  onClick={() => {
+                    if (longPressTriggered.current) {
+                      longPressTriggered.current = false;
+                      return;
+                    }
+                    setWorkspaceMenuId(workspace.id);
+                  }}
                   onPointerDown={() => startLongPress(() => setWorkspaceMenuId(workspace.id))}
                   onPointerUp={cancelLongPress}
                   onPointerCancel={cancelLongPress}
                   onPointerLeave={cancelLongPress}
                 >
-                  <Link
-                    to={`/v2/projects/${project.id}?workspace=${workspace.id}`}
-                    onClick={(event) => {
-                      if (longPressTriggered.current) {
-                        event.preventDefault();
-                        longPressTriggered.current = false;
-                      }
-                    }}
+                  <div
                     className={`flex min-w-0 flex-1 cursor-pointer items-center gap-2 ${mobile ? 'min-h-[34px]' : ''}`}
                   >
                     <span className="flex w-5 shrink-0 justify-center">
                       {workspace.kind === 'worktree' ? <GitBranch size={13} /> : <SquareStack size={13} />}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-xs font-medium">{workspace.name}</span>
-                  </Link>
+                  </div>
                   <button
                     type="button"
                     disabled={creating}
-                    onClick={() => onNewConversation(workspace)}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onNewConversation(workspace);
+                    }}
                     className={`inline-flex cursor-pointer items-center justify-center rounded text-dim hover:bg-accent/10 hover:text-accent disabled:opacity-50 ${mobile ? 'h-9 w-9 opacity-100' : 'p-0.5 opacity-0 group-hover/workspace:opacity-100'}`}
                     title="New conversation in this workspace"
                   >
@@ -911,6 +942,12 @@ function ProjectTree({
                       ? 'fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'
                       : 'absolute right-1 top-8 z-50 w-56 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'}
                     >
+                      <ProjectMenuItem
+                        icon={<SquareStack size={14} />}
+                        onClick={() => runWorkspaceAction(() => navigate(`/v2/projects/${project.id}?workspace=${workspace.id}`))}
+                      >
+                        Open workspace
+                      </ProjectMenuItem>
                       <ProjectMenuItem
                         icon={<SquareTerminal size={14} />}
                         disabled={workspaceActionPending || workspace.status !== 'active'}
@@ -1080,6 +1117,7 @@ function ConversationSidebarRow({
   onSwitchWorkspace: () => void;
   className?: string;
 }) {
+  const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(conversation.title);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1132,24 +1170,31 @@ function ConversationSidebarRow({
         event.preventDefault();
         openMenu();
       }}
+      onClick={() => {
+        if (longPressTriggered.current) {
+          longPressTriggered.current = false;
+          return;
+        }
+        if (!editing) openMenu();
+      }}
       onPointerDown={startLongPress}
       onPointerUp={cancelLongPress}
       onPointerCancel={cancelLongPress}
       onPointerLeave={cancelLongPress}
     >
       <div className={`flex min-w-0 flex-1 items-center gap-2 px-2 text-xs ${mobile ? 'py-0.5' : 'py-1'}`}>
-        <Link
-          to={`/v2/conversations/${conversation.id}`}
+        <button
+          type="button"
           className="shrink-0"
           onClick={(event) => {
-            if (longPressTriggered.current) {
-              event.preventDefault();
-              longPressTriggered.current = false;
-            }
+            event.preventDefault();
+            event.stopPropagation();
+            navigate(`/v2/conversations/${conversation.id}`);
           }}
+          title="Open conversation"
         >
           <ConversationStateIndicator conversation={conversation} snapshot={snapshot} />
-        </Link>
+        </button>
         {editing ? (
           <input
             autoFocus
@@ -1164,28 +1209,24 @@ function ConversationSidebarRow({
               }
             }}
             className="h-5 min-w-0 flex-1 bg-transparent outline-none"
+            onClick={(event) => event.stopPropagation()}
           />
         ) : (
-          <Link
-            to={`/v2/conversations/${conversation.id}`}
-            onClick={(event) => {
-              if (longPressTriggered.current) {
-                event.preventDefault();
-                longPressTriggered.current = false;
-              }
-            }}
+          <button
+            type="button"
             onDoubleClick={(event) => {
               event.preventDefault();
+              event.stopPropagation();
               setEditing(true);
             }}
-            className={`min-w-0 flex-1 cursor-pointer truncate font-normal ${mobile ? 'flex min-h-[34px] items-center' : ''}`}
+            className={`min-w-0 flex-1 cursor-pointer truncate text-left font-normal ${mobile ? 'flex min-h-[34px] items-center' : ''}`}
             title="Double-click to rename"
           >
             <span className="inline-flex min-w-0 items-center gap-1">
               {pinned && <Pin size={10} className="shrink-0 text-accent" />}
               <span className="truncate">{conversation.title}</span>
             </span>
-          </Link>
+          </button>
         )}
       </div>
       <button
@@ -1209,6 +1250,9 @@ function ConversationSidebarRow({
             ? 'fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'
             : 'absolute right-1 top-7 z-50 w-48 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'}
           >
+            <ProjectMenuItem icon={<MessageSquareText size={14} />} onClick={() => runAction(() => navigate(`/v2/conversations/${conversation.id}`))}>
+              Open conversation
+            </ProjectMenuItem>
             <ProjectMenuItem
               icon={<CircleDot size={14} />}
               onClick={() => runAction(conversation.unreadAt ? onMarkRead : onMarkUnread)}
