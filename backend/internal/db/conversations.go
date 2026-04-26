@@ -39,6 +39,7 @@ type Conversation struct {
 	CreatedAt            time.Time           `json:"createdAt"`
 	UpdatedAt            time.Time           `json:"updatedAt"`
 	ArchivedAt           *time.Time          `json:"archivedAt,omitempty"`
+	UnreadAt             *time.Time          `json:"unreadAt,omitempty"`
 }
 
 type CreateConversationInput struct {
@@ -96,11 +97,11 @@ func (db *DB) CreateConversation(input CreateConversationInput) (*Conversation, 
 		INSERT INTO conversations (
 			id, project_id, current_workspace_id, parent_conversation_id,
 			provider, title, status, preferred_surface, summary, provider_session_id,
-			last_activity_at, created_at, updated_at, archived_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			last_activity_at, created_at, updated_at, archived_at, unread_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, id, input.ProjectID, NullString(normalizeOptionalID(input.CurrentWorkspaceID)), NullString(input.ParentConversationID),
 		provider, input.Title, status, surface, NullString(input.Summary), NullString(input.ProviderSessionID),
-		now, now, now, NullTime(nil))
+		now, now, now, NullTime(nil), NullTime(nil))
 	if err != nil {
 		return nil, fmt.Errorf("insert conversation: %w", err)
 	}
@@ -116,7 +117,7 @@ func (db *DB) CreateConversation(input CreateConversationInput) (*Conversation, 
 func (db *DB) GetConversation(id string) (*Conversation, error) {
 	row := db.conn.QueryRow(`
 		SELECT id, project_id, current_workspace_id, parent_conversation_id, provider, title, status, preferred_surface,
-		       summary, provider_session_id, last_activity_at, created_at, updated_at, archived_at
+		       summary, provider_session_id, last_activity_at, created_at, updated_at, archived_at, unread_at
 		FROM conversations WHERE id = ?
 	`, id)
 	conversation, err := scanConversation(row.Scan)
@@ -133,7 +134,7 @@ func (db *DB) ListConversations(projectID *string) ([]*Conversation, error) {
 func (db *DB) ListConversationsWithOptions(opts ListConversationOptions) ([]*Conversation, error) {
 	query := `
 		SELECT id, project_id, current_workspace_id, parent_conversation_id, provider, title, status, preferred_surface,
-		       summary, provider_session_id, last_activity_at, created_at, updated_at, archived_at
+		       summary, provider_session_id, last_activity_at, created_at, updated_at, archived_at, unread_at
 		FROM conversations
 	`
 	args := make([]any, 0, 6)
@@ -242,6 +243,40 @@ func (db *DB) DeleteConversation(id string) error {
 	return nil
 }
 
+func (db *DB) MarkConversationRead(id string) (*Conversation, error) {
+	now := time.Now()
+	result, err := db.conn.Exec(`UPDATE conversations SET unread_at = NULL, updated_at = ? WHERE id = ?`, now, id)
+	if err != nil {
+		return nil, fmt.Errorf("mark conversation read: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if rows == 0 {
+		return nil, ErrNotFound
+	}
+	return db.GetConversation(id)
+}
+
+func (db *DB) MarkConversationUnread(id string, at time.Time) (*Conversation, error) {
+	if at.IsZero() {
+		at = time.Now()
+	}
+	result, err := db.conn.Exec(`UPDATE conversations SET unread_at = ?, updated_at = ? WHERE id = ?`, at, at, id)
+	if err != nil {
+		return nil, fmt.Errorf("mark conversation unread: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if rows == 0 {
+		return nil, ErrNotFound
+	}
+	return db.GetConversation(id)
+}
+
 func nullableTrimmedString(value *string) sql.NullString {
 	if value == nil {
 		return sql.NullString{}
@@ -256,7 +291,7 @@ func nullableTrimmedString(value *string) sql.NullString {
 func scanConversation(scan scanFunc) (*Conversation, error) {
 	var conversation Conversation
 	var currentWorkspaceID, parentConversationID, summary, providerSessionID sql.NullString
-	var archivedAt sql.NullTime
+	var archivedAt, unreadAt sql.NullTime
 	err := scan(
 		&conversation.ID,
 		&conversation.ProjectID,
@@ -272,6 +307,7 @@ func scanConversation(scan scanFunc) (*Conversation, error) {
 		&conversation.CreatedAt,
 		&conversation.UpdatedAt,
 		&archivedAt,
+		&unreadAt,
 	)
 	if err != nil {
 		return nil, err
@@ -281,5 +317,6 @@ func scanConversation(scan scanFunc) (*Conversation, error) {
 	conversation.Summary = StringPtr(summary)
 	conversation.ProviderSessionID = StringPtr(providerSessionID)
 	conversation.ArchivedAt = TimePtr(archivedAt)
+	conversation.UnreadAt = TimePtr(unreadAt)
 	return &conversation, nil
 }

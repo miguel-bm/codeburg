@@ -161,6 +161,12 @@ export const v2Api = {
   archiveConversation: (conversationId: string) =>
     api.post<Conversation>(`/conversations/${conversationId}/archive`, {}),
 
+  markConversationRead: (conversationId: string) =>
+    api.post<Conversation>(`/conversations/${conversationId}/read`, {}),
+
+  markConversationUnread: (conversationId: string) =>
+    api.post<Conversation>(`/conversations/${conversationId}/unread`, {}),
+
   deleteConversation: (conversationId: string) =>
     api.delete(`/conversations/${conversationId}`),
 
@@ -223,6 +229,16 @@ export const v2Api = {
 
   listSkills: () =>
     api.get<ManagedSkill[]>('/skills'),
+
+  installGlobalSkill: (input: InstallProjectSkillInput) =>
+    api.post<ManagedSkill>('/skills', input),
+
+  installGlobalCatalogSkill: (
+    input: { sourceId: string; skillPath: string; target?: string; name?: string }
+  ) => api.post<ManagedSkill>('/skills/catalog', input),
+
+  deleteGlobalSkill: (target: string, name: string) =>
+    api.delete(`/skills/${encodeURIComponent(target)}/${encodeURIComponent(name)}`),
 
   listSkillCatalog: () =>
     api.get<SkillCatalogEntry[]>('/skills/catalog'),

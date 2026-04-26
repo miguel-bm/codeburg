@@ -603,6 +603,11 @@ func (rt *piConversationRuntime) handleEvent(event map[string]any) {
 	}
 	rt.snapshot.UpdatedAt = now
 	rt.mu.Unlock()
+	if eventType == "agent_end" {
+		if _, err := rt.manager.db.MarkConversationUnread(rt.conversationID, time.Now().UTC()); err != nil {
+			slog.Warn("failed to mark pi conversation unread after agent end", "conversation_id", rt.conversationID, "error", err)
+		}
+	}
 	rt.broadcast()
 
 	switch eventType {

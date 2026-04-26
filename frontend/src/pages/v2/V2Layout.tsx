@@ -5,11 +5,13 @@ import {
   Archive,
   Circle,
   CircleAlert,
+  CircleDot,
   Ellipsis,
   Folder,
   FolderOpen,
   FolderPlus,
   GitBranch,
+  Hammer,
   LoaderCircle,
   MessageSquarePlus,
   MessageSquareText,
@@ -71,6 +73,7 @@ export function V2Layout() {
       queryFn: () => v2Api.listProjectConversations(project.id, { provider: 'pi', status: 'active' }),
       enabled: !!project.id,
       staleTime: 20_000,
+      refetchInterval: 5_000,
     })),
   });
 
@@ -135,6 +138,19 @@ export function V2Layout() {
   const renameConversation = useMutation({
     mutationFn: ({ conversation, title }: { conversation: Conversation; title: string }) =>
       v2Api.updateConversation(conversation.id, { title }),
+    onSuccess: async (updated) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-conversation', updated.id] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId, 'sidebar'] }),
+      ]);
+    },
+  });
+  const markConversationReadState = useMutation({
+    mutationFn: ({ conversation, unread }: { conversation: Conversation; unread: boolean }) =>
+      unread ? v2Api.markConversationUnread(conversation.id) : v2Api.markConversationRead(conversation.id),
     onSuccess: async (updated) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
@@ -233,6 +249,8 @@ export function V2Layout() {
               onNewConversation={(workspace) => createConversation.mutate({ project, workspace })}
               onArchiveConversation={(conversation) => archiveOrDeleteConversation.mutate(conversation)}
               onRenameConversation={(conversation, title) => renameConversation.mutate({ conversation, title })}
+              onMarkConversationRead={(conversation) => markConversationReadState.mutate({ conversation, unread: false })}
+              onMarkConversationUnread={(conversation) => markConversationReadState.mutate({ conversation, unread: true })}
             />
           ))}
         </div>
@@ -270,6 +288,8 @@ function ProjectTree({
   onNewConversation,
   onArchiveConversation,
   onRenameConversation,
+  onMarkConversationRead,
+  onMarkConversationUnread,
 }: {
   project: Project;
   pinned: boolean;
@@ -283,6 +303,8 @@ function ProjectTree({
   onNewConversation: (workspace?: Workspace) => void;
   onArchiveConversation: (conversation: Conversation) => void;
   onRenameConversation: (conversation: Conversation, title: string) => void;
+  onMarkConversationRead: (conversation: Conversation) => void;
+  onMarkConversationUnread: (conversation: Conversation) => void;
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -361,6 +383,7 @@ function ProjectTree({
             <ProjectMenuItem icon={pinned ? <PinOff size={14} /> : <Pin size={14} />} onClick={() => void togglePinnedProject(project.id, queryClient)}>
               {pinned ? 'Unpin project' : 'Pin project'}
             </ProjectMenuItem>
+            <ProjectMenuItem icon={<Hammer size={14} />} onClick={() => navigate(`/v2/projects/${project.id}/skills`)}>Skills</ProjectMenuItem>
             <ProjectMenuItem icon={<Pencil size={14} />} onClick={() => void renameProject(project, queryClient)}>Rename project</ProjectMenuItem>
             <ProjectMenuItem icon={<Settings size={14} />} onClick={() => navigate(`/v2/projects/${project.id}/settings`)}>Settings</ProjectMenuItem>
             <ProjectMenuItem icon={<Archive size={14} />} danger onClick={() => void archiveProject(project, queryClient, navigate)}>Archive project</ProjectMenuItem>
@@ -414,6 +437,8 @@ function ProjectTree({
                         snapshot={conversationStateById.get(conversation.id)}
                         onArchive={() => onArchiveConversation(conversation)}
                         onRename={(title) => onRenameConversation(conversation, title)}
+                        onMarkRead={() => onMarkConversationRead(conversation)}
+                        onMarkUnread={() => onMarkConversationUnread(conversation)}
                       />
                     ))}
                   </div>
@@ -430,6 +455,8 @@ function ProjectTree({
               snapshot={conversationStateById.get(conversation.id)}
               onArchive={() => onArchiveConversation(conversation)}
               onRename={(title) => onRenameConversation(conversation, title)}
+              onMarkRead={() => onMarkConversationRead(conversation)}
+              onMarkUnread={() => onMarkConversationUnread(conversation)}
             />
           ))}
         </div>
@@ -445,6 +472,8 @@ function ConversationSidebarRow({
   snapshot,
   onArchive,
   onRename,
+  onMarkRead,
+  onMarkUnread,
   className = '',
 }: {
   conversation: Conversation;
@@ -453,6 +482,8 @@ function ConversationSidebarRow({
   snapshot?: PiConversationSnapshot;
   onArchive: () => void;
   onRename: (title: string) => void;
+  onMarkRead: () => void;
+  onMarkUnread: () => void;
   className?: string;
 }) {
   const [editing, setEditing] = useState(false);
@@ -512,6 +543,20 @@ function ConversationSidebarRow({
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
+          if (conversation.unreadAt) onMarkRead();
+          else onMarkUnread();
+        }}
+        className="rounded p-0.5 text-dim opacity-0 hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 group-hover/conversation:opacity-100"
+        title={conversation.unreadAt ? 'Mark read' : 'Mark unread'}
+      >
+        <CircleDot size={12} />
+      </button>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
           onArchive();
         }}
         className="mr-1 rounded p-0.5 text-dim opacity-0 hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 group-hover/conversation:opacity-100"
@@ -541,26 +586,25 @@ function ConversationStateIndicator({ conversation, snapshot }: { conversation: 
   }
 
   if (snapshot?.runtimeActive) {
+    if (conversation.unreadAt) {
+      return (
+        <span className="flex w-5 shrink-0 justify-center text-[var(--color-status-in-review)]" title="Unread response">
+          <Circle size={9} fill="currentColor" />
+        </span>
+      );
+    }
+    return <span className="flex w-5 shrink-0 justify-center" aria-hidden="true" />;
+  }
+
+  if (conversation.unreadAt) {
     return (
-      <span className="flex w-5 shrink-0 justify-center text-[var(--color-status-in-review)]" title="Waiting for input">
+      <span className="flex w-5 shrink-0 justify-center text-accent" title="Unread">
         <Circle size={9} fill="currentColor" />
       </span>
     );
   }
 
-  if (conversation.status === 'active') {
-    return (
-      <span className="flex w-5 shrink-0 justify-center text-dim" title="Ready">
-        <Circle size={8} />
-      </span>
-    );
-  }
-
-  return (
-    <span className="flex w-5 shrink-0 justify-center text-dim" title={conversation.status}>
-      <Circle size={8} />
-    </span>
-  );
+  return <span className="flex w-5 shrink-0 justify-center" aria-hidden="true" />;
 }
 
 function ProjectMenuItem({ icon, children, onClick, danger = false }: { icon: ReactNode; children: ReactNode; onClick: () => void; danger?: boolean }) {

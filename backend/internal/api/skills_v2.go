@@ -120,6 +120,38 @@ func (s *Server) handleListSkillCatalog(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, entries)
 }
 
+func (s *Server) handleInstallGlobalSkill(w http.ResponseWriter, r *http.Request) {
+	var req installProjectSkillRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	sourcePath := strings.TrimSpace(req.SourcePath)
+	if sourcePath == "" {
+		writeError(w, http.StatusBadRequest, "sourcePath is required")
+		return
+	}
+
+	target := normalizeSkillTarget(req.Target)
+	skill, err := inspectSkillDir(sourcePath, "external", target)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	destinationRoot, err := globalSkillRoot(target)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	installed, status, message := installSkillDirectory(sourcePath, destinationRoot, strings.TrimSpace(req.Name), normalizeSkillMode(req.Mode), "global", target, skill.Name)
+	if message != "" {
+		writeError(w, status, message)
+		return
+	}
+	writeJSON(w, http.StatusCreated, installed)
+}
+
 func (s *Server) handleInstallProjectSkill(w http.ResponseWriter, r *http.Request) {
 	projectID := urlParam(r, "id")
 	project, err := s.db.GetProject(projectID)
@@ -188,6 +220,31 @@ func (s *Server) handleInstallProjectSkill(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusCreated, installed)
+}
+
+func (s *Server) handleDeleteGlobalSkill(w http.ResponseWriter, r *http.Request) {
+	target := normalizeSkillTarget(urlParam(r, "target"))
+	name := strings.TrimSpace(urlParam(r, "name"))
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "skill name is required")
+		return
+	}
+
+	root, err := globalSkillRoot(target)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	path := filepath.Join(root, name)
+	if _, err := os.Lstat(path); os.IsNotExist(err) {
+		writeError(w, http.StatusNotFound, "skill not installed")
+		return
+	}
+	if err := os.RemoveAll(path); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to remove global skill")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleDeleteProjectSkill(w http.ResponseWriter, r *http.Request) {
@@ -296,6 +353,82 @@ func (s *Server) handleInstallCatalogSkill(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusCreated, installed)
+}
+
+func (s *Server) handleInstallGlobalCatalogSkill(w http.ResponseWriter, r *http.Request) {
+	var req installCatalogSkillRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	source, ok := findCuratedSkillCatalogSource(req.SourceID)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "unknown skill catalog source")
+		return
+	}
+
+	target := normalizeSkillTarget(req.Target)
+	destinationRoot, err := globalSkillRoot(target)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	checkedOutDir, err := checkoutCatalogRepo(source)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to fetch skill catalog source")
+		return
+	}
+	defer os.RemoveAll(checkedOutDir)
+
+	relativeSkillPath := strings.TrimSpace(req.SkillPath)
+	if relativeSkillPath == "" {
+		writeError(w, http.StatusBadRequest, "skillPath is required")
+		return
+	}
+	skillDir := filepath.Join(checkedOutDir, filepath.Clean(relativeSkillPath))
+	skill, err := inspectSkillDir(skillDir, "catalog", target)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to inspect catalog skill")
+		return
+	}
+
+	installed, status, message := installSkillDirectory(skillDir, destinationRoot, strings.TrimSpace(req.Name), "copy", "global", target, skill.Name)
+	if message != "" {
+		writeError(w, status, message)
+		return
+	}
+	writeJSON(w, http.StatusCreated, installed)
+}
+
+func installSkillDirectory(sourcePath, destinationRoot, name, mode, scope, target, fallbackName string) (managedSkill, int, string) {
+	if name == "" {
+		name = fallbackName
+	}
+	destinationPath := filepath.Join(destinationRoot, name)
+	if _, err := os.Lstat(destinationPath); err == nil {
+		return managedSkill{}, http.StatusConflict, "skill already installed at target path"
+	} else if !os.IsNotExist(err) {
+		return managedSkill{}, http.StatusInternalServerError, "failed to inspect target path"
+	}
+
+	if err := os.MkdirAll(destinationRoot, 0755); err != nil {
+		return managedSkill{}, http.StatusInternalServerError, "failed to create target skill directory"
+	}
+	if mode == "copy" {
+		if err := copyDir(sourcePath, destinationPath); err != nil {
+			return managedSkill{}, http.StatusInternalServerError, "failed to copy skill"
+		}
+	} else if err := os.Symlink(sourcePath, destinationPath); err != nil {
+		return managedSkill{}, http.StatusInternalServerError, "failed to link skill"
+	}
+
+	installed, err := inspectSkillDir(destinationPath, scope, target)
+	if err != nil {
+		return managedSkill{}, http.StatusInternalServerError, "failed to inspect installed skill"
+	}
+	return installed, http.StatusCreated, ""
 }
 
 func discoverGlobalSkills() ([]managedSkill, error) {
@@ -571,6 +704,15 @@ func globalSkillRoots() map[string]string {
 		"claude": filepath.Join(home, ".claude", "skills"),
 		"codex":  filepath.Join(home, ".codex", "skills"),
 	}
+}
+
+func globalSkillRoot(target string) (string, error) {
+	roots := globalSkillRoots()
+	root, ok := roots[target]
+	if !ok {
+		return "", fmt.Errorf("unsupported skill target")
+	}
+	return root, nil
 }
 
 func projectSkillRoots(projectPath string) map[string]string {

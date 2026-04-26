@@ -273,6 +273,7 @@ export interface Conversation {
   createdAt: string;
   updatedAt: string;
   archivedAt?: string;
+  unreadAt?: string;
 }
 
 export interface ConversationWorkspaceLink {

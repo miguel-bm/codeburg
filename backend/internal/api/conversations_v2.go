@@ -347,6 +347,26 @@ func (s *Server) handleResumeConversation(w http.ResponseWriter, r *http.Request
 	s.transitionConversationStatus(w, r, db.ConversationStatusActive)
 }
 
+func (s *Server) handleMarkConversationRead(w http.ResponseWriter, r *http.Request) {
+	conversationID := urlParam(r, "id")
+	updated, err := s.db.MarkConversationRead(conversationID)
+	if err != nil {
+		writeDBError(w, err, "conversation")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) handleMarkConversationUnread(w http.ResponseWriter, r *http.Request) {
+	conversationID := urlParam(r, "id")
+	updated, err := s.db.MarkConversationUnread(conversationID, time.Now().UTC())
+	if err != nil {
+		writeDBError(w, err, "conversation")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
 func (s *Server) handleCompleteConversation(w http.ResponseWriter, r *http.Request) {
 	s.transitionConversationStatus(w, r, db.ConversationStatusCompleted)
 }

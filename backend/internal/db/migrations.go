@@ -511,4 +511,18 @@ var migrations = []migration{
 			);
 		`,
 	},
+	{
+		version: 23,
+		sql: `
+			-- Conversation unread state. This is intentionally local UI state:
+			-- setting it should never imply that an external notification was sent.
+			ALTER TABLE conversations ADD COLUMN unread_at DATETIME;
+		`,
+	},
+	{
+		version: 24,
+		sql: `
+			CREATE INDEX IF NOT EXISTS idx_conversations_unread ON conversations(unread_at DESC);
+		`,
+	},
 }

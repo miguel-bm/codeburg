@@ -100,7 +100,7 @@ func (db *DB) SetConversationWorkspace(conversationID string, workspaceID *strin
 func (db *DB) ListConversationsByCurrentWorkspace(workspaceID string) ([]*Conversation, error) {
 	rows, err := db.conn.Query(`
 		SELECT id, project_id, current_workspace_id, parent_conversation_id, provider, title, status, preferred_surface,
-		       summary, provider_session_id, last_activity_at, created_at, updated_at, archived_at
+		       summary, provider_session_id, last_activity_at, created_at, updated_at, archived_at, unread_at
 		FROM conversations
 		WHERE current_workspace_id = ?
 		ORDER BY last_activity_at DESC, created_at DESC
@@ -136,7 +136,7 @@ func createConversationWorkspaceLinkTx(tx *sql.Tx, conversationID string, worksp
 func getConversationTx(tx *sql.Tx, id string) (*Conversation, error) {
 	row := tx.QueryRow(`
 		SELECT id, project_id, current_workspace_id, parent_conversation_id, provider, title, status, preferred_surface,
-		       summary, provider_session_id, last_activity_at, created_at, updated_at, archived_at
+		       summary, provider_session_id, last_activity_at, created_at, updated_at, archived_at, unread_at
 		FROM conversations WHERE id = ?
 	`, id)
 	return scanConversation(row.Scan)

@@ -861,6 +861,42 @@ for line in sys.stdin:
 	if stored.ProviderSessionID == nil || *stored.ProviderSessionID == "" {
 		t.Fatal("expected provider session id to be stored")
 	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		getResp = env.get("/api/conversations/" + conversation.ID)
+		if getResp.Code != http.StatusOK {
+			t.Fatalf("get conversation unread state: %d %s", getResp.Code, getResp.Body.String())
+		}
+		decodeResponse(t, getResp, &stored)
+		if stored.UnreadAt != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if stored.UnreadAt == nil {
+		t.Fatal("expected agent completion to mark conversation unread")
+	}
+
+	readResp := env.post("/api/conversations/"+conversation.ID+"/read", map[string]any{})
+	if readResp.Code != http.StatusOK {
+		t.Fatalf("mark conversation read: %d %s", readResp.Code, readResp.Body.String())
+	}
+	var readStored db.Conversation
+	decodeResponse(t, readResp, &readStored)
+	if readStored.UnreadAt != nil {
+		t.Fatalf("expected read conversation to clear unread state, got %v", readStored.UnreadAt)
+	}
+
+	unreadResp := env.post("/api/conversations/"+conversation.ID+"/unread", map[string]any{})
+	if unreadResp.Code != http.StatusOK {
+		t.Fatalf("mark conversation unread: %d %s", unreadResp.Code, unreadResp.Body.String())
+	}
+	var unreadStored db.Conversation
+	decodeResponse(t, unreadResp, &unreadStored)
+	if unreadStored.UnreadAt == nil {
+		t.Fatal("expected manual unread marker")
+	}
 }
 
 func TestConversationSearchForkAndWorkspaceReassignment(t *testing.T) {
@@ -1499,6 +1535,26 @@ func TestProjectSkillsDiscoveryInstallAndDelete(t *testing.T) {
 		t.Fatalf("unexpected available skills: %+v", projectSkills.Available)
 	}
 
+	globalInstallResp := env.post("/api/skills", map[string]any{
+		"sourcePath": sourceSkillDir,
+		"target":     "agents",
+		"mode":       "copy",
+	})
+	if globalInstallResp.Code != http.StatusCreated {
+		t.Fatalf("install global skill: %d %s", globalInstallResp.Code, globalInstallResp.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(homeDir, ".agents", "skills", "lint-helper", "SKILL.md")); err != nil {
+		t.Fatalf("expected copied global skill: %v", err)
+	}
+
+	globalDeleteResp := env.delete("/api/skills/agents/lint-helper")
+	if globalDeleteResp.Code != http.StatusNoContent {
+		t.Fatalf("delete global skill: %d %s", globalDeleteResp.Code, globalDeleteResp.Body.String())
+	}
+	if _, err := os.Lstat(filepath.Join(homeDir, ".agents", "skills", "lint-helper")); !os.IsNotExist(err) {
+		t.Fatalf("expected global skill to be removed, err=%v", err)
+	}
+
 	deleteResp := env.delete("/api/projects/" + project.ID + "/skills/agents/lint-helper")
 	if deleteResp.Code != http.StatusNoContent {
 		t.Fatalf("delete project skill: %d %s", deleteResp.Code, deleteResp.Body.String())
@@ -1580,5 +1636,20 @@ func TestCuratedSkillCatalogDiscoveryAndInstall(t *testing.T) {
 	}
 	if !strings.Contains(string(installedRaw), "Makes frontend work better") {
 		t.Fatalf("unexpected installed skill content: %q", string(installedRaw))
+	}
+
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	globalInstallResp := env.post("/api/skills/catalog", map[string]any{
+		"sourceId":  "cloudflare",
+		"skillPath": "skills/workers-best-practices",
+		"target":    "agents",
+		"name":      "workers-best-practices",
+	})
+	if globalInstallResp.Code != http.StatusCreated {
+		t.Fatalf("install global catalog skill: %d %s", globalInstallResp.Code, globalInstallResp.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(homeDir, ".agents", "skills", "workers-best-practices", "SKILL.md")); err != nil {
+		t.Fatalf("expected global catalog skill: %v", err)
 	}
 }

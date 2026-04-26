@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
   ChevronDown,
+  CircleDot,
   FileText,
   GitBranch,
   GitBranchPlus,
@@ -57,6 +58,8 @@ export function V2ConversationDetailPage() {
   const [newTabOpen, setNewTabOpen] = useState(false);
   const [conversationActionsOpen, setConversationActionsOpen] = useState(false);
   const resizeStart = useRef<{ x: number; width: number } | null>(null);
+  const readOnFocusConversation = useRef<string | null>(null);
+  const wasStreaming = useRef(false);
 
   const { data: conversation } = useQuery({
     queryKey: ['v2-conversation', conversationId],
@@ -188,6 +191,20 @@ export function V2ConversationDetailPage() {
     },
   });
 
+  const markConversationReadState = useMutation({
+    mutationFn: (unread: boolean) =>
+      unread ? v2Api.markConversationUnread(conversationId!) : v2Api.markConversationRead(conversationId!),
+    onSuccess: async (updated) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-conversation', updated.id] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId, 'sidebar'] }),
+      ]);
+    },
+  });
+
   const forkConversation = useMutation({
     mutationFn: () =>
       v2Api.forkConversation(conversationId!, {
@@ -241,6 +258,27 @@ export function V2ConversationDetailPage() {
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }, [toolsWidth]);
+
+  useEffect(() => {
+    if (!conversation?.id) return;
+    if (readOnFocusConversation.current === conversation.id) return;
+    readOnFocusConversation.current = conversation.id;
+    if (conversation.unreadAt) {
+      markConversationReadState.mutate(false);
+    }
+  }, [conversation?.id, conversation?.unreadAt, markConversationReadState]);
+
+  useEffect(() => {
+    if (!conversationId) {
+      wasStreaming.current = false;
+      return;
+    }
+    const streaming = Boolean(snapshot?.streaming);
+    if (wasStreaming.current && !streaming) {
+      markConversationReadState.mutate(false);
+    }
+    wasStreaming.current = streaming;
+  }, [conversationId, snapshot?.streaming, markConversationReadState]);
 
   const handleSubmit = async () => {
     const trimmed = draft.trim();
@@ -336,6 +374,16 @@ export function V2ConversationDetailPage() {
                       <V2Input value={forkTitle} onChange={(event) => setForkTitle(event.target.value)} placeholder="Fork title" className="min-w-0 flex-1" />
                       <Button size="xs" variant="secondary" icon={<GitBranchPlus size={13} />} loading={forkConversation.isPending} onClick={() => forkConversation.mutate()} title="Fork conversation">Fork</Button>
                     </div>
+                    <Button
+                      className="mt-3 w-full"
+                      size="xs"
+                      variant="ghost"
+                      icon={<CircleDot size={13} />}
+                      loading={markConversationReadState.isPending}
+                      onClick={() => markConversationReadState.mutate(!conversation?.unreadAt)}
+                    >
+                      {conversation?.unreadAt ? 'Mark read' : 'Mark unread'}
+                    </Button>
                     {conversation?.status !== 'archived' && (
                       <Button className="mt-3 w-full" size="xs" variant="ghost" icon={<Archive size={13} />} disabled={transitionConversation.isPending} onClick={() => transitionConversation.mutate('archive')} title="Archive conversation">
                         Archive conversation
