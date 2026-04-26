@@ -609,6 +609,75 @@ func TestWorkspaceGitOperations(t *testing.T) {
 	}
 }
 
+func TestWorkspaceEndStateCleanup(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+	repoPath := createTestGitRepoWithMain(t)
+	project, _ := createProjectAndWorkspace(t, env, repoPath)
+
+	createResp := env.post("/api/projects/"+project.ID+"/workspaces", map[string]any{
+		"name": "cleanup candidate",
+	})
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("create workspace: %d %s", createResp.Code, createResp.Body.String())
+	}
+	var createBody workspaceMutationResponse
+	decodeResponse(t, createResp, &createBody)
+	worktreePath := *createBody.Workspace.WorktreePath
+
+	abandonResp := env.post("/api/workspaces/"+createBody.Workspace.ID+"/abandon", map[string]any{
+		"cleanupWorktree": true,
+	})
+	if abandonResp.Code != http.StatusOK {
+		t.Fatalf("abandon workspace with cleanup: %d %s", abandonResp.Code, abandonResp.Body.String())
+	}
+	var abandoned db.Workspace
+	decodeResponse(t, abandonResp, &abandoned)
+	if abandoned.Status != db.WorkspaceStatusAbandoned {
+		t.Fatalf("expected abandoned status, got %s", abandoned.Status)
+	}
+	if abandoned.WorktreePath != nil {
+		t.Fatalf("expected cleanup to clear worktree path, got %v", abandoned.WorktreePath)
+	}
+	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
+		t.Fatalf("expected abandoned workspace worktree to be removed, stat err=%v", err)
+	}
+
+	activateResp := env.post("/api/workspaces/"+createBody.Workspace.ID+"/activate", map[string]any{})
+	if activateResp.Code != http.StatusOK {
+		t.Fatalf("reactivate cleaned workspace: %d %s", activateResp.Code, activateResp.Body.String())
+	}
+	var reactivated db.Workspace
+	decodeResponse(t, activateResp, &reactivated)
+	if reactivated.WorktreePath == nil || *reactivated.WorktreePath == "" {
+		t.Fatal("expected reactivation to recreate worktree")
+	}
+
+	archiveResp := env.post("/api/workspaces/"+reactivated.ID+"/archive", map[string]any{})
+	if archiveResp.Code != http.StatusOK {
+		t.Fatalf("archive workspace: %d %s", archiveResp.Code, archiveResp.Body.String())
+	}
+	var archived db.Workspace
+	decodeResponse(t, archiveResp, &archived)
+	archivedPath := *archived.WorktreePath
+
+	cleanupResp := env.post("/api/workspaces/"+archived.ID+"/cleanup", map[string]any{})
+	if cleanupResp.Code != http.StatusOK {
+		t.Fatalf("cleanup archived workspace: %d %s", cleanupResp.Code, cleanupResp.Body.String())
+	}
+	var cleaned db.Workspace
+	decodeResponse(t, cleanupResp, &cleaned)
+	if cleaned.Status != db.WorkspaceStatusArchived {
+		t.Fatalf("expected archived status to be preserved, got %s", cleaned.Status)
+	}
+	if cleaned.WorktreePath != nil {
+		t.Fatalf("expected explicit cleanup to clear worktree path, got %v", cleaned.WorktreePath)
+	}
+	if _, err := os.Stat(archivedPath); !os.IsNotExist(err) {
+		t.Fatalf("expected archived workspace worktree to be removed, stat err=%v", err)
+	}
+}
+
 func TestConversationLifecycleAndPiStatus(t *testing.T) {
 	env := setupTestEnv(t)
 	env.setup("testpass123")

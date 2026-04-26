@@ -71,6 +71,10 @@ type mergeWorkspaceRequest struct {
 	MergeStrategy   *string `json:"mergeStrategy,omitempty"`
 }
 
+type workspaceLifecycleRequest struct {
+	CleanupWorktree *bool `json:"cleanupWorktree,omitempty"`
+}
+
 type workspaceMergeOptions struct {
 	SyncFirst       bool
 	PushAfterMerge  bool
@@ -582,6 +586,45 @@ func (s *Server) handleArchiveWorkspace(w http.ResponseWriter, r *http.Request) 
 	s.transitionWorkspaceStatus(w, r, db.WorkspaceStatusArchived)
 }
 
+func (s *Server) handleCleanupWorkspaceWorktree(w http.ResponseWriter, r *http.Request) {
+	workspaceID := urlParam(r, "id")
+	workspace, err := s.db.GetWorkspace(workspaceID)
+	if err != nil {
+		writeDBError(w, err, "workspace")
+		return
+	}
+	if workspace.Kind == db.WorkspaceKindMain {
+		writeError(w, http.StatusBadRequest, "canonical main workspace has no removable worktree")
+		return
+	}
+	if workspace.Status == db.WorkspaceStatusActive {
+		writeError(w, http.StatusConflict, "active workspace must be ended before cleanup")
+		return
+	}
+
+	project, err := s.db.GetProject(workspace.ProjectID)
+	if err != nil {
+		writeDBError(w, err, "project")
+		return
+	}
+
+	var warnings []string
+	update := db.UpdateWorkspaceInput{ClearWorktree: true}
+	if err := s.cleanupWorkspaceWorktree(project, workspace); err != nil {
+		warnings = append(warnings, "failed to cleanup workspace worktree: "+err.Error())
+	}
+
+	updated, err := s.db.UpdateWorkspace(workspace.ID, update)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update workspace")
+		return
+	}
+	if len(warnings) > 0 {
+		w.Header().Set("X-Codeburg-Workspace-Warnings", strings.Join(warnings, "; "))
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
 func (s *Server) handleActivateWorkspace(w http.ResponseWriter, r *http.Request) {
 	workspaceID := urlParam(r, "id")
 	workspace, err := s.db.GetWorkspace(workspaceID)
@@ -678,6 +721,12 @@ func (s *Server) transitionWorkspaceStatus(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	var req workspaceLifecycleRequest
+	if err := decodeJSON(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
 	update := db.UpdateWorkspaceInput{
 		Status: &nextStatus,
 	}
@@ -699,12 +748,44 @@ func (s *Server) transitionWorkspaceStatus(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	if nextStatus != db.WorkspaceStatusActive && req.CleanupWorktree != nil && *req.CleanupWorktree {
+		project, err := s.db.GetProject(workspace.ProjectID)
+		if err != nil {
+			writeDBError(w, err, "project")
+			return
+		}
+		if err := s.cleanupWorkspaceWorktree(project, workspace); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to cleanup workspace worktree: "+err.Error())
+			return
+		}
+		update.ClearWorktree = true
+	}
+
 	updated, err := s.db.UpdateWorkspace(workspace.ID, update)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update workspace")
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) cleanupWorkspaceWorktree(project *db.Project, workspace *db.Workspace) error {
+	if workspace.Kind == db.WorkspaceKindMain {
+		return nil
+	}
+	if workspace.WorktreePath == nil || strings.TrimSpace(*workspace.WorktreePath) == "" {
+		return nil
+	}
+	worktreePath := strings.TrimSpace(*workspace.WorktreePath)
+	if !s.worktree.Exists(worktreePath) {
+		return nil
+	}
+	return s.worktree.Delete(worktree.DeleteOptions{
+		ProjectPath:    project.Path,
+		WorktreePath:   worktreePath,
+		DeleteBranch:   false,
+		TeardownScript: ptrToString(project.TeardownScript),
+	})
 }
 
 func ptrWorkspaceStatus(status db.WorkspaceStatus) *db.WorkspaceStatus {

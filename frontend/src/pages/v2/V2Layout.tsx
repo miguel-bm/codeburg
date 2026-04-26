@@ -34,6 +34,7 @@ import {
   Settings,
   SquareStack,
   SquareTerminal,
+  Trash2,
 } from 'lucide-react';
 import { preferencesApi, projectsApi } from '../../api';
 import type { Conversation, PiConversationSnapshot, Project, Workspace } from '../../api/types';
@@ -234,11 +235,12 @@ export function V2Layout() {
     },
   });
   const mutateWorkspaceStatus = useMutation({
-    mutationFn: ({ workspace, action }: { workspace: Workspace; action: 'activate' | 'merge' | 'abandon' | 'archive' }) => {
+    mutationFn: ({ workspace, action }: { workspace: Workspace; action: 'activate' | 'merge' | 'abandon' | 'archive' | 'cleanup' }) => {
       if (action === 'activate') return v2Api.activateWorkspace(workspace.id);
-      if (action === 'merge') return v2Api.mergeWorkspace(workspace.id);
-      if (action === 'abandon') return v2Api.abandonWorkspace(workspace.id);
-      return v2Api.archiveWorkspace(workspace.id);
+      if (action === 'merge') return v2Api.mergeWorkspace(workspace.id, { cleanupWorktree: true });
+      if (action === 'abandon') return v2Api.abandonWorkspace(workspace.id, { cleanupWorktree: true });
+      if (action === 'archive') return v2Api.archiveWorkspace(workspace.id, { cleanupWorktree: true });
+      return v2Api.cleanupWorkspace(workspace.id);
     },
     onSuccess: async (updated, { action }) => {
       await Promise.all([
@@ -351,6 +353,7 @@ export function V2Layout() {
             onMergeWorkspace={(workspace) => mutateWorkspaceStatus.mutate({ workspace, action: 'merge' })}
             onAbandonWorkspace={(workspace) => mutateWorkspaceStatus.mutate({ workspace, action: 'abandon' })}
             onArchiveWorkspace={(workspace) => mutateWorkspaceStatus.mutate({ workspace, action: 'archive' })}
+            onCleanupWorkspace={(workspace) => mutateWorkspaceStatus.mutate({ workspace, action: 'cleanup' })}
             onCopyWorkspaceBranch={(workspace) => copyToClipboard(workspace.branchName, 'branch name')}
             onCopyWorkspacePath={(workspace) => copyToClipboard(workspace.worktreePath || project.path, workspace.kind === 'main' ? 'project path' : 'worktree path')}
             onCopyProjectPath={() => copyToClipboard(project.path, 'repo path')}
@@ -654,6 +657,7 @@ function ProjectTree({
   onMergeWorkspace,
   onAbandonWorkspace,
   onArchiveWorkspace,
+  onCleanupWorkspace,
   onCopyWorkspaceBranch,
   onCopyWorkspacePath,
   onCopyProjectPath,
@@ -687,6 +691,7 @@ function ProjectTree({
   onMergeWorkspace: (workspace: Workspace) => void;
   onAbandonWorkspace: (workspace: Workspace) => void;
   onArchiveWorkspace: (workspace: Workspace) => void;
+  onCleanupWorkspace: (workspace: Workspace) => void;
   onCopyWorkspaceBranch: (workspace: Workspace) => void;
   onCopyWorkspacePath: (workspace: Workspace) => void;
   onCopyProjectPath: () => void;
@@ -927,14 +932,14 @@ function ProjectTree({
                             disabled={workspaceActionPending}
                             onClick={() => runWorkspaceAction(() => onMergeWorkspace(workspace))}
                           >
-                            Merge workspace
+                            Merge and clean up
                           </ProjectMenuItem>
                           <ProjectMenuItem
                             icon={<RotateCcw size={14} />}
                             disabled={workspaceActionPending}
                             onClick={() => runWorkspaceAction(() => onAbandonWorkspace(workspace))}
                           >
-                            Abandon workspace
+                            Abandon and clean up
                           </ProjectMenuItem>
                           <ProjectMenuItem
                             icon={<Archive size={14} />}
@@ -942,7 +947,7 @@ function ProjectTree({
                             danger
                             onClick={() => runWorkspaceAction(() => onArchiveWorkspace(workspace))}
                           >
-                            Archive workspace
+                            Archive and clean up
                           </ProjectMenuItem>
                         </>
                       )}
@@ -961,9 +966,19 @@ function ProjectTree({
                             danger
                             onClick={() => runWorkspaceAction(() => onArchiveWorkspace(workspace))}
                           >
-                            Archive workspace
+                            Archive and clean up
                           </ProjectMenuItem>
                         </>
+                      )}
+                      {workspace.kind === 'worktree' && workspace.status !== 'active' && workspace.worktreePath && (
+                        <ProjectMenuItem
+                          icon={<Trash2 size={14} />}
+                          disabled={workspaceActionPending}
+                          danger
+                          onClick={() => runWorkspaceAction(() => onCleanupWorkspace(workspace))}
+                        >
+                          Clean up worktree
+                        </ProjectMenuItem>
                       )}
                       <ProjectMenuItem
                         icon={<Copy size={14} />}

@@ -342,6 +342,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/workspaces/{id}/merge", s.handleMergeWorkspace)
 		r.Post("/api/workspaces/{id}/abandon", s.handleAbandonWorkspace)
 		r.Post("/api/workspaces/{id}/archive", s.handleArchiveWorkspace)
+		r.Post("/api/workspaces/{id}/cleanup", s.handleCleanupWorkspaceWorktree)
 		r.Delete("/api/workspaces/{id}", s.handleDeleteWorkspace)
 		r.Get("/api/workspaces/{id}/terminals", s.handleListWorkspaceTerminals)
 		r.Post("/api/workspaces/{id}/terminals", s.handleCreateWorkspaceTerminal)

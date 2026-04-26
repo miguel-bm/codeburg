@@ -48,6 +48,17 @@ export interface WorkspaceMutationResponse {
   warnings?: string[];
 }
 
+export interface WorkspaceLifecycleInput {
+  cleanupWorktree?: boolean;
+}
+
+export interface MergeWorkspaceInput extends WorkspaceLifecycleInput {
+  syncFirst?: boolean;
+  pushAfterMerge?: boolean;
+  deleteBranch?: boolean;
+  mergeStrategy?: string;
+}
+
 export interface CreateConversationInput {
   title: string;
   currentWorkspaceId?: string;
@@ -110,14 +121,17 @@ export const v2Api = {
   activateWorkspace: (workspaceId: string) =>
     api.post<Workspace>(`/workspaces/${workspaceId}/activate`, {}),
 
-  mergeWorkspace: (workspaceId: string) =>
-    api.post<Workspace>(`/workspaces/${workspaceId}/merge`, {}),
+  mergeWorkspace: (workspaceId: string, input?: MergeWorkspaceInput) =>
+    api.post<Workspace>(`/workspaces/${workspaceId}/merge`, input ?? {}),
 
-  abandonWorkspace: (workspaceId: string) =>
-    api.post<Workspace>(`/workspaces/${workspaceId}/abandon`, {}),
+  abandonWorkspace: (workspaceId: string, input?: WorkspaceLifecycleInput) =>
+    api.post<Workspace>(`/workspaces/${workspaceId}/abandon`, input ?? {}),
 
-  archiveWorkspace: (workspaceId: string) =>
-    api.post<Workspace>(`/workspaces/${workspaceId}/archive`, {}),
+  archiveWorkspace: (workspaceId: string, input?: WorkspaceLifecycleInput) =>
+    api.post<Workspace>(`/workspaces/${workspaceId}/archive`, input ?? {}),
+
+  cleanupWorkspace: (workspaceId: string) =>
+    api.post<Workspace>(`/workspaces/${workspaceId}/cleanup`, {}),
 
   deleteWorkspace: (workspaceId: string) =>
     api.delete(`/workspaces/${workspaceId}`),
