@@ -373,6 +373,46 @@ export interface PiExtensionEntry {
   scope: string;
 }
 
+export type HarnessToolId = 'pi' | 'codex' | 'claude';
+
+export interface HarnessToolStatus {
+  id: HarnessToolId;
+  name: string;
+  packageName: string;
+  installed: boolean;
+  binaryPath?: string;
+  version?: string;
+  latestVersion?: string;
+  updateCommand: string;
+  changelogUrl: string;
+  installUrl: string;
+  loadWarnings?: string[];
+}
+
+export interface HarnessAuthStatus {
+  id: string;
+  name: string;
+  loggedIn: boolean;
+  method?: string;
+  detail?: string;
+  providers?: string[];
+  loadWarnings?: string[];
+}
+
+export interface HarnessUpdateInfo {
+  running: boolean;
+  tool?: HarnessToolId;
+  startedAt?: string;
+}
+
+export interface HarnessStatus {
+  tools: HarnessToolStatus[];
+  auth: HarnessAuthStatus[];
+  update?: HarnessUpdateInfo;
+  checkedLatest: boolean;
+  generatedAt: string;
+}
+
 export interface PiConversationModel {
   provider: string;
   id: string;

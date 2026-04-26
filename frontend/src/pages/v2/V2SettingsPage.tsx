@@ -21,19 +21,19 @@ export function V2SettingsPage() {
             <div className="mb-4 flex items-start gap-3">
               <PlugZap size={15} className="mt-0.5 text-dim" />
               <div>
-                <h2 className="text-sm font-semibold">Pi runtime</h2>
-                <p className="mt-1 max-w-2xl text-xs leading-5 text-dim">Global pi installation and auth state. Project-specific package overrides live in each project settings page.</p>
+                <h2 className="text-sm font-semibold">Harness runtimes</h2>
+                <p className="mt-1 max-w-2xl text-xs leading-5 text-dim">Global agent installation and auth state. Runtime updates and project-specific Pi overrides live in each project Harness page.</p>
               </div>
             </div>
             <div className="grid gap-3 text-sm md:grid-cols-2">
-              <SettingLine label="Installed" value={piStatus?.installed ? 'Yes' : 'No'} ok={!!piStatus?.installed} />
-              <SettingLine label="Auth" value={piStatus?.authConfigured ? 'Configured' : 'Needs terminal login'} ok={!!piStatus?.authConfigured} />
-              <SettingLine label="Version" value={piStatus?.version ?? 'Unavailable'} />
-              <SettingLine label="Agent dir" value={piStatus?.agentDir ?? '~/.pi/agent'} mono />
+              <SettingLine label="Pi installed" value={piStatus?.installed ? 'Yes' : 'No'} ok={!!piStatus?.installed} />
+              <SettingLine label="Pi auth" value={piStatus?.authConfigured ? 'Configured' : 'Needs terminal login'} ok={!!piStatus?.authConfigured} />
+              <SettingLine label="Pi version" value={piStatus?.version ?? 'Unavailable'} />
+              <SettingLine label="Pi agent dir" value={piStatus?.agentDir ?? '~/.pi/agent'} mono />
             </div>
             <div className="mt-5 flex items-center gap-2 text-xs text-dim">
               <TerminalSquare size={14} />
-              Log in from any workspace terminal with `pi`, then `/login`.
+              Open a project Harness page to update Pi, Codex, or Claude Code.
             </div>
           </section>
 
@@ -42,7 +42,7 @@ export function V2SettingsPage() {
               <Settings2 size={15} className="mt-0.5 text-dim" />
               <div>
                 <h2 className="text-sm font-semibold">V2 preferences</h2>
-                <p className="mt-1 max-w-2xl text-xs leading-5 text-dim">Global V2-only settings will live here. Project lifecycle, skills, quick actions, and project pi overrides live under each project menu.</p>
+                <p className="mt-1 max-w-2xl text-xs leading-5 text-dim">Global V2-only settings will live here. Project lifecycle, skills, quick actions, and harness overrides live under each project menu.</p>
               </div>
             </div>
           </section>

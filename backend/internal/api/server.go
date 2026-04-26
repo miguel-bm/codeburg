@@ -339,6 +339,8 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/pi/packages/update", s.handleUpdatePiPackages)
 		r.Post("/api/pi/extensions", s.handleAddPiExtension)
 		r.Post("/api/pi/extensions/remove", s.handleRemovePiExtension)
+		r.Get("/api/harness/status", s.handleHarnessStatus)
+		r.Post("/api/harness/tools/{tool}/update/stream", s.handleStreamHarnessToolUpdate)
 		r.Get("/api/workspaces/{id}", s.handleGetWorkspace)
 		r.Post("/api/workspaces/{id}/fork", s.handleForkWorkspace)
 		r.Post("/api/workspaces/{id}/sync", s.handleSyncWorkspace)

@@ -73,7 +73,7 @@ export function V2ProjectConversationsPage() {
         subtitle="Use conversations for durable planning and agent work. A thread can be project-scoped, attached to a workspace, moved later, or forked when the work branches."
         actions={project && (
           <Link to={`/v2/projects/${project.id}/pi`}>
-            <Button size="xs" variant="secondary" icon={<Settings2 size={13} />}>Pi settings</Button>
+            <Button size="xs" variant="secondary" icon={<Settings2 size={13} />}>Harness</Button>
           </Link>
         )}
       />

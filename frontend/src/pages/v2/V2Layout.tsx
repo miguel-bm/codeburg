@@ -325,7 +325,7 @@ export function V2Layout() {
       </div>
 
       <nav className="space-y-1 px-2">
-        <SidebarAction icon={<PlugZap size={15} />} label="Pi setup" onClick={() => navigate('/v2/settings')} />
+        <SidebarAction icon={<PlugZap size={15} />} label="Harness setup" onClick={() => navigate('/v2/settings')} />
         <SidebarAction icon={<MessageSquareText size={15} />} label="All conversations" onClick={() => navigate('/v2/conversations')} />
       </nav>
 

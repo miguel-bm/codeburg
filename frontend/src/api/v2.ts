@@ -1,4 +1,6 @@
 import { api } from './client';
+import { getAuthToken } from '../platform/authTokenStorage';
+import { getApiHttpBase } from '../platform/runtimeConfig';
 import type {
   Workspace,
   TerminalSession,
@@ -14,6 +16,8 @@ import type {
   ManagedSkill,
   SkillCatalogEntry,
   ProjectSkillsResponse,
+  HarnessStatus,
+  HarnessToolId,
 } from './types';
 import type { GitStatus, GitDiff, GitDiffContent } from './git';
 
@@ -219,6 +223,12 @@ export const v2Api = {
   getProjectPiConfig: (projectId: string) =>
     api.get<PiConfigResponse>(`/projects/${projectId}/pi/config`),
 
+  getHarnessStatus: (checkLatest = false) =>
+    api.get<HarnessStatus>(`/harness/status${checkLatest ? '?latest=1' : ''}`),
+
+  streamHarnessUpdate: (tool: HarnessToolId, onEvent: (event: HarnessUpdateEvent) => void) =>
+    streamHarnessUpdate(tool, onEvent),
+
   updatePiSettings: (content: string) =>
     api.put<PiConfigDocument>('/pi/settings', { content }),
 
@@ -335,3 +345,70 @@ export const v2Api = {
     return api.get<GitDiffContent>(`/workspaces/${workspaceId}/git/diff-content?${params.toString()}`);
   },
 };
+
+export interface HarnessUpdateEvent {
+  event: 'status' | 'stdout' | 'stderr' | 'error' | 'done' | string;
+  data: string;
+}
+
+async function streamHarnessUpdate(tool: HarnessToolId, onEvent: (event: HarnessUpdateEvent) => void): Promise<number> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${getApiHttpBase()}/harness/tools/${tool}/update/stream`, {
+    method: 'POST',
+    headers,
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(async () => ({ error: await response.text().catch(() => 'Update failed') }));
+    throw new Error(payload.error || 'Update failed');
+  }
+  if (!response.body) {
+    throw new Error('Streaming is not supported by this browser');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let exitCode = 0;
+
+  const processBlock = (block: string) => {
+    const lines = block.split('\n');
+    const eventLine = lines.find((line) => line.startsWith('event:'));
+    const event = eventLine ? eventLine.slice(6).trim() : 'message';
+    const data = lines
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).replace(/^ /, ''))
+      .join('\n');
+    if (!eventLine && !data) return;
+    onEvent({ event, data });
+    if (event === 'done') {
+      try {
+        const parsed = JSON.parse(data) as { exitCode?: number };
+        exitCode = parsed.exitCode ?? 0;
+      } catch {
+        exitCode = 0;
+      }
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let boundary = buffer.indexOf('\n\n');
+    while (boundary !== -1) {
+      const block = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      processBlock(block);
+      boundary = buffer.indexOf('\n\n');
+    }
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) processBlock(buffer);
+  return exitCode;
+}

@@ -173,9 +173,9 @@ export function V2ProjectSettingsPage() {
                 <Button size="sm" variant="secondary" icon={<Hammer size={14} />}>Manage skills</Button>
               </Link>
             </SettingsSection>
-            <SettingsSection icon={<PlugZap size={15} />} title="Pi" description="Global pi auth/config plus optional project overrides.">
+            <SettingsSection icon={<PlugZap size={15} />} title="Harness" description="Agent runtime updates, login state, and Pi project overrides.">
               <Link to={`/v2/projects/${id}/pi`}>
-                <Button size="sm" variant="secondary" icon={<PlugZap size={14} />}>Pi configuration</Button>
+                <Button size="sm" variant="secondary" icon={<PlugZap size={14} />}>Harness settings</Button>
               </Link>
             </SettingsSection>
           </aside>
