@@ -758,8 +758,8 @@ function ConversationSurface({
   useEffect(() => {
     const node = textareaRef.current;
     if (!node) return;
-    const minHeight = isMobile ? 96 : 118;
-    const maxHeight = isMobile ? 180 : 260;
+    const minHeight = isMobile ? 70 : 82;
+    const maxHeight = isMobile ? 150 : 210;
     node.style.height = '0px';
     node.style.height = `${Math.min(maxHeight, Math.max(minHeight, node.scrollHeight))}px`;
   }, [attachments.length, draft, isMobile]);
@@ -888,7 +888,7 @@ function ConversationSurface({
         )}
       </div>
 
-      <div className="shrink-0 bg-primary px-3 pb-3 md:px-6 md:pb-5" style={composerStyle}>
+      <div className="shrink-0 bg-primary px-2 pb-2 md:px-3 md:pb-3" style={composerStyle}>
         <div
           onDragEnter={handleComposerDragEnter}
           onDragOver={handleComposerDragOver}
@@ -907,7 +907,7 @@ function ConversationSurface({
             </div>
           )}
           {attachments.length > 0 && (
-            <div className="flex flex-wrap gap-2 px-4 pb-1 pt-3 md:px-5">
+            <div className="flex flex-wrap gap-2 px-3 pb-1 pt-2 md:px-4">
               {attachments.map((attachment) => (
                 <div key={attachment.id} className="group inline-flex h-8 max-w-full items-center gap-2 rounded-full border border-subtle bg-primary px-2.5 pr-1.5 text-sm text-[var(--color-text-primary)] shadow-sm">
                   <span className="h-3.5 w-3.5 shrink-0 rounded-full bg-secondary" />
@@ -1017,10 +1017,10 @@ function ConversationSurface({
             }}
             placeholder={isActiveConversation ? 'Send a prompt to Pi...' : 'Resume the conversation before sending a prompt'}
             disabled={!isActiveConversation || sending}
-            className="block w-full resize-none rounded-t-[1.35rem] bg-transparent px-4 pt-4 text-sm leading-6 text-[var(--color-text-primary)] outline-none placeholder:text-dim disabled:opacity-60 md:px-5 md:pt-5"
+            className="block w-full resize-none rounded-t-[1.35rem] bg-transparent px-3 pt-3 text-sm leading-6 text-[var(--color-text-primary)] outline-none placeholder:text-dim disabled:opacity-60 md:px-4 md:pt-3"
           />
 
-          <div className="flex min-h-12 items-center justify-between gap-3 px-3 pb-3 pt-1 md:px-4">
+          <div className="flex min-h-10 items-center justify-between gap-2 px-2 pb-1.5 pt-0 md:px-2.5">
             <div className="flex min-w-0 items-center gap-1.5">
               <input
                 ref={fileInputRef}
@@ -1123,11 +1123,11 @@ function ConversationSurface({
                 type="button"
                 onClick={submit}
                 disabled={(!draft.trim() && attachments.length === 0) || !isActiveConversation || sending}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[var(--color-text-primary)] text-[var(--color-card)] shadow-[0_8px_18px_rgba(15,23,42,0.18)] transition-transform hover:scale-[1.03] disabled:scale-100 disabled:opacity-35"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-text-primary)] text-[var(--color-card)] shadow-[0_7px_16px_rgba(15,23,42,0.16)] transition-transform hover:scale-[1.03] disabled:scale-100 disabled:opacity-35"
                 title="Send"
                 aria-label="Send"
               >
-                {sending ? <Loader2 size={17} className="animate-spin" /> : <ArrowUp size={23} strokeWidth={2.1} />}
+                {sending ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={20} strokeWidth={2.2} />}
               </button>
             </div>
           </div>
