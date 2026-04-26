@@ -24,11 +24,13 @@ import {
   Search,
   Settings,
   SquareStack,
+  X,
 } from 'lucide-react';
 import { preferencesApi, projectsApi } from '../../api';
 import type { Conversation, PiConversationSnapshot, Project, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { CodeburgIcon, CodeburgWordmark } from '../../components/ui/CodeburgIcon';
+import { useMobile } from '../../hooks/useMobile';
 import { getDesktopTitleBarInsetTop, isDesktopShell } from '../../platform/runtimeConfig';
 import { selectIsExpanded, useSidebarStore } from '../../stores/sidebar';
 import type { QueryClient } from '@tanstack/react-query';
@@ -38,6 +40,8 @@ export function V2Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const isMobile = useMobile();
+  const [mobileProjectDrawerOpen, setMobileProjectDrawerOpen] = useState(false);
   const sidebarExpanded = useSidebarStore(selectIsExpanded);
   const toggleSidebarExpanded = useSidebarStore((state) => state.toggleExpanded);
   const { data: projects, isLoading } = useQuery({
@@ -59,11 +63,12 @@ export function V2Layout() {
       if (pinnedA !== pinnedB) return pinnedA ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
+  const shouldLoadSidebarTree = !isMobile || mobileProjectDrawerOpen;
   const workspaceQueries = useQueries({
     queries: visibleProjects.map((project) => ({
       queryKey: ['v2-workspaces', project.id],
       queryFn: () => v2Api.listWorkspaces(project.id),
-      enabled: !!project.id,
+      enabled: shouldLoadSidebarTree && !!project.id,
       staleTime: 30_000,
     })),
   });
@@ -71,9 +76,9 @@ export function V2Layout() {
     queries: visibleProjects.map((project) => ({
       queryKey: ['v2-project-conversations', project.id, 'sidebar'],
       queryFn: () => v2Api.listProjectConversations(project.id, { provider: 'pi', status: 'active' }),
-      enabled: !!project.id,
+      enabled: shouldLoadSidebarTree && !!project.id,
       staleTime: 20_000,
-      refetchInterval: 5_000,
+      refetchInterval: shouldLoadSidebarTree ? 5_000 : false,
     })),
   });
 
@@ -83,17 +88,19 @@ export function V2Layout() {
     workspacesByProject.set(project.id, workspaceQueries[index]?.data ?? []);
     conversationsByProject.set(project.id, conversationQueries[index]?.data ?? []);
   });
-  const visibleConversations = Array.from(conversationsByProject.values())
-    .flat()
-    .filter((conversation) => conversation.status === 'active')
-    .slice(0, 60);
+  const visibleConversations = shouldLoadSidebarTree
+    ? Array.from(conversationsByProject.values())
+      .flat()
+      .filter((conversation) => conversation.status === 'active')
+      .slice(0, 60)
+    : [];
   const conversationStateQueries = useQueries({
     queries: visibleConversations.map((conversation) => ({
       queryKey: ['v2-conversation-state', conversation.id, 'sidebar'],
       queryFn: () => v2Api.getConversationState(conversation.id),
-      enabled: conversation.provider === 'pi',
+      enabled: shouldLoadSidebarTree && conversation.provider === 'pi',
       staleTime: 5_000,
-      refetchInterval: 5_000,
+      refetchInterval: shouldLoadSidebarTree ? 5_000 : false,
     })),
   });
   const conversationStateById = new Map<string, PiConversationSnapshot>();
@@ -164,6 +171,115 @@ export function V2Layout() {
 
   const desktopTopInset = isDesktopShell() ? getDesktopTitleBarInsetTop() : 0;
 
+  useEffect(() => {
+    setMobileProjectDrawerOpen(false);
+  }, [location.pathname, location.search]);
+
+  const sidebarBody = (
+    <>
+      <div className="px-3 pb-3">
+        <div className="flex h-10 items-center gap-2 rounded-lg bg-[var(--color-card)] px-3 text-sm text-dim md:h-8 md:px-2.5 md:text-xs">
+          <Search size={14} />
+          <span className="truncate">Search soon: projects, threads, files</span>
+        </div>
+      </div>
+
+      <nav className="space-y-1 px-2">
+        <V2NavLink
+          to="/v2"
+          active={location.pathname === '/v2'}
+          icon={<Folder size={15} />}
+          label="Projects"
+        />
+        <SidebarAction icon={<PlugZap size={15} />} label="Pi setup" onClick={() => navigate('/v2/settings')} />
+        <SidebarAction icon={<MessageSquareText size={15} />} label="All conversations" onClick={() => navigate('/v2/conversations')} />
+      </nav>
+
+      <div className="mt-5 flex items-center justify-between px-4 text-[11px] font-medium uppercase text-dim">
+        <span>Projects</span>
+        <span>{visibleProjects.length}</span>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
+        {isLoading && (
+          <div className="space-y-2 px-2 py-1">
+            {[0, 1, 2].map((index) => (
+              <div key={index} className="h-16 rounded-lg bg-[var(--color-card)] opacity-60" />
+            ))}
+          </div>
+        )}
+
+        {visibleProjects.map((project) => (
+          <ProjectTree
+            key={project.id}
+            project={project}
+            pinned={safePinnedProjectIds.includes(project.id)}
+            workspaces={workspacesByProject.get(project.id) ?? []}
+            conversations={conversationsByProject.get(project.id) ?? []}
+            pathname={location.pathname}
+            search={location.search}
+            creating={createConversation.isPending}
+            archivingConversation={archiveOrDeleteConversation.isPending}
+            conversationStateById={conversationStateById}
+            mobile={isMobile}
+            onNewConversation={(workspace) => createConversation.mutate({ project, workspace })}
+            onArchiveConversation={(conversation) => archiveOrDeleteConversation.mutate(conversation)}
+            onRenameConversation={(conversation, title) => renameConversation.mutate({ conversation, title })}
+            onMarkConversationRead={(conversation) => markConversationReadState.mutate({ conversation, unread: false })}
+            onMarkConversationUnread={(conversation) => markConversationReadState.mutate({ conversation, unread: true })}
+          />
+        ))}
+      </div>
+
+      <div className="border-t border-[var(--color-card-border)] p-2">
+        <Link
+          to="/v2/settings"
+          className="flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] md:min-h-0 md:py-2"
+        >
+          <Settings size={15} />
+          Settings
+        </Link>
+      </div>
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <div className="flex h-[100dvh] flex-col overflow-hidden bg-canvas text-[var(--color-text-primary)]">
+        <main className="min-w-0 flex-1 overflow-hidden">
+          <Outlet />
+        </main>
+
+        <V2MobileBottomNav
+          pathname={location.pathname}
+          projectsOpen={mobileProjectDrawerOpen}
+          onProjects={() => setMobileProjectDrawerOpen((value) => !value)}
+          onConversations={() => navigate('/v2/conversations')}
+          onSettings={() => navigate('/v2/settings')}
+        />
+
+        {mobileProjectDrawerOpen && (
+          <div className="fixed inset-0 z-50 flex flex-col bg-canvas text-[var(--color-text-primary)]">
+            <div className="flex min-h-14 shrink-0 items-center justify-between px-4 pt-[env(safe-area-inset-top)]">
+              <Link to="/v2" className="flex min-w-0 items-center rounded-md py-2">
+                <CodeburgWordmark className="text-[var(--color-text-primary)]" />
+              </Link>
+              <button
+                type="button"
+                onClick={() => setMobileProjectDrawerOpen(false)}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]"
+                aria-label="Close projects"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {sidebarBody}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-canvas text-[var(--color-text-primary)]">
       <aside
@@ -200,71 +316,7 @@ export function V2Layout() {
         )}
 
         {sidebarExpanded && (
-          <>
-
-        <div className="px-3 pb-3">
-          <div className="flex h-8 items-center gap-2 rounded-lg bg-[var(--color-card)] px-2.5 text-xs text-dim">
-            <Search size={14} />
-            <span className="truncate">Search soon: projects, threads, files</span>
-          </div>
-        </div>
-
-        <nav className="space-y-1 px-2">
-          <V2NavLink
-            to="/v2"
-            active={location.pathname === '/v2'}
-            icon={<Folder size={15} />}
-            label="Projects"
-          />
-          <SidebarAction icon={<PlugZap size={15} />} label="Pi setup" onClick={() => navigate('/v2/settings')} />
-          <SidebarAction icon={<MessageSquareText size={15} />} label="All conversations" onClick={() => navigate('/v2/conversations')} />
-        </nav>
-
-        <div className="mt-5 flex items-center justify-between px-4 text-[11px] font-medium uppercase tracking-wide text-dim">
-          <span>Projects</span>
-          <span>{visibleProjects.length}</span>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
-          {isLoading && (
-            <div className="space-y-2 px-2 py-1">
-              {[0, 1, 2].map((index) => (
-                <div key={index} className="h-16 rounded-lg bg-[var(--color-card)] opacity-60" />
-              ))}
-            </div>
-          )}
-
-          {visibleProjects.map((project) => (
-            <ProjectTree
-              key={project.id}
-              project={project}
-              pinned={safePinnedProjectIds.includes(project.id)}
-              workspaces={workspacesByProject.get(project.id) ?? []}
-              conversations={conversationsByProject.get(project.id) ?? []}
-              pathname={location.pathname}
-              search={location.search}
-              creating={createConversation.isPending}
-              archivingConversation={archiveOrDeleteConversation.isPending}
-              conversationStateById={conversationStateById}
-              onNewConversation={(workspace) => createConversation.mutate({ project, workspace })}
-              onArchiveConversation={(conversation) => archiveOrDeleteConversation.mutate(conversation)}
-              onRenameConversation={(conversation, title) => renameConversation.mutate({ conversation, title })}
-              onMarkConversationRead={(conversation) => markConversationReadState.mutate({ conversation, unread: false })}
-              onMarkConversationUnread={(conversation) => markConversationReadState.mutate({ conversation, unread: true })}
-            />
-          ))}
-        </div>
-
-        <div className="border-t border-[var(--color-card-border)] p-2">
-          <Link
-            to="/v2/settings"
-            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]"
-          >
-            <Settings size={15} />
-            Settings
-          </Link>
-        </div>
-          </>
+          sidebarBody
         )}
       </aside>
 
@@ -272,6 +324,61 @@ export function V2Layout() {
         <Outlet />
       </main>
     </div>
+  );
+}
+
+function V2MobileBottomNav({
+  pathname,
+  projectsOpen,
+  onProjects,
+  onConversations,
+  onSettings,
+}: {
+  pathname: string;
+  projectsOpen: boolean;
+  onProjects: () => void;
+  onConversations: () => void;
+  onSettings: () => void;
+}) {
+  const conversationsActive = pathname.startsWith('/v2/conversations');
+  const settingsActive = pathname.startsWith('/v2/settings');
+  const projectsActive = projectsOpen || (!conversationsActive && !settingsActive);
+
+  return (
+    <nav className="shrink-0 border-t border-[var(--color-card-border)] bg-canvas px-2 pb-[env(safe-area-inset-bottom)]">
+      <div className="grid h-14 grid-cols-3 gap-1">
+        <V2MobileNavButton active={projectsActive} icon={<Folder size={18} />} label="Projects" onClick={onProjects} />
+        <V2MobileNavButton active={conversationsActive} icon={<MessageSquareText size={18} />} label="Chats" onClick={onConversations} />
+        <V2MobileNavButton active={settingsActive} icon={<Settings size={18} />} label="Settings" onClick={onSettings} />
+      </div>
+    </nav>
+  );
+}
+
+function V2MobileNavButton({
+  active,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg text-[11px] font-medium transition-colors ${
+        active
+          ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]'
+          : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
+      }`}
+    >
+      {icon}
+      <span className="truncate">{label}</span>
+    </button>
   );
 }
 
@@ -285,6 +392,7 @@ function ProjectTree({
   creating,
   archivingConversation,
   conversationStateById,
+  mobile = false,
   onNewConversation,
   onArchiveConversation,
   onRenameConversation,
@@ -300,6 +408,7 @@ function ProjectTree({
   creating: boolean;
   archivingConversation: boolean;
   conversationStateById: Map<string, PiConversationSnapshot>;
+  mobile?: boolean;
   onNewConversation: (workspace?: Workspace) => void;
   onArchiveConversation: (conversation: Conversation) => void;
   onRenameConversation: (conversation: Conversation, title: string) => void;
@@ -329,6 +438,7 @@ function ProjectTree({
     .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
     .slice(0, 3);
   const projectIsSelectedLeaf = projectRouteActive && orderedWorkspaces.length === 0 && !selectedWorkspaceId;
+  const projectActionVisibility = mobile || projectMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100';
 
   useEffect(() => {
     if (projectInPath && !userToggled) setExpanded(true);
@@ -337,7 +447,7 @@ function ProjectTree({
   return (
     <div className="relative mb-3">
       <div
-        className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 transition-colors ${
+        className={`group flex items-center gap-1 rounded-lg px-2 transition-colors ${mobile ? 'py-2' : 'py-1.5'} ${
           projectMenuOpen || projectIsSelectedLeaf
             ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]'
             : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
@@ -349,7 +459,7 @@ function ProjectTree({
             setUserToggled(true);
             setExpanded((value) => !value);
           }}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-0.5 text-left"
+          className={`flex min-w-0 flex-1 items-center gap-2 rounded-md text-left ${mobile ? 'min-h-10 py-0' : 'py-0.5'}`}
           title={treeOpen ? 'Collapse project' : 'Expand project'}
         >
           <span className="flex w-5 shrink-0 justify-center">
@@ -361,7 +471,7 @@ function ProjectTree({
         <button
           type="button"
           onClick={() => navigate(`/v2/projects/${project.id}?newWorkspace=1`)}
-          className={`rounded p-1 text-dim transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${projectMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          className={`inline-flex items-center justify-center rounded text-dim transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-10 w-10' : 'p-1'} ${projectActionVisibility}`}
           title="New workspace"
         >
           <FolderPlus size={13} />
@@ -369,7 +479,7 @@ function ProjectTree({
         <button
           type="button"
           onClick={() => setProjectMenuOpen((value) => !value)}
-          className={`rounded p-1 text-dim transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] ${projectMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          className={`inline-flex items-center justify-center rounded text-dim transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] ${mobile ? 'h-10 w-10' : 'p-1'} ${projectActionVisibility}`}
           title="Project actions"
         >
           <Ellipsis size={13} />
@@ -392,7 +502,7 @@ function ProjectTree({
       )}
 
       {treeOpen && (
-        <div className="mt-1 space-y-0.5 pr-1">
+        <div className={`${mobile ? 'mt-1 space-y-0' : 'mt-1 space-y-0.5'} pr-1`}>
           {orderedWorkspaces.map((workspace) => {
             const active = !conversationActive && (selectedWorkspaceId
               ? selectedWorkspaceId === workspace.id
@@ -404,13 +514,13 @@ function ProjectTree({
             return (
               <div key={workspace.id}>
                 <div
-                  className={`group/workspace flex items-center gap-1 rounded-md px-2 py-1.5 transition-colors ${
+                  className={`group/workspace flex items-center gap-1 rounded-md px-2 transition-colors ${mobile ? 'py-2' : 'py-1.5'} ${
                     active
                       ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
                       : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-secondary)]'
                   }`}
                 >
-                  <Link to={`/v2/projects/${project.id}?workspace=${workspace.id}`} className="flex min-w-0 flex-1 items-center gap-2">
+                  <Link to={`/v2/projects/${project.id}?workspace=${workspace.id}`} className={`flex min-w-0 flex-1 items-center gap-2 ${mobile ? 'min-h-10' : ''}`}>
                     <span className="flex w-5 shrink-0 justify-center">
                       {workspace.kind === 'worktree' ? <GitBranch size={13} /> : <SquareStack size={13} />}
                     </span>
@@ -420,7 +530,7 @@ function ProjectTree({
                     type="button"
                     disabled={creating}
                     onClick={() => onNewConversation(workspace)}
-                    className="rounded p-0.5 opacity-0 hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:opacity-50 group-hover/workspace:opacity-100"
+                    className={`inline-flex items-center justify-center rounded text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-10 w-10 opacity-100' : 'p-0.5 opacity-0 group-hover/workspace:opacity-100'}`}
                     title="New conversation in this workspace"
                   >
                     <MessageSquarePlus size={12} />
@@ -435,6 +545,7 @@ function ProjectTree({
                         active={conversation.id === activeConversationId}
                         pending={archivingConversation}
                         snapshot={conversationStateById.get(conversation.id)}
+                        mobile={mobile}
                         onArchive={() => onArchiveConversation(conversation)}
                         onRename={(title) => onRenameConversation(conversation, title)}
                         onMarkRead={() => onMarkConversationRead(conversation)}
@@ -453,6 +564,7 @@ function ProjectTree({
               active={conversation.id === activeConversationId}
               pending={archivingConversation}
               snapshot={conversationStateById.get(conversation.id)}
+              mobile={mobile}
               onArchive={() => onArchiveConversation(conversation)}
               onRename={(title) => onRenameConversation(conversation, title)}
               onMarkRead={() => onMarkConversationRead(conversation)}
@@ -470,6 +582,7 @@ function ConversationSidebarRow({
   active,
   pending,
   snapshot,
+  mobile = false,
   onArchive,
   onRename,
   onMarkRead,
@@ -480,6 +593,7 @@ function ConversationSidebarRow({
   active: boolean;
   pending: boolean;
   snapshot?: PiConversationSnapshot;
+  mobile?: boolean;
   onArchive: () => void;
   onRename: (title: string) => void;
   onMarkRead: () => void;
@@ -504,7 +618,7 @@ function ConversationSidebarRow({
     <div className={`group/conversation flex items-center rounded-md ${
       active ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]' : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
     } ${className}`}>
-      <div className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-xs">
+	      <div className={`flex min-w-0 flex-1 items-center gap-2 px-2 text-xs ${mobile ? 'py-2' : 'py-1'}`}>
         <Link to={`/v2/conversations/${conversation.id}`} className="shrink-0">
           <ConversationStateIndicator conversation={conversation} snapshot={snapshot} />
         </Link>
@@ -530,7 +644,7 @@ function ConversationSidebarRow({
               event.preventDefault();
               setEditing(true);
             }}
-            className="min-w-0 flex-1 truncate font-normal"
+            className={`min-w-0 flex-1 truncate font-normal ${mobile ? 'flex min-h-10 items-center' : ''}`}
             title="Double-click to rename"
           >
             {conversation.title}
@@ -546,7 +660,7 @@ function ConversationSidebarRow({
           if (conversation.unreadAt) onMarkRead();
           else onMarkUnread();
         }}
-        className="rounded p-0.5 text-dim opacity-0 hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 group-hover/conversation:opacity-100"
+        className={`inline-flex items-center justify-center rounded text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-10 w-10 opacity-100' : 'p-0.5 opacity-0 group-hover/conversation:opacity-100'}`}
         title={conversation.unreadAt ? 'Mark read' : 'Mark unread'}
       >
         <CircleDot size={12} />
@@ -559,7 +673,7 @@ function ConversationSidebarRow({
           event.stopPropagation();
           onArchive();
         }}
-        className="mr-1 rounded p-0.5 text-dim opacity-0 hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 group-hover/conversation:opacity-100"
+        className={`mr-1 inline-flex items-center justify-center rounded text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-10 w-10 opacity-100' : 'p-0.5 opacity-0 group-hover/conversation:opacity-100'}`}
         title="Archive conversation"
       >
         <Archive size={12} />
@@ -612,7 +726,7 @@ function ProjectMenuItem({ icon, children, onClick, danger = false }: { icon: Re
     <button
       type="button"
       onClick={onClick}
-      className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs ${
+      className={`flex min-h-10 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm md:min-h-0 md:text-xs ${
         danger ? 'text-[var(--color-error)] hover:bg-[var(--color-error)]/10' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]'
       }`}
     >
@@ -627,7 +741,7 @@ function SidebarAction({ icon, label, onClick }: { icon: ReactNode; label: strin
     <button
       type="button"
       onClick={onClick}
-      className="flex h-8 w-full items-center gap-2 rounded-lg px-3 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]"
+      className="flex h-10 w-full items-center gap-2 rounded-lg px-3 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] md:h-8"
     >
       {icon}
       <span>{label}</span>
@@ -649,7 +763,7 @@ function V2NavLink({
   return (
     <Link
       to={to}
-      className={`flex h-8 items-center gap-2 rounded-lg px-3 text-sm transition-colors ${
+      className={`flex h-10 items-center gap-2 rounded-lg px-3 text-sm transition-colors md:h-8 ${
         active
           ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]'
           : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'

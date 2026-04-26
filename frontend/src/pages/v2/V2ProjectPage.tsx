@@ -23,6 +23,7 @@ import { Badge } from '../../components/ui/Badge';
 import { DiffTab } from '../../components/workspace/DiffTab';
 import { EditorTab } from '../../components/workspace/EditorTab';
 import { WorkspaceProvider } from '../../components/workspace/WorkspaceContext';
+import { useMobile } from '../../hooks/useMobile';
 import { fileName } from '../../components/workspace/editorUtils';
 import { useWorkspaceStore, type WorkspaceTab } from '../../stores/workspace';
 import type { ReactNode } from 'react';
@@ -47,9 +48,10 @@ export function V2ProjectPage() {
   const activeTabIndex = useWorkspaceStore((state) => state.activeTabIndex);
   const setActiveTab = useWorkspaceStore((state) => state.setActiveTab);
   const closeTab = useWorkspaceStore((state) => state.closeTab);
+  const isMobile = useMobile();
 
   const [helperTab, setHelperTab] = useState<V2HelperTab>('files');
-  const [toolsOpen, setToolsOpen] = useState(true);
+  const [toolsOpen, setToolsOpen] = useState(() => typeof window === 'undefined' || window.innerWidth >= 768);
   const [toolsWidth, setToolsWidth] = useState(360);
   const [toolsResizing, setToolsResizing] = useState(false);
   const [composerMode, setComposerMode] = useState<'create' | 'fork' | null>(null);
@@ -118,6 +120,10 @@ export function V2ProjectPage() {
     resetWorkspaceTabs();
     setMainSurface(null);
   }, [activeWorkspaceId, resetWorkspaceTabs]);
+
+  useEffect(() => {
+    setToolsOpen(!isMobile);
+  }, [isMobile]);
 
   useEffect(() => {
     if (!requestedTerminalId || !sortedTerminals.some((terminal) => terminal.id === requestedTerminalId)) return;
@@ -323,17 +329,17 @@ export function V2ProjectPage() {
   const content = (
     <V2Screen>
       {composerMode && (
-        <div className="bg-card px-5 py-3">
-          <div className="flex flex-wrap items-end gap-2">
-            <label className="min-w-56">
+        <div className="bg-card px-3 py-3 md:px-5">
+          <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-end">
+            <label className="min-w-0 md:min-w-56">
               <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-dim">
                 {composerMode === 'fork' ? 'Fork name' : 'Workspace name'}
               </div>
-              <V2Input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder="feat/runtime-polish" />
+              <V2Input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder="feat/runtime-polish" className="w-full" />
             </label>
-            <label className="min-w-44">
+            <label className="min-w-0 md:min-w-44">
               <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-dim">Base branch</div>
-              <V2Input value={workspaceBaseBranch} onChange={(event) => setWorkspaceBaseBranch(event.target.value)} placeholder={project?.defaultBranch ?? 'main'} />
+              <V2Input value={workspaceBaseBranch} onChange={(event) => setWorkspaceBaseBranch(event.target.value)} placeholder={project?.defaultBranch ?? 'main'} className="w-full" />
             </label>
             <Button size="sm" variant="primary" loading={workspacePending} disabled={!workspaceName.trim()} onClick={submitWorkspaceComposer}>
               Create
@@ -345,14 +351,14 @@ export function V2ProjectPage() {
       )}
 
       {activeWorkspace && (
-        <div className="flex h-10 shrink-0 items-center justify-between bg-canvas px-4">
+        <div className="flex min-h-14 shrink-0 flex-col items-stretch gap-2 bg-canvas px-3 py-2 md:h-10 md:min-h-0 md:flex-row md:items-center md:justify-between md:gap-3 md:px-4 md:py-0">
           <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
             <GitBranch size={14} />
             <span className="truncate font-medium text-[var(--color-text-primary)]">{activeWorkspace.name}</span>
             {activeWorkspace.branchName !== activeWorkspace.name && <span className="truncate">{activeWorkspace.branchName}</span>}
             <Badge variant="label" color={statusColor(activeWorkspace.status)}>{activeWorkspace.status}</Badge>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex shrink-0 items-center gap-2 overflow-x-auto md:gap-1">
             {project && (
               <V2QuickActionsMenu projectId={project.id} workspaceId={activeWorkspace.id} disabled={terminalDisabled} />
             )}
@@ -423,7 +429,7 @@ export function V2ProjectPage() {
               ? `This workspace is ${activeWorkspace?.status}. Reactivate it before starting terminals.`
               : 'Open a conversation, terminal, file, or diff from the workspace controls.'}
                 action={
-                  <div className="flex items-center justify-center gap-2">
+                  <div className="flex flex-col items-stretch justify-center gap-2 sm:flex-row sm:items-center">
                     <Button size="sm" variant="primary" icon={<MessageSquarePlus size={14} />} disabled={!activeWorkspaceId || activeWorkspace?.status !== 'active'} loading={createConversation.isPending} onClick={() => createConversation.mutate()}>New conversation</Button>
                     <Button size="sm" variant="secondary" icon={<SquareTerminal size={14} />} disabled={terminalDisabled} loading={createTerminal.isPending} onClick={() => createTerminal.mutate(undefined)}>New terminal</Button>
                   </div>
@@ -563,7 +569,7 @@ function MainTabBar({
     .filter((entry): entry is { tab: Extract<WorkspaceTab, { type: 'editor' | 'diff' }>; index: number } => entry.tab.type === 'editor' || entry.tab.type === 'diff');
 
   return (
-    <div className="flex h-9 shrink-0 items-center gap-1 bg-canvas px-2">
+    <div className="flex h-12 shrink-0 items-center gap-1 bg-canvas px-2 md:h-9">
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
         {conversations.map((conversation) => (
           <ConversationTab
@@ -589,7 +595,7 @@ function MainTabBar({
             key={previewTabKey(tab, index)}
             type="button"
             onClick={() => onSelectWorkspaceTab(index)}
-            className={`inline-flex h-7 max-w-[15rem] shrink-0 items-center gap-1.5 rounded-md px-2 text-xs ${
+            className={`inline-flex h-10 max-w-[15rem] shrink-0 items-center gap-2 rounded-md px-3 text-sm md:h-7 md:gap-1.5 md:px-2 md:text-xs ${
               activeSurface?.type === 'workspaceTab' && activeSurface.index === index
                 ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
                 : 'bg-[var(--color-card)] text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)]'
@@ -624,7 +630,7 @@ function MainTabBar({
           type="button"
           disabled={createTerminalDisabled && createConversationPending}
           onClick={() => setNewTabOpen((value) => !value)}
-          className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
+          className="inline-flex h-10 cursor-pointer items-center justify-center rounded-md px-3 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50 md:h-7 md:px-2"
           title="New tab"
         >
           <PlusCircle size={15} />
@@ -632,7 +638,7 @@ function MainTabBar({
         {newTabOpen && (
           <>
             <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close new tab menu" onClick={() => setNewTabOpen(false)} />
-            <div className="absolute left-0 top-8 z-50 w-44 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
+            <div className="fixed inset-x-3 bottom-4 z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)] md:absolute md:inset-auto md:left-0 md:top-8 md:w-44">
               <NewTabMenuItem icon={<MessageSquarePlus size={14} />} disabled={createConversationPending} onClick={() => { setNewTabOpen(false); onCreateConversation(); }}>Conversation</NewTabMenuItem>
               <NewTabMenuItem icon={<SquareTerminal size={14} />} disabled={createTerminalDisabled || createTerminalPending} onClick={() => { setNewTabOpen(false); onCreateTerminal(); }}>Terminal</NewTabMenuItem>
             </div>
@@ -689,7 +695,7 @@ function ConversationTab({
   };
 
   return (
-    <div className="inline-flex h-7 max-w-[15rem] shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]">
+    <div className="inline-flex h-10 max-w-[15rem] shrink-0 items-center gap-2 rounded-md px-3 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] md:h-7 md:gap-1.5 md:px-2 md:text-xs">
       <MessageSquareText size={13} className="shrink-0" />
       {editing ? (
         <input
@@ -704,14 +710,14 @@ function ConversationTab({
               setDraft(conversation.title);
             }
           }}
-          className="h-6 min-w-0 bg-transparent outline-none"
+          className="h-8 min-w-0 bg-transparent outline-none md:h-6"
         />
       ) : (
         <button
           type="button"
           onClick={onSelect}
           onDoubleClick={() => setEditing(true)}
-          className="min-w-0 truncate"
+          className="flex h-full min-w-0 items-center truncate text-left"
           title="Double-click to rename"
         >
           {conversation.title}
@@ -750,7 +756,7 @@ function TerminalTab({
   };
 
   return (
-    <div className={`inline-flex h-7 items-center overflow-hidden rounded-md text-xs ${active ? 'bg-[var(--color-card-hover)]' : 'bg-[var(--color-card)]'}`}>
+    <div className={`inline-flex h-10 items-center overflow-hidden rounded-md text-sm md:h-7 md:text-xs ${active ? 'bg-[var(--color-card-hover)]' : 'bg-[var(--color-card)]'}`}>
       {editing ? (
         <input
           autoFocus
@@ -761,7 +767,7 @@ function TerminalTab({
             if (event.key === 'Enter') save();
             if (event.key === 'Escape') setEditing(false);
           }}
-          className="h-7 w-28 bg-transparent px-2 outline-none"
+          className="h-10 w-36 bg-transparent px-3 outline-none md:h-7 md:w-28 md:px-2"
         />
       ) : (
         <button type="button" onClick={onSelect} onDoubleClick={() => setEditing(true)} className="flex h-full items-center gap-1.5 px-2">

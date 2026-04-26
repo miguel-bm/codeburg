@@ -146,7 +146,7 @@ export function V2Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`h-8 rounded-md border border-[var(--color-card-border)] bg-primary px-2.5 text-sm text-[var(--color-text-primary)] outline-none transition focus:border-[var(--color-accent)] ${props.className ?? ''}`}
+      className={`h-10 rounded-md border border-[var(--color-card-border)] bg-primary px-3 text-sm text-[var(--color-text-primary)] outline-none transition focus:border-[var(--color-accent)] md:h-8 md:px-2.5 ${props.className ?? ''}`}
     />
   );
 }
@@ -155,7 +155,7 @@ export function V2Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
       {...props}
-      className={`h-8 rounded-md border border-[var(--color-card-border)] bg-primary px-2.5 text-sm text-[var(--color-text-primary)] outline-none transition focus:border-[var(--color-accent)] ${props.className ?? ''}`}
+      className={`h-10 rounded-md border border-[var(--color-card-border)] bg-primary px-3 text-sm text-[var(--color-text-primary)] outline-none transition focus:border-[var(--color-accent)] md:h-8 md:px-2.5 ${props.className ?? ''}`}
     />
   );
 }
@@ -177,7 +177,7 @@ export function V2ToolbarButton({
   return (
     <button
       {...props}
-      className={`inline-flex h-7 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors disabled:opacity-50 ${
+      className={`inline-flex h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium transition-colors disabled:opacity-50 md:h-7 md:gap-1.5 md:px-2 md:text-xs ${
         active
           ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
           : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'

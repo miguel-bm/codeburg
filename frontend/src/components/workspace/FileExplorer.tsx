@@ -19,6 +19,7 @@ import {
 import { useWorkspaceFiles } from '../../hooks/useWorkspaceFiles';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
 import { useHoverTooltip } from '../../hooks/useHoverTooltip';
+import { useMobile } from '../../hooks/useMobile';
 import type { GitStatus } from '../../api/git';
 import { buildFileTree, filterFileTree } from './fileTreeUtils';
 import { getFileIcon } from './fileIcons';
@@ -56,6 +57,7 @@ const diffToneClassName: Record<DiffTone, string> = {
 };
 
 export function FileExplorer() {
+  const isMobile = useMobile();
   const {
     files,
     createEntry,
@@ -391,7 +393,7 @@ export function FileExplorer() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Filter files..."
-            className="w-full pl-7 pr-2 py-1.5 text-xs bg-primary border border-subtle rounded-md focus:border-accent focus:outline-none"
+            className="h-10 w-full rounded-md border border-subtle bg-primary pl-8 pr-2 text-sm focus:border-accent focus:outline-none md:h-auto md:py-1.5 md:pl-7 md:text-xs"
           />
         </div>
         <FileTreeActionButton
@@ -423,7 +425,7 @@ export function FileExplorer() {
             openByDefault={false}
             width={undefined as unknown as number}
             height={treeHeight}
-            rowHeight={FILE_TREE_ROW_HEIGHT}
+	            rowHeight={isMobile ? 38 : FILE_TREE_ROW_HEIGHT}
             indent={16}
             onSelect={handleSelect}
             onMove={handleMove}
@@ -449,7 +451,7 @@ export function FileExplorer() {
               // Inline creation node
               if (isCreatingNode) {
                 return (
-                  <div style={style} className="flex h-full items-center gap-1 px-1.5 pr-2 text-xs">
+	                  <div style={style} className="flex h-full items-center gap-1 px-1.5 pr-2 text-sm md:text-xs">
                     {isDir ? (
                       <FolderPlus size={14} className="text-accent shrink-0 ml-3.5" />
                     ) : (
@@ -497,7 +499,7 @@ export function FileExplorer() {
                 <div
                   ref={dragHandle}
                   style={style}
-                  className={`flex h-full items-center gap-1 px-1.5 pr-2 text-xs cursor-pointer group transition-colors ${
+	                  className={`flex h-full items-center gap-1 px-1.5 pr-2 text-sm cursor-pointer group transition-colors md:text-xs ${
                     node.isSelected
                       ? 'bg-accent/10'
                       : 'hover:bg-tertiary'
@@ -644,7 +646,7 @@ function FileTreeActionButton({
           onMouseLeave?.(event);
           handleMouseLeave();
         }}
-        className={`p-1 text-dim hover:text-accent transition-colors ${className}`}
+        className={`inline-flex h-10 w-10 items-center justify-center rounded-md text-dim transition-colors hover:bg-tertiary hover:text-accent md:h-auto md:w-auto md:p-1 md:hover:bg-transparent ${className}`}
         {...props}
       >
         {children}

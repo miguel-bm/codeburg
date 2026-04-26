@@ -1,9 +1,10 @@
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Files, GitBranch, Search } from 'lucide-react';
+import { Files, GitBranch, Search, X } from 'lucide-react';
 import { FileExplorer } from '../../components/workspace/FileExplorer';
 import { FileSearchPanel } from '../../components/workspace/FileSearchPanel';
 import { GitPanel } from '../../components/workspace/GitPanel';
+import { useMobile } from '../../hooks/useMobile';
 import { V2ToolbarButton } from './v2-ui';
 
 export type V2HelperTab = 'files' | 'search' | 'git';
@@ -61,6 +62,46 @@ export function V2WorkspaceToolsSurface({
   onResizeStart: (event: ReactMouseEvent) => void;
   children: ReactNode;
 }) {
+  const isMobile = useMobile();
+
+  if (isMobile) {
+    return (
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            key="workspace-tools-mobile"
+            className="fixed inset-0 z-50 flex min-h-0 flex-col bg-canvas text-[var(--color-text-primary)]"
+            initial={{ y: '100%', opacity: 0.96 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: '100%', opacity: 0.96 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <div className="flex min-h-14 shrink-0 items-center justify-between gap-2 border-b border-[var(--color-card-border)] px-3 pt-[env(safe-area-inset-top)]">
+              <V2WorkspaceToolTabs
+                helperTab={helperTab}
+                toolsOpen={open}
+                disabled={disabled}
+                placement="panel"
+                onToggleHelperTab={onToggleHelperTab}
+              />
+              <button
+                type="button"
+                onClick={() => onToggleHelperTab(helperTab)}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]"
+                aria-label="Close workspace tools"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    );
+  }
+
   return (
     <AnimatePresence initial={false}>
       {open && (

@@ -80,7 +80,7 @@ export function V2QuickActionsMenu({
       {open && (
         <>
           <button type="button" className="fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} aria-label="Close quick actions" />
-          <div className="absolute right-0 top-8 z-50 w-80 rounded-xl bg-card p-2 shadow-[var(--shadow-card)]">
+          <div className="fixed inset-x-3 bottom-4 z-50 max-h-[min(34rem,calc(100dvh-2rem))] overflow-auto rounded-xl bg-card p-2 shadow-[var(--shadow-card)] md:absolute md:inset-auto md:right-0 md:top-8 md:w-80 md:max-h-none">
             <div className="flex items-center justify-between px-2 py-1.5">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <Bolt size={14} />

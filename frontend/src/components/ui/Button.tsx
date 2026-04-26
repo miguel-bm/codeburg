@@ -18,9 +18,9 @@ const variantStyles = {
 } as const;
 
 const sizeStyles = {
-  xs: 'h-6 px-2 text-xs gap-1 rounded-md',
-  sm: 'h-7 px-2.5 text-xs gap-1.5 rounded-md',
-  md: 'h-8 px-3 text-sm gap-2 rounded-lg',
+  xs: 'h-10 px-3 text-sm gap-1.5 rounded-md md:h-6 md:px-2 md:text-xs md:gap-1',
+  sm: 'h-11 px-3.5 text-sm gap-2 rounded-md md:h-7 md:px-2.5 md:text-xs md:gap-1.5',
+  md: 'h-11 px-4 text-sm gap-2 rounded-lg md:h-8 md:px-3',
 } as const;
 
 function Spinner() {

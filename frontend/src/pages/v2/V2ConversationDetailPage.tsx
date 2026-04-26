@@ -25,7 +25,9 @@ import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
 import { DiffTab } from '../../components/workspace/DiffTab';
 import { EditorTab } from '../../components/workspace/EditorTab';
 import { WorkspaceProvider } from '../../components/workspace/WorkspaceContext';
+import { useMobile } from '../../hooks/useMobile';
 import { usePiConversation } from '../../hooks/usePiConversation';
+import { useVirtualKeyboard } from '../../hooks/useVirtualKeyboard';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { Button, V2Empty, V2Input, V2Screen, V2Select, V2Textarea } from './v2-ui';
 import { V2QuickActionsMenu } from './V2QuickActionsMenu';
@@ -41,13 +43,14 @@ export function V2ConversationDetailPage() {
   const tabs = useWorkspaceStore((state) => state.tabs);
   const activeTabIndex = useWorkspaceStore((state) => state.activeTabIndex);
   const closeTab = useWorkspaceStore((state) => state.closeTab);
+  const isMobile = useMobile();
 
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('');
   const [forkTitle, setForkTitle] = useState('');
   const [helperTab, setHelperTab] = useState<V2HelperTab>('files');
-  const [toolsOpen, setToolsOpen] = useState(true);
+  const [toolsOpen, setToolsOpen] = useState(() => typeof window === 'undefined' || window.innerWidth >= 768);
   const [toolsWidth, setToolsWidth] = useState(360);
   const [toolsResizing, setToolsResizing] = useState(false);
   const [mainSurface, setMainSurface] = useState<MainSurface>('conversation');
@@ -111,6 +114,10 @@ export function V2ConversationDetailPage() {
     resetWorkspaceTabs();
     setMainSurface('conversation');
   }, [conversationId, activeWorkspace?.id, resetWorkspaceTabs]);
+
+  useEffect(() => {
+    setToolsOpen(!isMobile);
+  }, [isMobile]);
 
   useEffect(() => {
     if (tabs.length === 0) return;
@@ -310,7 +317,7 @@ export function V2ConversationDetailPage() {
   const sortedTerminals = [...safeTerminals].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const shell = (
     <V2Screen>
-      <div className="flex h-10 shrink-0 items-center justify-between gap-3 bg-canvas px-4">
+      <div className="flex min-h-14 shrink-0 items-center justify-between gap-3 bg-canvas px-3 py-2 md:h-10 md:min-h-0 md:px-4 md:py-0">
         <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
           <GitBranch size={14} />
           <span className="truncate font-medium text-[var(--color-text-primary)]">{activeWorkspace?.name ?? 'Workspace'}</span>
@@ -325,7 +332,7 @@ export function V2ConversationDetailPage() {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <section className="flex min-w-0 flex-1 flex-col bg-primary">
           {!activePreviewTab && (
-            <div className="flex h-9 shrink-0 items-center gap-1 bg-canvas px-2">
+            <div className="flex h-12 shrink-0 items-center gap-1 bg-canvas px-2 md:h-9">
               <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
                 {safeWorkspaceConversations.map((candidate) => (
                   <ConversationTab
@@ -341,7 +348,7 @@ export function V2ConversationDetailPage() {
                     key={terminal.id}
                     type="button"
                     onClick={() => navigate(`/v2/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`)}
-                    className="inline-flex h-7 max-w-[12rem] shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]"
+                    className="inline-flex h-10 max-w-[12rem] shrink-0 items-center gap-2 rounded-md px-3 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] md:h-7 md:gap-1.5 md:px-2 md:text-xs"
                   >
                     <SquareTerminal size={13} />
                     <span className="truncate">{terminal.title || 'Terminal'}</span>
@@ -353,7 +360,7 @@ export function V2ConversationDetailPage() {
                   type="button"
                   disabled={!activeWorkspace || activeWorkspace.status !== 'active'}
                   onClick={() => setNewTabOpen((value) => !value)}
-                  className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
+                  className="inline-flex h-10 cursor-pointer items-center justify-center rounded-md px-3 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50 md:h-7 md:px-2"
                   title="New tab"
                 >
                   <PlusCircle size={15} />
@@ -361,7 +368,7 @@ export function V2ConversationDetailPage() {
                 {newTabOpen && (
                   <>
                     <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close new tab menu" onClick={() => setNewTabOpen(false)} />
-                    <div className="absolute right-0 top-8 z-50 w-44 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
+                    <div className="fixed inset-x-3 bottom-4 z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)] md:absolute md:inset-auto md:right-0 md:top-8 md:w-44">
                       <NewTabMenuItem icon={<MessageSquarePlus size={14} />} disabled={createConversation.isPending} onClick={() => { setNewTabOpen(false); createConversation.mutate(); }}>Conversation</NewTabMenuItem>
                       <NewTabMenuItem icon={<SquareTerminal size={14} />} disabled={createTerminal.isPending || !activeWorkspace} onClick={() => { setNewTabOpen(false); createTerminal.mutate(); }}>Terminal</NewTabMenuItem>
                     </div>
@@ -379,22 +386,22 @@ export function V2ConversationDetailPage() {
             </div>
           )}
           {!activePreviewTab && (
-            <div className="mx-auto flex h-9 w-full max-w-5xl shrink-0 items-center justify-between gap-3 px-6">
+            <div className="mx-auto flex min-h-12 w-full max-w-5xl shrink-0 items-center justify-between gap-3 px-3 py-1 md:h-9 md:min-h-0 md:px-6 md:py-0">
               <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
                 <Sparkles size={13} />
                 <span className="truncate font-medium text-[var(--color-text-primary)]">{conversation?.title ?? 'Conversation'}</span>
                 {safeWorkspaceHistory.length > 1 && <span>{safeWorkspaceHistory.length} moves</span>}
               </div>
               <div className="relative flex shrink-0 items-center gap-1">
-                <button type="button" onClick={() => setConversationActionsOpen((value) => !value)} className="rounded-md px-2 py-1 text-xs text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]">
+                <button type="button" onClick={() => setConversationActionsOpen((value) => !value)} className="rounded-md px-3 py-2 text-sm text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] md:px-2 md:py-1 md:text-xs">
                   Actions
                 </button>
                 {conversationActionsOpen && (
                   <>
                     <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close conversation actions" onClick={() => setConversationActionsOpen(false)} />
-                    <div className="absolute right-0 top-7 z-50 w-80 rounded-xl bg-card p-3 shadow-[var(--shadow-card)]">
+                    <div className="fixed inset-x-3 bottom-4 z-50 rounded-xl bg-card p-3 shadow-[var(--shadow-card)] md:absolute md:inset-auto md:right-0 md:top-7 md:w-80">
                       {conversation && <CompactWorkspaceMenu value={workspaceValue} workspaces={safeWorkspaces} pending={updateWorkspace.isPending} onChange={setSelectedWorkspaceId} onSave={() => updateWorkspace.mutate(workspaceValue || '')} />}
-                      <div className="mt-3 flex items-center gap-2">
+                      <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-center">
                         <V2Input value={forkTitle} onChange={(event) => setForkTitle(event.target.value)} placeholder="Fork title" className="min-w-0 flex-1" />
                         <Button size="xs" variant="secondary" icon={<GitBranchPlus size={13} />} loading={forkConversation.isPending} onClick={() => forkConversation.mutate()} title="Fork conversation">Fork</Button>
                       </div>
@@ -483,11 +490,17 @@ function ConversationSurface({
   abort: () => void;
   submit: () => void;
 }) {
+  const isMobile = useMobile();
+  const { keyboardVisible, keyboardHeight } = useVirtualKeyboard();
+  const composerStyle = isMobile && keyboardVisible
+    ? { paddingBottom: keyboardHeight + 12 }
+    : undefined;
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
+      <div className="min-h-0 flex-1 overflow-auto px-3 py-4 md:px-6 md:py-5">
         {snapshot?.messages?.length ? (
-          <div className="mx-auto max-w-5xl space-y-6">
+          <div className="mx-auto max-w-5xl space-y-4 md:space-y-6">
             {snapshot.messages.map((message, index) => (
               <MessageRow key={message.id || `${message.role}-${index}`} message={message} />
             ))}
@@ -507,14 +520,14 @@ function ConversationSurface({
         )}
       </div>
 
-      <div className="shrink-0 bg-primary px-6 pb-5">
-        <div className="mx-auto max-w-5xl rounded-2xl bg-card p-3 shadow-[var(--shadow-card)]">
+      <div className="shrink-0 bg-primary px-3 pb-3 md:px-6 md:pb-5" style={composerStyle}>
+        <div className="mx-auto max-w-5xl rounded-xl bg-card p-3 shadow-[var(--shadow-card)] md:rounded-2xl">
           <V2Textarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             placeholder={isActiveConversation ? 'Send a prompt to pi...' : 'Resume the conversation before sending a prompt'}
             disabled={!isActiveConversation || sending}
-            className="min-h-24 w-full resize-none border-0 bg-transparent"
+            className="min-h-20 w-full resize-none border-0 bg-transparent md:min-h-24"
             onKeyDown={(event) => {
               if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                 event.preventDefault();
@@ -524,7 +537,7 @@ function ConversationSurface({
           />
           <div className="mt-2 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-xs text-dim">
-              <span>Cmd/Ctrl Enter</span>
+              <span className="hidden sm:inline">Cmd/Ctrl Enter</span>
               {snapshot?.streaming && <button type="button" onClick={abort} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[var(--color-error)] hover:bg-[var(--color-error)]/10"><StopCircle size={13} />Abort</button>}
             </div>
             <Button size="sm" variant="primary" icon={<Send size={14} />} loading={sending} disabled={!draft.trim() || !isActiveConversation} onClick={submit}>
@@ -542,7 +555,7 @@ function MessageRow({ message }: { message: PiConversationMessage }) {
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[min(74%,46rem)] rounded-2xl bg-[var(--color-accent)]/10 px-4 py-3 text-sm text-[var(--color-text-primary)]">
+        <div className="max-w-[90%] rounded-2xl bg-[var(--color-accent)]/10 px-4 py-3 text-sm text-[var(--color-text-primary)] md:max-w-[min(74%,46rem)]">
           {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
           <ToolCallSummary message={message} />
         </div>
@@ -607,8 +620,8 @@ function CompactWorkspaceMenu({
   onSave: () => void;
 }) {
   return (
-    <div className="flex items-center gap-1">
-      <V2Select value={value} onChange={(event) => onChange(event.target.value)} className="w-48">
+    <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-1">
+      <V2Select value={value} onChange={(event) => onChange(event.target.value)} className="w-full md:w-48">
         <option value="">Project default</option>
         {workspaces.map((workspace) => (
           <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
@@ -661,7 +674,7 @@ function ConversationTab({
   };
 
   return (
-    <div className={`inline-flex h-7 max-w-[15rem] shrink-0 items-center gap-1.5 rounded-md px-2 text-xs ${
+    <div className={`inline-flex h-10 max-w-[15rem] shrink-0 items-center gap-2 rounded-md px-3 text-sm md:h-7 md:gap-1.5 md:px-2 md:text-xs ${
       active
         ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
         : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]'
@@ -680,14 +693,14 @@ function ConversationTab({
               setDraft(conversation.title);
             }
           }}
-          className="h-6 min-w-0 bg-transparent outline-none"
+          className="h-8 min-w-0 bg-transparent outline-none md:h-6"
         />
       ) : (
         <button
           type="button"
           onClick={onSelect}
           onDoubleClick={() => setEditing(true)}
-          className="min-w-0 truncate"
+          className="flex h-full min-w-0 items-center truncate text-left"
           title="Double-click to rename"
         >
           {conversation.title}
