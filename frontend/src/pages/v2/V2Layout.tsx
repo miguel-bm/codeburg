@@ -51,6 +51,10 @@ type ProjectTreeMode = 'project' | 'chronological' | 'chats';
 type ProjectTreeSort = 'created' | 'updated';
 type ProjectTreeShow = 'all' | 'relevant';
 type ProjectExpansionCommand = { id: number; expanded: boolean };
+type SidebarContextMenu =
+  | { type: 'project'; id: string }
+  | { type: 'workspace'; id: string }
+  | { type: 'conversation'; id: string };
 
 export function V2Layout() {
   const location = useLocation();
@@ -65,6 +69,7 @@ export function V2Layout() {
   const [projectTreeSort, setProjectTreeSort] = useState<ProjectTreeSort>('updated');
   const [projectTreeShow, setProjectTreeShow] = useState<ProjectTreeShow>('relevant');
   const [projectExpansionCommand, setProjectExpansionCommand] = useState<ProjectExpansionCommand | null>(null);
+  const [sidebarContextMenu, setSidebarContextMenu] = useState<SidebarContextMenu | null>(null);
   const sidebarExpanded = useSidebarStore(selectIsExpanded);
   const toggleSidebarExpanded = useSidebarStore((state) => state.toggleExpanded);
   const { data: projects, isLoading } = useQuery({
@@ -281,6 +286,34 @@ export function V2Layout() {
   };
 
   const desktopTopInset = isDesktopShell() ? getDesktopTitleBarInsetTop() : 0;
+  const openSidebarContextMenu = (menu: SidebarContextMenu) => {
+    setProjectTreeMenuOpen(false);
+    setSidebarContextMenu(menu);
+  };
+
+  useEffect(() => {
+    if (!sidebarContextMenu) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest('[data-sidebar-context-menu-root]')) return;
+      if (target.closest('[data-sidebar-context-menu-trigger]')) return;
+      setSidebarContextMenu(null);
+    };
+    const closeOnOutsideContextMenu = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest('[data-sidebar-context-menu-root]')) return;
+      if (target.closest('[data-sidebar-context-menu-trigger]')) return;
+      setSidebarContextMenu(null);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('contextmenu', closeOnOutsideContextMenu);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('contextmenu', closeOnOutsideContextMenu);
+    };
+  }, [sidebarContextMenu]);
 
   const sidebarBody = (
     <>
@@ -338,7 +371,10 @@ export function V2Layout() {
             pinnedConversationIds={safePinnedConversationIds}
             expansionCommand={projectExpansionCommand}
             showAllConversations={projectTreeShow === 'all'}
+            contextMenu={sidebarContextMenu}
             mobile={isMobile}
+            onOpenContextMenu={openSidebarContextMenu}
+            onCloseContextMenu={() => setSidebarContextMenu(null)}
             onNewConversation={(workspace) => createConversation.mutate({ project, workspace })}
             onArchiveConversation={(conversation) => archiveOrDeleteConversation.mutate(conversation)}
             onRenameConversation={(conversation, title) => renameConversation.mutate({ conversation, title })}
@@ -642,7 +678,10 @@ function ProjectTree({
   pinnedConversationIds,
   expansionCommand,
   showAllConversations,
+  contextMenu,
   mobile = false,
+  onOpenContextMenu,
+  onCloseContextMenu,
   onNewConversation,
   onArchiveConversation,
   onRenameConversation,
@@ -676,7 +715,10 @@ function ProjectTree({
   pinnedConversationIds: string[];
   expansionCommand: ProjectExpansionCommand | null;
   showAllConversations: boolean;
+  contextMenu: SidebarContextMenu | null;
   mobile?: boolean;
+  onOpenContextMenu: (menu: SidebarContextMenu) => void;
+  onCloseContextMenu: () => void;
   onNewConversation: (workspace?: Workspace) => void;
   onArchiveConversation: (conversation: Conversation) => void;
   onRenameConversation: (conversation: Conversation, title: string) => void;
@@ -699,8 +741,6 @@ function ProjectTree({
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
-  const [workspaceMenuId, setWorkspaceMenuId] = useState<string | null>(null);
   const longPressTimer = useRef<number | null>(null);
   const longPressTriggered = useRef(false);
   const projectRouteActive = pathname === `/v2/projects/${project.id}`;
@@ -722,10 +762,12 @@ function ProjectTree({
     .filter((conversation) => !conversation.currentWorkspaceId && conversation.status === 'active')
     .sort((a, b) => comparePinnedThenActivity(a, b, pinnedConversationIds))
     .slice(0, showAllConversations ? undefined : 3);
+  const projectMenuOpen = contextMenu?.type === 'project' && contextMenu.id === project.id;
+  const workspaceMenuId = contextMenu?.type === 'workspace' ? contextMenu.id : null;
   const projectIsSelectedLeaf = projectRouteActive && orderedWorkspaces.length === 0 && !selectedWorkspaceId;
   const projectActionVisibility = mobile || projectMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100';
   const runProjectAction = (action: () => void) => {
-    setProjectMenuOpen(false);
+    onCloseContextMenu();
     action();
   };
   const startLongPress = (action: () => void) => {
@@ -766,18 +808,20 @@ function ProjectTree({
             ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]'
             : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
         }`}
+        data-sidebar-context-menu-trigger
         onClick={() => {
           if (longPressTriggered.current) {
             longPressTriggered.current = false;
             return;
           }
+          onCloseContextMenu();
           navigate(`/v2/projects/${project.id}`);
         }}
         onContextMenu={(event) => {
           event.preventDefault();
-          setProjectMenuOpen(true);
+          onOpenContextMenu({ type: 'project', id: project.id });
         }}
-        onPointerDown={() => startLongPress(() => setProjectMenuOpen(true))}
+        onPointerDown={() => startLongPress(() => onOpenContextMenu({ type: 'project', id: project.id }))}
         onPointerUp={cancelLongPress}
         onPointerCancel={cancelLongPress}
         onPointerLeave={cancelLongPress}
@@ -810,6 +854,7 @@ function ProjectTree({
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
+            onCloseContextMenu();
             navigate(`/v2/projects/${project.id}?newWorkspace=1`);
           }}
         >
@@ -820,7 +865,8 @@ function ProjectTree({
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            setProjectMenuOpen((value) => !value);
+            if (projectMenuOpen) onCloseContextMenu();
+            else onOpenContextMenu({ type: 'project', id: project.id });
           }}
           className={`inline-flex cursor-pointer items-center justify-center rounded text-dim transition-opacity hover:bg-accent/10 hover:text-accent ${mobile ? 'h-9 w-9' : 'p-1'} ${projectActionVisibility}`}
           title="Project actions"
@@ -830,10 +876,10 @@ function ProjectTree({
       </div>
       {projectMenuOpen && (
         <>
-          <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close project menu" onClick={() => setProjectMenuOpen(false)} />
           <div className={mobile
             ? 'fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'
             : 'absolute right-1 top-8 z-50 w-52 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'}
+            data-sidebar-context-menu-root
           >
             <ProjectMenuItem icon={<FolderOpen size={14} />} onClick={() => runProjectAction(() => navigate(`/v2/projects/${project.id}`))}>Open project</ProjectMenuItem>
             <ProjectMenuItem
@@ -880,7 +926,7 @@ function ProjectTree({
             const workspaceMenuOpen = workspaceMenuId === workspace.id;
             const workspaceActionVisibility = mobile || workspaceMenuOpen ? 'opacity-100' : 'opacity-0 group-hover/workspace:opacity-100';
             const runWorkspaceAction = (action: () => void) => {
-              setWorkspaceMenuId(null);
+              onCloseContextMenu();
               action();
             };
             return (
@@ -891,18 +937,20 @@ function ProjectTree({
                       ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
                       : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-secondary)]'
                   }`}
+                  data-sidebar-context-menu-trigger
                   onClick={() => {
                     if (longPressTriggered.current) {
                       longPressTriggered.current = false;
                       return;
                     }
+                    onCloseContextMenu();
                     navigate(`/v2/projects/${project.id}?workspace=${workspace.id}`);
                   }}
                   onContextMenu={(event) => {
                     event.preventDefault();
-                    setWorkspaceMenuId(workspace.id);
+                    onOpenContextMenu({ type: 'workspace', id: workspace.id });
                   }}
-                  onPointerDown={() => startLongPress(() => setWorkspaceMenuId(workspace.id))}
+                  onPointerDown={() => startLongPress(() => onOpenContextMenu({ type: 'workspace', id: workspace.id }))}
                   onPointerUp={cancelLongPress}
                   onPointerCancel={cancelLongPress}
                   onPointerLeave={cancelLongPress}
@@ -921,6 +969,7 @@ function ProjectTree({
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
+                      onCloseContextMenu();
                       onNewConversation(workspace);
                     }}
                     className={`inline-flex cursor-pointer items-center justify-center rounded text-dim hover:bg-accent/10 hover:text-accent disabled:opacity-50 ${mobile ? 'h-9 w-9 opacity-100' : 'p-0.5 opacity-0 group-hover/workspace:opacity-100'}`}
@@ -934,7 +983,8 @@ function ProjectTree({
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      setWorkspaceMenuId((value) => (value === workspace.id ? null : workspace.id));
+                      if (workspaceMenuOpen) onCloseContextMenu();
+                      else onOpenContextMenu({ type: 'workspace', id: workspace.id });
                     }}
                     className={`inline-flex cursor-pointer items-center justify-center rounded text-dim transition-opacity hover:bg-accent/10 hover:text-accent disabled:opacity-50 ${mobile ? 'h-9 w-9' : 'p-0.5'} ${workspaceActionVisibility}`}
                     title="Workspace actions"
@@ -945,10 +995,10 @@ function ProjectTree({
                 </div>
                 {workspaceMenuOpen && (
                   <>
-                    <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close workspace menu" onClick={() => setWorkspaceMenuId(null)} />
                     <div className={mobile
                       ? 'fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'
                       : 'absolute right-1 top-8 z-50 w-56 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'}
+                      data-sidebar-context-menu-root
                     >
                       <ProjectMenuItem
                         icon={<SquareStack size={14} />}
@@ -1059,6 +1109,9 @@ function ProjectTree({
                         snapshot={conversationStateById.get(conversation.id)}
                         mobile={mobile}
                         pinned={pinnedConversationIds.includes(conversation.id)}
+                        menuOpen={contextMenu?.type === 'conversation' && contextMenu.id === conversation.id}
+                        onOpenMenu={() => onOpenContextMenu({ type: 'conversation', id: conversation.id })}
+                        onCloseMenu={onCloseContextMenu}
                         onArchive={() => onArchiveConversation(conversation)}
                         onRename={(title) => onRenameConversation(conversation, title)}
                         onMarkRead={() => onMarkConversationRead(conversation)}
@@ -1081,6 +1134,9 @@ function ProjectTree({
               snapshot={conversationStateById.get(conversation.id)}
               mobile={mobile}
               pinned={pinnedConversationIds.includes(conversation.id)}
+              menuOpen={contextMenu?.type === 'conversation' && contextMenu.id === conversation.id}
+              onOpenMenu={() => onOpenContextMenu({ type: 'conversation', id: conversation.id })}
+              onCloseMenu={onCloseContextMenu}
               onArchive={() => onArchiveConversation(conversation)}
               onRename={(title) => onRenameConversation(conversation, title)}
               onMarkRead={() => onMarkConversationRead(conversation)}
@@ -1102,7 +1158,10 @@ function ConversationSidebarRow({
   pending,
   snapshot,
   pinned,
+  menuOpen,
   mobile = false,
+  onOpenMenu,
+  onCloseMenu,
   onArchive,
   onRename,
   onMarkRead,
@@ -1116,7 +1175,10 @@ function ConversationSidebarRow({
   pending: boolean;
   snapshot?: PiConversationSnapshot;
   pinned: boolean;
+  menuOpen: boolean;
   mobile?: boolean;
+  onOpenMenu: () => void;
+  onCloseMenu: () => void;
   onArchive: () => void;
   onRename: (title: string) => void;
   onMarkRead: () => void;
@@ -1128,7 +1190,6 @@ function ConversationSidebarRow({
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(conversation.title);
-  const [menuOpen, setMenuOpen] = useState(false);
   const longPressTimer = useRef<number | null>(null);
   const longPressTriggered = useRef(false);
 
@@ -1147,8 +1208,8 @@ function ConversationSidebarRow({
     else setDraft(conversation.title);
   };
 
-  const openMenu = () => setMenuOpen(true);
-  const closeMenu = () => setMenuOpen(false);
+  const openMenu = onOpenMenu;
+  const closeMenu = onCloseMenu;
   const startLongPress = () => {
     if (!mobile || editing) return;
     longPressTriggered.current = false;
@@ -1174,6 +1235,7 @@ function ConversationSidebarRow({
       className={`group/conversation relative flex cursor-pointer items-center rounded-md ${
       active ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]' : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
     } ${menuOpen ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]' : ''} ${className}`}
+      data-sidebar-context-menu-trigger
       onContextMenu={(event) => {
         event.preventDefault();
         openMenu();
@@ -1183,7 +1245,10 @@ function ConversationSidebarRow({
           longPressTriggered.current = false;
           return;
         }
-        if (!editing) navigate(`/v2/conversations/${conversation.id}`);
+        if (!editing) {
+          closeMenu();
+          navigate(`/v2/conversations/${conversation.id}`);
+        }
       }}
       onPointerDown={startLongPress}
       onPointerUp={cancelLongPress}
@@ -1197,6 +1262,7 @@ function ConversationSidebarRow({
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
+            closeMenu();
             navigate(`/v2/conversations/${conversation.id}`);
           }}
           title="Open conversation"
@@ -1253,10 +1319,10 @@ function ConversationSidebarRow({
       </button>
       {menuOpen && (
         <>
-          <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close conversation menu" onClick={closeMenu} />
           <div className={mobile
             ? 'fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'
             : 'absolute right-1 top-7 z-50 w-48 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'}
+            data-sidebar-context-menu-root
           >
             <ProjectMenuItem icon={<MessageSquareText size={14} />} onClick={() => runAction(() => navigate(`/v2/conversations/${conversation.id}`))}>
               Open conversation
