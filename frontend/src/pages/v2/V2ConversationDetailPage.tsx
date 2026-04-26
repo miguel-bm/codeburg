@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
+  ArrowUp,
   AtSign,
   Check,
   ChevronDown,
@@ -21,7 +22,6 @@ import {
   MessageSquareText,
   Paperclip,
   PlusCircle,
-  Send,
   Slash,
   Sparkles,
   Square,
@@ -603,6 +603,7 @@ function ConversationSurface({
   const { keyboardVisible, keyboardHeight } = useVirtualKeyboard();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
   const suggestionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [selection, setSelection] = useState<InputSelection>({ start: 0, end: 0 });
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
@@ -611,6 +612,8 @@ function ConversationSurface({
   const [fileIndexRequested, setFileIndexRequested] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [imageDragActive, setImageDragActive] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [modelSearch, setModelSearch] = useState('');
   const imageDragDepth = useRef(0);
   const composerStyle = isMobile && keyboardVisible
     ? { paddingBottom: keyboardHeight + 12 }
@@ -618,7 +621,7 @@ function ConversationSurface({
   const messages = useMemo(() => snapshot?.messages ?? [], [snapshot?.messages]);
   const pendingVisible = hasPendingAssistant(snapshot);
   const messageItems = useMemo(() => buildConversationItems(messages), [messages]);
-  const modelValue = snapshot?.model ? modelOptionValue(snapshot.model.provider, snapshot.model.id) : '';
+  const selectedModel = snapshot?.model ? { provider: snapshot.model.provider, id: snapshot.model.id } : null;
 
   const { data: fileEntries = [], isFetching: filesLoading } = useQuery({
     queryKey: ['v2-workspace-file-index', activeWorkspaceId],
@@ -659,6 +662,11 @@ function ConversationSurface({
     if (all.some((model) => model.provider === snapshot.model?.provider && model.id === snapshot.model?.id)) return all;
     return [{ provider: snapshot.model.provider, id: snapshot.model.id }, ...all];
   }, [modelResponse?.models, snapshot]);
+  const filteredModels = useMemo(() => {
+    const query = modelSearch.trim().toLowerCase();
+    if (!query) return models;
+    return models.filter((model) => `${model.id} ${model.name ?? ''} ${model.provider}`.toLowerCase().includes(query));
+  }, [modelSearch, models]);
   const suggestions = useMemo<ComposerSuggestion[]>(() => {
     if (!activeToken) return [];
 
@@ -729,6 +737,23 @@ function ConversationSurface({
     if (!node) return;
     node.scrollIntoView({ block: 'nearest' });
   }, [selectedSuggestionIndex, visibleSuggestions.length]);
+
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (modelMenuRef.current?.contains(event.target as Node)) return;
+      setModelMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setModelMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [modelMenuOpen]);
 
   useEffect(() => {
     const node = textareaRef.current;
@@ -995,7 +1020,7 @@ function ConversationSurface({
             className="block w-full resize-none rounded-t-[1.35rem] bg-transparent px-4 pt-4 text-sm leading-6 text-[var(--color-text-primary)] outline-none placeholder:text-dim disabled:opacity-60 md:px-5 md:pt-5"
           />
 
-          <div className="flex min-h-12 items-center justify-between gap-3 border-t border-subtle/70 px-3 py-2 md:px-4">
+          <div className="flex min-h-12 items-center justify-between gap-3 px-3 pb-3 pt-1 md:px-4">
             <div className="flex min-w-0 items-center gap-1.5">
               <input
                 ref={fileInputRef}
@@ -1031,27 +1056,65 @@ function ConversationSurface({
                   <Square size={13} />
                 </button>
               )}
-              <div className="relative max-w-[12rem]">
-                {modelsLoading || modelSwitching ? (
-                  <Loader2 size={14} className="absolute left-2 top-1/2 -translate-y-1/2 animate-spin text-dim" />
-                ) : null}
-                <select
-                  value={modelValue}
-                  onChange={(event) => {
-                    const [provider, modelId] = parseModelOptionValue(event.target.value);
-                    if (provider && modelId) onSetModel(provider, modelId);
-                  }}
+              <div ref={modelMenuRef} className="relative max-w-[14rem]">
+                <button
+                  type="button"
                   disabled={!isActiveConversation || sending || modelSwitching || models.length === 0}
-                  className="h-8 max-w-full rounded-full border border-transparent bg-transparent px-2 pr-7 text-xs text-[var(--color-text-secondary)] outline-none hover:bg-secondary disabled:opacity-50"
+                  onClick={() => {
+                    setModelMenuOpen((open) => !open);
+                    setModelSearch('');
+                  }}
+                  className="inline-flex h-9 max-w-full items-center gap-2 rounded-full px-2.5 text-sm text-[var(--color-text-secondary)] outline-none hover:bg-secondary disabled:opacity-50"
                   title="Model"
+                  aria-haspopup="listbox"
+                  aria-expanded={modelMenuOpen}
                 >
-                  {modelValue === '' && <option value="">Model</option>}
-                  {models.map((model) => (
-                    <option key={modelOptionValue(model.provider, model.id)} value={modelOptionValue(model.provider, model.id)}>
-                      {modelLabel(model)}
-                    </option>
-                  ))}
-                </select>
+                  {modelsLoading || modelSwitching ? <Loader2 size={14} className="shrink-0 animate-spin text-dim" /> : null}
+                  <span className="min-w-0 truncate">{selectedModel ? compactModelLabel(selectedModel) : 'Model'}</span>
+                  <ChevronDown size={14} className={`shrink-0 text-dim transition-transform ${modelMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {modelMenuOpen && (
+                  <div className="absolute bottom-full right-0 z-50 mb-2 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-subtle bg-card shadow-[0_18px_60px_rgba(15,23,42,0.18)]">
+                    <div className="border-b border-subtle/70 p-2">
+                      <input
+                        autoFocus
+                        value={modelSearch}
+                        onChange={(event) => setModelSearch(event.target.value)}
+                        placeholder="Search models"
+                        className="h-9 w-full rounded-xl bg-primary px-3 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-dim"
+                      />
+                    </div>
+                    <div className="max-h-72 overflow-y-auto p-1" role="listbox">
+                      {filteredModels.length === 0 ? (
+                        <div className="px-3 py-6 text-center text-sm text-dim">No models found</div>
+                      ) : filteredModels.map((model) => {
+                        const selected = selectedModel?.provider === model.provider && selectedModel.id === model.id;
+                        return (
+                          <button
+                            key={modelOptionValue(model.provider, model.id)}
+                            type="button"
+                            role="option"
+                            aria-selected={selected}
+                            onClick={() => {
+                              onSetModel(model.provider, model.id);
+                              setModelMenuOpen(false);
+                            }}
+                            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm hover:bg-secondary ${selected ? 'bg-secondary' : ''}`}
+                          >
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-medium text-[var(--color-text-secondary)]">
+                              {providerInitial(model.provider)}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-medium text-[var(--color-text-primary)]">{model.name || model.id}</span>
+                              <span className="block truncate text-xs text-dim">{model.id} · {model.provider}</span>
+                            </span>
+                            {selected && <Check size={15} className="shrink-0 text-accent" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
               <button type="button" className="hidden h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)] sm:inline-flex" title="Voice input" aria-label="Voice input" disabled>
                 <Mic size={15} />
@@ -1060,11 +1123,11 @@ function ConversationSurface({
                 type="button"
                 onClick={submit}
                 disabled={(!draft.trim() && attachments.length === 0) || !isActiveConversation || sending}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-text-primary)] text-[var(--color-card)] shadow-sm transition-transform hover:scale-[1.03] disabled:scale-100 disabled:opacity-35"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[var(--color-text-primary)] text-[var(--color-card)] shadow-[0_8px_18px_rgba(15,23,42,0.18)] transition-transform hover:scale-[1.03] disabled:scale-100 disabled:opacity-35"
                 title="Send"
                 aria-label="Send"
               >
-                {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                {sending ? <Loader2 size={17} className="animate-spin" /> : <ArrowUp size={23} strokeWidth={2.1} />}
               </button>
             </div>
           </div>
@@ -1375,19 +1438,12 @@ function modelOptionValue(provider: string, id: string): string {
   return JSON.stringify([provider, id]);
 }
 
-function parseModelOptionValue(value: string): [string, string] {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!Array.isArray(parsed)) return ['', ''];
-    const [provider, id] = parsed;
-    return [typeof provider === 'string' ? provider : '', typeof id === 'string' ? id : ''];
-  } catch {
-    return ['', ''];
-  }
+function compactModelLabel(model: Pick<PiAvailableModel, 'id' | 'provider'>): string {
+  return model.provider ? `${model.id}` : model.id;
 }
 
-function modelLabel(model: PiAvailableModel): string {
-  return model.provider ? `${model.id} (${model.provider})` : model.id;
+function providerInitial(provider: string): string {
+  return (provider.trim()[0] || 'M').toUpperCase();
 }
 
 function fileSuggestion(entry: V2FileEntry): ComposerSuggestion {
