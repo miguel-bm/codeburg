@@ -771,6 +771,10 @@ function ProjectTree({
             longPressTriggered.current = false;
             return;
           }
+          navigate(`/v2/projects/${project.id}`);
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault();
           setProjectMenuOpen(true);
         }}
         onPointerDown={() => startLongPress(() => setProjectMenuOpen(true))}
@@ -892,6 +896,10 @@ function ProjectTree({
                       longPressTriggered.current = false;
                       return;
                     }
+                    navigate(`/v2/projects/${project.id}?workspace=${workspace.id}`);
+                  }}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
                     setWorkspaceMenuId(workspace.id);
                   }}
                   onPointerDown={() => startLongPress(() => setWorkspaceMenuId(workspace.id))}
@@ -1175,7 +1183,7 @@ function ConversationSidebarRow({
           longPressTriggered.current = false;
           return;
         }
-        if (!editing) openMenu();
+        if (!editing) navigate(`/v2/conversations/${conversation.id}`);
       }}
       onPointerDown={startLongPress}
       onPointerUp={cancelLongPress}
