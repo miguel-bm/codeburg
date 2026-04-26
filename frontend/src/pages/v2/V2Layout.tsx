@@ -182,7 +182,7 @@ export function V2Layout() {
       <nav className="space-y-1 px-2">
         <V2NavLink
           to="/v2"
-          active={location.pathname === '/v2'}
+          active={!isMobile && location.pathname === '/v2'}
           icon={<Folder size={15} />}
           label="Projects"
         />

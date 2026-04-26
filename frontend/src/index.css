@@ -74,6 +74,10 @@ html, body, #root {
   margin: 0;
   width: 100%;
   height: 100%;
+  min-height: 100dvh;
+  overflow: hidden;
+  background-color: var(--color-canvas);
+  border-radius: 0 !important;
 }
 
 html, body {
@@ -81,6 +85,7 @@ html, body {
   min-height: 100vh;
   background-color: var(--color-canvas);
   color: var(--color-text-primary);
+  overscroll-behavior: none;
 }
 
 /* Animate visual theme changes without affecting first paint */

@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { GitBranchPlus, MessageSquareText, Search } from 'lucide-react';
 import { projectsApi } from '../../api';
-import type { Conversation } from '../../api/types';
+import type { Conversation, Project } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { Badge } from '../../components/ui/Badge';
 import { useMobile } from '../../hooks/useMobile';
@@ -106,14 +106,14 @@ export function V2ConversationsPage() {
     <V2Screen>
       <V2Header
         eyebrow="Conversations"
-        title="Durable pi threads"
-        subtitle="A conversation is a provider-native thinking thread. Codeburg stores its project, workspace attachment, lifecycle, and fork relationships."
+        title="Inbox"
+        subtitle="Pi conversation activity across projects and workspaces."
       />
       <V2Content className="space-y-4">
         <V2Panel>
           <V2PanelHeader
             title="All conversations"
-            subtitle={`${conversations?.length ?? 0} pi threads${deferredSearch ? ' matching search' : ''}`}
+            subtitle={`${sortedConversations.length} pi threads${deferredSearch ? ' matching search' : ''}`}
             actions={
               <label className="flex items-center gap-2">
                 <Search size={14} className="text-dim" />
@@ -127,59 +127,25 @@ export function V2ConversationsPage() {
             }
           />
 
-          <div className="divide-y divide-[var(--color-card-border)]">
-            {safeConversations.map((conversation) => {
-              const project = projectById.get(conversation.projectId);
-              return (
-                <V2Row key={conversation.id} className="rounded-none px-4 py-3 hover:bg-[var(--color-card-hover)]">
-                  <div
-                    role="link"
-                    tabIndex={0}
-                    onClick={() => navigate(`/v2/conversations/${conversation.id}`)}
-                    onKeyDown={(event) => {
-                      if (event.currentTarget !== event.target) return;
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        navigate(`/v2/conversations/${conversation.id}`);
-                      }
-                    }}
-                    className="flex cursor-pointer items-start justify-between gap-4"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <MessageSquareText size={15} className="shrink-0 text-dim" />
-                        <span className="truncate text-sm font-medium">
-                          {conversation.title}
-                        </span>
-                        <Badge variant="label" color={conversationStatusColor(conversation.status)}>{conversation.status}</Badge>
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2 pl-6 text-xs text-dim">
-                        <span>{project?.name ?? conversation.projectId}</span>
-                        <span>{conversation.currentWorkspaceId ? 'workspace attached' : 'project default'}</span>
-                        {conversation.parentConversationId && <span>forked</span>}
-                        <span>{formatRelativeDate(conversation.lastActivityAt)}</span>
-                      </div>
-                      {conversation.summary && <p className="mt-2 max-w-3xl pl-6 text-sm leading-5 text-[var(--color-text-secondary)]">{conversation.summary}</p>}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <Button
-                        size="xs"
-                        variant="secondary"
-                        icon={<GitBranchPlus size={13} />}
-                        disabled={forkConversation.isPending}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          forkConversation.mutate(conversation);
-                        }}
-                      >
-                        Fork
-                      </Button>
-                    </div>
-                  </div>
-                </V2Row>
-              );
-            })}
-          </div>
+          {unreadConversations.length > 0 && (
+            <DesktopConversationSection
+              title="Unread"
+              conversations={unreadConversations}
+              projectById={projectById}
+              forkPending={forkConversation.isPending}
+              onFork={(conversation) => forkConversation.mutate(conversation)}
+              onOpen={(conversation) => navigate(`/v2/conversations/${conversation.id}`)}
+            />
+          )}
+
+          <DesktopConversationSection
+            title={unreadConversations.length > 0 ? 'Recent' : 'Recent activity'}
+            conversations={recentConversations}
+            projectById={projectById}
+            forkPending={forkConversation.isPending}
+            onFork={(conversation) => forkConversation.mutate(conversation)}
+            onOpen={(conversation) => navigate(`/v2/conversations/${conversation.id}`)}
+          />
 
           {(conversations?.length ?? 0) === 0 && (
             <V2Empty
@@ -196,6 +162,89 @@ export function V2ConversationsPage() {
   );
 }
 
+function DesktopConversationSection({
+  title,
+  conversations,
+  projectById,
+  forkPending,
+  onFork,
+  onOpen,
+}: {
+  title: string;
+  conversations: Conversation[];
+  projectById: Map<string, Project>;
+  forkPending: boolean;
+  onFork: (conversation: Conversation) => void;
+  onOpen: (conversation: Conversation) => void;
+}) {
+  if (conversations.length === 0) return null;
+
+  return (
+    <section>
+      <div className="border-y border-[var(--color-card-border)] bg-[var(--color-card)]/45 px-4 py-2 text-[11px] font-semibold uppercase text-dim first:border-t-0">
+        {title}
+      </div>
+      <div className="divide-y divide-[var(--color-card-border)]">
+        {conversations.map((conversation) => {
+          const project = projectById.get(conversation.projectId);
+          return (
+            <V2Row key={conversation.id} className="rounded-none px-4 py-3 hover:bg-[var(--color-card-hover)]">
+              <div
+                role="link"
+                tabIndex={0}
+                onClick={() => onOpen(conversation)}
+                onKeyDown={(event) => {
+                  if (event.currentTarget !== event.target) return;
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onOpen(conversation);
+                  }
+                }}
+                className="flex cursor-pointer items-start justify-between gap-4"
+              >
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span
+                      className={`h-2 w-2 shrink-0 rounded-full ${conversation.unreadAt ? 'bg-accent' : 'bg-[var(--color-card-border)]'}`}
+                      aria-label={conversation.unreadAt ? 'Unread' : 'Read'}
+                    />
+                    <MessageSquareText size={15} className="shrink-0 text-dim" />
+                    <span className="truncate text-sm font-medium">
+                      {conversation.title}
+                    </span>
+                    <Badge variant="label" color={conversationStatusColor(conversation.status)}>{conversation.status}</Badge>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 pl-6 text-xs text-dim">
+                    <span>{project?.name ?? conversation.projectId}</span>
+                    <span>{conversation.currentWorkspaceId ? 'workspace attached' : 'project default'}</span>
+                    {conversation.parentConversationId && <span>forked</span>}
+                    <span>{formatRelativeDate(conversation.lastActivityAt)}</span>
+                  </div>
+                  {conversation.summary && <p className="mt-2 max-w-3xl pl-6 text-sm leading-5 text-[var(--color-text-secondary)]">{conversation.summary}</p>}
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    size="xs"
+                    variant="secondary"
+                    icon={<GitBranchPlus size={13} />}
+                    disabled={forkPending}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onFork(conversation);
+                    }}
+                  >
+                    Fork
+                  </Button>
+                </div>
+              </div>
+            </V2Row>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function MobileConversationSection({
   title,
   conversations,
@@ -205,7 +254,7 @@ function MobileConversationSection({
 }: {
   title: string;
   conversations: Conversation[];
-  projectById: Map<string, { name: string }>;
+  projectById: Map<string, Project>;
   forkPending: boolean;
   onFork: (conversation: Conversation) => void;
 }) {

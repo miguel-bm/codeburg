@@ -1,5 +1,3 @@
-import { useResolvedTheme } from '../../hooks/useResolvedTheme';
-
 interface CodeburgIconProps {
   size?: number;
   className?: string;
@@ -25,16 +23,19 @@ interface CodeburgWordmarkProps {
 
 /** Full wordmark (icon + "Codeburg" text), theme-aware */
 export function CodeburgWordmark({ height = 24, className = '' }: CodeburgWordmarkProps) {
-  const theme = useResolvedTheme();
-  const src = theme === 'dark' ? '/codeburg-dark.svg' : '/codeburg-light.svg';
+  const iconSize = Math.max(18, Math.round(height * 0.9));
+  const fontSize = Math.max(14, Math.round(height * 0.7));
 
   return (
-    <img
-      src={src}
-      alt="Codeburg"
-      height={height}
-      style={{ height, width: 'auto' }}
-      className={className}
-    />
+    <span
+      className={`inline-flex items-center gap-2 overflow-visible whitespace-nowrap text-[var(--color-text-primary)] ${className}`}
+      style={{ height }}
+      aria-label="Codeburg"
+    >
+      <CodeburgIcon size={iconSize} className="shrink-0" />
+      <span className="font-semibold leading-none" style={{ fontSize }}>
+        Codeburg
+      </span>
+    </span>
   );
 }
