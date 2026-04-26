@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { v2Api } from '../api/v2';
-import type { PiConversationSnapshot } from '../api/types';
+import type { PiConversationImageAttachment, PiConversationSnapshot } from '../api/types';
 import { buildWsUrl } from '../platform/runtimeConfig';
 import { useAuthStore } from '../stores/auth';
 
@@ -24,7 +24,7 @@ export interface UsePiConversationResult {
   connected: boolean;
   connecting: boolean;
   error: string | null;
-  sendMessage: (message: string) => Promise<void>;
+  sendMessage: (message: string, images?: PiConversationImageAttachment[]) => Promise<void>;
   abort: () => Promise<void>;
   applySnapshot: (snapshot: PiConversationSnapshot) => void;
 }
@@ -136,10 +136,10 @@ export function usePiConversation(conversationId: string, enabled = true): UsePi
     };
   }, [wsUrl, enabled, conversationId]);
 
-  const sendMessage = useCallback(async (message: string) => {
+  const sendMessage = useCallback(async (message: string, images: PiConversationImageAttachment[] = []) => {
     const trimmed = message.trim();
-    if (!trimmed) return;
-    const nextSnapshot = await v2Api.promptConversation(conversationId, { message: trimmed });
+    if (!trimmed && images.length === 0) return;
+    const nextSnapshot = await v2Api.promptConversation(conversationId, { message: trimmed, images });
     setSnapshot(nextSnapshot);
   }, [conversationId]);
 

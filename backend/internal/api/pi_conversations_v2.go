@@ -14,7 +14,8 @@ import (
 )
 
 type conversationPromptRequest struct {
-	Message string `json:"message"`
+	Message string                   `json:"message"`
+	Images  []piConversationImageRef `json:"images,omitempty"`
 }
 
 type conversationModelRequest struct {
@@ -102,12 +103,12 @@ func (s *Server) handlePromptConversation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	message := strings.TrimSpace(req.Message)
-	if message == "" {
-		writeError(w, http.StatusBadRequest, "message is required")
+	if message == "" && len(req.Images) == 0 {
+		writeError(w, http.StatusBadRequest, "message or image is required")
 		return
 	}
 
-	snapshot, err := s.pi.Prompt(conversation, workDir, message)
+	snapshot, err := s.pi.Prompt(conversation, workDir, message, req.Images)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

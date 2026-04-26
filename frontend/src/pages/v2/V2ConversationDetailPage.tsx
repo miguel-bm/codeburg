@@ -1,5 +1,5 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { ClipboardEvent, Dispatch, DragEvent, ReactNode, SetStateAction } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -14,11 +14,12 @@ import {
   FolderTree,
   GitBranch,
   GitBranchPlus,
+  Image as ImageIcon,
   Loader2,
   Mic,
   MessageSquarePlus,
   MessageSquareText,
-  Plus,
+  Paperclip,
   PlusCircle,
   Send,
   Slash,
@@ -26,9 +27,10 @@ import {
   Square,
   SquareTerminal,
   Wrench,
+  X,
 } from 'lucide-react';
 import { projectsApi } from '../../api';
-import type { Conversation, PiAvailableModel, PiConversationMessage, PiConversationSnapshot, PiSlashCommand, PiToolExecution, Workspace } from '../../api/types';
+import type { Conversation, PiAvailableModel, PiConversationImageAttachment, PiConversationMessage, PiConversationSnapshot, PiSlashCommand, PiToolExecution, Workspace } from '../../api/types';
 import { v2Api, type V2FileEntry } from '../../api/v2';
 import { Badge } from '../../components/ui/Badge';
 import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
@@ -57,6 +59,17 @@ interface ComposerSuggestion {
   icon: 'command' | 'file' | 'folder';
 }
 
+interface ComposerAttachment {
+  id: string;
+  name: string;
+  previewUrl: string;
+  image: PiConversationImageAttachment;
+}
+
+type ConversationRenderItem =
+  | { type: 'message'; message: PiConversationMessage }
+  | { type: 'collapsed'; messages: PiConversationMessage[] };
+
 const MAX_SUGGESTIONS = 8;
 const FILE_INDEX_DEPTH = 12;
 const FALLBACK_PI_COMMANDS: PiSlashCommand[] = [
@@ -81,6 +94,7 @@ export function V2ConversationDetailPage() {
   const isMobile = useMobile();
 
   const [draft, setDraft] = useState('');
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [sending, setSending] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('');
   const [forkTitle, setForkTitle] = useState('');
@@ -358,11 +372,12 @@ export function V2ConversationDetailPage() {
 
   const handleSubmit = async () => {
     const trimmed = draft.trim();
-    if (!trimmed || !conversationId) return;
+    if ((!trimmed && attachments.length === 0) || !conversationId) return;
     setSending(true);
     try {
-      await sendMessage(trimmed);
+      await sendMessage(trimmed, attachments.map(({ image }) => image));
       setDraft('');
+      setAttachments([]);
       setMainSurface('conversation');
     } finally {
       setSending(false);
@@ -511,6 +526,8 @@ export function V2ConversationDetailPage() {
                 sending={sending}
                 draft={draft}
                 setDraft={setDraft}
+                attachments={attachments}
+                setAttachments={setAttachments}
                 modelSwitching={setConversationModel.isPending}
                 forkPending={forkConversationFromMessage.isPending}
                 onSetModel={(provider, modelId) => setConversationModel.mutate({ provider, modelId })}
@@ -557,6 +574,8 @@ function ConversationSurface({
   sending,
   draft,
   setDraft,
+  attachments,
+  setAttachments,
   modelSwitching,
   forkPending,
   onSetModel,
@@ -571,6 +590,8 @@ function ConversationSurface({
   sending: boolean;
   draft: string;
   setDraft: (draft: string) => void;
+  attachments: ComposerAttachment[];
+  setAttachments: Dispatch<SetStateAction<ComposerAttachment[]>>;
   modelSwitching: boolean;
   forkPending: boolean;
   onSetModel: (provider: string, modelId: string) => void;
@@ -581,6 +602,7 @@ function ConversationSurface({
   const isMobile = useMobile();
   const { keyboardVisible, keyboardHeight } = useVirtualKeyboard();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const suggestionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [selection, setSelection] = useState<InputSelection>({ start: 0, end: 0 });
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
@@ -588,14 +610,14 @@ function ConversationSurface({
   const [inputFocused, setInputFocused] = useState(false);
   const [fileIndexRequested, setFileIndexRequested] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [imageDragActive, setImageDragActive] = useState(false);
+  const imageDragDepth = useRef(0);
   const composerStyle = isMobile && keyboardVisible
     ? { paddingBottom: keyboardHeight + 12 }
     : undefined;
-  const messages = snapshot?.messages ?? [];
+  const messages = useMemo(() => snapshot?.messages ?? [], [snapshot?.messages]);
   const pendingVisible = hasPendingAssistant(snapshot);
-  const shouldCollapseHistory = messages.length > 1 && !snapshot?.streaming && !pendingVisible;
-  const collapsedMessages = shouldCollapseHistory ? messages.slice(0, -1) : [];
-  const visibleMessages = shouldCollapseHistory ? messages.slice(-1) : messages;
+  const messageItems = useMemo(() => buildConversationItems(messages), [messages]);
   const modelValue = snapshot?.model ? modelOptionValue(snapshot.model.provider, snapshot.model.id) : '';
 
   const { data: fileEntries = [], isFetching: filesLoading } = useQuery({
@@ -715,7 +737,7 @@ function ConversationSurface({
     const maxHeight = isMobile ? 180 : 260;
     node.style.height = '0px';
     node.style.height = `${Math.min(maxHeight, Math.max(minHeight, node.scrollHeight))}px`;
-  }, [draft, isMobile]);
+  }, [attachments.length, draft, isMobile]);
 
   const setDraftWithSelection = (nextDraft: string, nextSelection?: InputSelection) => {
     setDraft(nextDraft);
@@ -761,26 +783,73 @@ function ConversationSurface({
     window.setTimeout(() => setCopiedMessageId((current) => current === message.id ? null : current), 1200);
   };
 
+  const attachImageFiles = useCallback(async (files: File[]) => {
+    const imageFiles = files.filter((file) => file.type.startsWith('image/'));
+    if (imageFiles.length === 0) return;
+    const nextAttachments = await Promise.all(imageFiles.map(fileToComposerAttachment));
+    setAttachments((current) => [...current, ...nextAttachments]);
+  }, [setAttachments]);
+
+  const removeAttachment = (id: string) => {
+    setAttachments((current) => current.filter((attachment) => attachment.id !== id));
+  };
+
+  const handleComposerPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = imageFilesFromClipboard(event.clipboardData);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void attachImageFiles(files);
+  };
+
+  const handleComposerDragEnter = (event: DragEvent<HTMLDivElement>) => {
+    if (!canDropFiles(event, isActiveConversation, sending)) return;
+    event.preventDefault();
+    imageDragDepth.current += 1;
+    setImageDragActive(true);
+  };
+
+  const handleComposerDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!canDropFiles(event, isActiveConversation, sending)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setImageDragActive(true);
+  };
+
+  const handleComposerDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    if (!canDropFiles(event, isActiveConversation, sending)) return;
+    event.preventDefault();
+    imageDragDepth.current = Math.max(0, imageDragDepth.current - 1);
+    if (imageDragDepth.current === 0) setImageDragActive(false);
+  };
+
+  const handleComposerDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (!canDropFiles(event, isActiveConversation, sending)) return;
+    event.preventDefault();
+    imageDragDepth.current = 0;
+    setImageDragActive(false);
+    void attachImageFiles(Array.from(event.dataTransfer.files));
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-auto px-3 py-4 md:px-6 md:py-5">
         {messages.length ? (
           <div className="mx-auto max-w-5xl space-y-4 md:space-y-6">
-            {collapsedMessages.length > 0 && (
-              <CollapsedPreviousMessages
-                messages={collapsedMessages}
+            {messageItems.map((item, index) => item.type === 'message' ? (
+              <MessageRow
+                key={item.message.id || `${item.message.role}-${index}`}
+                message={item.message}
+                copied={copiedMessageId === item.message.id}
+                forkPending={forkPending}
+                onCopy={() => void copyMessage(item.message)}
+                onForkFromMessage={onForkFromMessage}
+              />
+            ) : (
+              <CollapsedTurnEvents
+                key={`collapsed-${index}-${item.messages.map((message) => message.id).join(':')}`}
+                messages={item.messages}
                 copiedMessageId={copiedMessageId}
                 onCopy={(message) => void copyMessage(message)}
-              />
-            )}
-            {visibleMessages.map((message, index) => (
-              <MessageRow
-                key={message.id || `${message.role}-${index}`}
-                message={message}
-                copied={copiedMessageId === message.id}
-                forkPending={forkPending}
-                onCopy={() => void copyMessage(message)}
-                onForkFromMessage={onForkFromMessage}
               />
             ))}
             {pendingVisible && <PendingAssistant snapshot={snapshot} />}
@@ -795,9 +864,42 @@ function ConversationSurface({
       </div>
 
       <div className="shrink-0 bg-primary px-3 pb-3 md:px-6 md:pb-5" style={composerStyle}>
-        <div className={`relative mx-auto max-w-5xl overflow-visible rounded-[1.35rem] border bg-card shadow-[0_18px_60px_rgba(15,23,42,0.12)] transition-colors ${
+        <div
+          onDragEnter={handleComposerDragEnter}
+          onDragOver={handleComposerDragOver}
+          onDragLeave={handleComposerDragLeave}
+          onDrop={handleComposerDrop}
+          className={`relative mx-auto max-w-5xl overflow-visible rounded-[1.35rem] border bg-card shadow-[0_18px_60px_rgba(15,23,42,0.12)] transition-colors ${
           inputFocused ? 'border-accent/70' : 'border-subtle'
-        }`}>
+        } ${imageDragActive ? 'border-accent bg-accent/5 shadow-[0_20px_70px_rgba(37,99,235,0.2)] ring-2 ring-accent/25' : ''}`}
+        >
+          {imageDragActive && (
+            <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center rounded-[1.35rem] border-2 border-dashed border-accent bg-[var(--color-card)]/88 backdrop-blur-sm">
+              <div className="flex items-center gap-3 rounded-full bg-accent px-4 py-2 text-sm font-medium text-white shadow-lg">
+                <ImageIcon size={17} />
+                <span>Drop image to attach</span>
+              </div>
+            </div>
+          )}
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-4 pb-1 pt-3 md:px-5">
+              {attachments.map((attachment) => (
+                <div key={attachment.id} className="group inline-flex h-8 max-w-full items-center gap-2 rounded-full border border-subtle bg-primary px-2.5 pr-1.5 text-sm text-[var(--color-text-primary)] shadow-sm">
+                  <span className="h-3.5 w-3.5 shrink-0 rounded-full bg-secondary" />
+                  <span className="max-w-52 truncate">{attachment.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(attachment.id)}
+                    className="inline-flex h-5 w-5 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]"
+                    title="Remove image"
+                    aria-label="Remove image"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           {visibleSuggestions.length > 0 && (
             <div className="absolute bottom-full left-3 right-3 z-30 mb-2 overflow-hidden rounded-xl border border-subtle bg-card shadow-[var(--shadow-card)]">
               <div className="flex items-center justify-between border-b border-subtle px-3 py-1.5 text-[10px] uppercase tracking-[0.08em] text-dim">
@@ -842,6 +944,7 @@ function ConversationSurface({
                 end: event.target.selectionEnd,
               });
             }}
+            onPaste={handleComposerPaste}
             onFocus={() => setInputFocused(true)}
             onBlur={() => setInputFocused(false)}
             onClick={(event) => {
@@ -878,9 +981,10 @@ function ConversationSurface({
                   return;
                 }
               }
-              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+              if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
                 submit();
+                return;
               }
               if (event.key === 'Escape') {
                 textareaRef.current?.blur();
@@ -893,8 +997,19 @@ function ConversationSurface({
 
           <div className="flex min-h-12 items-center justify-between gap-3 border-t border-subtle/70 px-3 py-2 md:px-4">
             <div className="flex min-w-0 items-center gap-1.5">
-              <button type="button" onClick={() => insertTrigger('@')} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Add workspace context" aria-label="Add workspace context">
-                <Plus size={17} />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(event) => {
+                  void attachImageFiles(Array.from(event.target.files ?? []));
+                  event.target.value = '';
+                }}
+              />
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Attach screenshot" aria-label="Attach screenshot">
+                <Paperclip size={16} />
               </button>
               <button type="button" onClick={() => insertTrigger('/')} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Pi command" aria-label="Pi command">
                 <Slash size={15} />
@@ -902,7 +1017,12 @@ function ConversationSurface({
               <button type="button" onClick={() => insertTrigger('@')} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Mention file" aria-label="Mention file">
                 <AtSign size={15} />
               </button>
-              <span className="hidden text-xs text-dim sm:inline">Cmd/Ctrl Enter</span>
+              {attachments.length > 0 && (
+                <span className="hidden items-center gap-1 text-xs text-dim sm:inline-flex">
+                  <ImageIcon size={13} />
+                  {attachments.length}
+                </span>
+              )}
             </div>
 
             <div className="flex min-w-0 shrink-0 items-center gap-2">
@@ -939,7 +1059,7 @@ function ConversationSurface({
               <button
                 type="button"
                 onClick={submit}
-                disabled={!draft.trim() || !isActiveConversation || sending}
+                disabled={(!draft.trim() && attachments.length === 0) || !isActiveConversation || sending}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-text-primary)] text-[var(--color-card)] shadow-sm transition-transform hover:scale-[1.03] disabled:scale-100 disabled:opacity-35"
                 title="Send"
                 aria-label="Send"
@@ -987,6 +1107,7 @@ function MessageRow({
           />
           <div className="rounded-2xl rounded-br-md bg-[var(--color-accent)]/10 px-4 py-3 text-sm text-[var(--color-text-primary)]">
             {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
+            <MessageImages images={message.images ?? []} />
             <ToolCallSummary message={message} />
           </div>
         </div>
@@ -1003,7 +1124,23 @@ function MessageRow({
   );
 }
 
-function CollapsedPreviousMessages({
+function MessageImages({ images }: { images: PiConversationImageAttachment[] }) {
+  if (images.length === 0) return null;
+  return (
+    <div className="mt-3 grid grid-cols-2 gap-2">
+      {images.map((image, index) => (
+        <img
+          key={`${image.mimeType}-${index}`}
+          src={`data:${image.mimeType};base64,${image.data}`}
+          alt="Attached screenshot"
+          className="max-h-64 rounded-lg object-contain"
+        />
+      ))}
+    </div>
+  );
+}
+
+function CollapsedTurnEvents({
   messages,
   copiedMessageId,
   onCopy,
@@ -1012,13 +1149,21 @@ function CollapsedPreviousMessages({
   copiedMessageId: string | null;
   onCopy: (message: PiConversationMessage) => void;
 }) {
+  const toolCount = messages.filter((message) => isToolMessage(message) || (message.toolCalls?.length ?? 0) > 0).length;
+  const thinkingCount = messages.filter((message) => Boolean(message.thinking)).length;
+  const labelParts = [
+    thinkingCount > 0 ? `${thinkingCount} thinking` : null,
+    toolCount > 0 ? `${toolCount} tool ${toolCount === 1 ? 'event' : 'events'}` : null,
+  ].filter(Boolean);
+
   return (
-    <details className="group rounded-2xl border border-subtle bg-card/85 shadow-sm">
-      <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 px-4 py-2 text-sm text-dim">
-        <span>{messages.length} previous {messages.length === 1 ? 'message' : 'messages'}</span>
-        <ChevronDown size={15} className="ml-auto transition-transform group-open:rotate-180" />
+    <details className="group">
+      <summary className="flex cursor-pointer list-none items-center gap-3 py-1 text-xs text-dim/80 transition-colors hover:text-[var(--color-text-secondary)]">
+        <span className="h-px flex-1 bg-[var(--color-border)]/60" />
+        <span>{labelParts.join(', ') || `${messages.length} background ${messages.length === 1 ? 'event' : 'events'}`}</span>
+        <ChevronDown size={13} className="transition-transform group-open:rotate-180" />
       </summary>
-      <div className="space-y-4 border-t border-subtle px-4 py-4">
+      <div className="mt-2 space-y-3 pl-4">
         {messages.map((message, index) => (
           <MessageRow
             key={message.id || `${message.role}-${index}`}
@@ -1164,6 +1309,54 @@ function hasPendingAssistant(snapshot: PiConversationSnapshot | null): boolean {
   );
 }
 
+function buildConversationItems(messages: PiConversationMessage[]): ConversationRenderItem[] {
+  const items: ConversationRenderItem[] = [];
+  let turnNoise: PiConversationMessage[] = [];
+
+  const flushNoiseExpanded = () => {
+    for (const message of turnNoise) items.push({ type: 'message', message });
+    turnNoise = [];
+  };
+
+  for (const message of messages) {
+    if (message.role === 'user') {
+      flushNoiseExpanded();
+      items.push({ type: 'message', message });
+      continue;
+    }
+
+    if (isFinalAssistantMessage(message)) {
+      if (turnNoise.length > 0) {
+        items.push({ type: 'collapsed', messages: turnNoise });
+        turnNoise = [];
+      }
+      items.push({ type: 'message', message });
+      continue;
+    }
+
+    if (isTurnNoiseMessage(message)) {
+      turnNoise.push(message);
+      continue;
+    }
+
+    flushNoiseExpanded();
+    items.push({ type: 'message', message });
+  }
+
+  flushNoiseExpanded();
+  return items;
+}
+
+function isFinalAssistantMessage(message: PiConversationMessage): boolean {
+  return message.role === 'assistant' && Boolean(message.text?.trim()) && (message.toolCalls?.length ?? 0) === 0;
+}
+
+function isTurnNoiseMessage(message: PiConversationMessage): boolean {
+  if (isToolMessage(message)) return true;
+  if (message.role === 'assistant') return Boolean(message.thinking || (message.toolCalls?.length ?? 0) > 0 || !message.text?.trim());
+  return message.role !== 'user';
+}
+
 function isToolMessage(message: PiConversationMessage): boolean {
   return message.role === 'toolResult' || message.role === 'bashExecution' || Boolean(message.toolName);
 }
@@ -1233,6 +1426,46 @@ function nextEnabledSuggestionIndex(suggestions: ComposerSuggestion[], current: 
 
 function forkDraftStorageKey(conversationId: string): string {
   return `codeburg:v2-fork-draft:${conversationId}`;
+}
+
+async function fileToComposerAttachment(file: File): Promise<ComposerAttachment> {
+  const dataUrl = await readFileAsDataUrl(file);
+  const [, base64 = ''] = dataUrl.split(',', 2);
+  return {
+    id: `${file.name}-${file.size}-${file.lastModified}-${crypto.randomUUID()}`,
+    name: file.name,
+    previewUrl: dataUrl,
+    image: {
+      type: 'image',
+      data: base64,
+      mimeType: file.type || 'image/png',
+    },
+  };
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read image'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function imageFilesFromClipboard(data: DataTransfer): File[] {
+  const files = Array.from(data.files).filter((file) => file.type.startsWith('image/'));
+  if (files.length > 0) return files;
+  return Array.from(data.items)
+    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file));
+}
+
+function canDropFiles(event: DragEvent<HTMLElement>, isActiveConversation: boolean, sending: boolean): boolean {
+  if (!isActiveConversation || sending) return false;
+  const items = Array.from(event.dataTransfer.items ?? []);
+  if (items.some((item) => item.kind === 'file')) return true;
+  return Array.from(event.dataTransfer.types ?? []).includes('Files');
 }
 
 function CompactWorkspaceMenu({

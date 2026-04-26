@@ -424,12 +424,19 @@ export interface PiConversationToolCall {
   arguments?: string;
 }
 
+export interface PiConversationImageAttachment {
+  type: 'image';
+  data: string;
+  mimeType: string;
+}
+
 export interface PiConversationMessage {
   id: string;
   entryId?: string;
   role: string;
   text?: string;
   thinking?: string;
+  images?: PiConversationImageAttachment[];
   toolName?: string;
   toolCalls?: PiConversationToolCall[];
   isError?: boolean;

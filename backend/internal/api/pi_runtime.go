@@ -30,12 +30,19 @@ type piConversationToolCall struct {
 	Arguments string `json:"arguments,omitempty"`
 }
 
+type piConversationImageRef struct {
+	Type     string `json:"type"`
+	Data     string `json:"data"`
+	MimeType string `json:"mimeType"`
+}
+
 type piConversationMessage struct {
 	ID        string                   `json:"id"`
 	EntryID   string                   `json:"entryId,omitempty"`
 	Role      string                   `json:"role"`
 	Text      string                   `json:"text,omitempty"`
 	Thinking  string                   `json:"thinking,omitempty"`
+	Images    []piConversationImageRef `json:"images,omitempty"`
 	ToolName  string                   `json:"toolName,omitempty"`
 	ToolCalls []piConversationToolCall `json:"toolCalls,omitempty"`
 	IsError   bool                     `json:"isError,omitempty"`
@@ -284,7 +291,7 @@ func (m *piConversationManager) GetSnapshot(conversation *db.Conversation, workD
 	return runtime.snapshot, nil
 }
 
-func (m *piConversationManager) Prompt(conversation *db.Conversation, workDir, prompt string) (piConversationSnapshot, error) {
+func (m *piConversationManager) Prompt(conversation *db.Conversation, workDir, prompt string, images []piConversationImageRef) (piConversationSnapshot, error) {
 	if conversation.Status != db.ConversationStatusActive {
 		return piConversationSnapshot{}, fmt.Errorf("conversation must be active before prompting")
 	}
@@ -292,10 +299,14 @@ func (m *piConversationManager) Prompt(conversation *db.Conversation, workDir, p
 	if err != nil {
 		return piConversationSnapshot{}, err
 	}
-	if _, err := runtime.sendCommand(map[string]any{
+	command := map[string]any{
 		"type":    "prompt",
 		"message": prompt,
-	}); err != nil {
+	}
+	if len(images) > 0 {
+		command["images"] = normalizePiPromptImages(images)
+	}
+	if _, err := runtime.sendCommand(command); err != nil {
 		return piConversationSnapshot{}, err
 	}
 	if _, err := m.db.UpdateConversation(conversation.ID, db.UpdateConversationInput{
@@ -309,6 +320,23 @@ func (m *piConversationManager) Prompt(conversation *db.Conversation, workDir, p
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	return runtime.snapshot, nil
+}
+
+func normalizePiPromptImages(images []piConversationImageRef) []piConversationImageRef {
+	normalized := make([]piConversationImageRef, 0, len(images))
+	for _, image := range images {
+		data := strings.TrimSpace(image.Data)
+		mimeType := strings.TrimSpace(image.MimeType)
+		if data == "" || mimeType == "" {
+			continue
+		}
+		normalized = append(normalized, piConversationImageRef{
+			Type:     "image",
+			Data:     data,
+			MimeType: mimeType,
+		})
+	}
+	return normalized
 }
 
 func (m *piConversationManager) AvailableModels(conversation *db.Conversation, workDir string) ([]piAvailableModel, error) {
@@ -879,7 +907,7 @@ func normalizePiMessage(message map[string]any, index int) piConversationMessage
 
 	switch role {
 	case "user":
-		result.Text = userContentToText(message["content"])
+		result.Text, result.Images = userContent(message["content"])
 	case "assistant":
 		result.Text, result.Thinking, result.ToolCalls = assistantContent(message["content"])
 	case "toolResult":
@@ -893,7 +921,7 @@ func normalizePiMessage(message map[string]any, index int) piConversationMessage
 	case "branchSummary", "compactionSummary":
 		result.Text = stringFromMap(message, "summary")
 	case "custom":
-		result.Text = userContentToText(message["content"])
+		result.Text, result.Images = userContent(message["content"])
 	default:
 		result.Text = compactJSON(message)
 	}
@@ -926,14 +954,14 @@ func assistantContent(value any) (string, string, []piConversationToolCall) {
 	return strings.TrimSpace(strings.Join(textParts, "\n\n")), strings.TrimSpace(strings.Join(thinkingParts, "\n\n")), toolCalls
 }
 
-func userContentToText(value any) string {
+func userContent(value any) (string, []piConversationImageRef) {
 	switch typed := value.(type) {
 	case string:
-		return typed
+		return typed, nil
 	case []any:
-		return textFromContent(typed)
+		return contentTextAndImages(typed)
 	default:
-		return compactJSON(value)
+		return compactJSON(value), nil
 	}
 }
 
@@ -959,6 +987,34 @@ func textFromContent(value any) string {
 		}
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n\n"))
+}
+
+func contentTextAndImages(items []any) (string, []piConversationImageRef) {
+	parts := make([]string, 0, len(items))
+	images := make([]piConversationImageRef, 0)
+	for _, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		switch stringFromMap(item, "type") {
+		case "text":
+			parts = append(parts, stringFromMap(item, "text"))
+		case "image":
+			data := stringFromMap(item, "data")
+			mimeType := stringFromMap(item, "mimeType")
+			if data != "" && mimeType != "" {
+				images = append(images, piConversationImageRef{
+					Type:     "image",
+					Data:     data,
+					MimeType: mimeType,
+				})
+			} else {
+				parts = append(parts, "[image]")
+			}
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n\n")), images
 }
 
 func appendOrReplaceTool(existing []piToolExecution, next piToolExecution) []piToolExecution {

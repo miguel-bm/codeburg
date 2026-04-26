@@ -6,6 +6,7 @@ import type {
   TerminalSession,
   Conversation,
   PiConversationSnapshot,
+  PiConversationImageAttachment,
   PiAvailableModel,
   PiSlashCommand,
   ForkConversationFromMessageResponse,
@@ -199,7 +200,7 @@ export const v2Api = {
   getConversationState: (conversationId: string) =>
     api.get<PiConversationSnapshot>(`/conversations/${conversationId}/state`),
 
-  promptConversation: (conversationId: string, input: { message: string }) =>
+  promptConversation: (conversationId: string, input: { message: string; images?: PiConversationImageAttachment[] }) =>
     api.post<PiConversationSnapshot>(`/conversations/${conversationId}/prompt`, input),
 
   abortConversation: (conversationId: string) =>
