@@ -33,7 +33,7 @@ import {
   V2Screen,
 } from './v2-ui';
 import { V2QuickActionsMenu } from './V2QuickActionsMenu';
-import { V2WorkspaceToolTabs, V2WorkspaceTools, type V2HelperTab } from './V2WorkspaceTools';
+import { V2WorkspaceToolTabs, V2WorkspaceTools, V2WorkspaceToolsSurface, type V2HelperTab } from './V2WorkspaceTools';
 
 type MainSurface = { type: 'terminal'; terminalId: string } | { type: 'workspaceTab'; index: number } | null;
 
@@ -51,6 +51,7 @@ export function V2ProjectPage() {
   const [helperTab, setHelperTab] = useState<V2HelperTab>('files');
   const [toolsOpen, setToolsOpen] = useState(true);
   const [toolsWidth, setToolsWidth] = useState(360);
+  const [toolsResizing, setToolsResizing] = useState(false);
   const [composerMode, setComposerMode] = useState<'create' | 'fork' | null>(null);
   const [workspaceName, setWorkspaceName] = useState('');
   const [workspaceBaseBranch, setWorkspaceBaseBranch] = useState('');
@@ -298,6 +299,7 @@ export function V2ProjectPage() {
 
   const beginResize = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
+    setToolsResizing(true);
     resizeStart.current = { x: event.clientX, width: toolsWidth };
     const onMove = (moveEvent: MouseEvent) => {
       if (!resizeStart.current) return;
@@ -306,6 +308,7 @@ export function V2ProjectPage() {
     };
     const onUp = () => {
       resizeStart.current = null;
+      setToolsResizing(false);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       document.removeEventListener('mousemove', onMove);
@@ -430,22 +433,25 @@ export function V2ProjectPage() {
           </div>
         </section>
 
-        {toolsOpen && (
-          <>
-            <div className="w-1.5 shrink-0 cursor-col-resize bg-canvas hover:bg-accent/30" onMouseDown={beginResize} />
-            <aside className="min-h-0 shrink-0 border-l border-[var(--color-card-border)] bg-canvas" style={{ width: toolsWidth }}>
-              {project && activeWorkspace ? (
-                <V2WorkspaceTools helperTab={helperTab} />
-              ) : (
-                <V2Empty
-                  icon={<Files size={24} />}
-                  title="Loading workspace tools"
-                  body="Files, search, and git actions will appear once the project workspace is ready."
-                />
-              )}
-            </aside>
-          </>
-        )}
+        <V2WorkspaceToolsSurface
+          open={toolsOpen}
+          width={toolsWidth}
+          resizing={toolsResizing}
+          helperTab={helperTab}
+          disabled={!project || !activeWorkspace}
+          onToggleHelperTab={toggleHelperTab}
+          onResizeStart={beginResize}
+        >
+          {project && activeWorkspace ? (
+            <V2WorkspaceTools helperTab={helperTab} />
+          ) : (
+            <V2Empty
+              icon={<Files size={24} />}
+              title="Loading workspace tools"
+              body="Files, search, and git actions will appear once the project workspace is ready."
+            />
+          )}
+        </V2WorkspaceToolsSurface>
       </div>
     </V2Screen>
   );
@@ -614,14 +620,6 @@ function MainTabBar({
         ))}
       </div>
       <div className="relative shrink-0">
-        <V2WorkspaceToolTabs
-          helperTab={helperTab}
-          toolsOpen={toolsOpen}
-          disabled={toolsDisabled}
-          onToggleHelperTab={onToggleHelperTab}
-        />
-      </div>
-      <div className="relative shrink-0">
         <button
           type="button"
           disabled={createTerminalDisabled && createConversationPending}
@@ -641,6 +639,14 @@ function MainTabBar({
           </>
         )}
       </div>
+      {!toolsOpen && (
+        <V2WorkspaceToolTabs
+          helperTab={helperTab}
+          toolsOpen={toolsOpen}
+          disabled={toolsDisabled}
+          onToggleHelperTab={onToggleHelperTab}
+        />
+      )}
     </div>
   );
 }

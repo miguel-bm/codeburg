@@ -29,7 +29,7 @@ import { usePiConversation } from '../../hooks/usePiConversation';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { Button, V2Empty, V2Input, V2Screen, V2Select, V2Textarea } from './v2-ui';
 import { V2QuickActionsMenu } from './V2QuickActionsMenu';
-import { V2WorkspaceToolTabs, V2WorkspaceTools, type V2HelperTab } from './V2WorkspaceTools';
+import { V2WorkspaceToolTabs, V2WorkspaceTools, V2WorkspaceToolsSurface, type V2HelperTab } from './V2WorkspaceTools';
 
 type MainSurface = 'conversation' | { type: 'workspaceTab'; index: number };
 
@@ -49,6 +49,7 @@ export function V2ConversationDetailPage() {
   const [helperTab, setHelperTab] = useState<V2HelperTab>('files');
   const [toolsOpen, setToolsOpen] = useState(true);
   const [toolsWidth, setToolsWidth] = useState(360);
+  const [toolsResizing, setToolsResizing] = useState(false);
   const [mainSurface, setMainSurface] = useState<MainSurface>('conversation');
   const [newTabOpen, setNewTabOpen] = useState(false);
   const [conversationActionsOpen, setConversationActionsOpen] = useState(false);
@@ -236,6 +237,7 @@ export function V2ConversationDetailPage() {
 
   const beginResize = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
+    setToolsResizing(true);
     resizeStart.current = { x: event.clientX, width: toolsWidth };
     const onMove = (moveEvent: MouseEvent) => {
       if (!resizeStart.current) return;
@@ -244,6 +246,7 @@ export function V2ConversationDetailPage() {
     };
     const onUp = () => {
       resizeStart.current = null;
+      setToolsResizing(false);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       document.removeEventListener('mousemove', onMove);
@@ -345,12 +348,6 @@ export function V2ConversationDetailPage() {
                   </button>
                 ))}
               </div>
-              <V2WorkspaceToolTabs
-                helperTab={helperTab}
-                toolsOpen={toolsOpen}
-                disabled={!project || !activeWorkspace}
-                onToggleHelperTab={toggleHelperTab}
-              />
               <div className="relative shrink-0">
                 <button
                   type="button"
@@ -371,6 +368,14 @@ export function V2ConversationDetailPage() {
                   </>
                 )}
               </div>
+              {!toolsOpen && (
+                <V2WorkspaceToolTabs
+                  helperTab={helperTab}
+                  toolsOpen={toolsOpen}
+                  disabled={!project || !activeWorkspace}
+                  onToggleHelperTab={toggleHelperTab}
+                />
+              )}
             </div>
           )}
           {!activePreviewTab && (
@@ -434,18 +439,21 @@ export function V2ConversationDetailPage() {
           </div>
         </section>
 
-        {toolsOpen && (
-          <>
-            <div className="w-1.5 shrink-0 cursor-col-resize bg-canvas hover:bg-accent/30" onMouseDown={beginResize} />
-            <aside className="min-h-0 shrink-0 bg-canvas" style={{ width: toolsWidth }}>
-              {activeWorkspace && project ? (
-                <V2WorkspaceTools helperTab={helperTab} />
-              ) : (
-                <V2Empty icon={<Wrench size={24} />} title="No workspace tools yet" body="Attach this conversation to a workspace to inspect files, search, and git changes." />
-              )}
-            </aside>
-          </>
-        )}
+        <V2WorkspaceToolsSurface
+          open={toolsOpen}
+          width={toolsWidth}
+          resizing={toolsResizing}
+          helperTab={helperTab}
+          disabled={!project || !activeWorkspace}
+          onToggleHelperTab={toggleHelperTab}
+          onResizeStart={beginResize}
+        >
+          {activeWorkspace && project ? (
+            <V2WorkspaceTools helperTab={helperTab} />
+          ) : (
+            <V2Empty icon={<Wrench size={24} />} title="No workspace tools yet" body="Attach this conversation to a workspace to inspect files, search, and git changes." />
+          )}
+        </V2WorkspaceToolsSurface>
       </div>
     </V2Screen>
   );

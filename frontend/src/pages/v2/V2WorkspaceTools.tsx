@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { Files, GitBranch, Search } from 'lucide-react';
 import { FileExplorer } from '../../components/workspace/FileExplorer';
 import { FileSearchPanel } from '../../components/workspace/FileSearchPanel';
@@ -12,14 +13,18 @@ export function V2WorkspaceToolTabs({
   toolsOpen,
   onToggleHelperTab,
   disabled,
+  placement = 'inline',
 }: {
   helperTab: V2HelperTab;
   toolsOpen: boolean;
   onToggleHelperTab: (tab: V2HelperTab) => void;
   disabled?: boolean;
+  placement?: 'inline' | 'panel';
 }) {
   return (
-    <div className="flex shrink-0 items-center gap-1 border-l border-[var(--color-card-border)] pl-1.5">
+    <div className={`flex shrink-0 items-center gap-1 ${
+      placement === 'inline' ? 'border-l border-[var(--color-card-border)] pl-1.5' : ''
+    }`}>
       <HelperButton disabled={disabled} active={toolsOpen && helperTab === 'files'} icon={<Files size={14} />} onClick={() => onToggleHelperTab('files')}>Files</HelperButton>
       <HelperButton disabled={disabled} active={toolsOpen && helperTab === 'search'} icon={<Search size={14} />} onClick={() => onToggleHelperTab('search')}>Search</HelperButton>
       <HelperButton disabled={disabled} active={toolsOpen && helperTab === 'git'} icon={<GitBranch size={14} />} onClick={() => onToggleHelperTab('git')}>Git</HelperButton>
@@ -34,6 +39,60 @@ export function V2WorkspaceTools({ helperTab }: { helperTab: V2HelperTab }) {
       {helperTab === 'search' && <FileSearchPanel />}
       {helperTab === 'git' && <GitPanel />}
     </div>
+  );
+}
+
+export function V2WorkspaceToolsSurface({
+  open,
+  width,
+  resizing,
+  helperTab,
+  disabled,
+  onToggleHelperTab,
+  onResizeStart,
+  children,
+}: {
+  open: boolean;
+  width: number;
+  resizing: boolean;
+  helperTab: V2HelperTab;
+  disabled?: boolean;
+  onToggleHelperTab: (tab: V2HelperTab) => void;
+  onResizeStart: (event: ReactMouseEvent) => void;
+  children: ReactNode;
+}) {
+  return (
+    <AnimatePresence initial={false}>
+      {open && (
+        <motion.div
+          key="workspace-tools"
+          className="flex min-h-0 shrink-0 overflow-hidden bg-canvas"
+          initial={{ width: 0, opacity: 0 }}
+          animate={{ width: width + 6, opacity: 1 }}
+          exit={{ width: 0, opacity: 0 }}
+          transition={{
+            width: { duration: resizing ? 0 : 0.2, ease: [0.22, 1, 0.36, 1] },
+            opacity: { duration: 0.12 },
+          }}
+        >
+          <div className="w-1.5 shrink-0 cursor-col-resize bg-canvas hover:bg-accent/30" onMouseDown={onResizeStart} />
+          <aside className="flex min-h-0 shrink-0 flex-col border-l border-[var(--color-card-border)] bg-canvas" style={{ width }}>
+            <div className="flex h-9 shrink-0 items-center px-2">
+              <V2WorkspaceToolTabs
+                helperTab={helperTab}
+                toolsOpen={open}
+                disabled={disabled}
+                placement="panel"
+                onToggleHelperTab={onToggleHelperTab}
+              />
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              {children}
+            </div>
+          </aside>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
