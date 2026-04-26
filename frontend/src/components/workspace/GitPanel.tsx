@@ -306,23 +306,23 @@ export function GitPanel() {
         <div className="overflow-auto" style={{ height: `${splitFraction * 100}%` }}>
           {/* Sticky header: commit input + error + branch */}
           <div className="sticky top-0 z-10 bg-canvas">
-            <div className="flex items-center gap-1.5 px-2 py-2.5">
+            <div className="flex items-center gap-1 px-2 py-2">
               <div className="relative min-w-0 flex-1">
-                <GitCommit size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim" />
+                <GitCommit size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-dim" />
                 <input
                   type="text"
                   value={commitMsg}
                   onChange={(e) => setCommitMsg(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Commit message"
-                  className="h-9 w-full rounded-md border border-subtle bg-primary pl-8 pr-3 text-sm leading-none focus:border-accent focus:outline-none"
+                  className="h-10 w-full rounded-md border border-subtle bg-primary pl-8 pr-2 text-sm focus:border-accent focus:outline-none md:h-auto md:py-1.5 md:pl-7 md:text-xs"
                 />
               </div>
               <button
                 type="button"
                 onClick={handleCommit}
                 disabled={!commitMsg.trim() || status.staged.length === 0 || isCommitting}
-                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-white transition-colors hover:bg-accent-dim disabled:opacity-40"
+                className="inline-flex h-10 shrink-0 items-center gap-1 rounded-md bg-accent px-3 text-sm font-medium text-white transition-colors hover:bg-accent-dim disabled:opacity-40 md:h-auto md:px-2 md:py-1.5 md:text-xs"
                 title="Commit staged changes"
               >
                 <GitCommit size={13} />
@@ -332,7 +332,7 @@ export function GitPanel() {
                 ref={menuBtnRef}
                 type="button"
                 onClick={openMenu}
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-dim transition-colors hover:bg-tertiary hover:text-[var(--color-text-primary)]"
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-dim transition-colors hover:bg-tertiary hover:text-accent md:h-auto md:w-auto md:p-1 md:hover:bg-transparent"
                 title="More actions"
               >
                 <MoreVertical size={15} />
