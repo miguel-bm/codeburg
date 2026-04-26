@@ -29,11 +29,11 @@ export function CodeburgWordmark({ height = 24, className = '' }: CodeburgWordma
   return (
     <span
       className={`inline-flex items-center gap-2 overflow-visible whitespace-nowrap text-[var(--color-text-primary)] ${className}`}
-      style={{ height }}
+      style={{ minHeight: height }}
       aria-label="Codeburg"
     >
       <CodeburgIcon size={iconSize} className="shrink-0" />
-      <span className="font-semibold leading-none" style={{ fontSize }}>
+      <span className="font-semibold leading-tight" style={{ fontSize, lineHeight: 1.16 }}>
         Codeburg
       </span>
     </span>
