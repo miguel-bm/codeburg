@@ -4,22 +4,32 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
+  AtSign,
+  Check,
   ChevronDown,
+  Clipboard,
   CircleDot,
+  Command,
+  FileCode2,
+  FolderTree,
   GitBranch,
   GitBranchPlus,
+  Loader2,
+  Mic,
   MessageSquarePlus,
   MessageSquareText,
+  Plus,
   PlusCircle,
   Send,
+  Slash,
   Sparkles,
+  Square,
   SquareTerminal,
-  StopCircle,
   Wrench,
 } from 'lucide-react';
 import { projectsApi } from '../../api';
-import type { Conversation, PiConversationMessage, PiConversationSnapshot, Workspace } from '../../api/types';
-import { v2Api } from '../../api/v2';
+import type { Conversation, PiAvailableModel, PiConversationMessage, PiConversationSnapshot, PiSlashCommand, PiToolExecution, Workspace } from '../../api/types';
+import { v2Api, type V2FileEntry } from '../../api/v2';
 import { Badge } from '../../components/ui/Badge';
 import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
 import { DiffTab } from '../../components/workspace/DiffTab';
@@ -29,11 +39,36 @@ import { useMobile } from '../../hooks/useMobile';
 import { usePiConversation } from '../../hooks/usePiConversation';
 import { useVirtualKeyboard } from '../../hooks/useVirtualKeyboard';
 import { useWorkspaceStore } from '../../stores/workspace';
-import { Button, V2Empty, V2Input, V2Screen, V2Select, V2Textarea } from './v2-ui';
+import { applySuggestionToText, findActiveToken, fuzzyScore, type InputSelection } from '../../components/chat/chatAutocomplete';
+import { Button, V2Empty, V2Input, V2Screen, V2Select } from './v2-ui';
 import { V2QuickActionsMenu } from './V2QuickActionsMenu';
 import { V2WorkspaceToolTabs, V2WorkspaceTools, V2WorkspaceToolsSurface, type V2HelperTab } from './V2WorkspaceTools';
 
 type MainSurface = 'conversation' | { type: 'workspaceTab'; index: number };
+
+interface ComposerSuggestion {
+  key: string;
+  type: 'slash' | 'file';
+  label: string;
+  detail?: string;
+  value: string;
+  addSpace: boolean;
+  disabled?: boolean;
+  icon: 'command' | 'file' | 'folder';
+}
+
+const MAX_SUGGESTIONS = 8;
+const FILE_INDEX_DEPTH = 12;
+const FALLBACK_PI_COMMANDS: PiSlashCommand[] = [
+  { name: 'model', description: 'Select model' },
+  { name: 'fork', description: 'Fork from a previous message' },
+  { name: 'tree', description: 'Navigate conversation tree' },
+  { name: 'compact', description: 'Compact the session context' },
+  { name: 'session', description: 'Show session info' },
+  { name: 'copy', description: 'Copy the last assistant message' },
+  { name: 'hotkeys', description: 'Show keyboard shortcuts' },
+  { name: 'reload', description: 'Reload Pi resources' },
+];
 
 export function V2ConversationDetailPage() {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -91,7 +126,7 @@ export function V2ConversationDetailPage() {
   });
 
   const isActiveConversation = conversation?.status === 'active';
-  const { snapshot: liveSnapshot, connected, connecting, error, sendMessage, abort } = usePiConversation(conversationId ?? '', isActiveConversation);
+  const { snapshot: liveSnapshot, connected, connecting, error, sendMessage, abort, applySnapshot } = usePiConversation(conversationId ?? '', isActiveConversation);
   const snapshot: PiConversationSnapshot | null = liveSnapshot ?? stateSnapshot ?? null;
   const safeWorkspaces = useMemo(() => Array.isArray(workspaces) ? workspaces : [], [workspaces]);
   const safeWorkspaceHistory = Array.isArray(workspaceHistory) ? workspaceHistory : [];
@@ -114,6 +149,15 @@ export function V2ConversationDetailPage() {
     resetWorkspaceTabs();
     setMainSurface('conversation');
   }, [conversationId, activeWorkspace?.id, resetWorkspaceTabs]);
+
+  useEffect(() => {
+    if (!conversationId) return;
+    const key = forkDraftStorageKey(conversationId);
+    const savedDraft = window.sessionStorage.getItem(key);
+    if (!savedDraft) return;
+    window.sessionStorage.removeItem(key);
+    setDraft(savedDraft);
+  }, [conversationId]);
 
   useEffect(() => {
     setToolsOpen(!isMobile);
@@ -221,6 +265,32 @@ export function V2ConversationDetailPage() {
       await queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.projectId] });
       await queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.projectId, 'sidebar'] });
       navigate(`/v2/conversations/${forked.id}`);
+    },
+  });
+  const setConversationModel = useMutation({
+    mutationFn: (model: { provider: string; modelId: string }) => v2Api.setConversationModel(conversationId!, model),
+    onSuccess: (nextSnapshot) => {
+      applySnapshot(nextSnapshot);
+    },
+  });
+  const forkConversationFromMessage = useMutation({
+    mutationFn: ({ entryId }: { entryId: string }) =>
+      v2Api.forkConversationFromMessage(conversationId!, {
+        entryId,
+        title: `${conversation?.title ?? 'Conversation'} fork`,
+        currentWorkspaceId: activeWorkspaceId ?? conversation?.currentWorkspaceId,
+      }),
+    onSuccess: async (forked) => {
+      if (forked.selectedText) {
+        window.sessionStorage.setItem(forkDraftStorageKey(forked.conversation.id), forked.selectedText);
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.conversation.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.conversation.projectId, 'sidebar'] }),
+      ]);
+      navigate(`/v2/conversations/${forked.conversation.id}`);
     },
   });
 
@@ -434,11 +504,17 @@ export function V2ConversationDetailPage() {
               <DiffTab file={activeWorkspaceTab.file} staged={activeWorkspaceTab.staged} base={activeWorkspaceTab.base} commit={activeWorkspaceTab.commit} onClose={closeWorkspaceSurface} />
             ) : (
               <ConversationSurface
+                conversationId={conversationId ?? ''}
+                activeWorkspaceId={activeWorkspaceId ?? undefined}
                 snapshot={snapshot}
                 isActiveConversation={isActiveConversation}
                 sending={sending}
                 draft={draft}
                 setDraft={setDraft}
+                modelSwitching={setConversationModel.isPending}
+                forkPending={forkConversationFromMessage.isPending}
+                onSetModel={(provider, modelId) => setConversationModel.mutate({ provider, modelId })}
+                onForkFromMessage={(entryId) => forkConversationFromMessage.mutate({ entryId })}
                 abort={() => void abort()}
                 submit={() => void handleSubmit()}
               />
@@ -474,42 +550,240 @@ export function V2ConversationDetailPage() {
 }
 
 function ConversationSurface({
+  conversationId,
+  activeWorkspaceId,
   snapshot,
   isActiveConversation,
   sending,
   draft,
   setDraft,
+  modelSwitching,
+  forkPending,
+  onSetModel,
+  onForkFromMessage,
   abort,
   submit,
 }: {
+  conversationId: string;
+  activeWorkspaceId?: string;
   snapshot: PiConversationSnapshot | null;
   isActiveConversation: boolean;
   sending: boolean;
   draft: string;
   setDraft: (draft: string) => void;
+  modelSwitching: boolean;
+  forkPending: boolean;
+  onSetModel: (provider: string, modelId: string) => void;
+  onForkFromMessage: (entryId: string) => void;
   abort: () => void;
   submit: () => void;
 }) {
   const isMobile = useMobile();
   const { keyboardVisible, keyboardHeight } = useVirtualKeyboard();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const suggestionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const [selection, setSelection] = useState<InputSelection>({ start: 0, end: 0 });
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
+  const [dismissedTokenKey, setDismissedTokenKey] = useState<string | null>(null);
+  const [inputFocused, setInputFocused] = useState(false);
+  const [fileIndexRequested, setFileIndexRequested] = useState(false);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const composerStyle = isMobile && keyboardVisible
     ? { paddingBottom: keyboardHeight + 12 }
     : undefined;
+  const messages = snapshot?.messages ?? [];
+  const pendingVisible = hasPendingAssistant(snapshot);
+  const shouldCollapseHistory = messages.length > 1 && !snapshot?.streaming && !pendingVisible;
+  const collapsedMessages = shouldCollapseHistory ? messages.slice(0, -1) : [];
+  const visibleMessages = shouldCollapseHistory ? messages.slice(-1) : messages;
+  const modelValue = snapshot?.model ? modelOptionValue(snapshot.model.provider, snapshot.model.id) : '';
+
+  const { data: fileEntries = [], isFetching: filesLoading } = useQuery({
+    queryKey: ['v2-workspace-file-index', activeWorkspaceId],
+    queryFn: async () => {
+      const response = await v2Api.listFiles(activeWorkspaceId!, { depth: FILE_INDEX_DEPTH });
+      return response.entries;
+    },
+    enabled: Boolean(activeWorkspaceId && fileIndexRequested),
+    staleTime: 30_000,
+  });
+  const { data: commandResponse } = useQuery({
+    queryKey: ['v2-conversation-commands', conversationId],
+    queryFn: () => v2Api.listConversationCommands(conversationId),
+    enabled: Boolean(conversationId && isActiveConversation),
+    staleTime: 60_000,
+  });
+  const { data: modelResponse, isFetching: modelsLoading } = useQuery({
+    queryKey: ['v2-conversation-models', conversationId],
+    queryFn: () => v2Api.listConversationModels(conversationId),
+    enabled: Boolean(conversationId && isActiveConversation),
+    staleTime: 60_000,
+  });
+
+  const activeToken = useMemo(
+    () => findActiveToken(draft, selection, ['/', '@']),
+    [draft, selection],
+  );
+  const tokenKey = activeToken ? `${activeToken.start}:${activeToken.end}:${activeToken.token}` : null;
+  const slashCommands = useMemo(() => {
+    const byName = new Map<string, PiSlashCommand>();
+    for (const command of FALLBACK_PI_COMMANDS) byName.set(command.name, command);
+    for (const command of commandResponse?.commands ?? []) byName.set(command.name, command);
+    return Array.from(byName.values());
+  }, [commandResponse?.commands]);
+  const models = useMemo(() => {
+    const all = modelResponse?.models ?? [];
+    if (!snapshot?.model) return all;
+    if (all.some((model) => model.provider === snapshot.model?.provider && model.id === snapshot.model?.id)) return all;
+    return [{ provider: snapshot.model.provider, id: snapshot.model.id }, ...all];
+  }, [modelResponse?.models, snapshot]);
+  const suggestions = useMemo<ComposerSuggestion[]>(() => {
+    if (!activeToken) return [];
+
+    if (activeToken.prefix === '/') {
+      const query = activeToken.query.toLowerCase();
+      return slashCommands
+        .filter((command) => query === '' || command.name.toLowerCase().includes(query))
+        .slice(0, MAX_SUGGESTIONS)
+        .map((command) => ({
+          key: `slash:${command.name}`,
+          type: 'slash',
+          label: `/${command.name}`,
+          detail: command.description || command.source || 'Pi command',
+          value: `/${command.name}`,
+          addSpace: true,
+          icon: 'command',
+        }));
+    }
+
+    if (activeToken.prefix === '@') {
+      if (filesLoading && fileEntries.length === 0) {
+        return [{
+          key: 'files:loading',
+          type: 'file',
+          label: 'Indexing files...',
+          detail: 'Preparing workspace suggestions',
+          value: '@',
+          addSpace: false,
+          disabled: true,
+          icon: 'file',
+        }];
+      }
+      const query = activeToken.query.trim();
+      return fileEntries
+        .map((entry) => ({
+          entry,
+          score: query ? fuzzyScore(entry.path, query) : 1000 - entry.path.length,
+        }))
+        .filter((item) => item.score >= 0)
+        .sort((a, b) => {
+          if (a.score !== b.score) return b.score - a.score;
+          if (a.entry.type !== b.entry.type) return a.entry.type === 'dir' ? -1 : 1;
+          return a.entry.path.localeCompare(b.entry.path);
+        })
+        .slice(0, MAX_SUGGESTIONS)
+        .map(({ entry }) => fileSuggestion(entry));
+    }
+
+    return [];
+  }, [activeToken, fileEntries, filesLoading, slashCommands]);
+  const visibleSuggestions = useMemo(
+    () => (tokenKey && dismissedTokenKey !== tokenKey ? suggestions : []),
+    [dismissedTokenKey, suggestions, tokenKey],
+  );
+
+  useEffect(() => {
+    if (activeToken?.prefix === '@') {
+      setFileIndexRequested(true);
+    }
+  }, [activeToken?.prefix]);
+
+  useEffect(() => {
+    setSelectedSuggestionIndex(findFirstEnabledSuggestionIndex(visibleSuggestions));
+  }, [tokenKey, visibleSuggestions]);
+
+  useEffect(() => {
+    const node = suggestionRefs.current[selectedSuggestionIndex];
+    if (!node) return;
+    node.scrollIntoView({ block: 'nearest' });
+  }, [selectedSuggestionIndex, visibleSuggestions.length]);
+
+  useEffect(() => {
+    const node = textareaRef.current;
+    if (!node) return;
+    const minHeight = isMobile ? 96 : 118;
+    const maxHeight = isMobile ? 180 : 260;
+    node.style.height = '0px';
+    node.style.height = `${Math.min(maxHeight, Math.max(minHeight, node.scrollHeight))}px`;
+  }, [draft, isMobile]);
+
+  const setDraftWithSelection = (nextDraft: string, nextSelection?: InputSelection) => {
+    setDraft(nextDraft);
+    if (nextSelection) setSelection(nextSelection);
+    setDismissedTokenKey(null);
+  };
+
+  const applyComposerSuggestion = (suggestion: ComposerSuggestion) => {
+    if (suggestion.disabled) return;
+    const next = applySuggestionToText(draft, selection, suggestion.value, ['/', '@'], suggestion.addSpace);
+    setDraftWithSelection(next.text, { start: next.cursor, end: next.cursor });
+    requestAnimationFrame(() => {
+      const node = textareaRef.current;
+      if (!node) return;
+      node.focus();
+      node.setSelectionRange(next.cursor, next.cursor);
+    });
+  };
+
+  const insertTrigger = (trigger: '/' | '@') => {
+    const node = textareaRef.current;
+    const start = node?.selectionStart ?? selection.start;
+    const end = node?.selectionEnd ?? selection.end;
+    const previous = start > 0 ? draft[start - 1] : '';
+    const insertValue = `${previous && !/\s/.test(previous) ? ' ' : ''}${trigger}`;
+    const nextDraft = `${draft.slice(0, start)}${insertValue}${draft.slice(end)}`;
+    const cursor = start + insertValue.length;
+    if (trigger === '@') setFileIndexRequested(true);
+    setDraftWithSelection(nextDraft, { start: cursor, end: cursor });
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(cursor, cursor);
+    });
+  };
+
+  const copyMessage = async (message: PiConversationMessage) => {
+    const text = messageCopyText(message);
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
+    setCopiedMessageId(message.id);
+    window.setTimeout(() => setCopiedMessageId((current) => current === message.id ? null : current), 1200);
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-auto px-3 py-4 md:px-6 md:py-5">
-        {snapshot?.messages?.length ? (
+        {messages.length ? (
           <div className="mx-auto max-w-5xl space-y-4 md:space-y-6">
-            {snapshot.messages.map((message, index) => (
-              <MessageRow key={message.id || `${message.role}-${index}`} message={message} />
-            ))}
-            {snapshot.pending && (
-              <div className="space-y-2 text-sm">
-                {snapshot.pending.thinking && <CollapsibleEvent icon={<Sparkles size={14} />} title="Thinking" body={snapshot.pending.thinking} />}
-                {snapshot.pending.text && <MarkdownRenderer>{snapshot.pending.text}</MarkdownRenderer>}
-              </div>
+            {collapsedMessages.length > 0 && (
+              <CollapsedPreviousMessages
+                messages={collapsedMessages}
+                copiedMessageId={copiedMessageId}
+                onCopy={(message) => void copyMessage(message)}
+              />
             )}
+            {visibleMessages.map((message, index) => (
+              <MessageRow
+                key={message.id || `${message.role}-${index}`}
+                message={message}
+                copied={copiedMessageId === message.id}
+                forkPending={forkPending}
+                onCopy={() => void copyMessage(message)}
+                onForkFromMessage={onForkFromMessage}
+              />
+            ))}
+            {pendingVisible && <PendingAssistant snapshot={snapshot} />}
           </div>
         ) : (
           <V2Empty
@@ -521,28 +795,158 @@ function ConversationSurface({
       </div>
 
       <div className="shrink-0 bg-primary px-3 pb-3 md:px-6 md:pb-5" style={composerStyle}>
-        <div className="mx-auto max-w-5xl rounded-xl bg-card p-3 shadow-[var(--shadow-card)] md:rounded-2xl">
-          <V2Textarea
+        <div className={`relative mx-auto max-w-5xl overflow-visible rounded-[1.35rem] border bg-card shadow-[0_18px_60px_rgba(15,23,42,0.12)] transition-colors ${
+          inputFocused ? 'border-accent/70' : 'border-subtle'
+        }`}>
+          {visibleSuggestions.length > 0 && (
+            <div className="absolute bottom-full left-3 right-3 z-30 mb-2 overflow-hidden rounded-xl border border-subtle bg-card shadow-[var(--shadow-card)]">
+              <div className="flex items-center justify-between border-b border-subtle px-3 py-1.5 text-[10px] uppercase tracking-[0.08em] text-dim">
+                <span>{activeToken?.prefix === '@' ? 'Workspace files' : 'Pi commands'}</span>
+                {!isMobile && <span className="normal-case tracking-normal">Arrows, Enter, Esc</span>}
+              </div>
+              <div className="max-h-56 overflow-y-auto py-1">
+                {visibleSuggestions.map((suggestion, index) => {
+                  const selected = index === selectedSuggestionIndex;
+                  return (
+                    <button
+                      key={suggestion.key}
+                      ref={(el) => { suggestionRefs.current[index] = el; }}
+                      type="button"
+                      disabled={Boolean(suggestion.disabled)}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => applyComposerSuggestion(suggestion)}
+                      className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs transition-colors ${
+                        selected ? 'bg-accent/10' : 'hover:bg-secondary'
+                      } ${suggestion.disabled ? 'cursor-default opacity-70' : ''}`}
+                    >
+                      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-subtle bg-primary">
+                        {suggestionIcon(suggestion.icon)}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[var(--color-text-primary)]">{suggestion.label}</span>
+                        {suggestion.detail && <span className="block truncate text-[10px] text-dim">{suggestion.detail}</span>}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <textarea
+            ref={textareaRef}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder={isActiveConversation ? 'Send a prompt to pi...' : 'Resume the conversation before sending a prompt'}
-            disabled={!isActiveConversation || sending}
-            className="min-h-20 w-full resize-none border-0 bg-transparent md:min-h-24"
+            onChange={(event) => {
+              setDraftWithSelection(event.target.value, {
+                start: event.target.selectionStart,
+                end: event.target.selectionEnd,
+              });
+            }}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
+            onClick={(event) => {
+              const target = event.target as HTMLTextAreaElement;
+              setSelection({ start: target.selectionStart, end: target.selectionEnd });
+            }}
+            onSelect={(event) => {
+              const target = event.target as HTMLTextAreaElement;
+              setSelection({ start: target.selectionStart, end: target.selectionEnd });
+            }}
             onKeyDown={(event) => {
+              if (visibleSuggestions.length > 0) {
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault();
+                  setSelectedSuggestionIndex((current) => nextEnabledSuggestionIndex(visibleSuggestions, current, 1));
+                  return;
+                }
+                if (event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  setSelectedSuggestionIndex((current) => nextEnabledSuggestionIndex(visibleSuggestions, current, -1));
+                  return;
+                }
+                if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
+                  const suggestion = visibleSuggestions[selectedSuggestionIndex] ?? visibleSuggestions.find((item) => !item.disabled);
+                  if (suggestion && !suggestion.disabled) {
+                    event.preventDefault();
+                    applyComposerSuggestion(suggestion);
+                    return;
+                  }
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setDismissedTokenKey(tokenKey);
+                  return;
+                }
+              }
               if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                 event.preventDefault();
                 submit();
               }
+              if (event.key === 'Escape') {
+                textareaRef.current?.blur();
+              }
             }}
+            placeholder={isActiveConversation ? 'Send a prompt to Pi...' : 'Resume the conversation before sending a prompt'}
+            disabled={!isActiveConversation || sending}
+            className="block w-full resize-none rounded-t-[1.35rem] bg-transparent px-4 pt-4 text-sm leading-6 text-[var(--color-text-primary)] outline-none placeholder:text-dim disabled:opacity-60 md:px-5 md:pt-5"
           />
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-xs text-dim">
-              <span className="hidden sm:inline">Cmd/Ctrl Enter</span>
-              {snapshot?.streaming && <button type="button" onClick={abort} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[var(--color-error)] hover:bg-[var(--color-error)]/10"><StopCircle size={13} />Abort</button>}
+
+          <div className="flex min-h-12 items-center justify-between gap-3 border-t border-subtle/70 px-3 py-2 md:px-4">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <button type="button" onClick={() => insertTrigger('@')} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Add workspace context" aria-label="Add workspace context">
+                <Plus size={17} />
+              </button>
+              <button type="button" onClick={() => insertTrigger('/')} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Pi command" aria-label="Pi command">
+                <Slash size={15} />
+              </button>
+              <button type="button" onClick={() => insertTrigger('@')} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Mention file" aria-label="Mention file">
+                <AtSign size={15} />
+              </button>
+              <span className="hidden text-xs text-dim sm:inline">Cmd/Ctrl Enter</span>
             </div>
-            <Button size="sm" variant="primary" icon={<Send size={14} />} loading={sending} disabled={!draft.trim() || !isActiveConversation} onClick={submit}>
-              Send
-            </Button>
+
+            <div className="flex min-w-0 shrink-0 items-center gap-2">
+              {snapshot?.streaming && (
+                <button type="button" onClick={abort} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--color-error)] hover:bg-[var(--color-error)]/10" title="Abort" aria-label="Abort">
+                  <Square size={13} />
+                </button>
+              )}
+              <div className="relative max-w-[12rem]">
+                {modelsLoading || modelSwitching ? (
+                  <Loader2 size={14} className="absolute left-2 top-1/2 -translate-y-1/2 animate-spin text-dim" />
+                ) : null}
+                <select
+                  value={modelValue}
+                  onChange={(event) => {
+                    const [provider, modelId] = parseModelOptionValue(event.target.value);
+                    if (provider && modelId) onSetModel(provider, modelId);
+                  }}
+                  disabled={!isActiveConversation || sending || modelSwitching || models.length === 0}
+                  className="h-8 max-w-full rounded-full border border-transparent bg-transparent px-2 pr-7 text-xs text-[var(--color-text-secondary)] outline-none hover:bg-secondary disabled:opacity-50"
+                  title="Model"
+                >
+                  {modelValue === '' && <option value="">Model</option>}
+                  {models.map((model) => (
+                    <option key={modelOptionValue(model.provider, model.id)} value={modelOptionValue(model.provider, model.id)}>
+                      {modelLabel(model)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button type="button" className="hidden h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)] sm:inline-flex" title="Voice input" aria-label="Voice input" disabled>
+                <Mic size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={submit}
+                disabled={!draft.trim() || !isActiveConversation || sending}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-text-primary)] text-[var(--color-card)] shadow-sm transition-transform hover:scale-[1.03] disabled:scale-100 disabled:opacity-35"
+                title="Send"
+                aria-label="Send"
+              >
+                {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -550,20 +954,48 @@ function ConversationSurface({
   );
 }
 
-function MessageRow({ message }: { message: PiConversationMessage }) {
+function MessageRow({
+  message,
+  copied,
+  compact = false,
+  forkPending = false,
+  onCopy,
+  onForkFromMessage,
+}: {
+  message: PiConversationMessage;
+  copied: boolean;
+  compact?: boolean;
+  forkPending?: boolean;
+  onCopy: () => void;
+  onForkFromMessage?: (entryId: string) => void;
+}) {
   const isUser = message.role === 'user';
+  if (isToolMessage(message)) {
+    return <ToolResultRow message={message} compact={compact} />;
+  }
+
   if (isUser) {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[90%] rounded-2xl bg-[var(--color-accent)]/10 px-4 py-3 text-sm text-[var(--color-text-primary)] md:max-w-[min(74%,46rem)]">
-          {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
-          <ToolCallSummary message={message} />
+      <div className="group flex justify-end">
+        <div className="max-w-[90%] md:max-w-[min(74%,46rem)]">
+          <MessageActions
+            copied={copied}
+            canFork={Boolean(message.entryId && onForkFromMessage && !compact)}
+            forkPending={forkPending}
+            onCopy={onCopy}
+            onFork={() => message.entryId && onForkFromMessage?.(message.entryId)}
+          />
+          <div className="rounded-2xl rounded-br-md bg-[var(--color-accent)]/10 px-4 py-3 text-sm text-[var(--color-text-primary)]">
+            {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
+            <ToolCallSummary message={message} />
+          </div>
         </div>
       </div>
     );
   }
   return (
-    <article className={`w-full text-sm leading-6 ${message.isError ? 'text-[var(--color-error)]' : 'text-[var(--color-text-primary)]'}`}>
+    <article className={`group w-full text-sm leading-6 ${message.isError ? 'text-[var(--color-error)]' : 'text-[var(--color-text-primary)]'}`}>
+      <MessageActions copied={copied} onCopy={onCopy} />
       {message.thinking && <CollapsibleEvent icon={<Sparkles size={14} />} title="Thinking" body={message.thinking} />}
       {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
       <ToolCallSummary message={message} />
@@ -571,21 +1003,136 @@ function MessageRow({ message }: { message: PiConversationMessage }) {
   );
 }
 
+function CollapsedPreviousMessages({
+  messages,
+  copiedMessageId,
+  onCopy,
+}: {
+  messages: PiConversationMessage[];
+  copiedMessageId: string | null;
+  onCopy: (message: PiConversationMessage) => void;
+}) {
+  return (
+    <details className="group rounded-2xl border border-subtle bg-card/85 shadow-sm">
+      <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 px-4 py-2 text-sm text-dim">
+        <span>{messages.length} previous {messages.length === 1 ? 'message' : 'messages'}</span>
+        <ChevronDown size={15} className="ml-auto transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="space-y-4 border-t border-subtle px-4 py-4">
+        {messages.map((message, index) => (
+          <MessageRow
+            key={message.id || `${message.role}-${index}`}
+            message={message}
+            compact
+            copied={copiedMessageId === message.id}
+            onCopy={() => onCopy(message)}
+          />
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function MessageActions({
+  copied,
+  canFork = false,
+  forkPending = false,
+  onCopy,
+  onFork,
+}: {
+  copied: boolean;
+  canFork?: boolean;
+  forkPending?: boolean;
+  onCopy: () => void;
+  onFork?: () => void;
+}) {
+  return (
+    <div className="mb-1 flex h-7 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+      <button type="button" onClick={onCopy} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Copy message" aria-label="Copy message">
+        {copied ? <Check size={14} /> : <Clipboard size={14} />}
+      </button>
+      {canFork && (
+        <button type="button" onClick={onFork} disabled={forkPending} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-dim hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-50" title="Edit in fork" aria-label="Edit in fork">
+          {forkPending ? <Loader2 size={14} className="animate-spin" /> : <GitBranchPlus size={14} />}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ToolResultRow({ message, compact }: { message: PiConversationMessage; compact?: boolean }) {
+  return (
+    <details className={`group rounded-xl border border-subtle bg-inset text-xs ${compact ? '' : 'mx-0'}`}>
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-dim">
+        <Wrench size={13} />
+        <span className="min-w-0 flex-1 truncate font-medium text-[var(--color-text-secondary)]">{toolMessageTitle(message)}</span>
+        {message.isError && <span className="text-[var(--color-error)]">error</span>}
+        <ChevronDown size={13} className="transition-transform group-open:rotate-180" />
+      </summary>
+      {message.text && (
+        <div className="border-t border-subtle px-3 py-2 text-[var(--color-text-secondary)]">
+          {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
+        </div>
+      )}
+    </details>
+  );
+}
+
+function PendingAssistant({ snapshot }: { snapshot: PiConversationSnapshot | null }) {
+  if (!snapshot) return null;
+  return (
+    <article className="space-y-3 text-sm leading-6 text-[var(--color-text-primary)]">
+      {snapshot.pending?.thinking && <CollapsibleEvent icon={<Sparkles size={14} />} title="Thinking" body={snapshot.pending.thinking} />}
+      {snapshot.pending?.text && <MarkdownRenderer>{snapshot.pending.text}</MarkdownRenderer>}
+      <ToolCallsList toolCalls={snapshot.pending?.toolCalls ?? []} />
+      <ToolExecutionList tools={snapshot.tools ?? []} />
+      {snapshot.streaming && !snapshot.pending?.text && !snapshot.pending?.thinking && (
+        <div className="flex items-center gap-2 text-xs text-dim">
+          <Loader2 size={13} className="animate-spin" />
+          <span>Pi is working...</span>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function ToolExecutionList({ tools }: { tools: PiToolExecution[] }) {
+  if (tools.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      {tools.map((tool) => (
+        <details key={tool.toolCallId || tool.toolName} className="group rounded-lg bg-inset px-3 py-2 text-xs">
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-dim">
+            {tool.status === 'running' ? <Loader2 size={13} className="animate-spin" /> : <Wrench size={13} />}
+            <span className="font-medium text-[var(--color-text-secondary)]">{tool.toolName || 'Tool'}</span>
+            <span>{tool.status}</span>
+            {tool.isError && <span className="text-[var(--color-error)]">error</span>}
+            <ChevronDown size={13} className="ml-auto transition-transform group-open:rotate-180" />
+          </summary>
+          {tool.output && <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-primary p-2 font-mono text-[11px] text-[var(--color-text-secondary)]">{tool.output}</pre>}
+        </details>
+      ))}
+    </div>
+  );
+}
+
 function ToolCallSummary({ message }: { message: PiConversationMessage }) {
-  const toolCalls = message.toolCalls ?? [];
-  if (!message.toolName && toolCalls.length === 0) return null;
+  return <ToolCallsList toolCalls={message.toolCalls ?? []} />;
+}
+
+function ToolCallsList({ toolCalls }: { toolCalls: NonNullable<PiConversationMessage['toolCalls']> }) {
+  if (toolCalls.length === 0) return null;
   return (
     <div className="mt-3 space-y-2">
-      {message.toolName && <CollapsibleEvent icon={<Wrench size={14} />} title={`Tool: ${message.toolName}`} body={message.text ? 'Tool details are folded by default.' : ''} />}
       {toolCalls.map((tool, index) => (
         <details key={tool.id || index} className="group rounded-lg bg-inset px-3 py-2 text-xs">
           <summary className="flex cursor-pointer list-none items-center gap-2 text-dim">
             <Wrench size={13} />
-            <span className="font-medium text-[var(--color-text-secondary)]">{tool.name}</span>
-          <span>call</span>
+            <span className="font-medium text-[var(--color-text-secondary)]">{tool.name || 'Tool call'}</span>
+            <span>call</span>
             <ChevronDown size={13} className="ml-auto transition-transform group-open:rotate-180" />
           </summary>
-          {tool.arguments && <pre className="mt-2 overflow-auto whitespace-pre-wrap rounded-md bg-primary p-2 font-mono text-[11px]">{tool.arguments}</pre>}
+          {tool.arguments && <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-primary p-2 font-mono text-[11px] text-[var(--color-text-secondary)]">{tool.arguments}</pre>}
         </details>
       ))}
     </div>
@@ -604,6 +1151,88 @@ function CollapsibleEvent({ icon, title, body }: { icon: ReactNode; title: strin
       {body && <div className="mt-2 whitespace-pre-wrap text-[var(--color-text-secondary)]">{body}</div>}
     </details>
   );
+}
+
+function hasPendingAssistant(snapshot: PiConversationSnapshot | null): boolean {
+  if (!snapshot) return false;
+  return Boolean(
+    snapshot.streaming
+      || snapshot.pending?.text
+      || snapshot.pending?.thinking
+      || (snapshot.pending?.toolCalls?.length ?? 0) > 0
+      || (snapshot.tools?.some((tool) => tool.status === 'running') ?? false),
+  );
+}
+
+function isToolMessage(message: PiConversationMessage): boolean {
+  return message.role === 'toolResult' || message.role === 'bashExecution' || Boolean(message.toolName);
+}
+
+function toolMessageTitle(message: PiConversationMessage): string {
+  if (message.toolName) return `Tool result: ${message.toolName}`;
+  if (message.role === 'bashExecution') return 'Bash execution';
+  return `Tool response: ${message.role}`;
+}
+
+function messageCopyText(message: PiConversationMessage): string {
+  return [message.thinking, message.text].filter(Boolean).join('\n\n').trim();
+}
+
+function modelOptionValue(provider: string, id: string): string {
+  return JSON.stringify([provider, id]);
+}
+
+function parseModelOptionValue(value: string): [string, string] {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return ['', ''];
+    const [provider, id] = parsed;
+    return [typeof provider === 'string' ? provider : '', typeof id === 'string' ? id : ''];
+  } catch {
+    return ['', ''];
+  }
+}
+
+function modelLabel(model: PiAvailableModel): string {
+  return model.provider ? `${model.id} (${model.provider})` : model.id;
+}
+
+function fileSuggestion(entry: V2FileEntry): ComposerSuggestion {
+  const pathValue = entry.type === 'dir' ? `${entry.path}/` : entry.path;
+  return {
+    key: `file:${entry.path}`,
+    type: 'file',
+    label: `@${pathValue}`,
+    detail: entry.type === 'dir' ? 'Directory' : 'File',
+    value: `@${pathValue}`,
+    addSpace: entry.type !== 'dir',
+    icon: entry.type === 'dir' ? 'folder' : 'file',
+  };
+}
+
+function suggestionIcon(icon: ComposerSuggestion['icon']) {
+  if (icon === 'command') return <Command size={13} className="text-accent" />;
+  if (icon === 'folder') return <FolderTree size={13} className="text-amber-500" />;
+  return <FileCode2 size={13} className="text-accent" />;
+}
+
+function findFirstEnabledSuggestionIndex(suggestions: ComposerSuggestion[]): number {
+  const index = suggestions.findIndex((suggestion) => !suggestion.disabled);
+  return index >= 0 ? index : 0;
+}
+
+function nextEnabledSuggestionIndex(suggestions: ComposerSuggestion[], current: number, direction: 1 | -1): number {
+  if (suggestions.length === 0) return 0;
+  let next = current;
+  for (let i = 0; i < suggestions.length; i += 1) {
+    next = (next + direction + suggestions.length) % suggestions.length;
+    if (!suggestions[next].disabled) return next;
+  }
+  return current;
+}
+
+function forkDraftStorageKey(conversationId: string): string {
+  return `codeburg:v2-fork-draft:${conversationId}`;
 }
 
 function CompactWorkspaceMenu({

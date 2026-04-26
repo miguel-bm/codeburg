@@ -386,6 +386,7 @@ export interface PiConversationToolCall {
 
 export interface PiConversationMessage {
   id: string;
+  entryId?: string;
   role: string;
   text?: string;
   thinking?: string;
@@ -422,4 +423,24 @@ export interface PiConversationSnapshot {
   tools?: PiToolExecution[];
   lastError?: string;
   updatedAt: string;
+}
+
+export interface PiAvailableModel {
+  provider: string;
+  id: string;
+  name?: string;
+  reasoning?: boolean;
+  contextWindow?: number;
+}
+
+export interface PiSlashCommand {
+  name: string;
+  description?: string;
+  source?: string;
+}
+
+export interface ForkConversationFromMessageResponse {
+  conversation: Conversation;
+  selectedText: string;
+  snapshot?: PiConversationSnapshot;
 }

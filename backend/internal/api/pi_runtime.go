@@ -32,6 +32,7 @@ type piConversationToolCall struct {
 
 type piConversationMessage struct {
 	ID        string                   `json:"id"`
+	EntryID   string                   `json:"entryId,omitempty"`
 	Role      string                   `json:"role"`
 	Text      string                   `json:"text,omitempty"`
 	Thinking  string                   `json:"thinking,omitempty"`
@@ -53,6 +54,25 @@ type piToolExecution struct {
 	Status     string `json:"status"`
 	Output     string `json:"output,omitempty"`
 	IsError    bool   `json:"isError,omitempty"`
+}
+
+type piAvailableModel struct {
+	Provider      string `json:"provider"`
+	ID            string `json:"id"`
+	Name          string `json:"name,omitempty"`
+	Reasoning     bool   `json:"reasoning,omitempty"`
+	ContextWindow int    `json:"contextWindow,omitempty"`
+}
+
+type piSlashCommand struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Source      string `json:"source,omitempty"`
+}
+
+type piForkMessage struct {
+	EntryID string `json:"entryId"`
+	Text    string `json:"text"`
 }
 
 type piConversationSnapshot struct {
@@ -289,6 +309,151 @@ func (m *piConversationManager) Prompt(conversation *db.Conversation, workDir, p
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	return runtime.snapshot, nil
+}
+
+func (m *piConversationManager) AvailableModels(conversation *db.Conversation, workDir string) ([]piAvailableModel, error) {
+	runtime, err := m.ensureRuntime(conversation, workDir)
+	if err != nil {
+		return nil, err
+	}
+	response, err := runtime.sendCommand(map[string]any{"type": "get_available_models"})
+	if err != nil {
+		return nil, err
+	}
+	data, _ := response["data"].(map[string]any)
+	rawModels, _ := data["models"].([]any)
+	models := make([]piAvailableModel, 0, len(rawModels))
+	for _, raw := range rawModels {
+		modelMap, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		models = append(models, piAvailableModel{
+			Provider:      stringFromMap(modelMap, "provider"),
+			ID:            stringFromMap(modelMap, "id"),
+			Name:          stringFromMap(modelMap, "name"),
+			Reasoning:     boolFromMap(modelMap, "reasoning"),
+			ContextWindow: intFromMap(modelMap, "contextWindow"),
+		})
+	}
+	return models, nil
+}
+
+func (m *piConversationManager) Commands(conversation *db.Conversation, workDir string) ([]piSlashCommand, error) {
+	runtime, err := m.ensureRuntime(conversation, workDir)
+	if err != nil {
+		return nil, err
+	}
+	response, err := runtime.sendCommand(map[string]any{"type": "get_commands"})
+	if err != nil {
+		return nil, err
+	}
+	data, _ := response["data"].(map[string]any)
+	rawCommands, _ := data["commands"].([]any)
+	commands := make([]piSlashCommand, 0, len(rawCommands))
+	for _, raw := range rawCommands {
+		commandMap, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		name := stringFromMap(commandMap, "name")
+		if name == "" {
+			continue
+		}
+		commands = append(commands, piSlashCommand{
+			Name:        name,
+			Description: stringFromMap(commandMap, "description"),
+			Source:      stringFromMap(commandMap, "source"),
+		})
+	}
+	return commands, nil
+}
+
+func (m *piConversationManager) SetModel(conversation *db.Conversation, workDir, provider, modelID string) (piConversationSnapshot, error) {
+	if conversation.Status != db.ConversationStatusActive {
+		return piConversationSnapshot{}, fmt.Errorf("conversation must be active before switching models")
+	}
+	runtime, err := m.ensureRuntime(conversation, workDir)
+	if err != nil {
+		return piConversationSnapshot{}, err
+	}
+	if _, err := runtime.sendCommand(map[string]any{
+		"type":     "set_model",
+		"provider": provider,
+		"modelId":  modelID,
+	}); err != nil {
+		return piConversationSnapshot{}, err
+	}
+	if err := runtime.refreshState(conversation); err != nil {
+		return piConversationSnapshot{}, err
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return runtime.snapshot, nil
+}
+
+func (m *piConversationManager) ForkFromEntry(source *db.Conversation, forked *db.Conversation, sourceWorkDir, targetWorkDir, entryID string) (string, piConversationSnapshot, error) {
+	sourceSession := ""
+	if source.ProviderSessionID != nil {
+		sourceSession = strings.TrimSpace(*source.ProviderSessionID)
+	}
+	if sourceSession == "" {
+		sourceRuntime, err := m.ensureRuntime(source, sourceWorkDir)
+		if err != nil {
+			return "", piConversationSnapshot{}, err
+		}
+		if err := sourceRuntime.refreshState(source); err != nil {
+			return "", piConversationSnapshot{}, err
+		}
+		sourceRuntime.mu.Lock()
+		if sourceRuntime.snapshot.SessionFile != nil {
+			sourceSession = strings.TrimSpace(*sourceRuntime.snapshot.SessionFile)
+		}
+		sourceRuntime.mu.Unlock()
+	}
+	if sourceSession == "" {
+		return "", piConversationSnapshot{}, fmt.Errorf("conversation has no pi session to fork")
+	}
+
+	runtime, err := m.ensureRuntime(forked, targetWorkDir)
+	if err != nil {
+		return "", piConversationSnapshot{}, err
+	}
+	if _, err := runtime.sendCommand(map[string]any{
+		"type":        "switch_session",
+		"sessionPath": sourceSession,
+	}); err != nil {
+		return "", piConversationSnapshot{}, err
+	}
+	response, err := runtime.sendCommand(map[string]any{
+		"type":    "fork",
+		"entryId": entryID,
+	})
+	if err != nil {
+		return "", piConversationSnapshot{}, err
+	}
+	data, _ := response["data"].(map[string]any)
+	if boolFromMap(data, "cancelled") {
+		return "", piConversationSnapshot{}, fmt.Errorf("fork cancelled")
+	}
+	selectedText := stringFromMap(data, "text")
+	if strings.TrimSpace(forked.Title) != "" {
+		if _, err := runtime.sendCommand(map[string]any{
+			"type": "set_session_name",
+			"name": forked.Title,
+		}); err != nil {
+			slog.Warn("failed to set forked pi session name", "conversation_id", forked.ID, "error", err)
+		}
+	}
+	if err := runtime.refreshState(forked); err != nil {
+		return "", piConversationSnapshot{}, err
+	}
+	if err := runtime.refreshMessages(); err != nil {
+		return "", piConversationSnapshot{}, err
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return selectedText, runtime.snapshot, nil
 }
 
 func (m *piConversationManager) Abort(conversation *db.Conversation, workDir string) error {
@@ -529,6 +694,9 @@ func (rt *piConversationRuntime) refreshMessages() error {
 		}
 		messages = append(messages, normalizePiMessage(rawMap, index))
 	}
+	if forkMessages, err := rt.forkMessages(); err == nil {
+		assignForkEntryIDs(messages, forkMessages)
+	}
 
 	rt.mu.Lock()
 	rt.snapshot.Messages = messages
@@ -536,6 +704,50 @@ func (rt *piConversationRuntime) refreshMessages() error {
 	rt.mu.Unlock()
 	rt.broadcast()
 	return nil
+}
+
+func (rt *piConversationRuntime) forkMessages() ([]piForkMessage, error) {
+	response, err := rt.sendCommand(map[string]any{"type": "get_fork_messages"})
+	if err != nil {
+		return nil, err
+	}
+	data, _ := response["data"].(map[string]any)
+	rawMessages, _ := data["messages"].([]any)
+	messages := make([]piForkMessage, 0, len(rawMessages))
+	for _, raw := range rawMessages {
+		messageMap, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		entryID := stringFromMap(messageMap, "entryId")
+		text := stringFromMap(messageMap, "text")
+		if entryID == "" || text == "" {
+			continue
+		}
+		messages = append(messages, piForkMessage{EntryID: entryID, Text: text})
+	}
+	return messages, nil
+}
+
+func assignForkEntryIDs(messages []piConversationMessage, forkMessages []piForkMessage) {
+	cursor := 0
+	for i := range messages {
+		if messages[i].Role != "user" {
+			continue
+		}
+		text := strings.TrimSpace(messages[i].Text)
+		for cursor < len(forkMessages) {
+			candidate := forkMessages[cursor]
+			cursor++
+			if strings.TrimSpace(candidate.Text) == text {
+				messages[i].EntryID = candidate.EntryID
+				if messages[i].ID == "" {
+					messages[i].ID = candidate.EntryID
+				}
+				break
+			}
+		}
+	}
 }
 
 func (rt *piConversationRuntime) handleEvent(event map[string]any) {
@@ -767,6 +979,17 @@ func stringFromMap(value map[string]any, key string) string {
 func boolFromMap(value map[string]any, key string) bool {
 	raw, _ := value[key].(bool)
 	return raw
+}
+
+func intFromMap(value map[string]any, key string) int {
+	switch raw := value[key].(type) {
+	case float64:
+		return int(raw)
+	case int:
+		return raw
+	default:
+		return 0
+	}
 }
 
 func compactJSON(value any) string {

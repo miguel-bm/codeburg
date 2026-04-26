@@ -17,6 +17,23 @@ type conversationPromptRequest struct {
 	Message string `json:"message"`
 }
 
+type conversationModelRequest struct {
+	Provider string `json:"provider"`
+	ModelID  string `json:"modelId"`
+}
+
+type conversationForkMessageRequest struct {
+	EntryID            string  `json:"entryId"`
+	Title              *string `json:"title,omitempty"`
+	CurrentWorkspaceID *string `json:"currentWorkspaceId,omitempty"`
+}
+
+type conversationForkMessageResponse struct {
+	Conversation db.Conversation         `json:"conversation"`
+	SelectedText string                  `json:"selectedText"`
+	Snapshot     *piConversationSnapshot `json:"snapshot,omitempty"`
+}
+
 func (s *Server) conversationContext(conversationID string) (*db.Conversation, string, error) {
 	conversation, err := s.db.GetConversation(conversationID)
 	if err != nil {
@@ -96,6 +113,148 @@ func (s *Server) handlePromptConversation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusAccepted, snapshot)
+}
+
+func (s *Server) handleListConversationModels(w http.ResponseWriter, r *http.Request) {
+	conversationID := urlParam(r, "id")
+	conversation, workDir, err := s.conversationContext(conversationID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeDBError(w, err, "conversation")
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	models, err := s.pi.AvailableModels(conversation, workDir)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+}
+
+func (s *Server) handleSetConversationModel(w http.ResponseWriter, r *http.Request) {
+	conversationID := urlParam(r, "id")
+	conversation, workDir, err := s.conversationContext(conversationID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeDBError(w, err, "conversation")
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var req conversationModelRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	provider := strings.TrimSpace(req.Provider)
+	modelID := strings.TrimSpace(req.ModelID)
+	if provider == "" || modelID == "" {
+		writeError(w, http.StatusBadRequest, "provider and modelId are required")
+		return
+	}
+
+	snapshot, err := s.pi.SetModel(conversation, workDir, provider, modelID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshot)
+}
+
+func (s *Server) handleListConversationCommands(w http.ResponseWriter, r *http.Request) {
+	conversationID := urlParam(r, "id")
+	conversation, workDir, err := s.conversationContext(conversationID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeDBError(w, err, "conversation")
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	commands, err := s.pi.Commands(conversation, workDir)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"commands": commands})
+}
+
+func (s *Server) handleForkConversationFromMessage(w http.ResponseWriter, r *http.Request) {
+	conversationID := urlParam(r, "id")
+	current, err := s.db.GetConversation(conversationID)
+	if err != nil {
+		writeDBError(w, err, "conversation")
+		return
+	}
+
+	var req conversationForkMessageRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	entryID := strings.TrimSpace(req.EntryID)
+	if entryID == "" {
+		writeError(w, http.StatusBadRequest, "entryId is required")
+		return
+	}
+
+	targetWorkspaceID := current.CurrentWorkspaceID
+	if req.CurrentWorkspaceID != nil {
+		targetWorkspaceID, err = s.resolveConversationWorkspaceID(current.ProjectID, req.CurrentWorkspaceID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
+	title := strings.TrimSpace(current.Title + " fork")
+	if req.Title != nil && strings.TrimSpace(*req.Title) != "" {
+		title = strings.TrimSpace(*req.Title)
+	}
+
+	forked, err := s.db.CreateConversation(db.CreateConversationInput{
+		ProjectID:            current.ProjectID,
+		CurrentWorkspaceID:   targetWorkspaceID,
+		ParentConversationID: &current.ID,
+		Provider:             current.Provider,
+		Title:                title,
+		Status:               db.ConversationStatusActive,
+		PreferredSurface:     current.PreferredSurface,
+		Summary:              current.Summary,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to fork conversation")
+		return
+	}
+
+	_, sourceWorkDir, err := s.conversationContext(current.ID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_, targetWorkDir, err := s.conversationContext(forked.ID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	selectedText, snapshot, err := s.pi.ForkFromEntry(current, forked, sourceWorkDir, targetWorkDir, entryID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, conversationForkMessageResponse{
+		Conversation: *forked,
+		SelectedText: selectedText,
+		Snapshot:     &snapshot,
+	})
 }
 
 func (s *Server) handleAbortConversation(w http.ResponseWriter, r *http.Request) {

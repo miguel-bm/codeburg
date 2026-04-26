@@ -26,6 +26,7 @@ export interface UsePiConversationResult {
   error: string | null;
   sendMessage: (message: string) => Promise<void>;
   abort: () => Promise<void>;
+  applySnapshot: (snapshot: PiConversationSnapshot) => void;
 }
 
 export function usePiConversation(conversationId: string, enabled = true): UsePiConversationResult {
@@ -151,6 +152,10 @@ export function usePiConversation(conversationId: string, enabled = true): UsePi
     await v2Api.abortConversation(conversationId);
   }, [conversationId]);
 
+  const applySnapshot = useCallback((nextSnapshot: PiConversationSnapshot) => {
+    setSnapshot(nextSnapshot);
+  }, []);
+
   return {
     snapshot,
     connected,
@@ -158,5 +163,6 @@ export function usePiConversation(conversationId: string, enabled = true): UsePi
     error,
     sendMessage,
     abort,
+    applySnapshot,
   };
 }

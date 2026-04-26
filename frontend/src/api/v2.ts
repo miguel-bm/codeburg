@@ -4,6 +4,9 @@ import type {
   TerminalSession,
   Conversation,
   PiConversationSnapshot,
+  PiAvailableModel,
+  PiSlashCommand,
+  ForkConversationFromMessageResponse,
   PiStatus,
   PiConfigDocument,
   PiConfigResponse,
@@ -163,6 +166,11 @@ export const v2Api = {
   forkConversation: (conversationId: string, input?: ForkConversationInput) =>
     api.post<Conversation>(`/conversations/${conversationId}/fork`, input ?? {}),
 
+  forkConversationFromMessage: (
+    conversationId: string,
+    input: { entryId: string; title?: string; currentWorkspaceId?: string }
+  ) => api.post<ForkConversationFromMessageResponse>(`/conversations/${conversationId}/fork-message`, input),
+
   pauseConversation: (conversationId: string) =>
     api.post<Conversation>(`/conversations/${conversationId}/pause`, {}),
 
@@ -192,6 +200,15 @@ export const v2Api = {
 
   abortConversation: (conversationId: string) =>
     api.post(`/conversations/${conversationId}/abort`, {}),
+
+  listConversationModels: (conversationId: string) =>
+    api.get<{ models: PiAvailableModel[] }>(`/conversations/${conversationId}/models`),
+
+  setConversationModel: (conversationId: string, input: { provider: string; modelId: string }) =>
+    api.post<PiConversationSnapshot>(`/conversations/${conversationId}/model`, input),
+
+  listConversationCommands: (conversationId: string) =>
+    api.get<{ commands: PiSlashCommand[] }>(`/conversations/${conversationId}/commands`),
 
   getPiStatus: () =>
     api.get<PiStatus>('/pi/status'),
