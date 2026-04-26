@@ -6,11 +6,14 @@ import {
   Circle,
   CircleAlert,
   CircleDot,
+  Copy,
   Ellipsis,
   Folder,
   FolderOpen,
   FolderPlus,
   GitBranch,
+  GitFork,
+  GitMerge,
   Hammer,
   LoaderCircle,
   MessageSquarePlus,
@@ -21,9 +24,12 @@ import {
   Pin,
   PinOff,
   PlugZap,
+  RefreshCw,
+  RotateCcw,
   Search,
   Settings,
   SquareStack,
+  SquareTerminal,
 } from 'lucide-react';
 import { preferencesApi, projectsApi } from '../../api';
 import type { Conversation, PiConversationSnapshot, Project, Workspace } from '../../api/types';
@@ -41,6 +47,7 @@ export function V2Layout() {
   const queryClient = useQueryClient();
   const isMobile = useMobile();
   const isMobileHome = isMobile && location.pathname === '/v2';
+  const projectTreeScrollRef = useRef<HTMLDivElement>(null);
   const sidebarExpanded = useSidebarStore(selectIsExpanded);
   const toggleSidebarExpanded = useSidebarStore((state) => state.toggleExpanded);
   const { data: projects, isLoading } = useQuery({
@@ -167,6 +174,59 @@ export function V2Layout() {
       ]);
     },
   });
+  const createWorkspaceTerminal = useMutation({
+    mutationFn: ({ workspace }: { project: Project; workspace: Workspace }) =>
+      v2Api.createTerminal(workspace.id, { title: `${workspace.name} terminal` }),
+    onSuccess: async (terminal, { project }) => {
+      await queryClient.invalidateQueries({ queryKey: ['v2-terminals', terminal.workspaceId] });
+      navigate(`/v2/projects/${project.id}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`);
+    },
+  });
+  const syncWorkspace = useMutation({
+    mutationFn: (workspace: Workspace) => v2Api.syncWorkspace(workspace.id),
+    onSuccess: async (_result, workspace) => {
+      await queryClient.invalidateQueries({ queryKey: ['v2-workspaces', workspace.projectId] });
+    },
+  });
+  const forkWorkspace = useMutation({
+    mutationFn: ({ workspace, name }: { workspace: Workspace; name: string }) =>
+      v2Api.forkWorkspace(workspace.id, { name, baseBranch: workspace.branchName || undefined }),
+    onSuccess: async (response) => {
+      await queryClient.invalidateQueries({ queryKey: ['v2-workspaces', response.workspace.projectId] });
+      navigate(`/v2/projects/${response.workspace.projectId}?workspace=${response.workspace.id}`);
+    },
+  });
+  const mutateWorkspaceStatus = useMutation({
+    mutationFn: ({ workspace, action }: { workspace: Workspace; action: 'activate' | 'merge' | 'abandon' | 'archive' }) => {
+      if (action === 'activate') return v2Api.activateWorkspace(workspace.id);
+      if (action === 'merge') return v2Api.mergeWorkspace(workspace.id);
+      if (action === 'abandon') return v2Api.abandonWorkspace(workspace.id);
+      return v2Api.archiveWorkspace(workspace.id);
+    },
+    onSuccess: async (updated, { action }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-workspaces', updated.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-terminals', updated.id] }),
+      ]);
+      if (
+        action !== 'activate' &&
+        location.pathname === `/v2/projects/${updated.projectId}` &&
+        new URLSearchParams(location.search).get('workspace') === updated.id
+      ) {
+        navigate(`/v2/projects/${updated.projectId}`);
+      }
+    },
+  });
+  const workspaceActionPending =
+    createWorkspaceTerminal.isPending ||
+    syncWorkspace.isPending ||
+    forkWorkspace.isPending ||
+    mutateWorkspaceStatus.isPending;
+  const forkWorkspaceFromMenu = (workspace: Workspace) => {
+    const name = window.prompt('Fork workspace', defaultWorkspaceForkName(workspace))?.trim();
+    if (!name) return;
+    forkWorkspace.mutate({ workspace, name });
+  };
 
   const desktopTopInset = isDesktopShell() ? getDesktopTitleBarInsetTop() : 0;
 
@@ -180,12 +240,20 @@ export function V2Layout() {
       </div>
 
       <nav className="space-y-1 px-2">
-        <V2NavLink
-          to="/v2"
-          active={!isMobile && location.pathname === '/v2'}
-          icon={<Folder size={15} />}
-          label="Projects"
-        />
+        {isMobile ? (
+          <SidebarAction
+            icon={<Folder size={15} />}
+            label="Projects"
+            onClick={() => projectTreeScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+          />
+        ) : (
+          <V2NavLink
+            to="/v2"
+            active={location.pathname === '/v2'}
+            icon={<Folder size={15} />}
+            label="Projects"
+          />
+        )}
         <SidebarAction icon={<PlugZap size={15} />} label="Pi setup" onClick={() => navigate('/v2/settings')} />
         <SidebarAction icon={<MessageSquareText size={15} />} label="All conversations" onClick={() => navigate('/v2/conversations')} />
       </nav>
@@ -195,7 +263,7 @@ export function V2Layout() {
         <span>{visibleProjects.length}</span>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
+      <div ref={projectTreeScrollRef} className="min-h-0 flex-1 overflow-auto px-2 py-2">
         {isLoading && (
           <div className="space-y-2 px-2 py-1">
             {[0, 1, 2].map((index) => (
@@ -215,6 +283,7 @@ export function V2Layout() {
             search={location.search}
             creating={createConversation.isPending}
             archivingConversation={archiveOrDeleteConversation.isPending}
+            workspaceActionPending={workspaceActionPending}
             conversationStateById={conversationStateById}
             mobile={isMobile}
             onNewConversation={(workspace) => createConversation.mutate({ project, workspace })}
@@ -222,6 +291,15 @@ export function V2Layout() {
             onRenameConversation={(conversation, title) => renameConversation.mutate({ conversation, title })}
             onMarkConversationRead={(conversation) => markConversationReadState.mutate({ conversation, unread: false })}
             onMarkConversationUnread={(conversation) => markConversationReadState.mutate({ conversation, unread: true })}
+            onNewWorkspaceTerminal={(workspace) => createWorkspaceTerminal.mutate({ project, workspace })}
+            onSyncWorkspace={(workspace) => syncWorkspace.mutate(workspace)}
+            onForkWorkspace={forkWorkspaceFromMenu}
+            onActivateWorkspace={(workspace) => mutateWorkspaceStatus.mutate({ workspace, action: 'activate' })}
+            onMergeWorkspace={(workspace) => mutateWorkspaceStatus.mutate({ workspace, action: 'merge' })}
+            onAbandonWorkspace={(workspace) => mutateWorkspaceStatus.mutate({ workspace, action: 'abandon' })}
+            onArchiveWorkspace={(workspace) => mutateWorkspaceStatus.mutate({ workspace, action: 'archive' })}
+            onCopyWorkspaceBranch={(workspace) => copyToClipboard(workspace.branchName, 'branch name')}
+            onCopyWorkspacePath={(workspace) => copyToClipboard(workspace.worktreePath || project.path, workspace.kind === 'main' ? 'project path' : 'worktree path')}
           />
         ))}
       </div>
@@ -381,6 +459,7 @@ function ProjectTree({
   search,
   creating,
   archivingConversation,
+  workspaceActionPending,
   conversationStateById,
   mobile = false,
   onNewConversation,
@@ -388,6 +467,15 @@ function ProjectTree({
   onRenameConversation,
   onMarkConversationRead,
   onMarkConversationUnread,
+  onNewWorkspaceTerminal,
+  onSyncWorkspace,
+  onForkWorkspace,
+  onActivateWorkspace,
+  onMergeWorkspace,
+  onAbandonWorkspace,
+  onArchiveWorkspace,
+  onCopyWorkspaceBranch,
+  onCopyWorkspacePath,
 }: {
   project: Project;
   pinned: boolean;
@@ -397,6 +485,7 @@ function ProjectTree({
   search: string;
   creating: boolean;
   archivingConversation: boolean;
+  workspaceActionPending: boolean;
   conversationStateById: Map<string, PiConversationSnapshot>;
   mobile?: boolean;
   onNewConversation: (workspace?: Workspace) => void;
@@ -404,10 +493,20 @@ function ProjectTree({
   onRenameConversation: (conversation: Conversation, title: string) => void;
   onMarkConversationRead: (conversation: Conversation) => void;
   onMarkConversationUnread: (conversation: Conversation) => void;
+  onNewWorkspaceTerminal: (workspace: Workspace) => void;
+  onSyncWorkspace: (workspace: Workspace) => void;
+  onForkWorkspace: (workspace: Workspace) => void;
+  onActivateWorkspace: (workspace: Workspace) => void;
+  onMergeWorkspace: (workspace: Workspace) => void;
+  onAbandonWorkspace: (workspace: Workspace) => void;
+  onArchiveWorkspace: (workspace: Workspace) => void;
+  onCopyWorkspaceBranch: (workspace: Workspace) => void;
+  onCopyWorkspacePath: (workspace: Workspace) => void;
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [workspaceMenuId, setWorkspaceMenuId] = useState<string | null>(null);
   const projectRouteActive = pathname === `/v2/projects/${project.id}`;
   const projectDescendantActive = pathname.startsWith(`/v2/projects/${project.id}/`);
   const activeConversationId = pathname.match(/^\/v2\/conversations\/([^/]+)/)?.[1];
@@ -429,15 +528,19 @@ function ProjectTree({
     .slice(0, 3);
   const projectIsSelectedLeaf = projectRouteActive && orderedWorkspaces.length === 0 && !selectedWorkspaceId;
   const projectActionVisibility = mobile || projectMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100';
+  const runProjectAction = (action: () => void) => {
+    setProjectMenuOpen(false);
+    action();
+  };
 
   useEffect(() => {
     if ((mobile || projectInPath) && !userToggled) setExpanded(true);
   }, [mobile, projectInPath, userToggled]);
 
   return (
-    <div className="relative mb-3">
+    <div className={`relative ${mobile ? 'mb-1' : 'mb-3'}`}>
       <div
-        className={`group flex items-center gap-1 rounded-lg px-2 transition-colors ${mobile ? 'py-2' : 'py-1.5'} ${
+        className={`group flex items-center gap-1 rounded-lg px-2 transition-colors ${mobile ? 'py-0.5' : 'py-1.5'} ${
           projectMenuOpen || projectIsSelectedLeaf
             ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]'
             : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
@@ -449,7 +552,7 @@ function ProjectTree({
             setUserToggled(true);
             setExpanded((value) => !value);
           }}
-          className={`flex min-w-0 flex-1 items-center gap-2 rounded-md text-left ${mobile ? 'min-h-10 py-0' : 'py-0.5'}`}
+          className={`flex min-w-0 flex-1 items-center gap-2 rounded-md text-left ${mobile ? 'min-h-[34px] py-0' : 'py-0.5'}`}
           title={treeOpen ? 'Collapse project' : 'Expand project'}
         >
           <span className="flex w-5 shrink-0 justify-center">
@@ -461,7 +564,7 @@ function ProjectTree({
         <button
           type="button"
           onClick={() => navigate(`/v2/projects/${project.id}?newWorkspace=1`)}
-          className={`inline-flex items-center justify-center rounded text-dim transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-10 w-10' : 'p-1'} ${projectActionVisibility}`}
+          className={`inline-flex items-center justify-center rounded text-dim transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-9 w-9' : 'p-1'} ${projectActionVisibility}`}
           title="New workspace"
         >
           <FolderPlus size={13} />
@@ -469,7 +572,7 @@ function ProjectTree({
         <button
           type="button"
           onClick={() => setProjectMenuOpen((value) => !value)}
-          className={`inline-flex items-center justify-center rounded text-dim transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] ${mobile ? 'h-10 w-10' : 'p-1'} ${projectActionVisibility}`}
+          className={`inline-flex items-center justify-center rounded text-dim transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] ${mobile ? 'h-9 w-9' : 'p-1'} ${projectActionVisibility}`}
           title="Project actions"
         >
           <Ellipsis size={13} />
@@ -478,21 +581,24 @@ function ProjectTree({
       {projectMenuOpen && (
         <>
           <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close project menu" onClick={() => setProjectMenuOpen(false)} />
-          <div className="absolute right-1 top-8 z-50 w-52 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
-            <ProjectMenuItem icon={<FolderPlus size={14} />} onClick={() => navigate(`/v2/projects/${project.id}?newWorkspace=1`)}>New workspace</ProjectMenuItem>
-            <ProjectMenuItem icon={pinned ? <PinOff size={14} /> : <Pin size={14} />} onClick={() => void togglePinnedProject(project.id, queryClient)}>
+          <div className={mobile
+            ? 'fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'
+            : 'absolute right-1 top-8 z-50 w-52 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'}
+          >
+            <ProjectMenuItem icon={<FolderPlus size={14} />} onClick={() => runProjectAction(() => navigate(`/v2/projects/${project.id}?newWorkspace=1`))}>New workspace</ProjectMenuItem>
+            <ProjectMenuItem icon={pinned ? <PinOff size={14} /> : <Pin size={14} />} onClick={() => runProjectAction(() => void togglePinnedProject(project.id, queryClient))}>
               {pinned ? 'Unpin project' : 'Pin project'}
             </ProjectMenuItem>
-            <ProjectMenuItem icon={<Hammer size={14} />} onClick={() => navigate(`/v2/projects/${project.id}/skills`)}>Skills</ProjectMenuItem>
-            <ProjectMenuItem icon={<Pencil size={14} />} onClick={() => void renameProject(project, queryClient)}>Rename project</ProjectMenuItem>
-            <ProjectMenuItem icon={<Settings size={14} />} onClick={() => navigate(`/v2/projects/${project.id}/settings`)}>Settings</ProjectMenuItem>
-            <ProjectMenuItem icon={<Archive size={14} />} danger onClick={() => void archiveProject(project, queryClient, navigate)}>Archive project</ProjectMenuItem>
+            <ProjectMenuItem icon={<Hammer size={14} />} onClick={() => runProjectAction(() => navigate(`/v2/projects/${project.id}/skills`))}>Skills</ProjectMenuItem>
+            <ProjectMenuItem icon={<Pencil size={14} />} onClick={() => runProjectAction(() => void renameProject(project, queryClient))}>Rename project</ProjectMenuItem>
+            <ProjectMenuItem icon={<Settings size={14} />} onClick={() => runProjectAction(() => navigate(`/v2/projects/${project.id}/settings`))}>Settings</ProjectMenuItem>
+            <ProjectMenuItem icon={<Archive size={14} />} danger onClick={() => runProjectAction(() => void archiveProject(project, queryClient, navigate))}>Archive project</ProjectMenuItem>
           </div>
         </>
       )}
 
       {treeOpen && (
-        <div className={`${mobile ? 'mt-1 space-y-0' : 'mt-1 space-y-0.5'} pr-1`}>
+        <div className={`${mobile ? 'mt-0.5 space-y-0' : 'mt-1 space-y-0.5'} pr-1`}>
           {orderedWorkspaces.map((workspace) => {
             const active = !conversationActive && (selectedWorkspaceId
               ? selectedWorkspaceId === workspace.id
@@ -501,16 +607,22 @@ function ProjectTree({
               .filter((conversation) => conversation.currentWorkspaceId === workspace.id && conversation.status === 'active')
               .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
               .slice(0, 3);
+            const workspaceMenuOpen = workspaceMenuId === workspace.id;
+            const workspaceActionVisibility = mobile || workspaceMenuOpen ? 'opacity-100' : 'opacity-0 group-hover/workspace:opacity-100';
+            const runWorkspaceAction = (action: () => void) => {
+              setWorkspaceMenuId(null);
+              action();
+            };
             return (
-              <div key={workspace.id}>
+              <div key={workspace.id} className="relative">
                 <div
-                  className={`group/workspace flex items-center gap-1 rounded-md px-2 transition-colors ${mobile ? 'py-2' : 'py-1.5'} ${
-                    active
+                  className={`group/workspace flex items-center gap-1 rounded-md px-2 transition-colors ${mobile ? 'py-0.5' : 'py-1.5'} ${
+                    workspaceMenuOpen || active
                       ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
                       : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-secondary)]'
                   }`}
                 >
-                  <Link to={`/v2/projects/${project.id}?workspace=${workspace.id}`} className={`flex min-w-0 flex-1 items-center gap-2 ${mobile ? 'min-h-10' : ''}`}>
+                  <Link to={`/v2/projects/${project.id}?workspace=${workspace.id}`} className={`flex min-w-0 flex-1 items-center gap-2 ${mobile ? 'min-h-[34px]' : ''}`}>
                     <span className="flex w-5 shrink-0 justify-center">
                       {workspace.kind === 'worktree' ? <GitBranch size={13} /> : <SquareStack size={13} />}
                     </span>
@@ -520,14 +632,117 @@ function ProjectTree({
                     type="button"
                     disabled={creating}
                     onClick={() => onNewConversation(workspace)}
-                    className={`inline-flex items-center justify-center rounded text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-10 w-10 opacity-100' : 'p-0.5 opacity-0 group-hover/workspace:opacity-100'}`}
+                    className={`inline-flex items-center justify-center rounded text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-9 w-9 opacity-100' : 'p-0.5 opacity-0 group-hover/workspace:opacity-100'}`}
                     title="New conversation in this workspace"
                   >
                     <MessageSquarePlus size={12} />
                   </button>
+                  <button
+                    type="button"
+                    disabled={workspaceActionPending}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setWorkspaceMenuId((value) => (value === workspace.id ? null : workspace.id));
+                    }}
+                    className={`inline-flex items-center justify-center rounded text-dim transition-opacity hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-9 w-9' : 'p-0.5'} ${workspaceActionVisibility}`}
+                    title="Workspace actions"
+                    aria-label="Workspace actions"
+                  >
+                    <Ellipsis size={12} />
+                  </button>
                 </div>
+                {workspaceMenuOpen && (
+                  <>
+                    <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close workspace menu" onClick={() => setWorkspaceMenuId(null)} />
+                    <div className={mobile
+                      ? 'fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'
+                      : 'absolute right-1 top-8 z-50 w-56 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'}
+                    >
+                      <ProjectMenuItem
+                        icon={<SquareTerminal size={14} />}
+                        disabled={workspaceActionPending || workspace.status !== 'active'}
+                        onClick={() => runWorkspaceAction(() => onNewWorkspaceTerminal(workspace))}
+                      >
+                        New terminal
+                      </ProjectMenuItem>
+                      <ProjectMenuItem
+                        icon={<RefreshCw size={14} />}
+                        disabled={workspaceActionPending || workspace.status !== 'active'}
+                        onClick={() => runWorkspaceAction(() => onSyncWorkspace(workspace))}
+                      >
+                        Sync branch
+                      </ProjectMenuItem>
+                      <ProjectMenuItem
+                        icon={<GitFork size={14} />}
+                        disabled={workspaceActionPending || workspace.status !== 'active'}
+                        onClick={() => runWorkspaceAction(() => onForkWorkspace(workspace))}
+                      >
+                        Fork workspace
+                      </ProjectMenuItem>
+                      {workspace.kind === 'worktree' && workspace.status === 'active' && (
+                        <>
+                          <ProjectMenuItem
+                            icon={<GitMerge size={14} />}
+                            disabled={workspaceActionPending}
+                            onClick={() => runWorkspaceAction(() => onMergeWorkspace(workspace))}
+                          >
+                            Merge workspace
+                          </ProjectMenuItem>
+                          <ProjectMenuItem
+                            icon={<RotateCcw size={14} />}
+                            disabled={workspaceActionPending}
+                            onClick={() => runWorkspaceAction(() => onAbandonWorkspace(workspace))}
+                          >
+                            Abandon workspace
+                          </ProjectMenuItem>
+                          <ProjectMenuItem
+                            icon={<Archive size={14} />}
+                            disabled={workspaceActionPending}
+                            danger
+                            onClick={() => runWorkspaceAction(() => onArchiveWorkspace(workspace))}
+                          >
+                            Archive workspace
+                          </ProjectMenuItem>
+                        </>
+                      )}
+                      {workspace.status !== 'active' && workspace.status !== 'archived' && (
+                        <>
+                          <ProjectMenuItem
+                            icon={<RotateCcw size={14} />}
+                            disabled={workspaceActionPending}
+                            onClick={() => runWorkspaceAction(() => onActivateWorkspace(workspace))}
+                          >
+                            Reactivate workspace
+                          </ProjectMenuItem>
+                          <ProjectMenuItem
+                            icon={<Archive size={14} />}
+                            disabled={workspaceActionPending}
+                            danger
+                            onClick={() => runWorkspaceAction(() => onArchiveWorkspace(workspace))}
+                          >
+                            Archive workspace
+                          </ProjectMenuItem>
+                        </>
+                      )}
+                      <ProjectMenuItem
+                        icon={<Copy size={14} />}
+                        disabled={!workspace.branchName}
+                        onClick={() => runWorkspaceAction(() => onCopyWorkspaceBranch(workspace))}
+                      >
+                        Copy branch name
+                      </ProjectMenuItem>
+                      <ProjectMenuItem
+                        icon={<Copy size={14} />}
+                        onClick={() => runWorkspaceAction(() => onCopyWorkspacePath(workspace))}
+                      >
+                        {workspace.kind === 'main' ? 'Copy project path' : 'Copy worktree path'}
+                      </ProjectMenuItem>
+                    </div>
+                  </>
+                )}
                 {workspaceConversations.length > 0 && (
-                  <div className="mt-0.5 space-y-0.5">
+                  <div className={mobile ? 'space-y-0' : 'mt-0.5 space-y-0.5'}>
                     {workspaceConversations.map((conversation) => (
                       <ConversationSidebarRow
                         key={conversation.id}
@@ -647,7 +862,7 @@ function ConversationSidebarRow({
       onPointerCancel={cancelLongPress}
       onPointerLeave={cancelLongPress}
     >
-      <div className={`flex min-w-0 flex-1 items-center gap-2 px-2 text-xs ${mobile ? 'py-2' : 'py-1'}`}>
+      <div className={`flex min-w-0 flex-1 items-center gap-2 px-2 text-xs ${mobile ? 'py-0.5' : 'py-1'}`}>
         <Link
           to={`/v2/conversations/${conversation.id}`}
           className="shrink-0"
@@ -688,7 +903,7 @@ function ConversationSidebarRow({
               event.preventDefault();
               setEditing(true);
             }}
-            className={`min-w-0 flex-1 truncate font-normal ${mobile ? 'flex min-h-10 items-center' : ''}`}
+            className={`min-w-0 flex-1 truncate font-normal ${mobile ? 'flex min-h-[34px] items-center' : ''}`}
             title="Double-click to rename"
           >
             {conversation.title}
@@ -703,7 +918,7 @@ function ConversationSidebarRow({
           event.stopPropagation();
           openMenu();
         }}
-        className={`mr-1 inline-flex items-center justify-center rounded text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-[44px] w-[44px]' : 'p-1 opacity-70 group-hover/conversation:opacity-100'}`}
+        className={`mr-1 inline-flex items-center justify-center rounded text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-9 w-9' : 'p-1 opacity-70 group-hover/conversation:opacity-100'}`}
         title="Conversation actions"
         aria-label="Conversation actions"
       >
@@ -774,13 +989,30 @@ function ConversationStateIndicator({ conversation, snapshot }: { conversation: 
   return <span className="flex w-5 shrink-0 justify-center" aria-hidden="true" />;
 }
 
-function ProjectMenuItem({ icon, children, onClick, danger = false }: { icon: ReactNode; children: ReactNode; onClick: () => void; danger?: boolean }) {
+function ProjectMenuItem({
+  icon,
+  children,
+  onClick,
+  danger = false,
+  disabled = false,
+}: {
+  icon: ReactNode;
+  children: ReactNode;
+  onClick: () => void;
+  danger?: boolean;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onClick}
       className={`flex min-h-[44px] w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm md:min-h-0 md:text-xs ${
-        danger ? 'text-[var(--color-error)] hover:bg-[var(--color-error)]/10' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]'
+        disabled
+          ? 'cursor-not-allowed text-dim opacity-50'
+          : danger
+            ? 'text-[var(--color-error)] hover:bg-[var(--color-error)]/10'
+            : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]'
       }`}
     >
       {icon}
@@ -794,7 +1026,7 @@ function SidebarAction({ icon, label, onClick }: { icon: ReactNode; label: strin
     <button
       type="button"
       onClick={onClick}
-      className="flex h-10 w-full items-center gap-2 rounded-lg px-3 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] md:h-8"
+      className="flex h-10 w-full items-center gap-2 rounded-lg px-3 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] focus-visible:outline-none md:h-8"
     >
       {icon}
       <span>{label}</span>
@@ -816,7 +1048,7 @@ function V2NavLink({
   return (
     <Link
       to={to}
-      className={`flex h-10 items-center gap-2 rounded-lg px-3 text-sm transition-colors md:h-8 ${
+      className={`flex h-10 items-center gap-2 rounded-lg px-3 text-sm transition-colors focus-visible:outline-none md:h-8 ${
         active
           ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]'
           : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
@@ -826,6 +1058,24 @@ function V2NavLink({
       <span>{label}</span>
     </Link>
   );
+}
+
+function defaultWorkspaceForkName(workspace: Workspace) {
+  const base = workspace.name.trim() || workspace.branchName.trim() || 'workspace';
+  const suffix = new Date().toISOString().slice(5, 10).replace('-', '');
+  return `${base}-fork-${suffix}`;
+}
+
+function copyToClipboard(value: string | undefined, label: string) {
+  if (!value) return;
+  const write = navigator.clipboard?.writeText(value);
+  if (!write) {
+    window.prompt(`Copy ${label}`, value);
+    return;
+  }
+  void write.catch(() => {
+    window.prompt(`Copy ${label}`, value);
+  });
 }
 
 async function togglePinnedProject(projectId: string, queryClient: QueryClient) {
