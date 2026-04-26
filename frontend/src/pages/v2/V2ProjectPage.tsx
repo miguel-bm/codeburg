@@ -59,6 +59,7 @@ export function V2ProjectPage() {
   const [workspaceBaseBranch, setWorkspaceBaseBranch] = useState('');
   const [mainSurface, setMainSurface] = useState<MainSurface>(null);
   const resizeStart = useRef<{ x: number; width: number } | null>(null);
+  const suppressNewWorkspaceRouteOpen = useRef(false);
 
   const requestedWorkspaceId = searchParams.get('workspace');
   const requestedTerminalId = searchParams.get('terminal');
@@ -203,8 +204,8 @@ export function V2ProjectPage() {
   const createWorkspace = useMutation({
     mutationFn: (input: { name: string; baseBranch?: string }) => v2Api.createWorkspace(id!, input),
     onSuccess: async (response) => {
-      await queryClient.invalidateQueries({ queryKey: workspacesQueryKey });
       closeComposer(response.workspace.id);
+      await queryClient.invalidateQueries({ queryKey: workspacesQueryKey });
     },
   });
 
@@ -212,8 +213,8 @@ export function V2ProjectPage() {
     mutationFn: (input: { name: string; baseBranch?: string }) =>
       v2Api.forkWorkspace(activeWorkspaceId!, input),
     onSuccess: async (response) => {
-      await queryClient.invalidateQueries({ queryKey: workspacesQueryKey });
       closeComposer(response.workspace.id);
+      await queryClient.invalidateQueries({ queryKey: workspacesQueryKey });
     },
   });
 
@@ -261,7 +262,12 @@ export function V2ProjectPage() {
   }, [composerMode, activeWorkspace, project]);
 
   useEffect(() => {
-    if (requestedNewWorkspace && !composerMode) setComposerMode('create');
+    if (!requestedNewWorkspace) {
+      suppressNewWorkspaceRouteOpen.current = false;
+      return;
+    }
+    if (suppressNewWorkspaceRouteOpen.current) return;
+    if (!composerMode) setComposerMode('create');
   }, [requestedNewWorkspace, composerMode]);
 
   const workspacePending =
@@ -275,9 +281,7 @@ export function V2ProjectPage() {
   const terminalDisabled = !activeWorkspaceId || activeWorkspace?.status !== 'active' || createTerminal.isPending;
 
   const closeComposer = (targetWorkspaceId?: string) => {
-    setComposerMode(null);
-    setWorkspaceName('');
-    setWorkspaceBaseBranch('');
+    suppressNewWorkspaceRouteOpen.current = true;
     const target = targetWorkspaceId ?? requestedWorkspaceId ?? activeWorkspaceId ?? undefined;
     const next = new URLSearchParams(searchParams);
     next.delete('newWorkspace');
@@ -285,6 +289,9 @@ export function V2ProjectPage() {
     if (target) next.set('workspace', target);
     else next.delete('workspace');
     navigate(`/v2/projects/${id}${next.toString() ? `?${next.toString()}` : ''}`, { replace: true });
+    setComposerMode(null);
+    setWorkspaceName('');
+    setWorkspaceBaseBranch('');
   };
 
   const submitWorkspaceComposer = () => {
