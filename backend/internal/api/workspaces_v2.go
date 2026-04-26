@@ -1425,7 +1425,7 @@ func (s *Server) handleWorkspaceGitDiff(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleWorkspaceGitDiffContent(w http.ResponseWriter, r *http.Request) {
 	workspaceID := urlParam(r, "id")
-	_, project, root, ok := s.resolveWorkspaceResources(w, workspaceID)
+	workspace, project, root, ok := s.resolveWorkspaceResources(w, workspaceID)
 	if !ok {
 		return
 	}
@@ -1437,7 +1437,11 @@ func (s *Server) handleWorkspaceGitDiffContent(w http.ResponseWriter, r *http.Re
 	staged := r.URL.Query().Get("staged") == "true"
 	base := r.URL.Query().Get("base") == "true"
 	commitHash := r.URL.Query().Get("commit")
-	resp, err := gitDiffContent(root, file, staged, base, project.DefaultBranch, commitHash)
+	baseBranch := project.DefaultBranch
+	if base && strings.TrimSpace(workspace.BranchName) != "" && strings.TrimSpace(workspace.BranchName) == strings.TrimSpace(project.DefaultBranch) {
+		baseBranch = "HEAD^"
+	}
+	resp, err := gitDiffContent(root, file, staged, base, baseBranch, commitHash)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

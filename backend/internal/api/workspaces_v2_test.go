@@ -594,6 +594,11 @@ func TestWorkspaceGitOperations(t *testing.T) {
 	if diffContentResp.Code != http.StatusOK {
 		t.Fatalf("git diff content: %d %s", diffContentResp.Code, diffContentResp.Body.String())
 	}
+	var diffContent GitDiffContentResponse
+	decodeResponse(t, diffContentResp, &diffContent)
+	if !strings.Contains(diffContent.Original, "# Test") || !strings.Contains(diffContent.Modified, "workspace diff") {
+		t.Fatalf("expected default-branch base diff content to compare previous HEAD with current HEAD, got original=%q modified=%q", diffContent.Original, diffContent.Modified)
+	}
 
 	// Canonical workspace should still point at the project root.
 	if workspace.WorktreePath != nil {

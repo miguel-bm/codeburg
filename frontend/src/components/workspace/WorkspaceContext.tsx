@@ -48,32 +48,41 @@ interface WorkspaceProviderProps {
 }
 
 export function WorkspaceProvider({ scope, children }: WorkspaceProviderProps) {
-  const value = useMemo<WorkspaceContextValue>(() => {
-    const scopeType: WorkspaceScopeType =
-      scope.type === 'project' ? 'project' : scope.type === 'task' ? 'task' : 'workspace';
-    const scopeId =
-      scope.type === 'project' ? scope.projectId : scope.type === 'task' ? scope.taskId : scope.workspaceId;
-    const project = scope.project;
-    const projectId =
-      scope.type === 'project' ? scope.projectId : scope.type === 'task' ? scope.task.projectId : scope.workspace.projectId;
+  const scopeType: WorkspaceScopeType =
+    scope.type === 'project' ? 'project' : scope.type === 'task' ? 'task' : 'workspace';
+  const scopeId =
+    scope.type === 'project' ? scope.projectId : scope.type === 'task' ? scope.taskId : scope.workspaceId;
+  const project = scope.project;
+  const projectId =
+    scope.type === 'project' ? scope.projectId : scope.type === 'task' ? scope.task.projectId : scope.workspace.projectId;
+  const taskId = scope.type === 'task' ? scope.taskId : null;
+  const task = scope.type === 'task' ? scope.task : null;
+  const workspace = scope.type === 'workspace' ? scope.workspace : null;
+  const stableScope = useMemo<WorkspaceScope>(() => {
+    if (scopeType === 'project') return { type: 'project', projectId: scopeId, project };
+    if (scopeType === 'task') return { type: 'task', taskId: scopeId, task: task!, project };
+    return { type: 'workspace', workspaceId: scopeId, workspace: workspace!, project };
+  }, [project, scopeId, scopeType, task, workspace]);
+  const api = useMemo(() => ({
+    sessions: createSessionsApi(scopeType, scopeId),
+    git: createGitApi(scopeType, scopeId),
+    files: createFilesApi(scopeType, scopeId),
+    tunnels: createTunnelsApi(scopeType, scopeId),
+    recipes: createRecipesApi(scopeType, scopeId),
+  }), [scopeId, scopeType]);
 
+  const value = useMemo<WorkspaceContextValue>(() => {
     return {
-      scope,
+      scope: stableScope,
       projectId,
       project,
-      taskId: scope.type === 'task' ? scope.taskId : null,
-      task: scope.type === 'task' ? scope.task : null,
+      taskId,
+      task,
       scopeType,
       scopeId,
-      api: {
-        sessions: createSessionsApi(scopeType, scopeId),
-        git: createGitApi(scopeType, scopeId),
-        files: createFilesApi(scopeType, scopeId),
-        tunnels: createTunnelsApi(scopeType, scopeId),
-        recipes: createRecipesApi(scopeType, scopeId),
-      },
+      api,
     };
-  }, [scope]);
+  }, [api, project, projectId, scopeId, scopeType, stableScope, task, taskId]);
 
   return (
     <WorkspaceContext.Provider value={value}>

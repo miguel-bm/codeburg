@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { FilePenLine } from 'lucide-react';
+import { FilePenLine, X } from 'lucide-react';
 import { useWorkspace } from './WorkspaceContext';
 import { DiffContent } from './DiffContent';
 import { parseDiffFiles } from '../git/diffFiles';
@@ -12,9 +12,10 @@ interface DiffTabProps {
   staged?: boolean;
   base?: boolean;
   commit?: string;
+  onClose?: () => void;
 }
 
-export function DiffTab({ file, staged, base, commit }: DiffTabProps) {
+export function DiffTab({ file, staged, base, commit, onClose }: DiffTabProps) {
   const { api, scopeType, scopeId } = useWorkspace();
   const { openDiff, openFile } = useWorkspaceStore();
 
@@ -74,7 +75,7 @@ export function DiffTab({ file, staged, base, commit }: DiffTabProps) {
 
     return (
       <div className="flex flex-col h-full overflow-hidden">
-        <div className="flex items-center justify-between px-3 py-1.5 border-b border-subtle bg-secondary shrink-0">
+        <div className="flex items-center justify-between px-3 py-1.5 border-b border-subtle bg-canvas shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <StyledPath path={file} />
             <FileStatusBadge file={file} staged={staged} base={base} />
@@ -94,6 +95,17 @@ export function DiffTab({ file, staged, base, commit }: DiffTabProps) {
                 {' '}
                 <span className="text-[var(--color-error)]">-{fileStats.deletions}</span>
               </div>
+            )}
+            {onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded p-1 text-dim hover:bg-tertiary hover:text-[var(--color-text-primary)]"
+                title="Close diff"
+                aria-label="Close diff"
+              >
+                <X size={13} />
+              </button>
             )}
           </div>
         </div>
@@ -154,8 +166,19 @@ export function DiffTab({ file, staged, base, commit }: DiffTabProps) {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="px-3 py-2 text-[11px] font-medium text-dim border-b border-subtle bg-secondary">
-        {allFiles.length} changed file{allFiles.length !== 1 ? 's' : ''}
+      <div className="flex items-center justify-between gap-3 px-3 py-2 text-[11px] font-medium text-dim border-b border-subtle bg-canvas">
+        <span>{allFiles.length} changed file{allFiles.length !== 1 ? 's' : ''}</span>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-dim hover:bg-tertiary hover:text-[var(--color-text-primary)]"
+            title="Close diff"
+            aria-label="Close diff"
+          >
+            <X size={13} />
+          </button>
+        )}
       </div>
       {allFiles.map((f) => (
         <button

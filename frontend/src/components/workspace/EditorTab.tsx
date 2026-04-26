@@ -3,7 +3,7 @@ import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { EditorView } from '@codemirror/view';
 import { openSearchPanel } from '@codemirror/search';
 import { oneDark } from '@codemirror/theme-one-dark';
-import { RotateCcw, Save, SquareArrowOutUpRight } from 'lucide-react';
+import { RotateCcw, Save, SquareArrowOutUpRight, X } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useWorkspaceFiles } from '../../hooks/useWorkspaceFiles';
 import { useSharedWebSocket } from '../../hooks/useSharedWebSocket';
@@ -17,9 +17,10 @@ import { useWorkspace } from './WorkspaceContext';
 interface EditorTabProps {
   path: string;
   line?: number;
+  onClose?: () => void;
 }
 
-export function EditorTab({ path, line }: EditorTabProps) {
+export function EditorTab({ path, line, onClose }: EditorTabProps) {
   const { readFile, writeFile } = useWorkspaceFiles();
   const { scope, project } = useWorkspace();
   const { markDirty } = useWorkspaceStore();
@@ -171,13 +172,14 @@ export function EditorTab({ path, line }: EditorTabProps) {
         ? scope.task.worktreePath ?? project.path
         : project.path;
     const absolutePath = `${rootPath.replace(/\/$/, '')}/${path}`;
-    const encodedPath = encodeURI(absolutePath);
+    const encodedPath = encodeUriPath(absolutePath);
     const sshHost = editorConfig?.sshHost;
+    const targetLine = line ?? 1;
     const uri = sshHost
-      ? `cursor://vscode-remote/ssh-remote+${sshHost}${encodedPath}`
-      : `cursor://file${encodedPath}`;
+      ? `cursor://vscode-remote/ssh-remote+${sshHost}${encodedPath}:${targetLine}:1`
+      : `cursor://file${encodedPath}:${targetLine}:1`;
     window.open(uri, '_self');
-  }, [editorConfig?.sshHost, path, project.path, scope]);
+  }, [editorConfig?.sshHost, line, path, project.path, scope]);
 
   useEffect(() => {
     const onKeyDown = (ev: KeyboardEvent) => {
@@ -221,7 +223,7 @@ export function EditorTab({ path, line }: EditorTabProps) {
             type="button"
             onClick={openInCursor}
             className="shrink-0 rounded p-1 text-dim hover:bg-tertiary hover:text-accent"
-            title="Open in Cursor"
+            title="Open this file in Cursor"
             aria-label="Open in Cursor"
           >
             <SquareArrowOutUpRight size={12} />
@@ -254,6 +256,17 @@ export function EditorTab({ path, line }: EditorTabProps) {
             <Save size={11} />
             {saving ? 'Saving...' : 'Save'}
           </button>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded p-1 text-dim hover:bg-tertiary hover:text-[var(--color-text-primary)]"
+              title="Close file"
+              aria-label="Close file"
+            >
+              <X size={13} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -271,4 +284,11 @@ export function EditorTab({ path, line }: EditorTabProps) {
       </div>
     </div>
   );
+}
+
+function encodeUriPath(path: string): string {
+  return path.split('/').map((part, index) => {
+    if (index === 0 && part === '') return '';
+    return encodeURIComponent(part);
+  }).join('/');
 }

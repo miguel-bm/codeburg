@@ -109,6 +109,9 @@ export function V2ProjectPage() {
       ? sortedTerminals.find((terminal) => terminal.id === requestedTerminalId) ?? null
       : null;
   const activeWorkspaceTab = mainSurface?.type === 'workspaceTab' ? tabs[mainSurface.index] : null;
+  const activePreviewTab = activeWorkspaceTab?.type === 'editor' || activeWorkspaceTab?.type === 'diff'
+    ? activeWorkspaceTab
+    : null;
   const workspaceContextReady = !!project && !!activeWorkspace;
 
   useEffect(() => {
@@ -280,6 +283,11 @@ export function V2ProjectPage() {
     else createWorkspace.mutate(payload);
   };
 
+  const closeWorkspaceSurface = useCallback(() => {
+    if (mainSurface?.type === 'workspaceTab') closeTab(mainSurface.index);
+    setMainSurface(null);
+  }, [closeTab, mainSurface]);
+
   const beginResize = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
     resizeStart.current = { x: event.clientX, width: toolsWidth };
@@ -353,43 +361,45 @@ export function V2ProjectPage() {
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <section className="flex min-w-0 flex-1 flex-col bg-primary">
-          <MainTabBar
-            terminals={sortedTerminals}
-            terminalPending={closeTerminal.isPending || renameTerminal.isPending}
-            activeSurface={mainSurface}
-            tabs={tabs}
-            activeTabIndex={activeTabIndex}
-            onSelectTerminal={(terminal) => {
-              setMainSurface({ type: 'terminal', terminalId: terminal.id });
-              navigate(`/v2/projects/${id}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`, { replace: true });
-            }}
-            onCloseTerminal={(terminal) => closeTerminal.mutate(terminal.id)}
-            onRenameTerminal={(terminal, title) => renameTerminal.mutate({ terminalId: terminal.id, title })}
-            conversations={safeWorkspaceConversations}
-            onSelectConversation={(conversation) => navigate(`/v2/conversations/${conversation.id}`)}
-            onRenameConversation={(conversation, title) => renameConversation.mutate({ conversationId: conversation.id, title })}
-            onCreateConversation={() => createConversation.mutate()}
-            onSelectWorkspaceTab={(index) => {
-              setActiveTab(index);
-              setMainSurface({ type: 'workspaceTab', index });
-            }}
-            onCloseWorkspaceTab={(index) => {
-              closeTab(index);
-              setMainSurface(null);
-            }}
-            onCreateTerminal={() => createTerminal.mutate(undefined)}
-            createTerminalDisabled={terminalDisabled}
-            createTerminalPending={createTerminal.isPending}
-            createConversationPending={createConversation.isPending}
-          />
+          {!activePreviewTab && (
+            <MainTabBar
+              terminals={sortedTerminals}
+              terminalPending={closeTerminal.isPending || renameTerminal.isPending}
+              activeSurface={mainSurface}
+              tabs={tabs}
+              activeTabIndex={activeTabIndex}
+              onSelectTerminal={(terminal) => {
+                setMainSurface({ type: 'terminal', terminalId: terminal.id });
+                navigate(`/v2/projects/${id}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`, { replace: true });
+              }}
+              onCloseTerminal={(terminal) => closeTerminal.mutate(terminal.id)}
+              onRenameTerminal={(terminal, title) => renameTerminal.mutate({ terminalId: terminal.id, title })}
+              conversations={safeWorkspaceConversations}
+              onSelectConversation={(conversation) => navigate(`/v2/conversations/${conversation.id}`)}
+              onRenameConversation={(conversation, title) => renameConversation.mutate({ conversationId: conversation.id, title })}
+              onCreateConversation={() => createConversation.mutate()}
+              onSelectWorkspaceTab={(index) => {
+                setActiveTab(index);
+                setMainSurface({ type: 'workspaceTab', index });
+              }}
+              onCloseWorkspaceTab={(index) => {
+                closeTab(index);
+                setMainSurface(null);
+              }}
+              onCreateTerminal={() => createTerminal.mutate(undefined)}
+              createTerminalDisabled={terminalDisabled}
+              createTerminalPending={createTerminal.isPending}
+              createConversationPending={createConversation.isPending}
+            />
+          )}
 
           <div className="min-h-0 flex-1 overflow-hidden">
             {activeTerminal ? (
               <TerminalView sessionId={activeTerminal.id} targetType="terminal" />
             ) : activeWorkspaceTab?.type === 'editor' && workspaceContextReady ? (
-              <EditorTab path={activeWorkspaceTab.path} line={activeWorkspaceTab.line} />
+              <EditorTab path={activeWorkspaceTab.path} line={activeWorkspaceTab.line} onClose={closeWorkspaceSurface} />
             ) : activeWorkspaceTab?.type === 'diff' && workspaceContextReady ? (
-              <DiffTab file={activeWorkspaceTab.file} staged={activeWorkspaceTab.staged} base={activeWorkspaceTab.base} commit={activeWorkspaceTab.commit} />
+              <DiffTab file={activeWorkspaceTab.file} staged={activeWorkspaceTab.staged} base={activeWorkspaceTab.base} commit={activeWorkspaceTab.commit} onClose={closeWorkspaceSurface} />
             ) : (
               <V2Empty
                 icon={<SquareTerminal size={32} />}
