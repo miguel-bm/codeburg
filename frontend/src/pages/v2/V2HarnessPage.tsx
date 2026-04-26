@@ -283,7 +283,9 @@ function HarnessToolCard({
   onCheckLatest: () => void;
   onUpdate: () => void;
 }) {
-  const stale = Boolean(tool.latestVersion && tool.version && !tool.version.includes(tool.latestVersion));
+  const currentVersion = normalizeHarnessVersion(tool.version);
+  const latestVersion = normalizeHarnessVersion(tool.latestVersion);
+  const stale = Boolean(currentVersion && latestVersion && currentVersion !== latestVersion);
   return (
     <article className="flex min-h-[15rem] flex-col rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
       <div className="flex items-start justify-between gap-3">
@@ -299,9 +301,9 @@ function HarnessToolCard({
 
       <div className="mt-4 space-y-2 text-sm">
         <StatusLine label="Installed" ok={tool.installed} value={tool.installed ? 'Yes' : 'No'} />
-        <InfoLine label="Current" value={tool.version ?? 'Unavailable'} mono />
+        <InfoLine label="Current" value={currentVersion ?? 'Unavailable'} mono />
         <LatestVersionLine
-          version={tool.latestVersion}
+          version={latestVersion}
           latestChecked={latestChecked}
           checkingLatest={checkingLatest}
           onCheckLatest={onCheckLatest}
@@ -698,6 +700,11 @@ function HarnessToolLogo({ tool }: { tool: HarnessToolId }) {
 function toolDisplayName(toolId: HarnessToolId | null, tools: HarnessToolStatus[]) {
   if (!toolId) return 'Harness';
   return tools.find((tool) => tool.id === toolId)?.name ?? toolId;
+}
+
+function normalizeHarnessVersion(version?: string) {
+  if (!version) return undefined;
+  return version.match(/\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?/)?.[0] ?? version;
 }
 
 function describePiPackage(pkg: PiPackageEntry) {
