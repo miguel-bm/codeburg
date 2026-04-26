@@ -42,15 +42,21 @@ export function V2ConversationsPage() {
     () => new Map((projects ?? []).map((project) => [project.id, project])),
     [projects],
   );
-  const safeConversations = conversations ?? [];
+  const safeConversations = useMemo(() => conversations ?? [], [conversations]);
+  const sortedConversations = useMemo(
+    () => [...safeConversations].sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt)),
+    [safeConversations],
+  );
+  const unreadConversations = sortedConversations.filter((conversation) => conversation.unreadAt);
+  const recentConversations = sortedConversations.filter((conversation) => !conversation.unreadAt);
 
   if (isMobile) {
     return (
       <V2Screen>
         <header className="shrink-0 border-b border-[var(--color-card-border)] px-4 py-3 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
           <div className="flex items-center justify-between gap-3">
-            <h1 className="truncate text-lg font-semibold text-[var(--color-text-primary)]">Chat</h1>
-            <Badge variant="count">{safeConversations.length}</Badge>
+            <h1 className="truncate text-lg font-semibold text-[var(--color-text-primary)]">Inbox</h1>
+            <Badge variant="count">{unreadConversations.length || sortedConversations.length}</Badge>
           </div>
         </header>
 
@@ -67,45 +73,23 @@ export function V2ConversationsPage() {
         </div>
 
         <main className="min-h-0 flex-1 overflow-auto">
-          <div className="divide-y divide-[var(--color-card-border)]">
-            {safeConversations.map((conversation) => {
-              const project = projectById.get(conversation.projectId);
-              return (
-                <div key={conversation.id} className="relative transition-colors active:bg-[var(--color-card-hover)]">
-                  <Link
-                    to={`/v2/conversations/${conversation.id}`}
-                    className="block min-h-[92px] px-4 py-3 pr-16 text-[var(--color-text-primary)]"
-                  >
-                    <div className="flex min-w-0 items-center gap-2">
-                      <MessageSquareText size={16} className="shrink-0 text-dim" />
-                      <span className="truncate text-base font-semibold">{conversation.title}</span>
-                    </div>
-                    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pl-6 text-xs text-dim">
-                      <span className="truncate">{project?.name ?? conversation.projectId}</span>
-                      <span>{conversation.currentWorkspaceId ? 'workspace' : 'project'}</span>
-                      {conversation.parentConversationId && <span>forked</span>}
-                      <span>{formatRelativeDate(conversation.lastActivityAt)}</span>
-                    </div>
-                    {conversation.summary && (
-                      <p className="mt-2 line-clamp-2 pl-6 text-sm leading-5 text-[var(--color-text-secondary)]">
-                        {conversation.summary}
-                      </p>
-                    )}
-                  </Link>
-                  <button
-                    type="button"
-                    disabled={forkConversation.isPending}
-                    onClick={() => forkConversation.mutate(conversation)}
-                    className="absolute right-3 top-3 inline-flex h-[44px] w-[44px] items-center justify-center rounded-md text-dim transition-colors hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:opacity-50"
-                    title="Fork conversation"
-                    aria-label="Fork conversation"
-                  >
-                    <GitBranchPlus size={16} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+          {unreadConversations.length > 0 && (
+            <MobileConversationSection
+              title="Unread"
+              conversations={unreadConversations}
+              projectById={projectById}
+              forkPending={forkConversation.isPending}
+              onFork={(conversation) => forkConversation.mutate(conversation)}
+            />
+          )}
+
+          <MobileConversationSection
+            title={unreadConversations.length > 0 ? 'Recent' : 'Recent activity'}
+            conversations={recentConversations}
+            projectById={projectById}
+            forkPending={forkConversation.isPending}
+            onFork={(conversation) => forkConversation.mutate(conversation)}
+          />
 
           {safeConversations.length === 0 && (
             <V2Empty
@@ -209,6 +193,74 @@ export function V2ConversationsPage() {
         </V2Panel>
       </V2Content>
     </V2Screen>
+  );
+}
+
+function MobileConversationSection({
+  title,
+  conversations,
+  projectById,
+  forkPending,
+  onFork,
+}: {
+  title: string;
+  conversations: Conversation[];
+  projectById: Map<string, { name: string }>;
+  forkPending: boolean;
+  onFork: (conversation: Conversation) => void;
+}) {
+  if (conversations.length === 0) return null;
+
+  return (
+    <section>
+      <div className="border-y border-[var(--color-card-border)] bg-[var(--color-card)]/45 px-4 py-2 text-[11px] font-semibold uppercase text-dim first:border-t-0">
+        {title}
+      </div>
+      <div className="divide-y divide-[var(--color-card-border)]">
+        {conversations.map((conversation) => {
+          const project = projectById.get(conversation.projectId);
+          return (
+            <div key={conversation.id} className="relative transition-colors active:bg-[var(--color-card-hover)]">
+              <Link
+                to={`/v2/conversations/${conversation.id}`}
+                className="block min-h-[92px] px-4 py-3 pr-16 text-[var(--color-text-primary)]"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className={`h-2.5 w-2.5 shrink-0 rounded-full ${conversation.unreadAt ? 'bg-accent' : 'bg-[var(--color-card-border)]'}`}
+                    aria-label={conversation.unreadAt ? 'Unread' : 'Read'}
+                  />
+                  <MessageSquareText size={16} className="shrink-0 text-dim" />
+                  <span className="truncate text-base font-semibold">{conversation.title}</span>
+                </div>
+                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pl-[1.625rem] text-xs text-dim">
+                  <span className="truncate">{project?.name ?? conversation.projectId}</span>
+                  <Badge variant="label" color={conversationStatusColor(conversation.status)}>{conversation.status}</Badge>
+                  <span>{conversation.currentWorkspaceId ? 'workspace' : 'project'}</span>
+                  {conversation.parentConversationId && <span>forked</span>}
+                  <span>{formatRelativeDate(conversation.lastActivityAt)}</span>
+                </div>
+                {conversation.summary && (
+                  <p className="mt-2 line-clamp-2 pl-[1.625rem] text-sm leading-5 text-[var(--color-text-secondary)]">
+                    {conversation.summary}
+                  </p>
+                )}
+              </Link>
+              <button
+                type="button"
+                disabled={forkPending}
+                onClick={() => onFork(conversation)}
+                className="absolute right-3 top-3 inline-flex h-[44px] w-[44px] items-center justify-center rounded-md text-dim transition-colors hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:opacity-50"
+                title="Fork conversation"
+                aria-label="Fork conversation"
+              >
+                <GitBranchPlus size={16} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

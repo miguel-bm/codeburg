@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -40,6 +40,7 @@ export function V2Layout() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isMobile = useMobile();
+  const isMobileHome = isMobile && location.pathname === '/v2';
   const sidebarExpanded = useSidebarStore(selectIsExpanded);
   const toggleSidebarExpanded = useSidebarStore((state) => state.toggleExpanded);
   const { data: projects, isLoading } = useQuery({
@@ -61,7 +62,7 @@ export function V2Layout() {
       if (pinnedA !== pinnedB) return pinnedA ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
-  const shouldLoadSidebarTree = !isMobile;
+  const shouldLoadSidebarTree = !isMobile || isMobileHome;
   const workspaceQueries = useQueries({
     queries: visibleProjects.map((project) => ({
       queryKey: ['v2-workspaces', project.id],
@@ -241,7 +242,23 @@ export function V2Layout() {
     return (
       <div className="relative h-[100dvh] overflow-hidden bg-canvas text-[var(--color-text-primary)]">
         <main className="h-full min-w-0 overflow-hidden pb-[calc(64px+env(safe-area-inset-bottom))]">
-          <Outlet />
+          {isMobileHome ? (
+            <section className="flex h-full min-h-0 flex-col bg-canvas">
+              <header className="flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.8rem)]">
+                <Link to="/v2" className="flex min-w-0 items-center overflow-visible py-0.5">
+                  <CodeburgWordmark height={30} className="overflow-visible" />
+                </Link>
+                <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-full bg-[var(--color-card)] px-2.5 text-sm font-semibold text-dim">
+                  {visibleProjects.length}
+                </span>
+              </header>
+              <div className="flex min-h-0 flex-1 flex-col">
+                {sidebarBody}
+              </div>
+            </section>
+          ) : (
+            <Outlet />
+          )}
         </main>
 
         <V2MobileBottomNav
@@ -342,7 +359,7 @@ function V2MobileNavButton({
     <button
       type="button"
       onClick={onClick}
-      className={`relative flex min-w-0 flex-col items-center justify-center gap-1 text-[11px] font-semibold transition-colors ${
+      className={`relative flex min-w-0 flex-col items-center justify-center gap-1 text-[11px] font-semibold transition-colors focus-visible:outline-none ${
         active
           ? 'text-[var(--color-text-primary)]'
           : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
@@ -396,7 +413,7 @@ function ProjectTree({
   const activeConversationId = pathname.match(/^\/v2\/conversations\/([^/]+)/)?.[1];
   const conversationActive = conversations.some((conversation) => conversation.id === activeConversationId);
   const projectInPath = projectRouteActive || projectDescendantActive || conversationActive;
-  const [expanded, setExpanded] = useState(projectInPath);
+  const [expanded, setExpanded] = useState(mobile || projectInPath);
   const [userToggled, setUserToggled] = useState(false);
   const treeOpen = expanded;
   const selectedWorkspaceId = new URLSearchParams(search).get('workspace');
@@ -414,8 +431,8 @@ function ProjectTree({
   const projectActionVisibility = mobile || projectMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100';
 
   useEffect(() => {
-    if (projectInPath && !userToggled) setExpanded(true);
-  }, [projectInPath, userToggled]);
+    if ((mobile || projectInPath) && !userToggled) setExpanded(true);
+  }, [mobile, projectInPath, userToggled]);
 
   return (
     <div className="relative mb-3">
@@ -575,10 +592,17 @@ function ConversationSidebarRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(conversation.title);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const longPressTimer = useRef<number | null>(null);
+  const longPressTriggered = useRef(false);
 
   useEffect(() => {
     setDraft(conversation.title);
   }, [conversation.title]);
+
+  useEffect(() => () => {
+    if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current);
+  }, []);
 
   const save = () => {
     const title = draft.trim();
@@ -587,12 +611,53 @@ function ConversationSidebarRow({
     else setDraft(conversation.title);
   };
 
+  const openMenu = () => setMenuOpen(true);
+  const closeMenu = () => setMenuOpen(false);
+  const startLongPress = () => {
+    if (!mobile || editing) return;
+    longPressTriggered.current = false;
+    if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current);
+    longPressTimer.current = window.setTimeout(() => {
+      longPressTriggered.current = true;
+      openMenu();
+    }, 520);
+  };
+  const cancelLongPress = () => {
+    if (longPressTimer.current !== null) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+  const runAction = (action: () => void) => {
+    closeMenu();
+    action();
+  };
+
   return (
-    <div className={`group/conversation flex items-center rounded-md ${
+    <div
+      className={`group/conversation relative flex items-center rounded-md ${
       active ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]' : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
-    } ${className}`}>
-	      <div className={`flex min-w-0 flex-1 items-center gap-2 px-2 text-xs ${mobile ? 'py-2' : 'py-1'}`}>
-        <Link to={`/v2/conversations/${conversation.id}`} className="shrink-0">
+    } ${menuOpen ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]' : ''} ${className}`}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        openMenu();
+      }}
+      onPointerDown={startLongPress}
+      onPointerUp={cancelLongPress}
+      onPointerCancel={cancelLongPress}
+      onPointerLeave={cancelLongPress}
+    >
+      <div className={`flex min-w-0 flex-1 items-center gap-2 px-2 text-xs ${mobile ? 'py-2' : 'py-1'}`}>
+        <Link
+          to={`/v2/conversations/${conversation.id}`}
+          className="shrink-0"
+          onClick={(event) => {
+            if (longPressTriggered.current) {
+              event.preventDefault();
+              longPressTriggered.current = false;
+            }
+          }}
+        >
           <ConversationStateIndicator conversation={conversation} snapshot={snapshot} />
         </Link>
         {editing ? (
@@ -613,6 +678,12 @@ function ConversationSidebarRow({
         ) : (
           <Link
             to={`/v2/conversations/${conversation.id}`}
+            onClick={(event) => {
+              if (longPressTriggered.current) {
+                event.preventDefault();
+                longPressTriggered.current = false;
+              }
+            }}
             onDoubleClick={(event) => {
               event.preventDefault();
               setEditing(true);
@@ -630,27 +701,36 @@ function ConversationSidebarRow({
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          if (conversation.unreadAt) onMarkRead();
-          else onMarkUnread();
+          openMenu();
         }}
-        className={`inline-flex items-center justify-center rounded text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-10 w-10 opacity-100' : 'p-0.5 opacity-0 group-hover/conversation:opacity-100'}`}
-        title={conversation.unreadAt ? 'Mark read' : 'Mark unread'}
+        className={`mr-1 inline-flex items-center justify-center rounded text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-[44px] w-[44px]' : 'p-1 opacity-70 group-hover/conversation:opacity-100'}`}
+        title="Conversation actions"
+        aria-label="Conversation actions"
       >
-        <CircleDot size={12} />
+        <Ellipsis size={13} />
       </button>
-      <button
-        type="button"
-        disabled={pending}
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onArchive();
-        }}
-        className={`mr-1 inline-flex items-center justify-center rounded text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-10 w-10 opacity-100' : 'p-0.5 opacity-0 group-hover/conversation:opacity-100'}`}
-        title="Archive conversation"
-      >
-        <Archive size={12} />
-      </button>
+      {menuOpen && (
+        <>
+          <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close conversation menu" onClick={closeMenu} />
+          <div className={mobile
+            ? 'fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'
+            : 'absolute right-1 top-7 z-50 w-48 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'}
+          >
+            <ProjectMenuItem
+              icon={<CircleDot size={14} />}
+              onClick={() => runAction(conversation.unreadAt ? onMarkRead : onMarkUnread)}
+            >
+              {conversation.unreadAt ? 'Mark read' : 'Mark unread'}
+            </ProjectMenuItem>
+            <ProjectMenuItem icon={<Pencil size={14} />} onClick={() => runAction(() => setEditing(true))}>
+              Rename
+            </ProjectMenuItem>
+            <ProjectMenuItem icon={<Archive size={14} />} danger onClick={() => runAction(onArchive)}>
+              Archive
+            </ProjectMenuItem>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -699,7 +779,7 @@ function ProjectMenuItem({ icon, children, onClick, danger = false }: { icon: Re
     <button
       type="button"
       onClick={onClick}
-      className={`flex min-h-10 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm md:min-h-0 md:text-xs ${
+      className={`flex min-h-[44px] w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm md:min-h-0 md:text-xs ${
         danger ? 'text-[var(--color-error)] hover:bg-[var(--color-error)]/10' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]'
       }`}
     >

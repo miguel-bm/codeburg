@@ -70,8 +70,14 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-html, body {
+html, body, #root {
   margin: 0;
+  width: 100%;
+  height: 100%;
+}
+
+html, body {
+  overflow: hidden;
   min-height: 100vh;
   background-color: var(--color-canvas);
   color: var(--color-text-primary);
