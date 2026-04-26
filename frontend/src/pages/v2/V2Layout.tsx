@@ -829,8 +829,15 @@ function ProjectTree({
         </>
       )}
 
-      {treeOpen && (
-        <div className={`${mobile ? 'mt-0.5 space-y-0' : 'mt-1 space-y-0.5'} pr-1`}>
+      <div
+        aria-hidden={!treeOpen}
+        className={`grid transition-[grid-template-rows,opacity] duration-200 ease-out ${
+          treeOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+        }`}
+        style={{ pointerEvents: treeOpen ? undefined : 'none' }}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className={`${mobile ? 'mt-0.5 space-y-0' : 'mt-1 space-y-0.5'} pr-1`}>
           {orderedWorkspaces.map((workspace) => {
             const active = !conversationActive && (selectedWorkspaceId
               ? selectedWorkspaceId === workspace.id
@@ -1037,8 +1044,9 @@ function ProjectTree({
               onSwitchWorkspace={() => onSwitchConversationWorkspace(conversation)}
             />
           ))}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

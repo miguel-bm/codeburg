@@ -203,9 +203,8 @@ export function V2ProjectPage() {
   const createWorkspace = useMutation({
     mutationFn: (input: { name: string; baseBranch?: string }) => v2Api.createWorkspace(id!, input),
     onSuccess: async (response) => {
-      clearComposer();
-      navigate(`/v2/projects/${id}?workspace=${response.workspace.id}`);
       await queryClient.invalidateQueries({ queryKey: workspacesQueryKey });
+      closeComposer(response.workspace.id);
     },
   });
 
@@ -213,9 +212,8 @@ export function V2ProjectPage() {
     mutationFn: (input: { name: string; baseBranch?: string }) =>
       v2Api.forkWorkspace(activeWorkspaceId!, input),
     onSuccess: async (response) => {
-      clearComposer();
-      navigate(`/v2/projects/${id}?workspace=${response.workspace.id}`);
       await queryClient.invalidateQueries({ queryKey: workspacesQueryKey });
+      closeComposer(response.workspace.id);
     },
   });
 
@@ -230,9 +228,9 @@ export function V2ProjectPage() {
   const mutateWorkspaceStatus = useMutation({
     mutationFn: async ({ workspaceId, action }: { workspaceId: string; action: 'activate' | 'merge' | 'abandon' | 'archive' }) => {
       if (action === 'activate') return v2Api.activateWorkspace(workspaceId);
-      if (action === 'merge') return v2Api.mergeWorkspace(workspaceId);
-      if (action === 'abandon') return v2Api.abandonWorkspace(workspaceId);
-      return v2Api.archiveWorkspace(workspaceId);
+      if (action === 'merge') return v2Api.mergeWorkspace(workspaceId, { cleanupWorktree: true });
+      if (action === 'abandon') return v2Api.abandonWorkspace(workspaceId, { cleanupWorktree: true });
+      return v2Api.archiveWorkspace(workspaceId, { cleanupWorktree: true });
     },
     onSuccess: async (workspace) => {
       if (workspace.status !== 'active') setMainSurface(null);
@@ -276,10 +274,17 @@ export function V2ProjectPage() {
     createWorkspace.error ?? forkWorkspace.error ?? deleteWorkspace.error ?? mutateWorkspaceStatus.error ?? syncWorkspace.error;
   const terminalDisabled = !activeWorkspaceId || activeWorkspace?.status !== 'active' || createTerminal.isPending;
 
-  const clearComposer = () => {
+  const closeComposer = (targetWorkspaceId?: string) => {
     setComposerMode(null);
     setWorkspaceName('');
     setWorkspaceBaseBranch('');
+    const target = targetWorkspaceId ?? requestedWorkspaceId ?? activeWorkspaceId ?? undefined;
+    const next = new URLSearchParams(searchParams);
+    next.delete('newWorkspace');
+    next.delete('terminal');
+    if (target) next.set('workspace', target);
+    else next.delete('workspace');
+    navigate(`/v2/projects/${id}${next.toString() ? `?${next.toString()}` : ''}`, { replace: true });
   };
 
   const submitWorkspaceComposer = () => {
@@ -329,25 +334,20 @@ export function V2ProjectPage() {
   const content = (
     <V2Screen>
       {composerMode && (
-        <div className="bg-card px-3 py-3 md:px-5">
-          <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-end">
-            <label className="min-w-0 md:min-w-56">
-              <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-dim">
-                {composerMode === 'fork' ? 'Fork name' : 'Workspace name'}
-              </div>
-              <V2Input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} placeholder="feat/runtime-polish" className="w-full" />
-            </label>
-            <label className="min-w-0 md:min-w-44">
-              <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-dim">Base branch</div>
-              <V2Input value={workspaceBaseBranch} onChange={(event) => setWorkspaceBaseBranch(event.target.value)} placeholder={project?.defaultBranch ?? 'main'} className="w-full" />
-            </label>
-            <Button size="sm" variant="primary" loading={workspacePending} disabled={!workspaceName.trim()} onClick={submitWorkspaceComposer}>
-              Create
-            </Button>
-            <Button size="sm" variant="ghost" onClick={clearComposer}>Cancel</Button>
-            {workspaceError instanceof Error && <span className="text-xs text-[var(--color-error)]">{workspaceError.message}</span>}
-          </div>
-        </div>
+        <WorkspaceComposerModal
+          mode={composerMode}
+          projectName={project?.name}
+          defaultBranch={project?.defaultBranch ?? 'main'}
+          activeWorkspace={activeWorkspace}
+          name={workspaceName}
+          baseBranch={workspaceBaseBranch}
+          pending={workspacePending}
+          error={workspaceError instanceof Error ? workspaceError.message : undefined}
+          onNameChange={setWorkspaceName}
+          onBaseBranchChange={setWorkspaceBaseBranch}
+          onSubmit={submitWorkspaceComposer}
+          onCancel={() => closeComposer()}
+        />
       )}
 
       {activeWorkspace && (
@@ -366,11 +366,25 @@ export function V2ProjectPage() {
               workspace={activeWorkspace}
               pending={workspacePending}
               onSync={() => syncWorkspace.mutate(activeWorkspace.id)}
-              onMerge={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'merge' })}
-              onAbandon={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'abandon' })}
+              onMerge={() => {
+                if (confirmWorkspaceCleanupAction(activeWorkspace, 'Merge and clean up')) {
+                  mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'merge' });
+                }
+              }}
+              onAbandon={() => {
+                if (confirmWorkspaceCleanupAction(activeWorkspace, 'Abandon and clean up')) {
+                  mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'abandon' });
+                }
+              }}
               onReactivate={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'activate' })}
-              onArchive={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'archive' })}
-              onDelete={() => deleteWorkspace.mutate(activeWorkspace.id)}
+              onArchive={() => {
+                if (confirmWorkspaceCleanupAction(activeWorkspace, 'Archive and clean up')) {
+                  mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'archive' });
+                }
+              }}
+              onDelete={() => {
+                if (confirmWorkspaceDelete(activeWorkspace)) deleteWorkspace.mutate(activeWorkspace.id);
+              }}
             />
           </div>
         </div>
@@ -468,6 +482,118 @@ export function V2ProjectPage() {
     <WorkspaceProvider scope={{ type: 'workspace', workspaceId: activeWorkspace.id, workspace: activeWorkspace, project }}>
       {content}
     </WorkspaceProvider>
+  );
+}
+
+function WorkspaceComposerModal({
+  mode,
+  projectName,
+  defaultBranch,
+  activeWorkspace,
+  name,
+  baseBranch,
+  pending,
+  error,
+  onNameChange,
+  onBaseBranchChange,
+  onSubmit,
+  onCancel,
+}: {
+  mode: 'create' | 'fork';
+  projectName?: string;
+  defaultBranch: string;
+  activeWorkspace: Workspace | null;
+  name: string;
+  baseBranch: string;
+  pending: boolean;
+  error?: string;
+  onNameChange: (value: string) => void;
+  onBaseBranchChange: (value: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  const title = mode === 'fork' ? 'Fork workspace' : 'New workspace';
+  const context = mode === 'fork' && activeWorkspace
+    ? `Forking ${activeWorkspace.name} in ${projectName ?? 'this project'}`
+    : `Creating in ${projectName ?? 'this project'}`;
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !pending) onCancel();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onCancel, pending]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-end justify-center bg-[var(--color-bg-primary)]/55 p-3 backdrop-blur-sm md:items-center md:p-6"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !pending) onCancel();
+      }}
+    >
+      <form
+        className="w-full max-w-lg rounded-xl bg-card shadow-[var(--shadow-card)]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="workspace-composer-title"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit();
+        }}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-[var(--color-card-border)] px-4 py-4 md:px-5">
+          <div className="min-w-0">
+            <h2 id="workspace-composer-title" className="text-base font-semibold text-[var(--color-text-primary)]">{title}</h2>
+            <p className="mt-1 truncate text-sm text-dim">{context}</p>
+          </div>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={onCancel}
+            className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50 md:h-8 md:w-8"
+            aria-label="Cancel workspace creation"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="space-y-4 px-4 py-4 md:px-5">
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Workspace name</span>
+            <V2Input
+              autoFocus
+              value={name}
+              onChange={(event) => onNameChange(event.target.value)}
+              placeholder="feat/runtime-polish"
+              className="w-full"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Base branch</span>
+            <V2Input
+              value={baseBranch}
+              onChange={(event) => onBaseBranchChange(event.target.value)}
+              placeholder={defaultBranch}
+              className="w-full"
+            />
+          </label>
+          {error && (
+            <div className="rounded-md border border-[var(--color-error)]/30 bg-[var(--color-error)]/10 px-3 py-2 text-xs leading-5 text-[var(--color-error)]">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-[var(--color-card-border)] px-4 py-3 md:px-5">
+          <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={onCancel}>Cancel</Button>
+          <Button type="submit" size="sm" variant="primary" loading={pending} disabled={!name.trim()}>
+            {mode === 'fork' ? 'Create fork' : 'Create workspace'}
+          </Button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -799,4 +925,18 @@ function statusColor(status: Workspace['status']): 'blue' | 'green' | 'yellow' |
   if (status === 'merged') return 'green';
   if (status === 'abandoned') return 'yellow';
   return 'gray';
+}
+
+function confirmWorkspaceCleanupAction(workspace: Workspace, action: string) {
+  const worktree = workspace.worktreePath ? `\n\nWorktree: ${workspace.worktreePath}` : '';
+  return window.confirm(
+    `${action} "${workspace.name}"?\n\nThis will stop terminals, detach active conversations, and remove the local worktree directory. The branch is kept so the workspace can be reactivated later.${worktree}`,
+  );
+}
+
+function confirmWorkspaceDelete(workspace: Workspace) {
+  const worktree = workspace.worktreePath ? `\n\nWorktree: ${workspace.worktreePath}` : '';
+  return window.confirm(
+    `Delete workspace "${workspace.name}"?\n\nThis removes the workspace record and cleans up local workspace files where possible. This is harder to undo than archiving.${worktree}`,
+  );
 }
