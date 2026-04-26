@@ -11,17 +11,20 @@ import {
   GitBranchPlus,
   LoaderCircle,
   MessageSquareText,
+  Pin,
+  PinOff,
   Search,
+  SquareStack,
 } from 'lucide-react';
-import { projectsApi } from '../../api';
-import type { Conversation, PiConversationSnapshot, Project } from '../../api/types';
+import { preferencesApi, projectsApi } from '../../api';
+import type { Conversation, PiConversationSnapshot, Project, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { Badge } from '../../components/ui/Badge';
 import { useMobile } from '../../hooks/useMobile';
 import { V2Content, V2Empty, V2Header, V2Input, V2Panel, V2PanelHeader, V2Screen } from './v2-ui';
 
 type ConversationSectionModel = {
-  id: 'attention' | 'running' | 'recent';
+  id: 'pinned' | 'attention' | 'running' | 'recent';
   title: string;
   subtitle: string;
   conversations: Conversation[];
@@ -42,6 +45,10 @@ export function V2ConversationsPage() {
   const { data: projects } = useQuery({
     queryKey: ['v2-projects'],
     queryFn: () => projectsApi.list(),
+  });
+  const { data: pinnedConversationIds = [] } = useQuery({
+    queryKey: ['v2-pinned-conversations'],
+    queryFn: getPinnedConversationIds,
   });
 
   const forkConversation = useMutation({
@@ -70,17 +77,42 @@ export function V2ConversationsPage() {
       await invalidateConversationLists(queryClient, updated.projectId, updated.id);
     },
   });
+  const switchConversationWorkspace = useMutation({
+    mutationFn: ({ conversation, workspaceId }: { conversation: Conversation; workspaceId?: string }) =>
+      v2Api.switchConversationWorkspace(conversation.id, {
+        currentWorkspaceId: workspaceId,
+        reason: 'inbox menu',
+      }),
+    onSuccess: async (updated) => {
+      await invalidateConversationLists(queryClient, updated.projectId, updated.id);
+    },
+  });
 
   const projectById = useMemo(
     () => new Map((projects ?? []).map((project) => [project.id, project])),
     [projects],
   );
+  const workspaceQueries = useQueries({
+    queries: (projects ?? []).map((project) => ({
+      queryKey: ['v2-workspaces', project.id],
+      queryFn: () => v2Api.listWorkspaces(project.id),
+      staleTime: 30_000,
+    })),
+  });
+  const workspacesByProject = new Map<string, Workspace[]>();
+  (projects ?? []).forEach((project, index) => {
+    workspacesByProject.set(project.id, workspaceQueries[index]?.data ?? []);
+  });
   const safeConversations = useMemo(() => conversations ?? [], [conversations]);
+  const safePinnedConversationIds = useMemo(
+    () => Array.isArray(pinnedConversationIds) ? pinnedConversationIds : [],
+    [pinnedConversationIds],
+  );
   const sortedConversations = useMemo(
     () => [...safeConversations]
       .filter((conversation) => conversation.status !== 'archived')
-      .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt)),
-    [safeConversations],
+      .sort((a, b) => comparePinnedThenActivity(a, b, safePinnedConversationIds)),
+    [safeConversations, safePinnedConversationIds],
   );
   const stateConversations = sortedConversations.slice(0, 48);
   const stateQueries = useQueries({
@@ -97,10 +129,23 @@ export function V2ConversationsPage() {
     const snapshot = stateQueries[index]?.data;
     if (snapshot) snapshotById.set(conversation.id, snapshot);
   });
-  const sections = buildConversationSections(sortedConversations, snapshotById);
+  const sections = buildConversationSections(sortedConversations, snapshotById, safePinnedConversationIds);
+  const pinnedCount = sections.find((section) => section.id === 'pinned')?.conversations.length ?? 0;
   const attentionCount = sections.find((section) => section.id === 'attention')?.conversations.length ?? 0;
   const runningCount = sections.find((section) => section.id === 'running')?.conversations.length ?? 0;
-  const actionPending = forkConversation.isPending || archiveConversation.isPending || markConversationReadState.isPending;
+  const actionPending =
+    forkConversation.isPending ||
+    archiveConversation.isPending ||
+    markConversationReadState.isPending ||
+    switchConversationWorkspace.isPending;
+  const togglePinnedConversationFromMenu = (conversation: Conversation) => {
+    void togglePinnedConversation(conversation.id, queryClient);
+  };
+  const switchConversationWorkspaceFromMenu = (conversation: Conversation) => {
+    const workspaceId = chooseConversationWorkspace(conversation, workspacesByProject.get(conversation.projectId) ?? []);
+    if (workspaceId === undefined) return;
+    switchConversationWorkspace.mutate({ conversation, workspaceId });
+  };
 
   if (isMobile) {
     return (
@@ -122,7 +167,7 @@ export function V2ConversationsPage() {
               className="w-full !pl-9"
             />
           </label>
-          <InboxSummary attentionCount={attentionCount} runningCount={runningCount} totalCount={sortedConversations.length} mobile />
+          <InboxSummary pinnedCount={pinnedCount} attentionCount={attentionCount} runningCount={runningCount} totalCount={sortedConversations.length} mobile />
         </div>
 
         <main className="min-h-0 flex-1 overflow-auto">
@@ -132,6 +177,7 @@ export function V2ConversationsPage() {
               section={section}
               projectById={projectById}
               snapshotById={snapshotById}
+              pinnedConversationIds={safePinnedConversationIds}
               actionPending={actionPending}
               mobile
               onOpen={(conversation) => navigate(`/v2/conversations/${conversation.id}`)}
@@ -139,6 +185,8 @@ export function V2ConversationsPage() {
               onArchive={(conversation) => archiveConversation.mutate(conversation)}
               onMarkRead={(conversation) => markConversationReadState.mutate({ conversation, unread: false })}
               onMarkUnread={(conversation) => markConversationReadState.mutate({ conversation, unread: true })}
+              onTogglePin={togglePinnedConversationFromMenu}
+              onSwitchWorkspace={switchConversationWorkspaceFromMenu}
             />
           ))}
 
@@ -178,7 +226,7 @@ export function V2ConversationsPage() {
             }
           />
 
-          <InboxSummary attentionCount={attentionCount} runningCount={runningCount} totalCount={sortedConversations.length} />
+          <InboxSummary pinnedCount={pinnedCount} attentionCount={attentionCount} runningCount={runningCount} totalCount={sortedConversations.length} />
 
           {sections.map((section) => (
             <ConversationSection
@@ -186,12 +234,15 @@ export function V2ConversationsPage() {
               section={section}
               projectById={projectById}
               snapshotById={snapshotById}
+              pinnedConversationIds={safePinnedConversationIds}
               actionPending={actionPending}
               onOpen={(conversation) => navigate(`/v2/conversations/${conversation.id}`)}
               onFork={(conversation) => forkConversation.mutate(conversation)}
               onArchive={(conversation) => archiveConversation.mutate(conversation)}
               onMarkRead={(conversation) => markConversationReadState.mutate({ conversation, unread: false })}
               onMarkUnread={(conversation) => markConversationReadState.mutate({ conversation, unread: true })}
+              onTogglePin={togglePinnedConversationFromMenu}
+              onSwitchWorkspace={switchConversationWorkspaceFromMenu}
             />
           ))}
 
@@ -211,18 +262,21 @@ export function V2ConversationsPage() {
 }
 
 function InboxSummary({
+  pinnedCount,
   attentionCount,
   runningCount,
   totalCount,
   mobile = false,
 }: {
+  pinnedCount: number;
   attentionCount: number;
   runningCount: number;
   totalCount: number;
   mobile?: boolean;
 }) {
   return (
-    <div className={`grid grid-cols-3 gap-px overflow-hidden rounded-lg bg-[var(--color-card-border)] ${mobile ? 'mt-3' : 'mx-4 mb-3'}`}>
+    <div className={`grid grid-cols-4 gap-px overflow-hidden rounded-lg bg-[var(--color-card-border)] ${mobile ? 'mt-3' : 'mx-4 mb-3'}`}>
+      <InboxSummaryItem label="Pinned" value={pinnedCount} tone={pinnedCount > 0 ? 'accent' : 'muted'} />
       <InboxSummaryItem label="Attention" value={attentionCount} tone={attentionCount > 0 ? 'accent' : 'muted'} />
       <InboxSummaryItem label="Running" value={runningCount} tone={runningCount > 0 ? 'yellow' : 'muted'} />
       <InboxSummaryItem label="Total" value={totalCount} tone="muted" />
@@ -257,6 +311,7 @@ function ConversationSection({
   section,
   projectById,
   snapshotById,
+  pinnedConversationIds,
   actionPending,
   mobile = false,
   onOpen,
@@ -264,10 +319,13 @@ function ConversationSection({
   onArchive,
   onMarkRead,
   onMarkUnread,
+  onTogglePin,
+  onSwitchWorkspace,
 }: {
   section: ConversationSectionModel;
   projectById: Map<string, Project>;
   snapshotById: Map<string, PiConversationSnapshot>;
+  pinnedConversationIds: string[];
   actionPending: boolean;
   mobile?: boolean;
   onOpen: (conversation: Conversation) => void;
@@ -275,6 +333,8 @@ function ConversationSection({
   onArchive: (conversation: Conversation) => void;
   onMarkRead: (conversation: Conversation) => void;
   onMarkUnread: (conversation: Conversation) => void;
+  onTogglePin: (conversation: Conversation) => void;
+  onSwitchWorkspace: (conversation: Conversation) => void;
 }) {
   if (section.conversations.length === 0) return null;
 
@@ -296,6 +356,7 @@ function ConversationSection({
             conversation={conversation}
             project={projectById.get(conversation.projectId)}
             snapshot={snapshotById.get(conversation.id)}
+            pinned={pinnedConversationIds.includes(conversation.id)}
             actionPending={actionPending}
             mobile={mobile}
             onOpen={() => onOpen(conversation)}
@@ -303,6 +364,8 @@ function ConversationSection({
             onArchive={() => onArchive(conversation)}
             onMarkRead={() => onMarkRead(conversation)}
             onMarkUnread={() => onMarkUnread(conversation)}
+            onTogglePin={() => onTogglePin(conversation)}
+            onSwitchWorkspace={() => onSwitchWorkspace(conversation)}
           />
         ))}
       </div>
@@ -314,6 +377,7 @@ function ConversationListItem({
   conversation,
   project,
   snapshot,
+  pinned,
   actionPending,
   mobile = false,
   onOpen,
@@ -321,10 +385,13 @@ function ConversationListItem({
   onArchive,
   onMarkRead,
   onMarkUnread,
+  onTogglePin,
+  onSwitchWorkspace,
 }: {
   conversation: Conversation;
   project?: Project;
   snapshot?: PiConversationSnapshot;
+  pinned: boolean;
   actionPending: boolean;
   mobile?: boolean;
   onOpen: () => void;
@@ -332,6 +399,8 @@ function ConversationListItem({
   onArchive: () => void;
   onMarkRead: () => void;
   onMarkUnread: () => void;
+  onTogglePin: () => void;
+  onSwitchWorkspace: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const longPressTimer = useRef<number | null>(null);
@@ -399,6 +468,7 @@ function ConversationListItem({
         <ConversationRuntimeIcon conversation={conversation} snapshot={snapshot} />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
+            {pinned && <Pin size={13} className="shrink-0 text-accent" />}
             <span className={`${mobile ? 'text-base' : 'text-sm'} truncate font-semibold text-[var(--color-text-primary)]`}>
               {conversation.title}
             </span>
@@ -448,6 +518,12 @@ function ConversationListItem({
               onClick={() => runAction(conversation.unreadAt ? onMarkRead : onMarkUnread)}
             >
               {conversation.unreadAt ? 'Mark read' : 'Mark unread'}
+            </InboxMenuItem>
+            <InboxMenuItem icon={pinned ? <PinOff size={14} /> : <Pin size={14} />} onClick={() => runAction(onTogglePin)}>
+              {pinned ? 'Unpin conversation' : 'Pin conversation'}
+            </InboxMenuItem>
+            <InboxMenuItem icon={<SquareStack size={14} />} onClick={() => runAction(onSwitchWorkspace)}>
+              Switch workspace
             </InboxMenuItem>
             <InboxMenuItem icon={<GitBranchPlus size={14} />} onClick={() => runAction(onFork)}>
               Fork conversation
@@ -539,13 +615,22 @@ function InboxMenuItem({
   );
 }
 
-function buildConversationSections(conversations: Conversation[], snapshotById: Map<string, PiConversationSnapshot>): ConversationSectionModel[] {
+function buildConversationSections(
+  conversations: Conversation[],
+  snapshotById: Map<string, PiConversationSnapshot>,
+  pinnedConversationIds: string[],
+): ConversationSectionModel[] {
+  const pinned: Conversation[] = [];
   const attention: Conversation[] = [];
   const running: Conversation[] = [];
   const recent: Conversation[] = [];
 
   conversations.forEach((conversation) => {
     const snapshot = snapshotById.get(conversation.id);
+    if (pinnedConversationIds.includes(conversation.id)) {
+      pinned.push(conversation);
+      return;
+    }
     if (conversationNeedsAttention(conversation, snapshot)) {
       attention.push(conversation);
       return;
@@ -558,6 +643,12 @@ function buildConversationSections(conversations: Conversation[], snapshotById: 
   });
 
   return [
+    {
+      id: 'pinned',
+      title: 'Pinned',
+      subtitle: 'Threads kept at the top across projects.',
+      conversations: pinned,
+    },
     {
       id: 'attention',
       title: 'Needs attention',
@@ -577,6 +668,13 @@ function buildConversationSections(conversations: Conversation[], snapshotById: 
       conversations: recent,
     },
   ];
+}
+
+function comparePinnedThenActivity(a: Conversation, b: Conversation, pinnedConversationIds: string[]) {
+  const pinnedA = pinnedConversationIds.includes(a.id);
+  const pinnedB = pinnedConversationIds.includes(b.id);
+  if (pinnedA !== pinnedB) return pinnedA ? -1 : 1;
+  return b.lastActivityAt.localeCompare(a.lastActivityAt);
 }
 
 function conversationNeedsAttention(conversation: Conversation, snapshot?: PiConversationSnapshot) {
@@ -611,6 +709,40 @@ function formatRelativeDate(value: string) {
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 7) return `${diffDays}d ago`;
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+async function getPinnedConversationIds() {
+  const pinned = await preferencesApi.get<string[]>('v2_pinned_conversations').catch(() => []);
+  return Array.isArray(pinned) ? pinned : [];
+}
+
+async function togglePinnedConversation(conversationId: string, queryClient: QueryClient) {
+  const pinned = await getPinnedConversationIds();
+  const next = pinned.includes(conversationId)
+    ? pinned.filter((id) => id !== conversationId)
+    : [...pinned, conversationId];
+  await preferencesApi.set('v2_pinned_conversations', next);
+  await queryClient.invalidateQueries({ queryKey: ['v2-pinned-conversations'] });
+}
+
+function chooseConversationWorkspace(conversation: Conversation, workspaces: Workspace[]) {
+  const activeWorkspaces = workspaces.filter((workspace) => workspace.status === 'active');
+  const options = [
+    { label: 'Project default', value: undefined },
+    ...activeWorkspaces.map((workspace) => ({
+      label: `${workspace.name}${workspace.branchName ? ` (${workspace.branchName})` : ''}`,
+      value: workspace.id,
+    })),
+  ];
+  const currentIndex = options.findIndex((option) => option.value === conversation.currentWorkspaceId);
+  const promptText = options
+    .map((option, index) => `${index + 1}. ${option.label}${index === currentIndex ? ' current' : ''}`)
+    .join('\n');
+  const answer = window.prompt(`Switch "${conversation.title}" to workspace:\n${promptText}`, String(Math.max(1, currentIndex + 1)));
+  if (answer === null) return undefined;
+  const index = Number(answer.trim()) - 1;
+  if (!Number.isInteger(index) || index < 0 || index >= options.length) return undefined;
+  return options[index].value ?? '';
 }
 
 async function invalidateConversationLists(

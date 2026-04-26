@@ -74,6 +74,7 @@ export function CreateProjectModal({ onClose }: CreateProjectModalProps) {
     mutationFn: (input: CreateProjectInput) => projectsApi.create(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['v2-projects'] });
       queryClient.invalidateQueries({ queryKey: ['sidebar'] });
       onClose();
     },

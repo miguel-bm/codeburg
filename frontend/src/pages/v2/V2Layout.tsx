@@ -3,6 +3,8 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
+  ArrowDownUp,
+  BookPlus,
   Circle,
   CircleAlert,
   CircleDot,
@@ -16,8 +18,10 @@ import {
   GitMerge,
   Hammer,
   LoaderCircle,
+  Maximize2,
   MessageSquarePlus,
   MessageSquareText,
+  Minimize2,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
@@ -34,12 +38,18 @@ import {
 import { preferencesApi, projectsApi } from '../../api';
 import type { Conversation, PiConversationSnapshot, Project, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
+import { CreateProjectModal } from '../../components/common/CreateProjectModal';
 import { CodeburgIcon, CodeburgWordmark } from '../../components/ui/CodeburgIcon';
 import { useMobile } from '../../hooks/useMobile';
 import { getDesktopTitleBarInsetTop, isDesktopShell } from '../../platform/runtimeConfig';
 import { selectIsExpanded, useSidebarStore } from '../../stores/sidebar';
 import type { QueryClient } from '@tanstack/react-query';
 import type { NavigateFunction } from 'react-router-dom';
+
+type ProjectTreeMode = 'project' | 'chronological' | 'chats';
+type ProjectTreeSort = 'created' | 'updated';
+type ProjectTreeShow = 'all' | 'relevant';
+type ProjectExpansionCommand = { id: number; expanded: boolean };
 
 export function V2Layout() {
   const location = useLocation();
@@ -48,6 +58,12 @@ export function V2Layout() {
   const isMobile = useMobile();
   const isMobileHome = isMobile && location.pathname === '/v2';
   const projectTreeScrollRef = useRef<HTMLDivElement>(null);
+  const [showCreateProject, setShowCreateProject] = useState(false);
+  const [projectTreeMenuOpen, setProjectTreeMenuOpen] = useState(false);
+  const [projectTreeMode, setProjectTreeMode] = useState<ProjectTreeMode>('project');
+  const [projectTreeSort, setProjectTreeSort] = useState<ProjectTreeSort>('updated');
+  const [projectTreeShow, setProjectTreeShow] = useState<ProjectTreeShow>('relevant');
+  const [projectExpansionCommand, setProjectExpansionCommand] = useState<ProjectExpansionCommand | null>(null);
   const sidebarExpanded = useSidebarStore(selectIsExpanded);
   const toggleSidebarExpanded = useSidebarStore((state) => state.toggleExpanded);
   const { data: projects, isLoading } = useQuery({
@@ -58,20 +74,24 @@ export function V2Layout() {
     queryKey: ['pinned-projects'],
     queryFn: () => preferencesApi.getPinnedProjects(),
   });
+  const { data: pinnedConversationIds = [] } = useQuery({
+    queryKey: ['v2-pinned-conversations'],
+    queryFn: getPinnedConversationIds,
+  });
 
   const safeProjects = Array.isArray(projects) ? projects : [];
   const safePinnedProjectIds = Array.isArray(pinnedProjectIds) ? pinnedProjectIds : [];
-  const visibleProjects = safeProjects
-    .filter((project) => !project.hidden)
-    .sort((a, b) => {
-      const pinnedA = safePinnedProjectIds.includes(a.id);
-      const pinnedB = safePinnedProjectIds.includes(b.id);
-      if (pinnedA !== pinnedB) return pinnedA ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
+  const safePinnedConversationIds = Array.isArray(pinnedConversationIds) ? pinnedConversationIds : [];
+  const baseVisibleProjects = orderProjectsForTree(
+    safeProjects.filter((project) => !project.hidden),
+    safePinnedProjectIds,
+    'project',
+    'updated',
+    () => [],
+  );
   const shouldLoadSidebarTree = !isMobile || isMobileHome;
   const workspaceQueries = useQueries({
-    queries: visibleProjects.map((project) => ({
+    queries: baseVisibleProjects.map((project) => ({
       queryKey: ['v2-workspaces', project.id],
       queryFn: () => v2Api.listWorkspaces(project.id),
       enabled: shouldLoadSidebarTree && !!project.id,
@@ -79,7 +99,7 @@ export function V2Layout() {
     })),
   });
   const conversationQueries = useQueries({
-    queries: visibleProjects.map((project) => ({
+    queries: baseVisibleProjects.map((project) => ({
       queryKey: ['v2-project-conversations', project.id, 'sidebar'],
       queryFn: () => v2Api.listProjectConversations(project.id, { provider: 'pi', status: 'active' }),
       enabled: shouldLoadSidebarTree && !!project.id,
@@ -90,10 +110,17 @@ export function V2Layout() {
 
   const workspacesByProject = new Map<string, Workspace[]>();
   const conversationsByProject = new Map<string, Conversation[]>();
-  visibleProjects.forEach((project, index) => {
+  baseVisibleProjects.forEach((project, index) => {
     workspacesByProject.set(project.id, workspaceQueries[index]?.data ?? []);
     conversationsByProject.set(project.id, conversationQueries[index]?.data ?? []);
   });
+  const visibleProjects = orderProjectsForTree(
+    baseVisibleProjects,
+    safePinnedProjectIds,
+    projectTreeMode,
+    projectTreeSort,
+    (projectId) => conversationsByProject.get(projectId) ?? [],
+  );
   const visibleConversations = shouldLoadSidebarTree
     ? Array.from(conversationsByProject.values())
       .flat()
@@ -174,6 +201,16 @@ export function V2Layout() {
       ]);
     },
   });
+  const switchConversationWorkspace = useMutation({
+    mutationFn: ({ conversation, workspaceId }: { conversation: Conversation; workspaceId?: string }) =>
+      v2Api.switchConversationWorkspace(conversation.id, {
+        currentWorkspaceId: workspaceId,
+        reason: 'sidebar menu',
+      }),
+    onSuccess: async (updated) => {
+      await invalidateConversationLists(queryClient, updated.projectId, updated.id);
+    },
+  });
   const createWorkspaceTerminal = useMutation({
     mutationFn: ({ workspace }: { project: Project; workspace: Workspace }) =>
       v2Api.createTerminal(workspace.id, { title: `${workspace.name} terminal` }),
@@ -222,10 +259,23 @@ export function V2Layout() {
     syncWorkspace.isPending ||
     forkWorkspace.isPending ||
     mutateWorkspaceStatus.isPending;
+  const conversationActionPending =
+    archiveOrDeleteConversation.isPending ||
+    markConversationReadState.isPending ||
+    switchConversationWorkspace.isPending;
   const forkWorkspaceFromMenu = (workspace: Workspace) => {
     const name = window.prompt('Fork workspace', defaultWorkspaceForkName(workspace))?.trim();
     if (!name) return;
     forkWorkspace.mutate({ workspace, name });
+  };
+  const togglePinnedConversationFromMenu = (conversation: Conversation) => {
+    void togglePinnedConversation(conversation.id, queryClient);
+  };
+  const switchConversationWorkspaceFromMenu = (conversation: Conversation) => {
+    const workspaces = workspacesByProject.get(conversation.projectId) ?? [];
+    const workspaceId = chooseConversationWorkspace(conversation, workspaces);
+    if (workspaceId === undefined) return;
+    switchConversationWorkspace.mutate({ conversation, workspaceId });
   };
 
   const desktopTopInset = isDesktopShell() ? getDesktopTitleBarInsetTop() : 0;
@@ -240,28 +290,26 @@ export function V2Layout() {
       </div>
 
       <nav className="space-y-1 px-2">
-        {isMobile ? (
-          <SidebarAction
-            icon={<Folder size={15} />}
-            label="Projects"
-            onClick={() => projectTreeScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
-          />
-        ) : (
-          <V2NavLink
-            to="/v2"
-            active={location.pathname === '/v2'}
-            icon={<Folder size={15} />}
-            label="Projects"
-          />
-        )}
         <SidebarAction icon={<PlugZap size={15} />} label="Pi setup" onClick={() => navigate('/v2/settings')} />
         <SidebarAction icon={<MessageSquareText size={15} />} label="All conversations" onClick={() => navigate('/v2/conversations')} />
       </nav>
 
-      <div className="mt-5 flex items-center justify-between px-4 text-[11px] font-medium uppercase text-dim">
-        <span>Projects</span>
-        <span>{visibleProjects.length}</span>
-      </div>
+      <ProjectsTreeHeader
+        count={visibleProjects.length}
+        menuOpen={projectTreeMenuOpen}
+        mode={projectTreeMode}
+        sort={projectTreeSort}
+        show={projectTreeShow}
+        mobile={isMobile}
+        onExpandAll={() => setProjectExpansionCommand({ id: Date.now(), expanded: true })}
+        onCollapseAll={() => setProjectExpansionCommand({ id: Date.now(), expanded: false })}
+        onToggleMenu={() => setProjectTreeMenuOpen((value) => !value)}
+        onCloseMenu={() => setProjectTreeMenuOpen(false)}
+        onModeChange={setProjectTreeMode}
+        onSortChange={setProjectTreeSort}
+        onShowChange={setProjectTreeShow}
+        onNewProject={() => setShowCreateProject(true)}
+      />
 
       <div ref={projectTreeScrollRef} className="min-h-0 flex-1 overflow-auto px-2 py-2">
         {isLoading && (
@@ -282,15 +330,20 @@ export function V2Layout() {
             pathname={location.pathname}
             search={location.search}
             creating={createConversation.isPending}
-            archivingConversation={archiveOrDeleteConversation.isPending}
+            archivingConversation={conversationActionPending}
             workspaceActionPending={workspaceActionPending}
             conversationStateById={conversationStateById}
+            pinnedConversationIds={safePinnedConversationIds}
+            expansionCommand={projectExpansionCommand}
+            showAllConversations={projectTreeShow === 'all'}
             mobile={isMobile}
             onNewConversation={(workspace) => createConversation.mutate({ project, workspace })}
             onArchiveConversation={(conversation) => archiveOrDeleteConversation.mutate(conversation)}
             onRenameConversation={(conversation, title) => renameConversation.mutate({ conversation, title })}
             onMarkConversationRead={(conversation) => markConversationReadState.mutate({ conversation, unread: false })}
             onMarkConversationUnread={(conversation) => markConversationReadState.mutate({ conversation, unread: true })}
+            onTogglePinnedConversation={togglePinnedConversationFromMenu}
+            onSwitchConversationWorkspace={switchConversationWorkspaceFromMenu}
             onNewWorkspaceTerminal={(workspace) => createWorkspaceTerminal.mutate({ project, workspace })}
             onSyncWorkspace={(workspace) => syncWorkspace.mutate(workspace)}
             onForkWorkspace={forkWorkspaceFromMenu}
@@ -300,6 +353,8 @@ export function V2Layout() {
             onArchiveWorkspace={(workspace) => mutateWorkspaceStatus.mutate({ workspace, action: 'archive' })}
             onCopyWorkspaceBranch={(workspace) => copyToClipboard(workspace.branchName, 'branch name')}
             onCopyWorkspacePath={(workspace) => copyToClipboard(workspace.worktreePath || project.path, workspace.kind === 'main' ? 'project path' : 'worktree path')}
+            onCopyProjectPath={() => copyToClipboard(project.path, 'repo path')}
+            onCopyProjectRemote={() => copyToClipboard(project.gitOrigin, 'repo remote')}
           />
         ))}
       </div>
@@ -313,6 +368,15 @@ export function V2Layout() {
           Settings
         </Link>
       </div>
+
+      {showCreateProject && (
+        <CreateProjectModal
+          onClose={() => {
+            setShowCreateProject(false);
+            void queryClient.invalidateQueries({ queryKey: ['v2-projects'] });
+          }}
+        />
+      )}
     </>
   );
 
@@ -450,6 +514,117 @@ function V2MobileNavButton({
   );
 }
 
+function ProjectsTreeHeader({
+  count,
+  menuOpen,
+  mode,
+  sort,
+  show,
+  mobile,
+  onExpandAll,
+  onCollapseAll,
+  onToggleMenu,
+  onCloseMenu,
+  onModeChange,
+  onSortChange,
+  onShowChange,
+  onNewProject,
+}: {
+  count: number;
+  menuOpen: boolean;
+  mode: ProjectTreeMode;
+  sort: ProjectTreeSort;
+  show: ProjectTreeShow;
+  mobile: boolean;
+  onExpandAll: () => void;
+  onCollapseAll: () => void;
+  onToggleMenu: () => void;
+  onCloseMenu: () => void;
+  onModeChange: (mode: ProjectTreeMode) => void;
+  onSortChange: (sort: ProjectTreeSort) => void;
+  onShowChange: (show: ProjectTreeShow) => void;
+  onNewProject: () => void;
+}) {
+  return (
+    <div className="relative mt-5">
+      <div className="flex items-center justify-between px-4 text-[11px] font-medium uppercase text-dim">
+        <span>Projects</span>
+        <div className="flex items-center gap-1">
+          <span className="mr-1">{count}</span>
+          <HeaderIconButton icon={<Maximize2 size={13} />} label="Expand all projects" onClick={onExpandAll} />
+          <HeaderIconButton icon={<Minimize2 size={13} />} label="Collapse all projects" onClick={onCollapseAll} />
+          <HeaderIconButton icon={<ArrowDownUp size={13} />} label="Organize projects" onClick={onToggleMenu} active={menuOpen} />
+          <HeaderIconButton icon={<BookPlus size={13} />} label="New project" onClick={onNewProject} />
+        </div>
+      </div>
+      {menuOpen && (
+        <>
+          <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close projects menu" onClick={onCloseMenu} />
+          <div className={mobile
+            ? 'fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'
+            : 'absolute right-3 top-7 z-50 w-64 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'}
+          >
+            <ProjectMenuLabel>Organize</ProjectMenuLabel>
+            <ProjectMenuItem icon={<Folder size={14} />} selected={mode === 'project'} onClick={() => { onModeChange('project'); onCloseMenu(); }}>
+              By project
+            </ProjectMenuItem>
+            <ProjectMenuItem icon={<Circle size={14} />} selected={mode === 'chronological'} onClick={() => { onModeChange('chronological'); onCloseMenu(); }}>
+              Chronological list
+            </ProjectMenuItem>
+            <ProjectMenuItem icon={<MessageSquareText size={14} />} selected={mode === 'chats'} onClick={() => { onModeChange('chats'); onCloseMenu(); }}>
+              Chats first
+            </ProjectMenuItem>
+            <ProjectMenuDivider />
+            <ProjectMenuLabel>Sort by</ProjectMenuLabel>
+            <ProjectMenuItem icon={<CircleDot size={14} />} selected={sort === 'created'} onClick={() => { onSortChange('created'); onCloseMenu(); }}>
+              Created
+            </ProjectMenuItem>
+            <ProjectMenuItem icon={<RefreshCw size={14} />} selected={sort === 'updated'} onClick={() => { onSortChange('updated'); onCloseMenu(); }}>
+              Updated
+            </ProjectMenuItem>
+            <ProjectMenuDivider />
+            <ProjectMenuLabel>Show</ProjectMenuLabel>
+            <ProjectMenuItem icon={<MessageSquareText size={14} />} selected={show === 'all'} onClick={() => { onShowChange('all'); onCloseMenu(); }}>
+              All chats
+            </ProjectMenuItem>
+            <ProjectMenuItem icon={<Pin size={14} />} selected={show === 'relevant'} onClick={() => { onShowChange('relevant'); onCloseMenu(); }}>
+              Relevant
+            </ProjectMenuItem>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function HeaderIconButton({
+  icon,
+  label,
+  onClick,
+  active = false,
+}: {
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+  active?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md transition-colors ${
+        active
+          ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]'
+          : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
+      }`}
+      title={label}
+      aria-label={label}
+    >
+      {icon}
+    </button>
+  );
+}
+
 function ProjectTree({
   project,
   pinned,
@@ -461,12 +636,17 @@ function ProjectTree({
   archivingConversation,
   workspaceActionPending,
   conversationStateById,
+  pinnedConversationIds,
+  expansionCommand,
+  showAllConversations,
   mobile = false,
   onNewConversation,
   onArchiveConversation,
   onRenameConversation,
   onMarkConversationRead,
   onMarkConversationUnread,
+  onTogglePinnedConversation,
+  onSwitchConversationWorkspace,
   onNewWorkspaceTerminal,
   onSyncWorkspace,
   onForkWorkspace,
@@ -476,6 +656,8 @@ function ProjectTree({
   onArchiveWorkspace,
   onCopyWorkspaceBranch,
   onCopyWorkspacePath,
+  onCopyProjectPath,
+  onCopyProjectRemote,
 }: {
   project: Project;
   pinned: boolean;
@@ -487,12 +669,17 @@ function ProjectTree({
   archivingConversation: boolean;
   workspaceActionPending: boolean;
   conversationStateById: Map<string, PiConversationSnapshot>;
+  pinnedConversationIds: string[];
+  expansionCommand: ProjectExpansionCommand | null;
+  showAllConversations: boolean;
   mobile?: boolean;
   onNewConversation: (workspace?: Workspace) => void;
   onArchiveConversation: (conversation: Conversation) => void;
   onRenameConversation: (conversation: Conversation, title: string) => void;
   onMarkConversationRead: (conversation: Conversation) => void;
   onMarkConversationUnread: (conversation: Conversation) => void;
+  onTogglePinnedConversation: (conversation: Conversation) => void;
+  onSwitchConversationWorkspace: (conversation: Conversation) => void;
   onNewWorkspaceTerminal: (workspace: Workspace) => void;
   onSyncWorkspace: (workspace: Workspace) => void;
   onForkWorkspace: (workspace: Workspace) => void;
@@ -502,11 +689,15 @@ function ProjectTree({
   onArchiveWorkspace: (workspace: Workspace) => void;
   onCopyWorkspaceBranch: (workspace: Workspace) => void;
   onCopyWorkspacePath: (workspace: Workspace) => void;
+  onCopyProjectPath: () => void;
+  onCopyProjectRemote: () => void;
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [workspaceMenuId, setWorkspaceMenuId] = useState<string | null>(null);
+  const longPressTimer = useRef<number | null>(null);
+  const longPressTriggered = useRef(false);
   const projectRouteActive = pathname === `/v2/projects/${project.id}`;
   const projectDescendantActive = pathname.startsWith(`/v2/projects/${project.id}/`);
   const activeConversationId = pathname.match(/^\/v2\/conversations\/([^/]+)/)?.[1];
@@ -524,35 +715,68 @@ function ProjectTree({
   });
   const recentProjectConversations = [...safeConversations]
     .filter((conversation) => !conversation.currentWorkspaceId && conversation.status === 'active')
-    .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
-    .slice(0, 3);
+    .sort((a, b) => comparePinnedThenActivity(a, b, pinnedConversationIds))
+    .slice(0, showAllConversations ? undefined : 3);
   const projectIsSelectedLeaf = projectRouteActive && orderedWorkspaces.length === 0 && !selectedWorkspaceId;
   const projectActionVisibility = mobile || projectMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100';
   const runProjectAction = (action: () => void) => {
     setProjectMenuOpen(false);
     action();
   };
+  const startLongPress = (action: () => void) => {
+    if (!mobile) return;
+    longPressTriggered.current = false;
+    if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current);
+    longPressTimer.current = window.setTimeout(() => {
+      longPressTriggered.current = true;
+      action();
+    }, 520);
+  };
+  const cancelLongPress = () => {
+    if (longPressTimer.current !== null) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
 
   useEffect(() => {
     if ((mobile || projectInPath) && !userToggled) setExpanded(true);
   }, [mobile, projectInPath, userToggled]);
 
+  useEffect(() => {
+    if (!expansionCommand) return;
+    setUserToggled(true);
+    setExpanded(expansionCommand.expanded);
+  }, [expansionCommand]);
+
+  useEffect(() => () => {
+    if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current);
+  }, []);
+
   return (
     <div className={`relative ${mobile ? 'mb-1' : 'mb-3'}`}>
       <div
-        className={`group flex items-center gap-1 rounded-lg px-2 transition-colors ${mobile ? 'py-0.5' : 'py-1.5'} ${
+        className={`group flex cursor-pointer items-center gap-1 rounded-lg px-2 transition-colors ${mobile ? 'py-0.5' : 'py-1.5'} ${
           projectMenuOpen || projectIsSelectedLeaf
             ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]'
             : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
         }`}
+        onPointerDown={() => startLongPress(() => setProjectMenuOpen(true))}
+        onPointerUp={cancelLongPress}
+        onPointerCancel={cancelLongPress}
+        onPointerLeave={cancelLongPress}
       >
         <button
           type="button"
           onClick={() => {
+            if (longPressTriggered.current) {
+              longPressTriggered.current = false;
+              return;
+            }
             setUserToggled(true);
             setExpanded((value) => !value);
           }}
-          className={`flex min-w-0 flex-1 items-center gap-2 rounded-md text-left ${mobile ? 'min-h-[34px] py-0' : 'py-0.5'}`}
+          className={`flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md text-left ${mobile ? 'min-h-[34px] py-0' : 'py-0.5'}`}
           title={treeOpen ? 'Collapse project' : 'Expand project'}
         >
           <span className="flex w-5 shrink-0 justify-center">
@@ -564,7 +788,7 @@ function ProjectTree({
         <button
           type="button"
           onClick={() => navigate(`/v2/projects/${project.id}?newWorkspace=1`)}
-          className={`inline-flex items-center justify-center rounded text-dim transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-9 w-9' : 'p-1'} ${projectActionVisibility}`}
+          className={`inline-flex cursor-pointer items-center justify-center rounded text-dim transition-opacity hover:bg-accent/10 hover:text-accent disabled:opacity-50 ${mobile ? 'h-9 w-9' : 'p-1'} ${projectActionVisibility}`}
           title="New workspace"
         >
           <FolderPlus size={13} />
@@ -572,7 +796,7 @@ function ProjectTree({
         <button
           type="button"
           onClick={() => setProjectMenuOpen((value) => !value)}
-          className={`inline-flex items-center justify-center rounded text-dim transition-opacity hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] ${mobile ? 'h-9 w-9' : 'p-1'} ${projectActionVisibility}`}
+          className={`inline-flex cursor-pointer items-center justify-center rounded text-dim transition-opacity hover:bg-accent/10 hover:text-accent ${mobile ? 'h-9 w-9' : 'p-1'} ${projectActionVisibility}`}
           title="Project actions"
         >
           <Ellipsis size={13} />
@@ -592,6 +816,9 @@ function ProjectTree({
             <ProjectMenuItem icon={<Hammer size={14} />} onClick={() => runProjectAction(() => navigate(`/v2/projects/${project.id}/skills`))}>Skills</ProjectMenuItem>
             <ProjectMenuItem icon={<Pencil size={14} />} onClick={() => runProjectAction(() => void renameProject(project, queryClient))}>Rename project</ProjectMenuItem>
             <ProjectMenuItem icon={<Settings size={14} />} onClick={() => runProjectAction(() => navigate(`/v2/projects/${project.id}/settings`))}>Settings</ProjectMenuItem>
+            <ProjectMenuDivider />
+            <ProjectMenuItem icon={<Copy size={14} />} onClick={() => runProjectAction(onCopyProjectPath)}>Copy repo path</ProjectMenuItem>
+            <ProjectMenuItem icon={<Copy size={14} />} disabled={!project.gitOrigin} onClick={() => runProjectAction(onCopyProjectRemote)}>Copy repo remote</ProjectMenuItem>
             <ProjectMenuItem icon={<Archive size={14} />} danger onClick={() => runProjectAction(() => void archiveProject(project, queryClient, navigate))}>Archive project</ProjectMenuItem>
           </div>
         </>
@@ -605,8 +832,8 @@ function ProjectTree({
               : projectRouteActive && workspace.kind === 'main');
             const workspaceConversations = safeConversations
               .filter((conversation) => conversation.currentWorkspaceId === workspace.id && conversation.status === 'active')
-              .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
-              .slice(0, 3);
+              .sort((a, b) => comparePinnedThenActivity(a, b, pinnedConversationIds))
+              .slice(0, showAllConversations ? undefined : 3);
             const workspaceMenuOpen = workspaceMenuId === workspace.id;
             const workspaceActionVisibility = mobile || workspaceMenuOpen ? 'opacity-100' : 'opacity-0 group-hover/workspace:opacity-100';
             const runWorkspaceAction = (action: () => void) => {
@@ -616,13 +843,26 @@ function ProjectTree({
             return (
               <div key={workspace.id} className="relative">
                 <div
-                  className={`group/workspace flex items-center gap-1 rounded-md px-2 transition-colors ${mobile ? 'py-0.5' : 'py-1.5'} ${
+                  className={`group/workspace flex cursor-pointer items-center gap-1 rounded-md px-2 transition-colors ${mobile ? 'py-0.5' : 'py-1.5'} ${
                     workspaceMenuOpen || active
                       ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
                       : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-secondary)]'
                   }`}
+                  onPointerDown={() => startLongPress(() => setWorkspaceMenuId(workspace.id))}
+                  onPointerUp={cancelLongPress}
+                  onPointerCancel={cancelLongPress}
+                  onPointerLeave={cancelLongPress}
                 >
-                  <Link to={`/v2/projects/${project.id}?workspace=${workspace.id}`} className={`flex min-w-0 flex-1 items-center gap-2 ${mobile ? 'min-h-[34px]' : ''}`}>
+                  <Link
+                    to={`/v2/projects/${project.id}?workspace=${workspace.id}`}
+                    onClick={(event) => {
+                      if (longPressTriggered.current) {
+                        event.preventDefault();
+                        longPressTriggered.current = false;
+                      }
+                    }}
+                    className={`flex min-w-0 flex-1 cursor-pointer items-center gap-2 ${mobile ? 'min-h-[34px]' : ''}`}
+                  >
                     <span className="flex w-5 shrink-0 justify-center">
                       {workspace.kind === 'worktree' ? <GitBranch size={13} /> : <SquareStack size={13} />}
                     </span>
@@ -632,7 +872,7 @@ function ProjectTree({
                     type="button"
                     disabled={creating}
                     onClick={() => onNewConversation(workspace)}
-                    className={`inline-flex items-center justify-center rounded text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-9 w-9 opacity-100' : 'p-0.5 opacity-0 group-hover/workspace:opacity-100'}`}
+                    className={`inline-flex cursor-pointer items-center justify-center rounded text-dim hover:bg-accent/10 hover:text-accent disabled:opacity-50 ${mobile ? 'h-9 w-9 opacity-100' : 'p-0.5 opacity-0 group-hover/workspace:opacity-100'}`}
                     title="New conversation in this workspace"
                   >
                     <MessageSquarePlus size={12} />
@@ -645,7 +885,7 @@ function ProjectTree({
                       event.stopPropagation();
                       setWorkspaceMenuId((value) => (value === workspace.id ? null : workspace.id));
                     }}
-                    className={`inline-flex items-center justify-center rounded text-dim transition-opacity hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-9 w-9' : 'p-0.5'} ${workspaceActionVisibility}`}
+                    className={`inline-flex cursor-pointer items-center justify-center rounded text-dim transition-opacity hover:bg-accent/10 hover:text-accent disabled:opacity-50 ${mobile ? 'h-9 w-9' : 'p-0.5'} ${workspaceActionVisibility}`}
                     title="Workspace actions"
                     aria-label="Workspace actions"
                   >
@@ -751,10 +991,13 @@ function ProjectTree({
                         pending={archivingConversation}
                         snapshot={conversationStateById.get(conversation.id)}
                         mobile={mobile}
+                        pinned={pinnedConversationIds.includes(conversation.id)}
                         onArchive={() => onArchiveConversation(conversation)}
                         onRename={(title) => onRenameConversation(conversation, title)}
                         onMarkRead={() => onMarkConversationRead(conversation)}
                         onMarkUnread={() => onMarkConversationUnread(conversation)}
+                        onTogglePin={() => onTogglePinnedConversation(conversation)}
+                        onSwitchWorkspace={() => onSwitchConversationWorkspace(conversation)}
                       />
                     ))}
                   </div>
@@ -770,10 +1013,13 @@ function ProjectTree({
               pending={archivingConversation}
               snapshot={conversationStateById.get(conversation.id)}
               mobile={mobile}
+              pinned={pinnedConversationIds.includes(conversation.id)}
               onArchive={() => onArchiveConversation(conversation)}
               onRename={(title) => onRenameConversation(conversation, title)}
               onMarkRead={() => onMarkConversationRead(conversation)}
               onMarkUnread={() => onMarkConversationUnread(conversation)}
+              onTogglePin={() => onTogglePinnedConversation(conversation)}
+              onSwitchWorkspace={() => onSwitchConversationWorkspace(conversation)}
             />
           ))}
         </div>
@@ -787,22 +1033,28 @@ function ConversationSidebarRow({
   active,
   pending,
   snapshot,
+  pinned,
   mobile = false,
   onArchive,
   onRename,
   onMarkRead,
   onMarkUnread,
+  onTogglePin,
+  onSwitchWorkspace,
   className = '',
 }: {
   conversation: Conversation;
   active: boolean;
   pending: boolean;
   snapshot?: PiConversationSnapshot;
+  pinned: boolean;
   mobile?: boolean;
   onArchive: () => void;
   onRename: (title: string) => void;
   onMarkRead: () => void;
   onMarkUnread: () => void;
+  onTogglePin: () => void;
+  onSwitchWorkspace: () => void;
   className?: string;
 }) {
   const [editing, setEditing] = useState(false);
@@ -850,7 +1102,7 @@ function ConversationSidebarRow({
 
   return (
     <div
-      className={`group/conversation relative flex items-center rounded-md ${
+      className={`group/conversation relative flex cursor-pointer items-center rounded-md ${
       active ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]' : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
     } ${menuOpen ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]' : ''} ${className}`}
       onContextMenu={(event) => {
@@ -903,10 +1155,13 @@ function ConversationSidebarRow({
               event.preventDefault();
               setEditing(true);
             }}
-            className={`min-w-0 flex-1 truncate font-normal ${mobile ? 'flex min-h-[34px] items-center' : ''}`}
+            className={`min-w-0 flex-1 cursor-pointer truncate font-normal ${mobile ? 'flex min-h-[34px] items-center' : ''}`}
             title="Double-click to rename"
           >
-            {conversation.title}
+            <span className="inline-flex min-w-0 items-center gap-1">
+              {pinned && <Pin size={10} className="shrink-0 text-accent" />}
+              <span className="truncate">{conversation.title}</span>
+            </span>
           </Link>
         )}
       </div>
@@ -918,7 +1173,7 @@ function ConversationSidebarRow({
           event.stopPropagation();
           openMenu();
         }}
-        className={`mr-1 inline-flex items-center justify-center rounded text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50 ${mobile ? 'h-9 w-9' : 'p-1 opacity-70 group-hover/conversation:opacity-100'}`}
+        className={`mr-1 inline-flex cursor-pointer items-center justify-center rounded text-dim hover:bg-accent/10 hover:text-accent disabled:opacity-50 ${mobile ? 'h-9 w-9' : 'p-1 opacity-0 group-hover/conversation:opacity-100'}`}
         title="Conversation actions"
         aria-label="Conversation actions"
       >
@@ -936,6 +1191,12 @@ function ConversationSidebarRow({
               onClick={() => runAction(conversation.unreadAt ? onMarkRead : onMarkUnread)}
             >
               {conversation.unreadAt ? 'Mark read' : 'Mark unread'}
+            </ProjectMenuItem>
+            <ProjectMenuItem icon={pinned ? <PinOff size={14} /> : <Pin size={14} />} onClick={() => runAction(onTogglePin)}>
+              {pinned ? 'Unpin conversation' : 'Pin conversation'}
+            </ProjectMenuItem>
+            <ProjectMenuItem icon={<SquareStack size={14} />} onClick={() => runAction(onSwitchWorkspace)}>
+              Switch workspace
             </ProjectMenuItem>
             <ProjectMenuItem icon={<Pencil size={14} />} onClick={() => runAction(() => setEditing(true))}>
               Rename
@@ -995,30 +1256,43 @@ function ProjectMenuItem({
   onClick,
   danger = false,
   disabled = false,
+  selected = false,
 }: {
   icon: ReactNode;
   children: ReactNode;
   onClick: () => void;
   danger?: boolean;
   disabled?: boolean;
+  selected?: boolean;
 }) {
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`flex min-h-[44px] w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm md:min-h-0 md:text-xs ${
+      className={`flex min-h-[44px] w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm md:min-h-0 md:text-xs ${
         disabled
           ? 'cursor-not-allowed text-dim opacity-50'
           : danger
             ? 'text-[var(--color-error)] hover:bg-[var(--color-error)]/10'
-            : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]'
+            : selected
+              ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
+              : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]'
       }`}
     >
       {icon}
-      <span>{children}</span>
+      <span className="min-w-0 flex-1">{children}</span>
+      {selected && <span className="text-[var(--color-text-primary)]">✓</span>}
     </button>
   );
+}
+
+function ProjectMenuLabel({ children }: { children: ReactNode }) {
+  return <div className="px-2 pb-1 pt-3 text-xs font-medium text-dim first:pt-1">{children}</div>;
+}
+
+function ProjectMenuDivider() {
+  return <div className="my-1 h-px bg-[var(--color-card-border)]" />;
 }
 
 function SidebarAction({ icon, label, onClick }: { icon: ReactNode; label: string; onClick: () => void }) {
@@ -1034,36 +1308,46 @@ function SidebarAction({ icon, label, onClick }: { icon: ReactNode; label: strin
   );
 }
 
-function V2NavLink({
-  to,
-  active,
-  icon,
-  label,
-}: {
-  to: string;
-  active: boolean;
-  icon: ReactNode;
-  label: string;
-}) {
-  return (
-    <Link
-      to={to}
-      className={`flex h-10 items-center gap-2 rounded-lg px-3 text-sm transition-colors focus-visible:outline-none md:h-8 ${
-        active
-          ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]'
-          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
-      }`}
-    >
-      {icon}
-      <span>{label}</span>
-    </Link>
-  );
-}
-
 function defaultWorkspaceForkName(workspace: Workspace) {
   const base = workspace.name.trim() || workspace.branchName.trim() || 'workspace';
   const suffix = new Date().toISOString().slice(5, 10).replace('-', '');
   return `${base}-fork-${suffix}`;
+}
+
+function orderProjectsForTree(
+  projects: Project[],
+  pinnedProjectIds: string[],
+  mode: ProjectTreeMode,
+  sort: ProjectTreeSort,
+  conversationsForProject: (projectId: string) => Conversation[],
+) {
+  return [...projects].sort((a, b) => {
+    const pinnedA = pinnedProjectIds.includes(a.id);
+    const pinnedB = pinnedProjectIds.includes(b.id);
+    if (pinnedA !== pinnedB) return pinnedA ? -1 : 1;
+
+    if (mode === 'chats') {
+      const aHasChats = conversationsForProject(a.id).some((conversation) => conversation.status === 'active');
+      const bHasChats = conversationsForProject(b.id).some((conversation) => conversation.status === 'active');
+      if (aHasChats !== bHasChats) return aHasChats ? -1 : 1;
+    }
+
+    if (mode === 'chronological' || mode === 'chats') {
+      const aDate = sort === 'created' ? a.createdAt : a.updatedAt;
+      const bDate = sort === 'created' ? b.createdAt : b.updatedAt;
+      const dateCompare = bDate.localeCompare(aDate);
+      if (dateCompare !== 0) return dateCompare;
+    }
+
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function comparePinnedThenActivity(a: Conversation, b: Conversation, pinnedConversationIds: string[]) {
+  const pinnedA = pinnedConversationIds.includes(a.id);
+  const pinnedB = pinnedConversationIds.includes(b.id);
+  if (pinnedA !== pinnedB) return pinnedA ? -1 : 1;
+  return b.lastActivityAt.localeCompare(a.lastActivityAt);
 }
 
 function copyToClipboard(value: string | undefined, label: string) {
@@ -1076,6 +1360,50 @@ function copyToClipboard(value: string | undefined, label: string) {
   void write.catch(() => {
     window.prompt(`Copy ${label}`, value);
   });
+}
+
+async function getPinnedConversationIds() {
+  const pinned = await preferencesApi.get<string[]>('v2_pinned_conversations').catch(() => []);
+  return Array.isArray(pinned) ? pinned : [];
+}
+
+async function togglePinnedConversation(conversationId: string, queryClient: QueryClient) {
+  const pinned = await getPinnedConversationIds();
+  const next = pinned.includes(conversationId)
+    ? pinned.filter((id) => id !== conversationId)
+    : [...pinned, conversationId];
+  await preferencesApi.set('v2_pinned_conversations', next);
+  await queryClient.invalidateQueries({ queryKey: ['v2-pinned-conversations'] });
+}
+
+function chooseConversationWorkspace(conversation: Conversation, workspaces: Workspace[]) {
+  const activeWorkspaces = workspaces.filter((workspace) => workspace.status === 'active');
+  const options = [
+    { label: 'Project default', value: undefined },
+    ...activeWorkspaces.map((workspace) => ({
+      label: `${workspace.name}${workspace.branchName ? ` (${workspace.branchName})` : ''}`,
+      value: workspace.id,
+    })),
+  ];
+  const currentIndex = options.findIndex((option) => option.value === conversation.currentWorkspaceId);
+  const promptText = options
+    .map((option, index) => `${index + 1}. ${option.label}${index === currentIndex ? ' current' : ''}`)
+    .join('\n');
+  const answer = window.prompt(`Switch "${conversation.title}" to workspace:\n${promptText}`, String(Math.max(1, currentIndex + 1)));
+  if (answer === null) return undefined;
+  const index = Number(answer.trim()) - 1;
+  if (!Number.isInteger(index) || index < 0 || index >= options.length) return undefined;
+  return options[index].value ?? '';
+}
+
+async function invalidateConversationLists(queryClient: QueryClient, projectId: string, conversationId?: string) {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
+    queryClient.invalidateQueries({ queryKey: ['v2-conversation', conversationId] }),
+    queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations'] }),
+    queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', projectId] }),
+    queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', projectId, 'sidebar'] }),
+  ]);
 }
 
 async function togglePinnedProject(projectId: string, queryClient: QueryClient) {
