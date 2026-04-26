@@ -7,7 +7,6 @@ import {
   Bot,
   CheckCircle2,
   CircleSlash,
-  Code2,
   ExternalLink,
   KeyRound,
   PackagePlus,
@@ -18,7 +17,10 @@ import {
   TerminalSquare,
   Trash2,
   Wrench,
+  X,
 } from 'lucide-react';
+import claudeLogo from '../../assets/claude-logo.svg';
+import openaiLogo from '../../assets/openai-logo.svg';
 import type { HarnessAuthStatus, HarnessToolId, HarnessToolStatus, PiConfigDocument, PiPackageEntry } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import type { HarnessUpdateEvent } from '../../api/v2';
@@ -41,6 +43,8 @@ export function V2HarnessPage() {
   const [extensionPath, setExtensionPath] = useState('');
   const [checkLatest, setCheckLatest] = useState(false);
   const [activeUpdate, setActiveUpdate] = useState<HarnessToolId | null>(null);
+  const [dialogTool, setDialogTool] = useState<HarnessToolId | null>(null);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateLog, setUpdateLog] = useState<UpdateLogEntry[]>([]);
   const deferredPackageSource = useDeferredValue(packageSource.trim());
   const deferredExtensionPath = useDeferredValue(extensionPath.trim());
@@ -95,6 +99,8 @@ export function V2HarnessPage() {
   const updateHarness = useMutation({
     mutationFn: async (tool: HarnessToolId) => {
       setActiveUpdate(tool);
+      setDialogTool(tool);
+      setUpdateDialogOpen(true);
       setUpdateLog([]);
       const exitCode = await v2Api.streamHarnessUpdate(tool, addUpdateLog);
       if (exitCode !== 0) {
@@ -110,6 +116,7 @@ export function V2HarnessPage() {
 
   const runningTool = activeUpdate ?? harnessStatus?.update?.tool ?? null;
   const updateLocked = updateHarness.isPending || Boolean(harnessStatus?.update?.running);
+  const updateDialogVisible = updateDialogOpen && (updateLocked || updateLog.length > 0 || updateHarness.error instanceof Error);
   const tools = harnessStatus?.tools ?? EMPTY_TOOLS;
   const authStatuses = harnessStatus?.auth ?? EMPTY_AUTH_STATUSES;
 
@@ -144,7 +151,7 @@ export function V2HarnessPage() {
         <div className="space-y-10">
           <section className="space-y-4">
             <div className="flex items-start justify-between gap-4">
-              <SectionTitle icon={<Bot size={15} />} title="Harness runtimes" description="Installed tools used by Codeburg conversations and terminals." />
+              <SectionTitle icon={<Bot size={15} />} title="Harness runtimes" description="Installed tools used by Codeburg conversations and terminals. Latest versions are fetched when you press Check latest." />
               {harnessStatus?.update?.running && (
                 <StatusPill ok={false} label={`Updating ${harnessStatus.update.tool ?? 'tool'}`} />
               )}
@@ -156,7 +163,7 @@ export function V2HarnessPage() {
                   tool={tool}
                   updating={runningTool === tool.id}
                   disabled={updateLocked && runningTool !== tool.id}
-                  latestChecked={checkLatest}
+                  latestChecked={harnessStatus?.checkedLatest ?? checkLatest}
                   onUpdate={() => updateHarness.mutate(tool.id)}
                 />
               ))}
@@ -164,9 +171,6 @@ export function V2HarnessPage() {
                 <div className="rounded-xl bg-card p-4 text-sm text-dim shadow-[var(--shadow-card)]">Loading harness runtimes...</div>
               )}
             </div>
-            {(updateLog.length > 0 || updateHarness.error instanceof Error) && (
-              <UpdateLogPanel entries={updateLog} error={updateHarness.error instanceof Error ? updateHarness.error.message : undefined} />
-            )}
           </section>
 
           <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -258,6 +262,14 @@ export function V2HarnessPage() {
           </div>
         </div>
       </main>
+      <UpdateLogDialog
+        open={updateDialogVisible}
+        toolName={toolDisplayName(dialogTool, tools)}
+        running={updateLocked}
+        entries={updateLog}
+        error={updateHarness.error instanceof Error ? updateHarness.error.message : undefined}
+        onClose={() => setUpdateDialogOpen(false)}
+      />
     </V2Screen>
   );
 }
@@ -280,7 +292,7 @@ function HarnessToolCard({
     <article className="flex min-h-[15rem] flex-col rounded-xl bg-card p-4 shadow-[var(--shadow-card)]">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="mt-0.5 text-dim">{toolIcon(tool.id)}</div>
+          <HarnessToolLogo tool={tool.id} />
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold">{tool.name}</h2>
             <p className="mt-1 truncate font-mono text-xs text-dim">{tool.packageName}</p>
@@ -292,7 +304,7 @@ function HarnessToolCard({
       <div className="mt-4 space-y-2 text-sm">
         <StatusLine label="Installed" ok={tool.installed} value={tool.installed ? 'Yes' : 'No'} />
         <InfoLine label="Current" value={tool.version ?? 'Unavailable'} mono />
-        <InfoLine label="Latest" value={tool.latestVersion ?? (latestChecked ? 'Unavailable' : 'Not checked')} mono />
+        <InfoLine label="Latest" value={tool.latestVersion ?? (latestChecked ? 'Unavailable' : 'Check latest first')} mono />
         <div className="break-all py-1 font-mono text-xs text-dim">{tool.binaryPath ?? 'No binary on PATH'}</div>
       </div>
 
@@ -306,7 +318,7 @@ function HarnessToolCard({
         <div className="mb-3 truncate font-mono text-xs text-dim">{tool.updateCommand}</div>
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="primary" icon={<RefreshCcw size={14} />} loading={updating} disabled={disabled} onClick={onUpdate}>
-            Update {tool.name}
+            Update
           </Button>
           <ExternalLinkButton href={tool.changelogUrl}>Changelog</ExternalLinkButton>
           <ExternalLinkButton href={tool.installUrl}>Docs</ExternalLinkButton>
@@ -316,26 +328,72 @@ function HarnessToolCard({
   );
 }
 
-function UpdateLogPanel({ entries, error }: { entries: UpdateLogEntry[]; error?: string }) {
+function UpdateLogDialog({
+  open,
+  toolName,
+  running,
+  entries,
+  error,
+  onClose,
+}: {
+  open: boolean;
+  toolName: string;
+  running: boolean;
+  entries: UpdateLogEntry[];
+  error?: string;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+
   return (
-    <section className="rounded-xl bg-card shadow-[var(--shadow-card)]">
-      <div className="flex items-center justify-between gap-3 border-b border-[var(--color-card-border)] px-4 py-3">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <TerminalSquare size={15} className="text-dim" />
-          Update output
-        </div>
-        <div className="text-xs text-dim">{entries.length} lines</div>
-      </div>
-      <div className="max-h-72 overflow-auto px-4 py-3 font-mono text-xs leading-5">
-        {entries.map((entry) => (
-          <div key={entry.id} className={entry.event === 'stderr' || entry.event === 'error' ? 'text-[var(--color-warning)]' : 'text-dim'}>
-            <span className="mr-2 text-[var(--color-text-secondary)]">{entry.event}</span>
-            {entry.text}
+    <div
+      className="fixed inset-0 z-[90] flex items-end justify-center bg-[var(--color-bg-primary)]/55 p-3 backdrop-blur-sm md:items-center md:p-6"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !running) onClose();
+      }}
+    >
+      <section
+        className="flex max-h-[min(42rem,calc(100dvh-2rem))] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-card shadow-[var(--shadow-card)]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="harness-update-output-title"
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-[var(--color-card-border)] px-4 py-4 md:px-5">
+          <div className="min-w-0">
+            <h2 id="harness-update-output-title" className="flex items-center gap-2 text-sm font-semibold">
+              <TerminalSquare size={15} className="text-dim" />
+              {toolName} update output
+            </h2>
+            <p className="mt-1 text-xs text-dim">{running ? 'Running update command...' : `${entries.length} output lines`}</p>
           </div>
-        ))}
-        {error && <div className="text-[var(--color-error)]">{error}</div>}
-      </div>
-    </section>
+          <button
+            type="button"
+            disabled={running}
+            onClick={onClose}
+            className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-40"
+            aria-label="Close update output"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto px-4 py-3 font-mono text-xs leading-5 md:px-5">
+          {entries.length === 0 && !error && <div className="text-dim">Waiting for output...</div>}
+          {entries.map((entry) => (
+            <div key={entry.id} className={entry.event === 'stderr' || entry.event === 'error' ? 'text-[var(--color-warning)]' : 'text-dim'}>
+              <span className="mr-2 text-[var(--color-text-secondary)]">{entry.event}</span>
+              {entry.text}
+            </div>
+          ))}
+          {error && <div className="text-[var(--color-error)]">{error}</div>}
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-[var(--color-card-border)] px-4 py-3 md:px-5">
+          <Button size="sm" variant="secondary" disabled={running} onClick={onClose}>
+            {running ? 'Running...' : 'Close'}
+          </Button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -533,16 +591,33 @@ function StatusPill({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
-function toolIcon(tool: HarnessToolId) {
+function HarnessToolLogo({ tool }: { tool: HarnessToolId }) {
   switch (tool) {
     case 'codex':
-      return <Code2 size={15} />;
+      return (
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary">
+          <img src={openaiLogo} alt="" className="h-5 w-5 object-contain" />
+        </div>
+      );
     case 'claude':
-      return <Bot size={15} />;
+      return (
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary">
+          <img src={claudeLogo} alt="" className="h-5 w-5 object-contain" />
+        </div>
+      );
     case 'pi':
     default:
-      return <PlugZap size={15} />;
+      return (
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-dim">
+          <PlugZap size={16} />
+        </div>
+      );
   }
+}
+
+function toolDisplayName(toolId: HarnessToolId | null, tools: HarnessToolStatus[]) {
+  if (!toolId) return 'Harness';
+  return tools.find((tool) => tool.id === toolId)?.name ?? toolId;
 }
 
 function describePiPackage(pkg: PiPackageEntry) {
