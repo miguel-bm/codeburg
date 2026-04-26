@@ -75,7 +75,7 @@ export function V2ProjectPage() {
     enabled: !!id,
   });
 
-  const safeWorkspaces = Array.isArray(workspaces) ? workspaces : [];
+  const safeWorkspaces = useMemo(() => Array.isArray(workspaces) ? workspaces : [], [workspaces]);
   const sortedWorkspaces = useMemo(() => [...safeWorkspaces].sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === 'main' ? -1 : 1;
     return a.createdAt.localeCompare(b.createdAt);
@@ -100,7 +100,7 @@ export function V2ProjectPage() {
     enabled: !!project && !!activeWorkspaceId,
   });
 
-  const safeTerminals = Array.isArray(terminals) ? terminals : [];
+  const safeTerminals = useMemo(() => Array.isArray(terminals) ? terminals : [], [terminals]);
   const safeWorkspaceConversations = Array.isArray(workspaceConversations) ? workspaceConversations : [];
   const sortedTerminals = useMemo(() => [...safeTerminals].sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [safeTerminals]);
   const activeTerminal = mainSurface?.type === 'terminal'

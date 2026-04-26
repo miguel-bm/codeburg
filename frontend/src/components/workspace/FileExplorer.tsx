@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Tree, type MoveHandler, type NodeApi, type TreeApi } from 'react-arborist';
 import {
   ChevronRight,
@@ -17,11 +18,15 @@ import {
 } from 'lucide-react';
 import { useWorkspaceFiles } from '../../hooks/useWorkspaceFiles';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
+import { useHoverTooltip } from '../../hooks/useHoverTooltip';
+import type { GitStatus } from '../../api/git';
 import { buildFileTree, filterFileTree } from './fileTreeUtils';
 import { getFileIcon } from './fileIcons';
 import { ContextMenu, type ContextMenuItem } from '../ui/ContextMenu';
+import { HoverInfoTooltip } from '../ui/HoverInfoTooltip';
 import type { FileTreeNodeData } from './editorUtils';
 import { useWorkspaceStore } from '../../stores/workspace';
+import { useWorkspace } from './WorkspaceContext';
 
 interface ContextMenuState {
   position: { x: number; y: number };
@@ -30,6 +35,25 @@ interface ContextMenuState {
 
 // Temporary node used for inline file/folder creation
 const CREATING_NODE_ID = '__creating__';
+const FILE_TREE_ROW_HEIGHT = 26;
+
+type DiffTone = 'added' | 'modified' | 'deleted' | 'renamed' | 'copied';
+
+const diffTonePriority: Record<DiffTone, number> = {
+  added: 1,
+  copied: 2,
+  renamed: 3,
+  modified: 4,
+  deleted: 5,
+};
+
+const diffToneClassName: Record<DiffTone, string> = {
+  added: 'text-green-500',
+  copied: 'text-purple-400',
+  renamed: 'text-blue-400',
+  modified: 'text-yellow-500',
+  deleted: 'text-red-500',
+};
 
 export function FileExplorer() {
   const {
@@ -41,10 +65,21 @@ export function FileExplorer() {
     downloadFile,
     isLoading,
   } = useWorkspaceFiles(undefined, 20);
+  const { api, scopeType, scopeId } = useWorkspace();
   const { openFile } = useWorkspaceNav();
   const activeEditorPath = useWorkspaceStore((state) => {
     const activeTab = state.tabs[state.activeTabIndex];
     return activeTab?.type === 'editor' ? activeTab.path : null;
+  });
+  const activeEditorTabIndex = useWorkspaceStore((state) => {
+    const activeTab = state.tabs[state.activeTabIndex];
+    return activeTab?.type === 'editor' ? state.activeTabIndex : -1;
+  });
+  const closeTab = useWorkspaceStore((state) => state.closeTab);
+  const { data: gitStatus } = useQuery({
+    queryKey: ['workspace-git-status', scopeType, scopeId],
+    queryFn: () => api.git.status(),
+    refetchInterval: 5000,
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -72,6 +107,7 @@ export function FileExplorer() {
 
   const tree = useMemo(() => buildFileTree(files), [files]);
   const filtered = useMemo(() => filterFileTree(tree, searchQuery), [tree, searchQuery]);
+  const diffToneByPath = useMemo(() => buildDiffToneMap(gitStatus), [gitStatus]);
 
   // Insert a temporary "creating" node into the tree data when creating
   const treeData = useMemo(() => {
@@ -112,9 +148,13 @@ export function FileExplorer() {
       const node = nodes[0];
       if (!node || node.data.type === 'dir') return;
       if (node.data.id === CREATING_NODE_ID) return;
+      if (node.data.path === activeEditorPath && activeEditorTabIndex >= 0) {
+        closeTab(activeEditorTabIndex);
+        return;
+      }
       openFile(node.data.path);
     },
-    [openFile],
+    [activeEditorPath, activeEditorTabIndex, closeTab, openFile],
   );
 
   // Get the target folder for inline creation based on current selection
@@ -343,7 +383,7 @@ export function FileExplorer() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Search + actions */}
-      <div className="flex items-center gap-1 px-2 py-2 border-b border-subtle">
+      <div className="flex items-center gap-1 px-2 py-2">
         <div className="relative flex-1">
           <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-dim" />
           <input
@@ -354,20 +394,18 @@ export function FileExplorer() {
             className="w-full pl-7 pr-2 py-1.5 text-xs bg-primary border border-subtle rounded-md focus:border-accent focus:outline-none"
           />
         </div>
-        <button
+        <FileTreeActionButton
+          tooltip="New file"
           onClick={() => startCreating('file')}
-          className="p-1 text-dim hover:text-accent transition-colors"
-          title="New file"
         >
           <FilePlus2 size={14} />
-        </button>
-        <button
+        </FileTreeActionButton>
+        <FileTreeActionButton
+          tooltip="New folder"
           onClick={() => startCreating('dir')}
-          className="p-1 text-dim hover:text-accent transition-colors"
-          title="New folder"
         >
           <FolderPlus size={14} />
-        </button>
+        </FileTreeActionButton>
       </div>
 
       {/* File tree */}
@@ -385,7 +423,7 @@ export function FileExplorer() {
             openByDefault={false}
             width={undefined as unknown as number}
             height={treeHeight}
-            rowHeight={26}
+            rowHeight={FILE_TREE_ROW_HEIGHT}
             indent={16}
             onSelect={handleSelect}
             onMove={handleMove}
@@ -403,11 +441,15 @@ export function FileExplorer() {
               const isRenaming = renamingPath === node.data.path;
               const iconInfo = isDir ? null : getFileIcon(node.data.name);
               const Icon = iconInfo?.icon;
+              const diffTone = diffToneByPath.get(node.data.path);
+              const diffClassName = diffTone ? diffToneClassName[diffTone] : '';
+              const nameClassName = diffClassName || (node.isSelected ? 'text-accent' : 'text-[var(--color-text-primary)]');
+              const folderIconClassName = diffClassName || (node.isOpen ? 'text-accent' : 'text-dim');
 
               // Inline creation node
               if (isCreatingNode) {
                 return (
-                  <div style={style} className="flex items-center gap-1 pr-2 text-xs">
+                  <div style={style} className="flex h-full items-center gap-1 px-1.5 pr-2 text-xs">
                     {isDir ? (
                       <FolderPlus size={14} className="text-accent shrink-0 ml-3.5" />
                     ) : (
@@ -455,13 +497,14 @@ export function FileExplorer() {
                 <div
                   ref={dragHandle}
                   style={style}
-                  className={`flex items-center gap-1 pr-2 text-xs cursor-pointer group transition-colors rounded-sm ${
+                  className={`flex h-full items-center gap-1 px-1.5 pr-2 text-xs cursor-pointer group transition-colors ${
                     node.isSelected
-                      ? 'bg-accent/10 text-accent'
+                      ? 'bg-accent/10'
                       : 'hover:bg-tertiary'
                   }`}
                   onClick={() => (isDir ? node.toggle() : node.select())}
                   onContextMenu={(e) => openContextMenu(e, node.data)}
+                  title={diffTone ? `${node.data.path} (${diffTone})` : node.data.path}
                 >
                   {/* Chevron for directories, spacer for files */}
                   {isDir ? (
@@ -478,9 +521,9 @@ export function FileExplorer() {
                   {/* Icon */}
                   {isDir ? (
                     node.isOpen ? (
-                      <FolderOpen size={14} className="text-accent shrink-0" />
+                      <FolderOpen size={14} className={`${folderIconClassName} shrink-0`} />
                     ) : (
-                      <Folder size={14} className="text-dim shrink-0" />
+                      <Folder size={14} className={`${folderIconClassName} shrink-0`} />
                     )
                   ) : (
                     Icon && <Icon size={14} className={`shrink-0 ${iconInfo.className}`} />
@@ -515,7 +558,7 @@ export function FileExplorer() {
                       onClick={(e) => e.stopPropagation()}
                     />
                   ) : (
-                    <span className="truncate flex-1">{node.data.name}</span>
+                    <span className={`truncate flex-1 ${nameClassName}`}>{node.data.name}</span>
                   )}
                 </div>
               );
@@ -533,5 +576,86 @@ export function FileExplorer() {
         />
       )}
     </div>
+  );
+}
+
+function buildDiffToneMap(status?: GitStatus): Map<string, DiffTone> {
+  const tones = new Map<string, DiffTone>();
+  if (!status) return tones;
+
+  for (const path of status.untracked) {
+    markPathAndAncestors(tones, path, 'added');
+  }
+
+  for (const file of [...status.staged, ...status.unstaged]) {
+    markPathAndAncestors(tones, file.path, toneForGitStatus(file.status));
+  }
+
+  return tones;
+}
+
+function toneForGitStatus(status: string): DiffTone {
+  if (status.includes('D')) return 'deleted';
+  if (status.includes('R')) return 'renamed';
+  if (status.includes('C')) return 'copied';
+  if (status.includes('A') || status.includes('?')) return 'added';
+  return 'modified';
+}
+
+function markPathAndAncestors(tones: Map<string, DiffTone>, path: string, tone: DiffTone) {
+  let current = path;
+  while (current) {
+    const existing = tones.get(current);
+    if (!existing || diffTonePriority[tone] > diffTonePriority[existing]) {
+      tones.set(current, tone);
+    }
+
+    const parentSlash = current.lastIndexOf('/');
+    if (parentSlash < 0) break;
+    current = current.slice(0, parentSlash);
+  }
+}
+
+function FileTreeActionButton({
+  tooltip,
+  children,
+  className = '',
+  onMouseEnter,
+  onMouseLeave,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { tooltip: string; children: ReactNode }) {
+  const {
+    tooltip: hoverTooltip,
+    handleMouseEnter,
+    handleMouseLeave,
+  } = useHoverTooltip({ delay: 450 });
+
+  return (
+    <>
+      <button
+        type="button"
+        title={tooltip}
+        aria-label={tooltip}
+        onMouseEnter={(event) => {
+          onMouseEnter?.(event);
+          handleMouseEnter(event);
+        }}
+        onMouseLeave={(event) => {
+          onMouseLeave?.(event);
+          handleMouseLeave();
+        }}
+        className={`p-1 text-dim hover:text-accent transition-colors ${className}`}
+        {...props}
+      >
+        {children}
+      </button>
+      {hoverTooltip && (
+        <HoverInfoTooltip
+          x={hoverTooltip.x}
+          y={hoverTooltip.y}
+          text={tooltip}
+        />
+      )}
+    </>
   );
 }

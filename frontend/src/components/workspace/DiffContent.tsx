@@ -6,6 +6,7 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import { getLanguageExtension, darkEditorTheme, lightEditorTheme } from './editorUtils';
 import { getResolvedTheme, subscribeToThemeChange } from '../../lib/theme';
 import { useMobile } from '../../hooks/useMobile';
+import { getDiffLayoutMode } from './diffLayout';
 
 // GitHub-style diff colors — background highlights instead of underlines
 const githubDiffDark = EditorView.theme({
@@ -79,23 +80,6 @@ interface DiffContentProps {
   original: string;
   modified: string;
   path: string;
-}
-
-const TIGHT_DIFF_WIDTH_PX = 1000;
-
-type DiffLayoutMode = 'split' | 'unified';
-
-export function getDiffLayoutMode(opts: {
-  isMobile: boolean;
-  containerWidth: number;
-  original: string;
-  modified: string;
-}): DiffLayoutMode {
-  const { isMobile, containerWidth, original, modified } = opts;
-  const isEntirelyNewFile = original.length === 0 && modified.length > 0;
-  const isTightWidth = containerWidth > 0 && containerWidth < TIGHT_DIFF_WIDTH_PX;
-  if (isMobile || isTightWidth || isEntirelyNewFile) return 'unified';
-  return 'split';
 }
 
 export function DiffContent({ original, modified, path }: DiffContentProps) {

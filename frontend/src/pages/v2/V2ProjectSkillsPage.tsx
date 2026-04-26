@@ -40,7 +40,7 @@ export function V2ProjectSkillsPage() {
 
   const installed = Array.isArray(skills?.installed) ? skills.installed : [];
   const available = Array.isArray(skills?.available) ? skills.available : [];
-  const catalogEntries = Array.isArray(catalog) ? catalog : [];
+  const catalogEntries = useMemo(() => Array.isArray(catalog) ? catalog : [], [catalog]);
 
   const invalidateSkills = async () => {
     await Promise.all([

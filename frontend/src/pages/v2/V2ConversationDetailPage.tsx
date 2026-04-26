@@ -94,7 +94,7 @@ export function V2ConversationDetailPage() {
   const isActiveConversation = conversation?.status === 'active';
   const { snapshot: liveSnapshot, connected, connecting, error, sendMessage, abort } = usePiConversation(conversationId ?? '', isActiveConversation);
   const snapshot: PiConversationSnapshot | null = liveSnapshot ?? stateSnapshot ?? null;
-  const safeWorkspaces = Array.isArray(workspaces) ? workspaces : [];
+  const safeWorkspaces = useMemo(() => Array.isArray(workspaces) ? workspaces : [], [workspaces]);
   const safeWorkspaceHistory = Array.isArray(workspaceHistory) ? workspaceHistory : [];
   const attachedWorkspace = useMemo(
     () => safeWorkspaces.find((workspace) => workspace.id === conversation?.currentWorkspaceId),

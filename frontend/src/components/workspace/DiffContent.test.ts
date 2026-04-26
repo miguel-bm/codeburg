@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getDiffLayoutMode } from './DiffContent';
+import { getDiffLayoutMode } from './diffLayout';
 
 describe('getDiffLayoutMode', () => {
   it('uses split mode on roomy desktop diffs', () => {

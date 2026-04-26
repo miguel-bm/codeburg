@@ -2,7 +2,6 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { ChevronDown, ChevronUp, X, Settings, PanelLeftClose, PanelLeftOpen, FolderOpen, BookPlus } from 'lucide-react';
 import { TASK_STATUS } from '../../api';
-import type { SidebarData } from '../../api';
 import { useSidebarData } from '../../hooks/useSidebarData';
 import { useMobile } from '../../hooks/useMobile';
 import { useKeyboardNav } from '../../hooks/useKeyboardNav';
@@ -14,6 +13,7 @@ import { CreateProjectModal } from '../common/CreateProjectModal';
 import { CodeburgIcon, CodeburgWordmark } from '../ui/CodeburgIcon';
 import { getDesktopTitleBarInsetTop, isDesktopShell } from '../../platform/runtimeConfig';
 import { CollapsedProjectIndicators, HiddenProjectsSection, SidebarProjectNode } from './SidebarNodes';
+import { countWaiting } from './sidebarUtils';
 
 interface FocusableItem {
   type: 'project' | 'task' | 'add-task';
@@ -25,22 +25,6 @@ interface SidebarProps {
   onClose?: () => void;
   width?: number;
   collapsed?: boolean;
-}
-
-export function countWaiting(data: SidebarData | undefined): number {
-  if (!data?.projects) return 0;
-  let n = 0;
-  for (const p of data.projects) {
-    for (const s of p.sessions) {
-      if (s.status === 'waiting_input') n++;
-    }
-    for (const t of p.tasks) {
-      for (const s of t.sessions) {
-        if (s.status === 'waiting_input') n++;
-      }
-    }
-  }
-  return n;
 }
 
 export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
