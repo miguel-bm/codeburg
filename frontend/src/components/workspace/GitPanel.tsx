@@ -306,23 +306,23 @@ export function GitPanel() {
         <div className="overflow-auto" style={{ height: `${splitFraction * 100}%` }}>
           {/* Sticky header: commit input + error + branch */}
           <div className="sticky top-0 z-10 bg-canvas">
-            <div className="flex items-center gap-1 px-2 py-2">
+            <div className="flex items-center gap-1.5 px-2 py-2.5">
               <div className="relative min-w-0 flex-1">
-                <GitCommit size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-dim" />
+                <GitCommit size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim" />
                 <input
                   type="text"
                   value={commitMsg}
                   onChange={(e) => setCommitMsg(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Commit message"
-                  className="w-full rounded-md border border-subtle bg-primary py-1.5 pl-7 pr-2 text-xs focus:border-accent focus:outline-none"
+                  className="h-9 w-full rounded-md border border-subtle bg-primary pl-8 pr-3 text-sm leading-none focus:border-accent focus:outline-none"
                 />
               </div>
               <button
                 type="button"
                 onClick={handleCommit}
                 disabled={!commitMsg.trim() || status.staged.length === 0 || isCommitting}
-                className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-accent px-2 text-xs font-medium text-white transition-colors hover:bg-accent-dim disabled:opacity-40"
+                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-white transition-colors hover:bg-accent-dim disabled:opacity-40"
                 title="Commit staged changes"
               >
                 <GitCommit size={13} />
@@ -332,7 +332,7 @@ export function GitPanel() {
                 ref={menuBtnRef}
                 type="button"
                 onClick={openMenu}
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-dim transition-colors hover:bg-tertiary hover:text-[var(--color-text-primary)]"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-dim transition-colors hover:bg-tertiary hover:text-[var(--color-text-primary)]"
                 title="More actions"
               >
                 <MoreVertical size={15} />
@@ -420,15 +420,15 @@ export function GitPanel() {
                 return (
                   <div
                     key={f.path}
-                    className={`flex items-center gap-1 px-2 py-0.5 group cursor-pointer text-xs ${
+                    className={`flex min-h-8 items-center gap-2 px-3 py-1.5 group cursor-pointer text-[13px] ${
                       isActive ? 'bg-accent/10 text-accent' : 'hover:bg-tertiary'
                     }`}
-                  onClick={() => selectDiff({ file: f.path, base: true })}
+                    onClick={() => selectDiff({ file: f.path, base: true })}
                   >
-                    <span className="w-4 text-center text-[10px] font-mono text-dim">&Delta;</span>
+                    <span className="w-5 text-center text-[11px] font-mono text-dim">&Delta;</span>
                     <span className="flex-1 truncate">{f.path}</span>
-                    {f.additions > 0 && <span className="text-[10px] text-green-500">+{f.additions}</span>}
-                    {f.deletions > 0 && <span className="text-[10px] text-red-500">-{f.deletions}</span>}
+                    {f.additions > 0 && <span className="text-[11px] text-green-500">+{f.additions}</span>}
+                    {f.deletions > 0 && <span className="text-[11px] text-red-500">-{f.deletions}</span>}
                   </div>
                 );
               })
@@ -788,35 +788,35 @@ function FileEntry({
 }) {
   return (
     <div
-      className={`flex items-center gap-1 px-2 py-0.5 group cursor-pointer text-xs ${
+      className={`flex min-h-8 items-center gap-2 px-3 py-1.5 group cursor-pointer text-[13px] ${
         active ? 'bg-accent/10 text-accent' : 'hover:bg-tertiary'
       }`}
       onClick={onClick}
     >
-      <span className={`w-4 text-center text-[10px] font-mono ${statusColor(file.status)}`}>
+      <span className={`w-5 text-center text-[11px] font-mono ${statusColor(file.status)}`}>
         {statusLabel(file.status)}
       </span>
       <span className="flex-1 truncate">{file.path}</span>
       {file.additions !== undefined && file.additions > 0 && (
-        <span className="text-[10px] text-green-500">+{file.additions}</span>
+        <span className="text-[11px] text-green-500">+{file.additions}</span>
       )}
       {file.deletions !== undefined && file.deletions > 0 && (
-        <span className="text-[10px] text-red-500">-{file.deletions}</span>
+        <span className="text-[11px] text-red-500">-{file.deletions}</span>
       )}
       <div className="sm:opacity-0 sm:group-hover:opacity-100 flex items-center gap-0.5">
         {section === 'staged' && onUnstage && (
-          <button onClick={(e) => { e.stopPropagation(); onUnstage(); }} className="p-0.5 text-dim hover:text-accent" title="Unstage">
-            <Minus size={14} />
+          <button onClick={(e) => { e.stopPropagation(); onUnstage(); }} className="p-1 text-dim hover:text-accent" title="Unstage">
+            <Minus size={13} />
           </button>
         )}
         {(section === 'unstaged' || section === 'untracked') && onStage && (
-          <button onClick={(e) => { e.stopPropagation(); onStage(); }} className="p-0.5 text-dim hover:text-accent" title="Stage">
-            <Plus size={14} />
+          <button onClick={(e) => { e.stopPropagation(); onStage(); }} className="p-1 text-dim hover:text-accent" title="Stage">
+            <Plus size={13} />
           </button>
         )}
         {(section === 'unstaged' || section === 'untracked') && onRevert && (
-          <button onClick={(e) => { e.stopPropagation(); onRevert(); }} className="p-0.5 text-dim hover:text-[var(--color-error)]" title="Revert">
-            <Undo2 size={14} />
+          <button onClick={(e) => { e.stopPropagation(); onRevert(); }} className="p-1 text-dim hover:text-[var(--color-error)]" title="Revert">
+            <Undo2 size={13} />
           </button>
         )}
       </div>
@@ -841,12 +841,12 @@ function Section({
 }) {
   return (
     <div>
-      <div className="flex items-center justify-between px-2 py-1 bg-secondary">
+      <div className="flex min-h-8 items-center justify-between px-3 py-1.5 bg-secondary">
         <button
           onClick={onToggle}
-          className="flex items-center gap-1 text-[11px] font-medium text-dim hover:text-[var(--color-text-primary)]"
+          className="flex items-center gap-1 text-xs font-medium text-dim hover:text-[var(--color-text-primary)]"
         >
-          <ChevronRight size={12} className={`transition-transform ${expanded ? 'rotate-90' : ''}`} />
+          <ChevronRight size={13} className={`transition-transform ${expanded ? 'rotate-90' : ''}`} />
           {title}
         </button>
         {actions}

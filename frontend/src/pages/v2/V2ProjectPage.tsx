@@ -9,7 +9,6 @@ import {
   GitCommitHorizontal,
   MessageSquarePlus,
   MessageSquareText,
-  PanelRightOpen,
   PlusCircle,
   RefreshCw,
   SquareTerminal,
@@ -34,7 +33,7 @@ import {
   V2Screen,
 } from './v2-ui';
 import { V2QuickActionsMenu } from './V2QuickActionsMenu';
-import { V2WorkspaceTools, type V2HelperTab } from './V2WorkspaceTools';
+import { V2WorkspaceToolTabs, V2WorkspaceTools, type V2HelperTab } from './V2WorkspaceTools';
 
 type MainSurface = { type: 'terminal'; terminalId: string } | { type: 'workspaceTab'; index: number } | null;
 
@@ -288,6 +287,15 @@ export function V2ProjectPage() {
     setMainSurface(null);
   }, [closeTab, mainSurface]);
 
+  const toggleHelperTab = useCallback((tab: V2HelperTab) => {
+    if (toolsOpen && helperTab === tab) {
+      setToolsOpen(false);
+      return;
+    }
+    setHelperTab(tab);
+    setToolsOpen(true);
+  }, [helperTab, toolsOpen]);
+
   const beginResize = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
     resizeStart.current = { x: event.clientX, width: toolsWidth };
@@ -390,6 +398,10 @@ export function V2ProjectPage() {
               createTerminalDisabled={terminalDisabled}
               createTerminalPending={createTerminal.isPending}
               createConversationPending={createConversation.isPending}
+              helperTab={helperTab}
+              toolsOpen={toolsOpen}
+              toolsDisabled={!project || !activeWorkspace}
+              onToggleHelperTab={toggleHelperTab}
             />
           )}
 
@@ -423,11 +435,7 @@ export function V2ProjectPage() {
             <div className="w-1.5 shrink-0 cursor-col-resize bg-canvas hover:bg-accent/30" onMouseDown={beginResize} />
             <aside className="min-h-0 shrink-0 border-l border-[var(--color-card-border)] bg-canvas" style={{ width: toolsWidth }}>
               {project && activeWorkspace ? (
-                <V2WorkspaceTools
-                  helperTab={helperTab}
-                  onSelectHelperTab={setHelperTab}
-                  onClose={() => setToolsOpen(false)}
-                />
+                <V2WorkspaceTools helperTab={helperTab} />
               ) : (
                 <V2Empty
                   icon={<Files size={24} />}
@@ -437,17 +445,6 @@ export function V2ProjectPage() {
               )}
             </aside>
           </>
-        )}
-
-        {!toolsOpen && (
-          <button
-            type="button"
-            onClick={() => setToolsOpen(true)}
-            className="flex w-9 shrink-0 items-center justify-center border-l border-[var(--color-card-border)] bg-canvas text-dim hover:text-[var(--color-text-primary)]"
-            title="Open tools"
-          >
-            <PanelRightOpen size={16} />
-          </button>
         )}
       </div>
     </V2Screen>
@@ -526,6 +523,10 @@ function MainTabBar({
   createTerminalDisabled,
   createTerminalPending,
   createConversationPending,
+  helperTab,
+  toolsOpen,
+  toolsDisabled,
+  onToggleHelperTab,
 }: {
   terminals: TerminalSession[];
   terminalPending: boolean;
@@ -545,6 +546,10 @@ function MainTabBar({
   createTerminalDisabled: boolean;
   createTerminalPending: boolean;
   createConversationPending: boolean;
+  helperTab: V2HelperTab;
+  toolsOpen: boolean;
+  toolsDisabled?: boolean;
+  onToggleHelperTab: (tab: V2HelperTab) => void;
 }) {
   const [newTabOpen, setNewTabOpen] = useState(false);
   const workspaceTabs = tabs
@@ -607,6 +612,14 @@ function MainTabBar({
             </span>
           </button>
         ))}
+      </div>
+      <div className="relative shrink-0">
+        <V2WorkspaceToolTabs
+          helperTab={helperTab}
+          toolsOpen={toolsOpen}
+          disabled={toolsDisabled}
+          onToggleHelperTab={onToggleHelperTab}
+        />
       </div>
       <div className="relative shrink-0">
         <button

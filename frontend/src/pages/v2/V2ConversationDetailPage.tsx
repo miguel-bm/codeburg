@@ -10,7 +10,6 @@ import {
   GitBranchPlus,
   MessageSquarePlus,
   MessageSquareText,
-  PanelRightOpen,
   PlusCircle,
   Send,
   Sparkles,
@@ -30,7 +29,7 @@ import { usePiConversation } from '../../hooks/usePiConversation';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { Button, V2Empty, V2Input, V2Screen, V2Select, V2Textarea } from './v2-ui';
 import { V2QuickActionsMenu } from './V2QuickActionsMenu';
-import { V2WorkspaceTools, type V2HelperTab } from './V2WorkspaceTools';
+import { V2WorkspaceToolTabs, V2WorkspaceTools, type V2HelperTab } from './V2WorkspaceTools';
 
 type MainSurface = 'conversation' | { type: 'workspaceTab'; index: number };
 
@@ -295,6 +294,15 @@ export function V2ConversationDetailPage() {
     setMainSurface('conversation');
   }, [closeTab, mainSurface]);
 
+  const toggleHelperTab = useCallback((tab: V2HelperTab) => {
+    if (toolsOpen && helperTab === tab) {
+      setToolsOpen(false);
+      return;
+    }
+    setHelperTab(tab);
+    setToolsOpen(true);
+  }, [helperTab, toolsOpen]);
+
   const workspaceValue = selectedWorkspaceId || conversation?.currentWorkspaceId || '';
   const sortedTerminals = [...safeTerminals].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const shell = (
@@ -337,6 +345,12 @@ export function V2ConversationDetailPage() {
                   </button>
                 ))}
               </div>
+              <V2WorkspaceToolTabs
+                helperTab={helperTab}
+                toolsOpen={toolsOpen}
+                disabled={!project || !activeWorkspace}
+                onToggleHelperTab={toggleHelperTab}
+              />
               <div className="relative shrink-0">
                 <button
                   type="button"
@@ -425,23 +439,12 @@ export function V2ConversationDetailPage() {
             <div className="w-1.5 shrink-0 cursor-col-resize bg-canvas hover:bg-accent/30" onMouseDown={beginResize} />
             <aside className="min-h-0 shrink-0 bg-canvas" style={{ width: toolsWidth }}>
               {activeWorkspace && project ? (
-                <V2WorkspaceTools helperTab={helperTab} onSelectHelperTab={setHelperTab} onClose={() => setToolsOpen(false)} />
+                <V2WorkspaceTools helperTab={helperTab} />
               ) : (
                 <V2Empty icon={<Wrench size={24} />} title="No workspace tools yet" body="Attach this conversation to a workspace to inspect files, search, and git changes." />
               )}
             </aside>
           </>
-        )}
-
-        {!toolsOpen && (
-          <button
-            type="button"
-            onClick={() => setToolsOpen(true)}
-            className="flex w-9 shrink-0 items-center justify-center bg-canvas text-dim hover:text-[var(--color-text-primary)]"
-            title="Open tools"
-          >
-            <PanelRightOpen size={16} />
-          </button>
         )}
       </div>
     </V2Screen>
