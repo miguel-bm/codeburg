@@ -1,16 +1,18 @@
 import { useDeferredValue, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, GitBranchPlus, MessageSquareText, Search } from 'lucide-react';
+import { GitBranchPlus, MessageSquareText, Search } from 'lucide-react';
 import { projectsApi } from '../../api';
 import type { Conversation } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { Badge } from '../../components/ui/Badge';
+import { useMobile } from '../../hooks/useMobile';
 import { Button, V2Content, V2Empty, V2Header, V2Input, V2Panel, V2PanelHeader, V2Row, V2Screen } from './v2-ui';
 
 export function V2ConversationsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const isMobile = useMobile();
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search.trim());
 
@@ -40,6 +42,81 @@ export function V2ConversationsPage() {
     () => new Map((projects ?? []).map((project) => [project.id, project])),
     [projects],
   );
+  const safeConversations = conversations ?? [];
+
+  if (isMobile) {
+    return (
+      <V2Screen>
+        <header className="shrink-0 border-b border-[var(--color-card-border)] px-4 py-3 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="truncate text-lg font-semibold text-[var(--color-text-primary)]">Chat</h1>
+            <Badge variant="count">{safeConversations.length}</Badge>
+          </div>
+        </header>
+
+        <div className="shrink-0 border-b border-[var(--color-card-border)] px-4 py-3">
+          <label className="relative block">
+            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-dim" />
+            <V2Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search conversations"
+              className="w-full !pl-9"
+            />
+          </label>
+        </div>
+
+        <main className="min-h-0 flex-1 overflow-auto">
+          <div className="divide-y divide-[var(--color-card-border)]">
+            {safeConversations.map((conversation) => {
+              const project = projectById.get(conversation.projectId);
+              return (
+                <div key={conversation.id} className="relative transition-colors active:bg-[var(--color-card-hover)]">
+                  <Link
+                    to={`/v2/conversations/${conversation.id}`}
+                    className="block min-h-[92px] px-4 py-3 pr-16 text-[var(--color-text-primary)]"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <MessageSquareText size={16} className="shrink-0 text-dim" />
+                      <span className="truncate text-base font-semibold">{conversation.title}</span>
+                    </div>
+                    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pl-6 text-xs text-dim">
+                      <span className="truncate">{project?.name ?? conversation.projectId}</span>
+                      <span>{conversation.currentWorkspaceId ? 'workspace' : 'project'}</span>
+                      {conversation.parentConversationId && <span>forked</span>}
+                      <span>{formatRelativeDate(conversation.lastActivityAt)}</span>
+                    </div>
+                    {conversation.summary && (
+                      <p className="mt-2 line-clamp-2 pl-6 text-sm leading-5 text-[var(--color-text-secondary)]">
+                        {conversation.summary}
+                      </p>
+                    )}
+                  </Link>
+                  <button
+                    type="button"
+                    disabled={forkConversation.isPending}
+                    onClick={() => forkConversation.mutate(conversation)}
+                    className="absolute right-3 top-3 inline-flex h-[44px] w-[44px] items-center justify-center rounded-md text-dim transition-colors hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:opacity-50"
+                    title="Fork conversation"
+                    aria-label="Fork conversation"
+                  >
+                    <GitBranchPlus size={16} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          {safeConversations.length === 0 && (
+            <V2Empty
+              icon={<MessageSquareText size={28} />}
+              title={deferredSearch ? 'No conversations match' : 'No conversations yet'}
+            />
+          )}
+        </main>
+      </V2Screen>
+    );
+  }
 
   return (
     <V2Screen>
@@ -67,17 +144,29 @@ export function V2ConversationsPage() {
           />
 
           <div className="divide-y divide-[var(--color-card-border)]">
-            {(conversations ?? []).map((conversation) => {
+            {safeConversations.map((conversation) => {
               const project = projectById.get(conversation.projectId);
               return (
                 <V2Row key={conversation.id} className="rounded-none px-4 py-3 hover:bg-[var(--color-card-hover)]">
-                  <div className="flex items-start justify-between gap-4">
+                  <div
+                    role="link"
+                    tabIndex={0}
+                    onClick={() => navigate(`/v2/conversations/${conversation.id}`)}
+                    onKeyDown={(event) => {
+                      if (event.currentTarget !== event.target) return;
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        navigate(`/v2/conversations/${conversation.id}`);
+                      }
+                    }}
+                    className="flex cursor-pointer items-start justify-between gap-4"
+                  >
                     <div className="min-w-0">
                       <div className="flex min-w-0 items-center gap-2">
                         <MessageSquareText size={15} className="shrink-0 text-dim" />
-                        <Link to={`/v2/conversations/${conversation.id}`} className="truncate text-sm font-medium hover:text-accent">
+                        <span className="truncate text-sm font-medium">
                           {conversation.title}
-                        </Link>
+                        </span>
                         <Badge variant="label" color={conversationStatusColor(conversation.status)}>{conversation.status}</Badge>
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-2 pl-6 text-xs text-dim">
@@ -89,12 +178,18 @@ export function V2ConversationsPage() {
                       {conversation.summary && <p className="mt-2 max-w-3xl pl-6 text-sm leading-5 text-[var(--color-text-secondary)]">{conversation.summary}</p>}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      <Button size="xs" variant="secondary" icon={<GitBranchPlus size={13} />} disabled={forkConversation.isPending} onClick={() => forkConversation.mutate(conversation)}>
+                      <Button
+                        size="xs"
+                        variant="secondary"
+                        icon={<GitBranchPlus size={13} />}
+                        disabled={forkConversation.isPending}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          forkConversation.mutate(conversation);
+                        }}
+                      >
                         Fork
                       </Button>
-                      <Link to={`/v2/conversations/${conversation.id}`}>
-                        <Button size="xs" variant="primary" iconRight={<ArrowRight size={13} />}>Open</Button>
-                      </Link>
                     </div>
                   </div>
                 </V2Row>

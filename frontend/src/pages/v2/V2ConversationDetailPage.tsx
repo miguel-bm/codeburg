@@ -348,7 +348,7 @@ export function V2ConversationDetailPage() {
                     key={terminal.id}
                     type="button"
                     onClick={() => navigate(`/v2/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`)}
-                    className="inline-flex h-10 max-w-[12rem] shrink-0 items-center gap-2 rounded-md px-3 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] md:h-7 md:gap-1.5 md:px-2 md:text-xs"
+                    className="inline-flex h-[44px] max-w-[12rem] shrink-0 items-center gap-2 rounded-md px-3 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] md:h-7 md:gap-1.5 md:px-2 md:text-xs"
                   >
                     <SquareTerminal size={13} />
                     <span className="truncate">{terminal.title || 'Terminal'}</span>
@@ -360,7 +360,7 @@ export function V2ConversationDetailPage() {
                   type="button"
                   disabled={!activeWorkspace || activeWorkspace.status !== 'active'}
                   onClick={() => setNewTabOpen((value) => !value)}
-                  className="inline-flex h-10 cursor-pointer items-center justify-center rounded-md px-3 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50 md:h-7 md:px-2"
+                  className="inline-flex h-[44px] cursor-pointer items-center justify-center rounded-md px-3 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50 md:h-7 md:px-2"
                   title="New tab"
                 >
                   <PlusCircle size={15} />
@@ -368,7 +368,7 @@ export function V2ConversationDetailPage() {
                 {newTabOpen && (
                   <>
                     <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close new tab menu" onClick={() => setNewTabOpen(false)} />
-                    <div className="fixed inset-x-3 bottom-4 z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)] md:absolute md:inset-auto md:right-0 md:top-8 md:w-44">
+                    <div className="fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)] md:absolute md:inset-auto md:right-0 md:top-8 md:w-44">
                       <NewTabMenuItem icon={<MessageSquarePlus size={14} />} disabled={createConversation.isPending} onClick={() => { setNewTabOpen(false); createConversation.mutate(); }}>Conversation</NewTabMenuItem>
                       <NewTabMenuItem icon={<SquareTerminal size={14} />} disabled={createTerminal.isPending || !activeWorkspace} onClick={() => { setNewTabOpen(false); createTerminal.mutate(); }}>Terminal</NewTabMenuItem>
                     </div>
@@ -399,7 +399,7 @@ export function V2ConversationDetailPage() {
                 {conversationActionsOpen && (
                   <>
                     <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close conversation actions" onClick={() => setConversationActionsOpen(false)} />
-                    <div className="fixed inset-x-3 bottom-4 z-50 rounded-xl bg-card p-3 shadow-[var(--shadow-card)] md:absolute md:inset-auto md:right-0 md:top-7 md:w-80">
+                    <div className="fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-3 shadow-[var(--shadow-card)] md:absolute md:inset-auto md:right-0 md:top-7 md:w-80">
                       {conversation && <CompactWorkspaceMenu value={workspaceValue} workspaces={safeWorkspaces} pending={updateWorkspace.isPending} onChange={setSelectedWorkspaceId} onSave={() => updateWorkspace.mutate(workspaceValue || '')} />}
                       <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-center">
                         <V2Input value={forkTitle} onChange={(event) => setForkTitle(event.target.value)} placeholder="Fork title" className="min-w-0 flex-1" />
@@ -640,7 +640,7 @@ function NewTabMenuItem({ icon, children, disabled, onClick }: { icon: ReactNode
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
+      className="flex min-h-[44px] w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50 md:min-h-0 md:text-xs"
     >
       {icon}
       <span>{children}</span>
@@ -674,7 +674,7 @@ function ConversationTab({
   };
 
   return (
-    <div className={`inline-flex h-10 max-w-[15rem] shrink-0 items-center gap-2 rounded-md px-3 text-sm md:h-7 md:gap-1.5 md:px-2 md:text-xs ${
+    <div className={`inline-flex h-[44px] max-w-[15rem] shrink-0 items-center gap-2 rounded-md px-3 text-sm md:h-7 md:gap-1.5 md:px-2 md:text-xs ${
       active
         ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
         : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]'

@@ -33,7 +33,7 @@ export function V2Header({
   actions?: ReactNode;
 }) {
   return (
-    <header className="shrink-0 bg-canvas px-5 py-3">
+    <header className="shrink-0 bg-canvas px-4 py-3 md:px-5">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           {backTo && (
@@ -45,8 +45,8 @@ export function V2Header({
               {backLabel}
             </Link>
           )}
-          {eyebrow && <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-dim">{eyebrow}</div>}
-          <h1 className="mt-1 truncate text-lg font-semibold tracking-[-0.03em]">{title}</h1>
+          {eyebrow && <div className="text-[11px] font-medium uppercase text-dim">{eyebrow}</div>}
+          <h1 className="mt-1 truncate text-lg font-semibold">{title}</h1>
           {subtitle && <div className="mt-1 max-w-3xl text-sm leading-5 text-dim">{subtitle}</div>}
         </div>
         {actions && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div>}
@@ -62,7 +62,7 @@ export function V2Content({
   children: ReactNode;
   className?: string;
 }) {
-  return <main className={`min-h-0 flex-1 overflow-auto px-5 py-5 ${className}`}>{children}</main>;
+  return <main className={`min-h-0 flex-1 overflow-auto px-0 py-0 md:px-5 md:py-5 ${className}`}>{children}</main>;
 }
 
 export function V2Panel({
@@ -73,7 +73,7 @@ export function V2Panel({
   className?: string;
 }) {
   return (
-    <section className={`rounded-xl bg-card shadow-[var(--shadow-card)] ${className}`}>
+    <section className={`rounded-none bg-card shadow-none md:rounded-xl md:shadow-[var(--shadow-card)] ${className}`}>
       {children}
     </section>
   );
@@ -146,7 +146,7 @@ export function V2Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`h-10 rounded-md border border-[var(--color-card-border)] bg-primary px-3 text-sm text-[var(--color-text-primary)] outline-none transition focus:border-[var(--color-accent)] md:h-8 md:px-2.5 ${props.className ?? ''}`}
+      className={`h-[44px] rounded-md border border-[var(--color-card-border)] bg-primary px-3 text-sm text-[var(--color-text-primary)] outline-none transition focus:border-[var(--color-accent)] md:h-8 md:px-2.5 ${props.className ?? ''}`}
     />
   );
 }
@@ -155,7 +155,7 @@ export function V2Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
       {...props}
-      className={`h-10 rounded-md border border-[var(--color-card-border)] bg-primary px-3 text-sm text-[var(--color-text-primary)] outline-none transition focus:border-[var(--color-accent)] md:h-8 md:px-2.5 ${props.className ?? ''}`}
+      className={`h-[44px] rounded-md border border-[var(--color-card-border)] bg-primary px-3 text-sm text-[var(--color-text-primary)] outline-none transition focus:border-[var(--color-accent)] md:h-8 md:px-2.5 ${props.className ?? ''}`}
     />
   );
 }
@@ -177,7 +177,7 @@ export function V2ToolbarButton({
   return (
     <button
       {...props}
-      className={`inline-flex h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium transition-colors disabled:opacity-50 md:h-7 md:gap-1.5 md:px-2 md:text-xs ${
+      className={`inline-flex h-[44px] items-center justify-center gap-2 rounded-md px-3 text-sm font-medium transition-colors disabled:opacity-50 md:h-7 md:gap-1.5 md:px-2 md:text-xs ${
         active
           ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
           : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'

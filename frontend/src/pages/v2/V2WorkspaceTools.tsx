@@ -70,7 +70,7 @@ export function V2WorkspaceToolsSurface({
         {open && (
           <motion.div
             key="workspace-tools-mobile"
-            className="fixed inset-0 z-50 flex min-h-0 flex-col bg-canvas text-[var(--color-text-primary)]"
+            className="fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] top-0 z-50 flex min-h-0 flex-col bg-canvas text-[var(--color-text-primary)]"
             initial={{ y: '100%', opacity: 0.96 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: '100%', opacity: 0.96 }}
@@ -87,7 +87,7 @@ export function V2WorkspaceToolsSurface({
               <button
                 type="button"
                 onClick={() => onToggleHelperTab(helperTab)}
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]"
+                className="inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]"
                 aria-label="Close workspace tools"
               >
                 <X size={18} />

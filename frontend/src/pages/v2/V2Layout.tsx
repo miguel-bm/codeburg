@@ -24,7 +24,6 @@ import {
   Search,
   Settings,
   SquareStack,
-  X,
 } from 'lucide-react';
 import { preferencesApi, projectsApi } from '../../api';
 import type { Conversation, PiConversationSnapshot, Project, Workspace } from '../../api/types';
@@ -41,7 +40,6 @@ export function V2Layout() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isMobile = useMobile();
-  const [mobileProjectDrawerOpen, setMobileProjectDrawerOpen] = useState(false);
   const sidebarExpanded = useSidebarStore(selectIsExpanded);
   const toggleSidebarExpanded = useSidebarStore((state) => state.toggleExpanded);
   const { data: projects, isLoading } = useQuery({
@@ -63,7 +61,7 @@ export function V2Layout() {
       if (pinnedA !== pinnedB) return pinnedA ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
-  const shouldLoadSidebarTree = !isMobile || mobileProjectDrawerOpen;
+  const shouldLoadSidebarTree = !isMobile;
   const workspaceQueries = useQueries({
     queries: visibleProjects.map((project) => ({
       queryKey: ['v2-workspaces', project.id],
@@ -171,10 +169,6 @@ export function V2Layout() {
 
   const desktopTopInset = isDesktopShell() ? getDesktopTitleBarInsetTop() : 0;
 
-  useEffect(() => {
-    setMobileProjectDrawerOpen(false);
-  }, [location.pathname, location.search]);
-
   const sidebarBody = (
     <>
       <div className="px-3 pb-3">
@@ -245,37 +239,17 @@ export function V2Layout() {
 
   if (isMobile) {
     return (
-      <div className="flex h-[100dvh] flex-col overflow-hidden bg-canvas text-[var(--color-text-primary)]">
-        <main className="min-w-0 flex-1 overflow-hidden">
+      <div className="relative h-[100dvh] overflow-hidden bg-canvas text-[var(--color-text-primary)]">
+        <main className="h-full min-w-0 overflow-hidden pb-[calc(64px+env(safe-area-inset-bottom))]">
           <Outlet />
         </main>
 
         <V2MobileBottomNav
           pathname={location.pathname}
-          projectsOpen={mobileProjectDrawerOpen}
-          onProjects={() => setMobileProjectDrawerOpen((value) => !value)}
+          onHome={() => navigate('/v2')}
           onConversations={() => navigate('/v2/conversations')}
           onSettings={() => navigate('/v2/settings')}
         />
-
-        {mobileProjectDrawerOpen && (
-          <div className="fixed inset-0 z-50 flex flex-col bg-canvas text-[var(--color-text-primary)]">
-            <div className="flex min-h-14 shrink-0 items-center justify-between px-4 pt-[env(safe-area-inset-top)]">
-              <Link to="/v2" className="flex min-w-0 items-center rounded-md py-2">
-                <CodeburgWordmark className="text-[var(--color-text-primary)]" />
-              </Link>
-              <button
-                type="button"
-                onClick={() => setMobileProjectDrawerOpen(false)}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]"
-                aria-label="Close projects"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            {sidebarBody}
-          </div>
-        )}
       </div>
     );
   }
@@ -329,26 +303,24 @@ export function V2Layout() {
 
 function V2MobileBottomNav({
   pathname,
-  projectsOpen,
-  onProjects,
+  onHome,
   onConversations,
   onSettings,
 }: {
   pathname: string;
-  projectsOpen: boolean;
-  onProjects: () => void;
+  onHome: () => void;
   onConversations: () => void;
   onSettings: () => void;
 }) {
   const conversationsActive = pathname.startsWith('/v2/conversations');
   const settingsActive = pathname.startsWith('/v2/settings');
-  const projectsActive = projectsOpen || (!conversationsActive && !settingsActive);
+  const homeActive = !conversationsActive && !settingsActive;
 
   return (
-    <nav className="shrink-0 border-t border-[var(--color-card-border)] bg-canvas px-2 pb-[env(safe-area-inset-bottom)]">
-      <div className="grid h-14 grid-cols-3 gap-1">
-        <V2MobileNavButton active={projectsActive} icon={<Folder size={18} />} label="Projects" onClick={onProjects} />
-        <V2MobileNavButton active={conversationsActive} icon={<MessageSquareText size={18} />} label="Chats" onClick={onConversations} />
+    <nav className="fixed inset-x-0 bottom-0 z-[70] border-t border-[var(--color-card-border)] bg-canvas/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-14px_32px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+      <div className="grid h-[64px] grid-cols-3">
+        <V2MobileNavButton active={homeActive} icon={<Folder size={18} />} label="Home" onClick={onHome} />
+        <V2MobileNavButton active={conversationsActive} icon={<MessageSquareText size={18} />} label="Chat" onClick={onConversations} />
         <V2MobileNavButton active={settingsActive} icon={<Settings size={18} />} label="Settings" onClick={onSettings} />
       </div>
     </nav>
@@ -370,13 +342,14 @@ function V2MobileNavButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg text-[11px] font-medium transition-colors ${
+      className={`relative flex min-w-0 flex-col items-center justify-center gap-1 text-[11px] font-semibold transition-colors ${
         active
-          ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]'
+          ? 'text-[var(--color-text-primary)]'
           : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
       }`}
     >
-      {icon}
+      {active && <span className="absolute top-0 h-0.5 w-9 rounded-full bg-accent" />}
+      <span className={active ? 'text-accent' : ''}>{icon}</span>
       <span className="truncate">{label}</span>
     </button>
   );

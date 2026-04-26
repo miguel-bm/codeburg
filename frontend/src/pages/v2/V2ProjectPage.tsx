@@ -595,7 +595,7 @@ function MainTabBar({
             key={previewTabKey(tab, index)}
             type="button"
             onClick={() => onSelectWorkspaceTab(index)}
-            className={`inline-flex h-10 max-w-[15rem] shrink-0 items-center gap-2 rounded-md px-3 text-sm md:h-7 md:gap-1.5 md:px-2 md:text-xs ${
+            className={`inline-flex h-[44px] max-w-[15rem] shrink-0 items-center gap-2 rounded-md px-3 text-sm md:h-7 md:gap-1.5 md:px-2 md:text-xs ${
               activeSurface?.type === 'workspaceTab' && activeSurface.index === index
                 ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
                 : 'bg-[var(--color-card)] text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)]'
@@ -630,7 +630,7 @@ function MainTabBar({
           type="button"
           disabled={createTerminalDisabled && createConversationPending}
           onClick={() => setNewTabOpen((value) => !value)}
-          className="inline-flex h-10 cursor-pointer items-center justify-center rounded-md px-3 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50 md:h-7 md:px-2"
+          className="inline-flex h-[44px] cursor-pointer items-center justify-center rounded-md px-3 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50 md:h-7 md:px-2"
           title="New tab"
         >
           <PlusCircle size={15} />
@@ -638,7 +638,7 @@ function MainTabBar({
         {newTabOpen && (
           <>
             <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close new tab menu" onClick={() => setNewTabOpen(false)} />
-            <div className="fixed inset-x-3 bottom-4 z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)] md:absolute md:inset-auto md:left-0 md:top-8 md:w-44">
+            <div className="fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)] md:absolute md:inset-auto md:left-0 md:top-8 md:w-44">
               <NewTabMenuItem icon={<MessageSquarePlus size={14} />} disabled={createConversationPending} onClick={() => { setNewTabOpen(false); onCreateConversation(); }}>Conversation</NewTabMenuItem>
               <NewTabMenuItem icon={<SquareTerminal size={14} />} disabled={createTerminalDisabled || createTerminalPending} onClick={() => { setNewTabOpen(false); onCreateTerminal(); }}>Terminal</NewTabMenuItem>
             </div>
@@ -663,7 +663,7 @@ function NewTabMenuItem({ icon, children, disabled, onClick }: { icon: ReactNode
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
+      className="flex min-h-[44px] w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50 md:min-h-0 md:text-xs"
     >
       {icon}
       <span>{children}</span>
@@ -695,7 +695,7 @@ function ConversationTab({
   };
 
   return (
-    <div className="inline-flex h-10 max-w-[15rem] shrink-0 items-center gap-2 rounded-md px-3 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] md:h-7 md:gap-1.5 md:px-2 md:text-xs">
+    <div className="inline-flex h-[44px] max-w-[15rem] shrink-0 items-center gap-2 rounded-md px-3 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] md:h-7 md:gap-1.5 md:px-2 md:text-xs">
       <MessageSquareText size={13} className="shrink-0" />
       {editing ? (
         <input
@@ -756,7 +756,7 @@ function TerminalTab({
   };
 
   return (
-    <div className={`inline-flex h-10 items-center overflow-hidden rounded-md text-sm md:h-7 md:text-xs ${active ? 'bg-[var(--color-card-hover)]' : 'bg-[var(--color-card)]'}`}>
+    <div className={`inline-flex h-[44px] items-center overflow-hidden rounded-md text-sm md:h-7 md:text-xs ${active ? 'bg-[var(--color-card-hover)]' : 'bg-[var(--color-card)]'}`}>
       {editing ? (
         <input
           autoFocus
@@ -767,7 +767,7 @@ function TerminalTab({
             if (event.key === 'Enter') save();
             if (event.key === 'Escape') setEditing(false);
           }}
-          className="h-10 w-36 bg-transparent px-3 outline-none md:h-7 md:w-28 md:px-2"
+          className="h-[44px] w-36 bg-transparent px-3 outline-none md:h-7 md:w-28 md:px-2"
         />
       ) : (
         <button type="button" onClick={onSelect} onDoubleClick={() => setEditing(true)} className="flex h-full items-center gap-1.5 px-2">
