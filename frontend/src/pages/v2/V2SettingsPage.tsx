@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { CheckCircle2, PlugZap, Settings2, TerminalSquare } from 'lucide-react';
 import { v2Api } from '../../api/v2';
-import { V2Screen } from './v2-ui';
+import { Button, V2Screen } from './v2-ui';
 
 export function V2SettingsPage() {
   const { data: piStatus } = useQuery({
@@ -22,7 +23,7 @@ export function V2SettingsPage() {
               <PlugZap size={15} className="mt-0.5 text-dim" />
               <div>
                 <h2 className="text-sm font-semibold">Harness runtimes</h2>
-                <p className="mt-1 max-w-2xl text-xs leading-5 text-dim">Global agent installation and auth state. Runtime updates and project-specific Pi overrides live in each project Harness page.</p>
+                <p className="mt-1 max-w-2xl text-xs leading-5 text-dim">Global agent installation, auth state, and Pi registry settings live in Harness. Project-specific Pi overrides live in Project settings.</p>
               </div>
             </div>
             <div className="grid gap-3 text-sm md:grid-cols-2">
@@ -31,9 +32,12 @@ export function V2SettingsPage() {
               <SettingLine label="Pi version" value={piStatus?.version ?? 'Unavailable'} />
               <SettingLine label="Pi agent dir" value={piStatus?.agentDir ?? '~/.pi/agent'} mono />
             </div>
-            <div className="mt-5 flex items-center gap-2 text-xs text-dim">
+            <div className="mt-5 flex items-center gap-3 text-xs text-dim">
               <TerminalSquare size={14} />
-              Open a project Harness page to update Pi, Codex, or Claude Code.
+              <span>Open Harness to update Pi, Codex, or Claude Code.</span>
+              <Link to="/v2/harness">
+                <Button size="xs" variant="secondary" icon={<PlugZap size={13} />}>Open Harness</Button>
+              </Link>
             </div>
           </section>
 
@@ -42,7 +46,7 @@ export function V2SettingsPage() {
               <Settings2 size={15} className="mt-0.5 text-dim" />
               <div>
                 <h2 className="text-sm font-semibold">V2 preferences</h2>
-                <p className="mt-1 max-w-2xl text-xs leading-5 text-dim">Global V2-only settings will live here. Project lifecycle, skills, quick actions, and harness overrides live under each project menu.</p>
+                <p className="mt-1 max-w-2xl text-xs leading-5 text-dim">Global V2-only settings live here. Project lifecycle, skills, quick actions, and Pi overrides live under each project menu.</p>
               </div>
             </div>
           </section>

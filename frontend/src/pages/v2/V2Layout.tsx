@@ -325,7 +325,7 @@ export function V2Layout() {
       </div>
 
       <nav className="space-y-1 px-2">
-        <SidebarAction icon={<PlugZap size={15} />} label="Harness setup" onClick={() => navigate('/v2/settings')} />
+        <SidebarAction icon={<PlugZap size={15} />} label="Harness" onClick={() => navigate('/v2/harness')} />
         <SidebarAction icon={<MessageSquareText size={15} />} label="All conversations" onClick={() => navigate('/v2/conversations')} />
       </nav>
 
@@ -511,7 +511,7 @@ function V2MobileBottomNav({
   onSettings: () => void;
 }) {
   const conversationsActive = pathname.startsWith('/v2/conversations');
-  const settingsActive = pathname.startsWith('/v2/settings');
+  const settingsActive = pathname.startsWith('/v2/settings') || pathname.startsWith('/v2/harness');
   const homeActive = !conversationsActive && !settingsActive;
 
   return (

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bolt, FileKey2, Hammer, PlugZap, Save, Trash2, Wrench } from 'lucide-react';
+import { Bolt, CheckCircle2, CircleSlash, FileKey2, Hammer, PackagePlus, PlugZap, RefreshCcw, Save, Trash2, Wrench } from 'lucide-react';
 import { preferencesApi, projectsApi } from '../../api';
-import type { ProjectSecretFile } from '../../api/types';
+import type { PiConfigDocument, PiPackageEntry, ProjectSecretFile } from '../../api/types';
+import { v2Api } from '../../api/v2';
 import { Button, V2Input, V2Screen, V2Select, V2Textarea } from './v2-ui';
 
 interface QuickRunAction {
@@ -28,6 +29,11 @@ export function V2ProjectSettingsPage() {
     queryFn: () => preferencesApi.get<QuickRunAction[]>(quickActionKey).catch(() => []),
     enabled: !!id,
   });
+  const { data: piConfig } = useQuery({
+    queryKey: ['v2-project-pi-config', id],
+    queryFn: () => v2Api.getProjectPiConfig(id!),
+    enabled: !!id,
+  });
 
   const [setupScript, setSetupScript] = useState('');
   const [teardownScript, setTeardownScript] = useState('');
@@ -37,6 +43,11 @@ export function V2ProjectSettingsPage() {
   const [secretSource, setSecretSource] = useState('');
   const [actionName, setActionName] = useState('');
   const [actionCommand, setActionCommand] = useState('');
+  const [projectPiSettingsDraft, setProjectPiSettingsDraft] = useState('');
+  const [piPackageSource, setPiPackageSource] = useState('');
+  const [piExtensionPath, setPiExtensionPath] = useState('');
+  const deferredPiPackageSource = useDeferredValue(piPackageSource.trim());
+  const deferredPiExtensionPath = useDeferredValue(piExtensionPath.trim());
   const safeQuickActions = Array.isArray(quickActions) ? quickActions : [];
 
   useEffect(() => {
@@ -44,6 +55,11 @@ export function V2ProjectSettingsPage() {
     setTeardownScript(project?.teardownScript ?? '');
     setSecrets(project?.secretFiles ?? []);
   }, [project]);
+
+  useEffect(() => {
+    if (!piConfig?.projectSettings) return;
+    setProjectPiSettingsDraft(piConfig.projectSettings.content);
+  }, [piConfig]);
 
   const saveLifecycle = useMutation({
     mutationFn: () => projectsApi.update(id!, {
@@ -64,6 +80,45 @@ export function V2ProjectSettingsPage() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['v2-quick-actions', id] });
     },
+  });
+
+  const refreshProjectPiConfig = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['v2-project-pi-config', id] }),
+      queryClient.invalidateQueries({ queryKey: ['v2-pi-config'] }),
+      queryClient.invalidateQueries({ queryKey: ['pi-status'] }),
+    ]);
+  };
+
+  const saveProjectPiSettings = useMutation({
+    mutationFn: () => v2Api.updateProjectPiSettings(id!, projectPiSettingsDraft),
+    onSuccess: refreshProjectPiConfig,
+  });
+  const installProjectPiPackage = useMutation({
+    mutationFn: (source: string) => v2Api.installProjectPiPackage(id!, source),
+    onSuccess: async () => {
+      setPiPackageSource('');
+      await refreshProjectPiConfig();
+    },
+  });
+  const removeProjectPiPackage = useMutation({
+    mutationFn: (source: string) => v2Api.removeProjectPiPackage(id!, source),
+    onSuccess: refreshProjectPiConfig,
+  });
+  const updateProjectPiPackages = useMutation({
+    mutationFn: () => v2Api.updateProjectPiPackages(id!),
+    onSuccess: refreshProjectPiConfig,
+  });
+  const addProjectPiExtension = useMutation({
+    mutationFn: (path: string) => v2Api.addProjectPiExtension(id!, path),
+    onSuccess: async () => {
+      setPiExtensionPath('');
+      await refreshProjectPiConfig();
+    },
+  });
+  const removeProjectPiExtension = useMutation({
+    mutationFn: (path: string) => v2Api.removeProjectPiExtension(id!, path),
+    onSuccess: refreshProjectPiConfig,
   });
 
   const addSecret = () => {
@@ -165,6 +220,17 @@ export function V2ProjectSettingsPage() {
                 <Button size="sm" variant="secondary" icon={<Bolt size={14} />} loading={saveQuickActions.isPending} disabled={!actionName.trim() || !actionCommand.trim()} onClick={addQuickAction}>Add action</Button>
               </div>
             </SettingsSection>
+
+            <PiConfigEditorSection
+              title="Project Pi override"
+              subtitle={piConfig?.projectSettings?.path ?? `${project?.path ?? '.'}/.pi/settings.json`}
+              document={piConfig?.projectSettings}
+              draft={projectPiSettingsDraft}
+              onChange={setProjectPiSettingsDraft}
+              onSave={() => saveProjectPiSettings.mutate()}
+              pending={saveProjectPiSettings.isPending}
+              error={saveProjectPiSettings.error}
+            />
           </div>
 
           <aside className="space-y-6 text-sm">
@@ -173,11 +239,51 @@ export function V2ProjectSettingsPage() {
                 <Button size="sm" variant="secondary" icon={<Hammer size={14} />}>Manage skills</Button>
               </Link>
             </SettingsSection>
-            <SettingsSection icon={<PlugZap size={15} />} title="Harness" description="Agent runtime updates, login state, and Pi project overrides.">
-              <Link to={`/v2/projects/${id}/pi`}>
-                <Button size="sm" variant="secondary" icon={<PlugZap size={14} />}>Harness settings</Button>
+            <SettingsSection icon={<PlugZap size={15} />} title="Harness" description="Global runtime updates and login state live outside this project.">
+              <Link to="/v2/harness">
+                <Button size="sm" variant="secondary" icon={<PlugZap size={14} />}>Global harness</Button>
               </Link>
             </SettingsSection>
+            <PiResourceManager
+              title="Project Pi packages"
+              description="Installed only for this project."
+              value={piPackageSource}
+              placeholder="npm:@scope/pkg · ./relative/path"
+              onChange={setPiPackageSource}
+              onSubmit={() => installProjectPiPackage.mutate(deferredPiPackageSource)}
+              submitDisabled={!deferredPiPackageSource}
+              submitPending={installProjectPiPackage.isPending}
+              submitIcon={<PackagePlus size={14} />}
+              submitLabel="Install"
+              onRefresh={() => updateProjectPiPackages.mutate()}
+              refreshPending={updateProjectPiPackages.isPending}
+              items={(piConfig?.projectPackages ?? []).map((pkg) => ({
+                key: pkg.source,
+                title: pkg.source,
+                detail: describePiPackage(pkg),
+                onRemove: () => removeProjectPiPackage.mutate(pkg.source),
+                removePending: removeProjectPiPackage.isPending,
+              }))}
+            />
+            <PiResourceManager
+              title="Project Pi extensions"
+              description="Extension paths scoped to this repo."
+              value={piExtensionPath}
+              placeholder=".pi/extensions/my-extension.ts"
+              onChange={setPiExtensionPath}
+              onSubmit={() => addProjectPiExtension.mutate(deferredPiExtensionPath)}
+              submitDisabled={!deferredPiExtensionPath}
+              submitPending={addProjectPiExtension.isPending}
+              submitIcon={<PlugZap size={14} />}
+              submitLabel="Add"
+              items={(piConfig?.projectExtensions ?? []).map((extension) => ({
+                key: extension.path,
+                title: extension.path,
+                detail: 'Project-local extension path',
+                onRemove: () => removeProjectPiExtension.mutate(extension.path),
+                removePending: removeProjectPiExtension.isPending,
+              }))}
+            />
           </aside>
         </div>
       </main>
@@ -185,17 +291,137 @@ export function V2ProjectSettingsPage() {
   );
 }
 
-function SettingsSection({ icon, title, description, children }: { icon: ReactNode; title: string; description: string; children: ReactNode }) {
+function PiConfigEditorSection({
+  title,
+  subtitle,
+  document,
+  draft,
+  onChange,
+  onSave,
+  pending,
+  error,
+}: {
+  title: string;
+  subtitle: string;
+  document?: PiConfigDocument;
+  draft: string;
+  onChange: (value: string) => void;
+  onSave: () => void;
+  pending: boolean;
+  error: unknown;
+}) {
+  return (
+    <SettingsSection
+      icon={<Wrench size={15} />}
+      title={title}
+      description={subtitle}
+      action={
+        <div className="flex items-center gap-2">
+          <StatusPill ok={document?.valid ?? true} label={(document?.valid ?? true) ? 'Valid JSON' : 'Invalid JSON'} />
+          <Button size="xs" variant="primary" icon={<Save size={13} />} loading={pending} disabled={!draft.trim()} onClick={onSave}>Save</Button>
+        </div>
+      }
+    >
+      {document?.parseError && <div className="mb-3 text-xs text-[var(--color-warning)]">{document.parseError}</div>}
+      <V2Textarea value={draft} onChange={(event) => onChange(event.target.value)} spellCheck={false} className="min-h-[15rem] w-full font-mono text-[13px] leading-6" />
+      <div className="mt-2 flex items-center justify-between gap-3 text-xs text-dim">
+        <span>{document?.exists ? 'Existing file' : 'Will be created on save'}</span>
+        {error instanceof Error && <span className="text-[var(--color-error)]">{error.message}</span>}
+      </div>
+    </SettingsSection>
+  );
+}
+
+function PiResourceManager({
+  title,
+  description,
+  value,
+  placeholder,
+  onChange,
+  onSubmit,
+  submitDisabled,
+  submitPending,
+  submitIcon,
+  submitLabel,
+  onRefresh,
+  refreshPending,
+  items,
+}: {
+  title: string;
+  description: string;
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+  submitDisabled: boolean;
+  submitPending: boolean;
+  submitIcon: ReactNode;
+  submitLabel: string;
+  onRefresh?: () => void;
+  refreshPending?: boolean;
+  items: Array<{ key: string; title: string; detail: string; onRemove: () => void; removePending: boolean }>;
+}) {
+  return (
+    <SettingsSection
+      icon={<PackagePlus size={15} />}
+      title={title}
+      description={description}
+      action={onRefresh && <Button size="xs" variant="secondary" icon={<RefreshCcw size={13} />} loading={refreshPending} onClick={onRefresh}>Update</Button>}
+    >
+      <div className="flex gap-2">
+        <V2Input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="min-w-0 flex-1" />
+        <Button size="sm" variant="primary" icon={submitIcon} loading={submitPending} disabled={submitDisabled} onClick={onSubmit}>
+          {submitLabel}
+        </Button>
+      </div>
+      <div className="mt-4 space-y-2">
+        {items.map((item) => (
+          <div key={item.key} className="flex items-start justify-between gap-3 py-2">
+            <div className="min-w-0">
+              <div className="truncate font-mono text-xs">{item.title}</div>
+              <div className="mt-1 text-xs text-dim">{item.detail}</div>
+            </div>
+            <button type="button" disabled={item.removePending} onClick={item.onRemove} className="rounded-md p-1 text-dim hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)] disabled:opacity-50">
+              <Trash2 size={13} />
+            </button>
+          </div>
+        ))}
+        {items.length === 0 && <div className="py-3 text-sm text-dim">None configured.</div>}
+      </div>
+    </SettingsSection>
+  );
+}
+
+function SettingsSection({ icon, title, description, action, children }: { icon: ReactNode; title: string; description: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section className="border-t border-[var(--color-card-border)] pt-5 first:border-t-0 first:pt-0">
-      <div className="mb-4 flex items-start gap-3">
-        <div className="mt-0.5 text-dim">{icon}</div>
-        <div>
-          <h2 className="text-sm font-semibold">{title}</h2>
-          <p className="mt-1 max-w-2xl text-xs leading-5 text-dim">{description}</p>
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="mt-0.5 text-dim">{icon}</div>
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold">{title}</h2>
+            <p className="mt-1 max-w-2xl text-xs leading-5 text-dim">{description}</p>
+          </div>
         </div>
+        {action}
       </div>
       {children}
     </section>
   );
+}
+
+function StatusPill({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium ${ok ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-400'}`}>
+      {ok ? <CheckCircle2 size={13} /> : <CircleSlash size={13} />}
+      {label}
+    </span>
+  );
+}
+
+function describePiPackage(pkg: PiPackageEntry) {
+  const traits = [pkg.scope, pkg.sourceType];
+  if (pkg.pinned) traits.push('pinned');
+  if (pkg.filtered) traits.push('filtered');
+  return traits.join(' · ');
 }
