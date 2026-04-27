@@ -17,7 +17,6 @@ import {
   GitBranch,
   GitBranchPlus,
   Image as ImageIcon,
-  Info,
   Loader2,
   Mic,
   MessageSquarePlus,
@@ -774,6 +773,7 @@ function ConversationSurface({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const suggestionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const queryClient = useQueryClient();
   const [selection, setSelection] = useState<InputSelection>({ start: 0, end: 0 });
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
   const [dismissedTokenKey, setDismissedTokenKey] = useState<string | null>(null);
@@ -794,6 +794,11 @@ function ConversationSurface({
   const pendingVisible = hasPendingAssistant(snapshot);
   const messageItems = useMemo(() => buildConversationItems(messages), [messages]);
   const selectedModel = snapshot?.model ? { provider: snapshot.model.provider, id: snapshot.model.id } : null;
+  const activeToken = useMemo(
+    () => findActiveToken(draft, selection, ['/', '@']),
+    [draft, selection],
+  );
+  const tokenKey = activeToken ? `${activeToken.start}:${activeToken.end}:${activeToken.token}` : null;
 
   const { data: fileEntries = [], isFetching: filesLoading } = useQuery({
     queryKey: ['v2-workspace-file-index', activeWorkspaceId],
@@ -804,10 +809,10 @@ function ConversationSurface({
     enabled: Boolean(activeWorkspaceId && fileIndexRequested),
     staleTime: 30_000,
   });
-  const { data: commandResponse } = useQuery({
+  const { data: commandResponse, isFetching: commandsLoading } = useQuery({
     queryKey: ['v2-conversation-commands', conversationId],
-    queryFn: () => v2Api.listConversationCommands(conversationId),
-    enabled: Boolean(conversationId && isActiveConversation && snapshot?.runtimeActive),
+    queryFn: () => v2Api.listConversationCommands(conversationId, { activate: true }),
+    enabled: Boolean(conversationId && isActiveConversation && activeToken?.prefix === '/'),
     staleTime: 60_000,
   });
   const { data: modelResponse, isFetching: modelsLoading } = useQuery({
@@ -817,12 +822,14 @@ function ConversationSurface({
     staleTime: 60_000,
   });
 
-  const activeToken = useMemo(
-    () => findActiveToken(draft, selection, ['/', '@']),
-    [draft, selection],
-  );
-  const tokenKey = activeToken ? `${activeToken.start}:${activeToken.end}:${activeToken.token}` : null;
   const slashCommands = useMemo(() => commandResponse?.commands ?? [], [commandResponse?.commands]);
+  const setThinking = useMutation({
+    mutationFn: (level: PiThinkingLevel) => v2Api.setConversationThinking(conversationId, { level }),
+    onSuccess: (nextSnapshot) => {
+      onApplySnapshot(nextSnapshot);
+      void queryClient.invalidateQueries({ queryKey: ['v2-conversation-session', conversationId] });
+    },
+  });
   const models = useMemo(() => {
     const all = modelResponse?.models ?? [];
     if (!snapshot?.model) return all;
@@ -839,7 +846,19 @@ function ConversationSurface({
 
     if (activeToken.prefix === '/') {
       const query = activeToken.query.toLowerCase();
-      return slashCommands
+      if (commandsLoading && slashCommands.length === 0) {
+        return [{
+          key: 'slash:loading',
+          type: 'slash',
+          label: 'Loading commands...',
+          detail: 'Fetching prompt, skill, and extension commands',
+          value: '/',
+          addSpace: false,
+          disabled: true,
+          icon: 'command',
+        }];
+      }
+      const matches: ComposerSuggestion[] = slashCommands
         .filter((command) => query === '' || command.name.toLowerCase().includes(query))
         .slice(0, MAX_SUGGESTIONS)
         .map((command) => ({
@@ -851,6 +870,17 @@ function ConversationSurface({
           addSpace: true,
           icon: 'command',
         }));
+      if (matches.length > 0) return matches;
+      return [{
+        key: 'slash:empty',
+        type: 'slash',
+        label: query ? 'No matching commands' : 'No prompt commands',
+        detail: query ? 'Try another command name' : 'Pi did not report prompt, skill, or extension commands',
+        value: '/',
+        addSpace: false,
+        disabled: true,
+        icon: 'command',
+      }];
     }
 
     if (activeToken.prefix === '@') {
@@ -883,7 +913,7 @@ function ConversationSurface({
     }
 
     return [];
-  }, [activeToken, fileEntries, filesLoading, slashCommands]);
+  }, [activeToken, commandsLoading, fileEntries, filesLoading, slashCommands]);
   const visibleSuggestions = useMemo(
     () => (tokenKey && dismissedTokenKey !== tokenKey ? suggestions : []),
     [dismissedTokenKey, suggestions, tokenKey],
@@ -1262,7 +1292,7 @@ function ConversationSurface({
                   <ChevronDown size={14} className={`shrink-0 text-dim transition-transform ${modelMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {modelMenuOpen && (
-                  <div className="absolute bottom-full right-0 z-50 mb-2 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-subtle bg-card shadow-[0_18px_60px_rgba(15,23,42,0.18)]">
+                  <div className="absolute bottom-full right-0 z-50 mb-2 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-subtle bg-card shadow-[0_18px_60px_rgba(15,23,42,0.18)]">
                     <div className="border-b border-subtle/70 p-2">
                       <input
                         autoFocus
@@ -1272,7 +1302,7 @@ function ConversationSurface({
                         className="h-9 w-full rounded-xl bg-primary px-3 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-dim"
                       />
                     </div>
-                    <div className="max-h-72 overflow-y-auto p-1" role="listbox">
+                    <div className="max-h-60 overflow-y-auto p-1" role="listbox">
                       {filteredModels.length === 0 ? (
                         <div className="px-3 py-6 text-center text-sm text-dim">No models found</div>
                       ) : filteredModels.map((model) => {
@@ -1300,6 +1330,31 @@ function ConversationSurface({
                           </button>
                         );
                       })}
+                    </div>
+                    <div className="border-t border-subtle/70 px-3 py-2.5">
+                      <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--color-text-secondary)]">
+                        <Brain size={13} />
+                        <span>Thinking</span>
+                        {setThinking.isPending && <Loader2 size={12} className="animate-spin text-dim" />}
+                      </div>
+                      <div className="grid grid-cols-3 gap-1 sm:grid-cols-6">
+                        {THINKING_LEVELS.map((level) => {
+                          const selected = (snapshot?.thinkingLevel ?? 'off') === level;
+                          return (
+                            <button
+                              key={level}
+                              type="button"
+                              disabled={composerDisabled || isStreaming || setThinking.isPending}
+                              onClick={() => setThinking.mutate(level)}
+                              className={`h-8 rounded-lg px-2 text-xs font-medium transition-colors disabled:opacity-45 ${
+                                selected ? 'bg-[var(--color-text-primary)] text-[var(--color-card)]' : 'text-[var(--color-text-secondary)] hover:bg-secondary hover:text-[var(--color-text-primary)]'
+                              }`}
+                            >
+                              {formatThinkingLevel(level)}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1330,8 +1385,8 @@ function ConversationSurface({
           onRequestWorkspaceChange={onRequestWorkspaceChange}
           onForkConversation={onForkConversation}
           onArchiveConversation={onArchiveConversation}
-          piControls={(
-            <PiConversationControls
+          conversationActions={(
+            <ConversationMoreActions
               conversationId={conversationId}
               snapshot={snapshot}
               active={isActiveConversation}
@@ -1355,7 +1410,7 @@ function ConversationComposerActions({
   onRequestWorkspaceChange,
   onForkConversation,
   onArchiveConversation,
-  piControls,
+  conversationActions,
 }: {
   workspaces: Workspace[];
   activeWorkspace: Workspace | null;
@@ -1366,7 +1421,7 @@ function ConversationComposerActions({
   onRequestWorkspaceChange: (workspaceId?: string) => void;
   onForkConversation: () => void;
   onArchiveConversation: () => void;
-  piControls?: ReactNode;
+  conversationActions?: ReactNode;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -1478,7 +1533,7 @@ function ConversationComposerActions({
         {forkPending ? <Loader2 size={16} className="animate-spin" /> : <GitBranchPlus size={16} />}
         <span className="hidden sm:inline">Fork</span>
       </button>
-      {piControls}
+      {conversationActions}
       <button
         type="button"
         disabled={archivePending || archiveDisabled}
@@ -1493,7 +1548,7 @@ function ConversationComposerActions({
   );
 }
 
-function PiConversationControls({
+function ConversationMoreActions({
   conversationId,
   snapshot,
   active,
@@ -1513,7 +1568,6 @@ function PiConversationControls({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [copiedLast, setCopiedLast] = useState(false);
   const busy = Boolean(snapshot?.streaming || snapshot?.compacting);
-  const currentThinking = snapshot?.thinkingLevel ?? 'off';
 
   const sessionQuery = useQuery({
     queryKey: ['v2-conversation-session', conversationId],
@@ -1530,14 +1584,6 @@ function PiConversationControls({
     setStatusMessage(error instanceof Error ? error.message : fallback);
   };
 
-  const setThinking = useMutation({
-    mutationFn: (level: PiThinkingLevel) => v2Api.setConversationThinking(conversationId, { level }),
-    onSuccess: (nextSnapshot, level) => {
-      applyAndRefresh(nextSnapshot);
-      setStatusMessage(`Thinking set to ${formatThinkingLevel(level)}.`);
-    },
-    onError: reportError('Could not change thinking level.'),
-  });
   const setAutoCompaction = useMutation({
     mutationFn: (enabled: boolean) => v2Api.setConversationAutoCompaction(conversationId, { enabled }),
     onSuccess: (nextSnapshot, enabled) => {
@@ -1609,104 +1655,66 @@ function PiConversationControls({
           setStatusMessage(null);
         }}
         className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-[var(--color-text-secondary)] transition-colors hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-50"
-        title="Pi controls"
+        title="More conversation actions"
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <Sparkles size={16} />
-        <span className="hidden sm:inline">Pi</span>
+        <MoreHorizontal size={16} />
+        <span className="hidden sm:inline">More</span>
         <ChevronDown size={15} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute bottom-full left-0 z-50 mb-2 w-[min(30rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-subtle bg-card shadow-[0_18px_60px_rgba(15,23,42,0.18)]">
-          <div className="flex items-start gap-3 border-b border-subtle/70 px-4 py-3">
-            <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-[var(--color-text-secondary)]">
-              <Info size={16} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-center gap-2">
-                <p className="truncate text-sm font-medium text-[var(--color-text-primary)]">{state?.sessionName || 'Pi session'}</p>
-                {sessionQuery.isFetching && <Loader2 size={13} className="shrink-0 animate-spin text-dim" />}
-              </div>
-              <p className="mt-0.5 truncate text-xs text-dim">{state?.sessionFile || state?.workDir || 'Session details load when Pi is active.'}</p>
+        <div className="absolute bottom-full left-0 z-50 mb-2 w-[min(26rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-subtle bg-card shadow-[0_18px_60px_rgba(15,23,42,0.18)]">
+          <div className="border-b border-subtle/70 px-4 py-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="truncate text-sm font-medium text-[var(--color-text-primary)]">{state?.sessionName || 'Conversation'}</p>
+              {sessionQuery.isFetching && <Loader2 size={13} className="shrink-0 animate-spin text-dim" />}
             </div>
+            <p className="mt-0.5 truncate text-xs text-dim">{state?.sessionFile || state?.workDir || 'Session details load when Pi is active.'}</p>
           </div>
 
-          <div className="grid gap-0 border-b border-subtle/70 sm:grid-cols-3">
-            <PiMetric label="Messages" value={formatNumber(state?.messageCount ?? snapshot?.messages.length ?? 0)} />
-            <PiMetric label="Thinking" value={formatThinkingLevel(currentThinking)} />
-            <PiMetric label="Compaction" value={state?.autoCompactionEnabled ? 'Auto' : 'Manual'} />
-          </div>
-
-          <div className="space-y-3 px-3 py-3">
-            <div>
-              <div className="mb-1.5 flex items-center gap-2 px-1 text-xs font-medium text-[var(--color-text-secondary)]">
-                <Brain size={13} />
-                <span>Thinking level</span>
-              </div>
-              <div className="grid grid-cols-3 gap-1 sm:grid-cols-6">
-                {THINKING_LEVELS.map((level) => {
-                  const selected = level === currentThinking;
-                  return (
-                    <button
-                      key={level}
-                      type="button"
-                      disabled={disabled || busy || setThinking.isPending}
-                      onClick={() => setThinking.mutate(level)}
-                      className={`h-8 rounded-lg px-2 text-xs font-medium transition-colors disabled:opacity-45 ${
-                        selected ? 'bg-[var(--color-text-primary)] text-[var(--color-card)]' : 'text-[var(--color-text-secondary)] hover:bg-secondary hover:text-[var(--color-text-primary)]'
-                      }`}
-                    >
-                      {formatThinkingLevel(level)}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <label className="flex items-center justify-between gap-3 rounded-xl bg-primary px-3 py-2.5">
+          <div className="divide-y divide-subtle/70">
+            <div className="flex items-center justify-between gap-3 px-4 py-3">
               <span className="min-w-0">
                 <span className="block text-sm font-medium text-[var(--color-text-primary)]">Auto-compact context</span>
                 <span className="block text-xs text-dim">Let Pi summarize before the context gets too heavy.</span>
               </span>
-              <input
-                type="checkbox"
+              <ToggleSwitch
                 checked={Boolean(state?.autoCompactionEnabled)}
                 disabled={disabled || busy || setAutoCompaction.isPending}
-                onChange={(event) => setAutoCompaction.mutate(event.target.checked)}
-                className="h-4 w-4 accent-[var(--color-accent)]"
+                onChange={(enabled) => setAutoCompaction.mutate(enabled)}
               />
-            </label>
+            </div>
 
-            <div className="rounded-xl bg-primary p-2">
+            <div className="px-4 py-3">
               <textarea
                 value={compactInstructions}
                 onChange={(event) => setCompactInstructions(event.target.value)}
                 rows={2}
                 placeholder="Optional compaction instructions"
-                className="block max-h-24 min-h-16 w-full resize-y rounded-lg bg-card px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-dim"
+                className="block max-h-24 min-h-16 w-full resize-y rounded-lg bg-primary px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-dim"
               />
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <PiControlButton icon={<Sparkles size={14} />} pending={compact.isPending || Boolean(snapshot?.compacting)} disabled={disabled || busy} onClick={() => compact.mutate()}>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <ConversationActionButton icon={<Sparkles size={14} />} pending={compact.isPending || Boolean(snapshot?.compacting)} disabled={disabled || busy} onClick={() => compact.mutate()}>
                   Compact
-                </PiControlButton>
-                <PiControlButton icon={<Download size={14} />} pending={exportHTML.isPending} disabled={disabled} onClick={() => exportHTML.mutate()}>
+                </ConversationActionButton>
+                <ConversationActionButton icon={<Download size={14} />} pending={exportHTML.isPending} disabled={disabled} onClick={() => exportHTML.mutate()}>
                   Export HTML
-                </PiControlButton>
-                <PiControlButton icon={copiedLast ? <Check size={14} /> : <Clipboard size={14} />} disabled={!lastAssistantText(snapshot)} onClick={() => void copyLastAssistant()}>
+                </ConversationActionButton>
+                <ConversationActionButton icon={copiedLast ? <Check size={14} /> : <Clipboard size={14} />} disabled={!lastAssistantText(snapshot)} onClick={() => void copyLastAssistant()}>
                   Copy last
-                </PiControlButton>
-                <PiControlButton icon={<RefreshCw size={14} />} pending={reloadPi.isPending} disabled={disabled || busy} onClick={() => reloadPi.mutate()}>
+                </ConversationActionButton>
+                <ConversationActionButton icon={<RefreshCw size={14} />} pending={reloadPi.isPending} disabled={disabled || busy} onClick={() => reloadPi.mutate()}>
                   Reload
-                </PiControlButton>
-                <PiControlButton icon={<MoreHorizontal size={14} />} onClick={onOpenSettings}>
+                </ConversationActionButton>
+                <ConversationActionButton icon={<MoreHorizontal size={14} />} onClick={onOpenSettings}>
                   Settings
-                </PiControlButton>
+                </ConversationActionButton>
               </div>
             </div>
 
             {statRows.length > 0 && (
-              <div className="grid gap-x-3 gap-y-1 rounded-xl bg-inset px-3 py-2 text-xs sm:grid-cols-2">
+              <div className="grid gap-x-4 gap-y-1 px-4 py-3 text-xs sm:grid-cols-2">
                 {statRows.map(([label, value]) => (
                   <div key={label} className="flex min-w-0 items-center justify-between gap-3">
                     <span className="truncate text-dim">{label}</span>
@@ -1716,7 +1724,7 @@ function PiConversationControls({
               </div>
             )}
             {statusMessage && (
-              <div className="rounded-lg bg-accent/10 px-3 py-2 text-xs text-[var(--color-text-primary)]">
+              <div className="px-4 py-2 text-xs text-[var(--color-text-secondary)]">
                 {statusMessage}
               </div>
             )}
@@ -1727,16 +1735,36 @@ function PiConversationControls({
   );
 }
 
-function PiMetric({ label, value }: { label: string; value: string }) {
+function ToggleSwitch({
+  checked,
+  disabled,
+  onChange,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
   return (
-    <div className="min-w-0 border-b border-subtle/70 px-4 py-3 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0">
-      <div className="truncate text-[10px] uppercase tracking-[0.08em] text-dim">{label}</div>
-      <div className="mt-1 truncate text-sm font-medium text-[var(--color-text-primary)]">{value}</div>
-    </div>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+        checked ? 'bg-accent' : 'bg-secondary'
+      }`}
+    >
+      <span
+        className={`absolute top-1 h-4 w-4 rounded-full bg-card shadow-sm transition-transform ${
+          checked ? 'translate-x-6' : 'translate-x-1'
+        }`}
+      />
+    </button>
   );
 }
 
-function PiControlButton({
+function ConversationActionButton({
   icon,
   pending,
   disabled,

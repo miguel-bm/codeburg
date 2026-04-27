@@ -477,13 +477,20 @@ func (m *piConversationManager) AvailableModels(conversation *db.Conversation, w
 	return models, nil
 }
 
-func (m *piConversationManager) Commands(conversation *db.Conversation, workDir string) ([]piSlashCommand, error) {
+func (m *piConversationManager) Commands(conversation *db.Conversation, workDir string, activate bool) ([]piSlashCommand, error) {
 	if conversation.Status != db.ConversationStatusActive {
 		return []piSlashCommand{}, nil
 	}
 	runtime := m.existingRuntime(conversation.ID, workDir)
 	if runtime == nil {
-		return []piSlashCommand{}, nil
+		if !activate {
+			return []piSlashCommand{}, nil
+		}
+		var err error
+		runtime, err = m.ensureRuntime(conversation, workDir)
+		if err != nil {
+			return nil, err
+		}
 	}
 	response, err := runtime.sendCommand(map[string]any{"type": "get_commands"})
 	if err != nil {
@@ -582,6 +589,8 @@ func (m *piConversationManager) SetThinkingLevel(conversation *db.Conversation, 
 		return piConversationSnapshot{}, err
 	}
 	runtime.mu.Lock()
+	runtime.snapshot.ThinkingLevel = level
+	runtime.snapshot.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	defer runtime.mu.Unlock()
 	return runtime.snapshot, nil
 }
@@ -604,6 +613,8 @@ func (m *piConversationManager) SetAutoCompaction(conversation *db.Conversation,
 		return piConversationSnapshot{}, err
 	}
 	runtime.mu.Lock()
+	runtime.snapshot.AutoCompactionEnabled = enabled
+	runtime.snapshot.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	defer runtime.mu.Unlock()
 	return runtime.snapshot, nil
 }

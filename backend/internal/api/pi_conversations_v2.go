@@ -337,7 +337,8 @@ func (s *Server) handleListConversationCommands(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	commands, err := s.pi.Commands(conversation, workDir)
+	activate := r.URL.Query().Get("activate") == "1"
+	commands, err := s.pi.Commands(conversation, workDir, activate)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

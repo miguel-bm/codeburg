@@ -274,8 +274,8 @@ export const v2Api = {
   reloadConversationPi: (conversationId: string) =>
     api.post<PiConversationSnapshot>(`/conversations/${conversationId}/reload`, {}),
 
-  listConversationCommands: (conversationId: string) =>
-    api.get<{ commands: PiSlashCommand[] }>(`/conversations/${conversationId}/commands`),
+  listConversationCommands: (conversationId: string, input?: { activate?: boolean }) =>
+    api.get<{ commands: PiSlashCommand[] }>(`/conversations/${conversationId}/commands${input?.activate ? '?activate=1' : ''}`),
 
   getPiStatus: () =>
     api.get<PiStatus>('/pi/status'),

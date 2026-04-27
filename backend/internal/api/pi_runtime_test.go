@@ -98,7 +98,7 @@ func TestPiConversationPassiveReadsDoNotStartRuntime(t *testing.T) {
 		t.Fatalf("expected no passive models, got %d", len(models))
 	}
 
-	commands, err := manager.Commands(conversation, "/tmp/project")
+	commands, err := manager.Commands(conversation, "/tmp/project", false)
 	if err != nil {
 		t.Fatalf("commands: %v", err)
 	}
