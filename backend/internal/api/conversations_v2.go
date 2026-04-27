@@ -306,6 +306,8 @@ func (s *Server) handleUpdateConversation(w http.ResponseWriter, r *http.Request
 	}
 	if req.CurrentWorkspaceID != nil || (input.Status != nil && *input.Status != db.ConversationStatusActive) {
 		s.pi.StopConversation(conversationID)
+	} else if req.Title != nil {
+		s.pi.SetSessionName(conversationID, updated.Title)
 	}
 	writeJSON(w, http.StatusOK, updated)
 }

@@ -9,6 +9,8 @@ import type {
   PiConversationImageAttachment,
   PiAvailableModel,
   PiSlashCommand,
+  PiThinkingLevel,
+  PiConversationSessionStats,
   ForkConversationFromMessageResponse,
   PiStatus,
   PiConfigDocument,
@@ -242,7 +244,7 @@ export const v2Api = {
   getConversationState: (conversationId: string) =>
     api.get<PiConversationSnapshot>(`/conversations/${conversationId}/state`),
 
-  promptConversation: (conversationId: string, input: { message: string; images?: PiConversationImageAttachment[] }) =>
+  promptConversation: (conversationId: string, input: { message: string; images?: PiConversationImageAttachment[]; streamingBehavior?: 'steer' | 'followUp' }) =>
     api.post<PiConversationSnapshot>(`/conversations/${conversationId}/prompt`, input),
 
   abortConversation: (conversationId: string) =>
@@ -253,6 +255,24 @@ export const v2Api = {
 
   setConversationModel: (conversationId: string, input: { provider: string; modelId: string }) =>
     api.post<PiConversationSnapshot>(`/conversations/${conversationId}/model`, input),
+
+  setConversationThinking: (conversationId: string, input: { level: PiThinkingLevel }) =>
+    api.post<PiConversationSnapshot>(`/conversations/${conversationId}/thinking`, input),
+
+  setConversationAutoCompaction: (conversationId: string, input: { enabled: boolean }) =>
+    api.post<PiConversationSnapshot>(`/conversations/${conversationId}/auto-compaction`, input),
+
+  compactConversation: (conversationId: string, input?: { customInstructions?: string }) =>
+    api.post<PiConversationSnapshot>(`/conversations/${conversationId}/compact`, input ?? {}),
+
+  getConversationSession: (conversationId: string) =>
+    api.get<PiConversationSessionStats>(`/conversations/${conversationId}/session`),
+
+  exportConversationHTML: (conversationId: string, input?: { outputPath?: string }) =>
+    api.post<{ path: string }>(`/conversations/${conversationId}/export/html`, input ?? {}),
+
+  reloadConversationPi: (conversationId: string) =>
+    api.post<PiConversationSnapshot>(`/conversations/${conversationId}/reload`, {}),
 
   listConversationCommands: (conversationId: string) =>
     api.get<{ commands: PiSlashCommand[] }>(`/conversations/${conversationId}/commands`),

@@ -473,8 +473,15 @@ export interface PiConversationSnapshot {
   conversationId: string;
   runtimeActive: boolean;
   streaming: boolean;
+  compacting?: boolean;
   workDir: string;
   model?: PiConversationModel;
+  thinkingLevel?: PiThinkingLevel;
+  steeringMode?: string;
+  followUpMode?: string;
+  autoCompactionEnabled?: boolean;
+  messageCount?: number;
+  pendingMessageCount?: number;
   sessionFile?: string;
   sessionName?: string;
   messages: PiConversationMessage[];
@@ -496,6 +503,13 @@ export interface PiSlashCommand {
   name: string;
   description?: string;
   source?: string;
+}
+
+export type PiThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
+export interface PiConversationSessionStats {
+  state: PiConversationSnapshot;
+  stats: Record<string, unknown>;
 }
 
 export interface ForkConversationFromMessageResponse {

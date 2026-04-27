@@ -6,21 +6,26 @@ import {
   Archive,
   ArrowUp,
   AtSign,
+  Brain,
   Check,
   ChevronDown,
   Clipboard,
   Command,
+  Download,
   FileCode2,
   FolderTree,
   GitBranch,
   GitBranchPlus,
   Image as ImageIcon,
+  Info,
   Loader2,
   Mic,
   MessageSquarePlus,
   MessageSquareText,
+  MoreHorizontal,
   Paperclip,
   PlusCircle,
+  RefreshCw,
   Search,
   Slash,
   Sparkles,
@@ -30,7 +35,7 @@ import {
   X,
 } from 'lucide-react';
 import { projectsApi } from '../../api';
-import type { Conversation, PiAvailableModel, PiConversationImageAttachment, PiConversationMessage, PiConversationSnapshot, PiSlashCommand, PiToolExecution, TerminalSession, Workspace } from '../../api/types';
+import type { Conversation, PiAvailableModel, PiConversationImageAttachment, PiConversationMessage, PiConversationSessionStats, PiConversationSnapshot, PiThinkingLevel, PiToolExecution, TerminalSession, Workspace } from '../../api/types';
 import { v2Api, type V2FileEntry } from '../../api/v2';
 import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
 import { Modal } from '../../components/ui/Modal';
@@ -72,16 +77,7 @@ type ConversationRenderItem =
 
 const MAX_SUGGESTIONS = 8;
 const FILE_INDEX_DEPTH = 12;
-const FALLBACK_PI_COMMANDS: PiSlashCommand[] = [
-  { name: 'model', description: 'Select model' },
-  { name: 'fork', description: 'Fork from a previous message' },
-  { name: 'tree', description: 'Navigate conversation tree' },
-  { name: 'compact', description: 'Compact the session context' },
-  { name: 'session', description: 'Show session info' },
-  { name: 'copy', description: 'Copy the last assistant message' },
-  { name: 'hotkeys', description: 'Show keyboard shortcuts' },
-  { name: 'reload', description: 'Reload Pi resources' },
-];
+const THINKING_LEVELS: PiThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 
 export function V2ConversationDetailPage() {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -461,15 +457,16 @@ export function V2ConversationDetailPage() {
     wasStreaming.current = streaming;
   }, [conversationId, snapshot?.streaming, markConversationReadState]);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (streamingBehavior?: 'steer' | 'followUp') => {
     const trimmed = draft.trim();
     if ((!trimmed && attachments.length === 0) || !conversationId) return;
-    if (!isActiveConversation || snapshot?.streaming) return;
+    if (!isActiveConversation) return;
+    if (snapshot?.streaming && !streamingBehavior) return;
     setRuntimeRequested(true);
     setSendError(null);
     setSending(true);
     try {
-      await sendMessage(trimmed, attachments.map(({ image }) => image));
+      await sendMessage(trimmed, attachments.map(({ image }) => image), streamingBehavior);
       setDraft('');
       setAttachments([]);
       setMainSurface('conversation');
@@ -650,7 +647,11 @@ export function V2ConversationDetailPage() {
                 onForkConversation={() => forkConversation.mutate()}
                 onArchiveConversation={() => transitionConversation.mutate('archive')}
                 abort={() => void abort()}
-                submit={() => void handleSubmit()}
+                submit={(streamingBehavior) => void handleSubmit(streamingBehavior)}
+                onOpenPiSettings={() => {
+                  if (conversation?.projectId) navigate(`/v2/projects/${conversation.projectId}/settings`);
+                }}
+                onApplySnapshot={applySnapshot}
               />
             )}
           </div>
@@ -736,6 +737,8 @@ function ConversationSurface({
   onArchiveConversation,
   abort,
   submit,
+  onOpenPiSettings,
+  onApplySnapshot,
 }: {
   conversationId: string;
   activeWorkspaceId?: string;
@@ -761,7 +764,9 @@ function ConversationSurface({
   onForkConversation: () => void;
   onArchiveConversation: () => void;
   abort: () => void;
-  submit: () => void;
+  submit: (streamingBehavior?: 'steer' | 'followUp') => void;
+  onOpenPiSettings: () => void;
+  onApplySnapshot: (snapshot: PiConversationSnapshot) => void;
 }) {
   const isMobile = useMobile();
   const { keyboardVisible, keyboardHeight } = useVirtualKeyboard();
@@ -778,13 +783,14 @@ function ConversationSurface({
   const [imageDragActive, setImageDragActive] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState('');
+  const [streamingMode, setStreamingMode] = useState<'steer' | 'followUp'>('followUp');
   const imageDragDepth = useRef(0);
   const composerStyle = isMobile && keyboardVisible
     ? { paddingBottom: keyboardHeight + 12 }
     : undefined;
   const messages = useMemo(() => snapshot?.messages ?? [], [snapshot?.messages]);
   const isStreaming = Boolean(snapshot?.streaming);
-  const composerDisabled = !isActiveConversation || sending || isStreaming;
+  const composerDisabled = !isActiveConversation || sending;
   const pendingVisible = hasPendingAssistant(snapshot);
   const messageItems = useMemo(() => buildConversationItems(messages), [messages]);
   const selectedModel = snapshot?.model ? { provider: snapshot.model.provider, id: snapshot.model.id } : null;
@@ -816,12 +822,7 @@ function ConversationSurface({
     [draft, selection],
   );
   const tokenKey = activeToken ? `${activeToken.start}:${activeToken.end}:${activeToken.token}` : null;
-  const slashCommands = useMemo(() => {
-    const byName = new Map<string, PiSlashCommand>();
-    for (const command of FALLBACK_PI_COMMANDS) byName.set(command.name, command);
-    for (const command of commandResponse?.commands ?? []) byName.set(command.name, command);
-    return Array.from(byName.values());
-  }, [commandResponse?.commands]);
+  const slashCommands = useMemo(() => commandResponse?.commands ?? [], [commandResponse?.commands]);
   const models = useMemo(() => {
     const all = modelResponse?.models ?? [];
     if (!snapshot?.model) return all;
@@ -1099,7 +1100,7 @@ function ConversationSurface({
           {visibleSuggestions.length > 0 && (
             <div className="absolute bottom-full left-3 right-3 z-30 mb-2 overflow-hidden rounded-xl border border-subtle bg-card shadow-[var(--shadow-card)]">
               <div className="flex items-center justify-between border-b border-subtle px-3 py-1.5 text-[10px] uppercase tracking-[0.08em] text-dim">
-                <span>{activeToken?.prefix === '@' ? 'Workspace files' : 'Pi commands'}</span>
+                <span>{activeToken?.prefix === '@' ? 'Workspace files' : 'Pi prompt commands'}</span>
                 {!isMobile && <span className="normal-case tracking-normal">Arrows, Enter, Esc</span>}
               </div>
               <div className="max-h-56 overflow-y-auto py-1">
@@ -1179,14 +1180,14 @@ function ConversationSurface({
               }
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
-                if (!composerDisabled) submit();
+                if (!composerDisabled) submit(isStreaming ? streamingMode : undefined);
                 return;
               }
               if (event.key === 'Escape') {
                 textareaRef.current?.blur();
               }
             }}
-            placeholder={isStreaming ? 'Pi is working...' : isActiveConversation ? 'Send a prompt to Pi...' : 'Resume the conversation before sending a prompt'}
+            placeholder={isStreaming ? (streamingMode === 'steer' ? 'Steer the current turn...' : 'Queue a follow-up...') : isActiveConversation ? 'Send a prompt to Pi...' : 'Resume the conversation before sending a prompt'}
             disabled={composerDisabled}
             className="block w-full resize-none rounded-t-[1.35rem] bg-transparent px-3 pt-3 text-sm leading-6 text-[var(--color-text-primary)] outline-none placeholder:text-dim disabled:opacity-60 md:px-4 md:pt-3"
           />
@@ -1207,7 +1208,7 @@ function ConversationSurface({
               <button type="button" onClick={() => fileInputRef.current?.click()} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Attach screenshot" aria-label="Attach screenshot">
                 <Paperclip size={16} />
               </button>
-              <button type="button" onClick={() => insertTrigger('/')} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Pi command" aria-label="Pi command">
+              <button type="button" onClick={() => insertTrigger('/')} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Prompt, skill, or extension command" aria-label="Prompt, skill, or extension command">
                 <Slash size={15} />
               </button>
               <button type="button" onClick={() => insertTrigger('@')} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Mention file" aria-label="Mention file">
@@ -1222,6 +1223,22 @@ function ConversationSurface({
             </div>
 
             <div className="flex min-w-0 shrink-0 items-center gap-2">
+              {isStreaming && (
+                <div className="inline-flex rounded-full bg-primary p-0.5" aria-label="Streaming prompt mode">
+                  {(['steer', 'followUp'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setStreamingMode(mode)}
+                      className={`h-7 rounded-full px-2 text-[11px] font-medium transition-colors sm:px-2.5 sm:text-xs ${
+                        streamingMode === mode ? 'bg-card text-[var(--color-text-primary)] shadow-sm' : 'text-dim hover:text-[var(--color-text-secondary)]'
+                      }`}
+                    >
+                      {mode === 'steer' ? 'Steer' : 'Follow up'}
+                    </button>
+                  ))}
+                </div>
+              )}
               {snapshot?.streaming && (
                 <button type="button" onClick={abort} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--color-error)] hover:bg-[var(--color-error)]/10" title="Abort" aria-label="Abort">
                   <Square size={13} />
@@ -1230,7 +1247,7 @@ function ConversationSurface({
               <div ref={modelMenuRef} className="relative max-w-[14rem]">
                 <button
                   type="button"
-                  disabled={composerDisabled || modelSwitching || models.length === 0}
+                  disabled={composerDisabled || isStreaming || modelSwitching || models.length === 0}
                   onClick={() => {
                     setModelMenuOpen((open) => !open);
                     setModelSearch('');
@@ -1292,11 +1309,11 @@ function ConversationSurface({
               </button>
               <button
                 type="button"
-                onClick={submit}
+                onClick={() => submit(isStreaming ? streamingMode : undefined)}
                 disabled={(!draft.trim() && attachments.length === 0) || composerDisabled}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-text-primary)] text-[var(--color-card)] shadow-[0_7px_16px_rgba(15,23,42,0.16)] transition-transform hover:scale-[1.03] disabled:scale-100 disabled:opacity-35"
-                title="Send"
-                aria-label="Send"
+                title={isStreaming ? (streamingMode === 'steer' ? 'Steer current turn' : 'Queue follow-up') : 'Send'}
+                aria-label={isStreaming ? (streamingMode === 'steer' ? 'Steer current turn' : 'Queue follow-up') : 'Send'}
               >
                 {sending ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={20} strokeWidth={2.2} />}
               </button>
@@ -1313,6 +1330,15 @@ function ConversationSurface({
           onRequestWorkspaceChange={onRequestWorkspaceChange}
           onForkConversation={onForkConversation}
           onArchiveConversation={onArchiveConversation}
+          piControls={(
+            <PiConversationControls
+              conversationId={conversationId}
+              snapshot={snapshot}
+              active={isActiveConversation}
+              onOpenSettings={onOpenPiSettings}
+              onApplySnapshot={onApplySnapshot}
+            />
+          )}
         />
       </div>
     </div>
@@ -1329,6 +1355,7 @@ function ConversationComposerActions({
   onRequestWorkspaceChange,
   onForkConversation,
   onArchiveConversation,
+  piControls,
 }: {
   workspaces: Workspace[];
   activeWorkspace: Workspace | null;
@@ -1339,6 +1366,7 @@ function ConversationComposerActions({
   onRequestWorkspaceChange: (workspaceId?: string) => void;
   onForkConversation: () => void;
   onArchiveConversation: () => void;
+  piControls?: ReactNode;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -1450,6 +1478,7 @@ function ConversationComposerActions({
         {forkPending ? <Loader2 size={16} className="animate-spin" /> : <GitBranchPlus size={16} />}
         <span className="hidden sm:inline">Fork</span>
       </button>
+      {piControls}
       <button
         type="button"
         disabled={archivePending || archiveDisabled}
@@ -1461,6 +1490,275 @@ function ConversationComposerActions({
         <span className="hidden sm:inline">Archive</span>
       </button>
     </div>
+  );
+}
+
+function PiConversationControls({
+  conversationId,
+  snapshot,
+  active,
+  onOpenSettings,
+  onApplySnapshot,
+}: {
+  conversationId: string;
+  snapshot: PiConversationSnapshot | null;
+  active: boolean;
+  onOpenSettings: () => void;
+  onApplySnapshot: (snapshot: PiConversationSnapshot) => void;
+}) {
+  const queryClient = useQueryClient();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [compactInstructions, setCompactInstructions] = useState('');
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [copiedLast, setCopiedLast] = useState(false);
+  const busy = Boolean(snapshot?.streaming || snapshot?.compacting);
+  const currentThinking = snapshot?.thinkingLevel ?? 'off';
+
+  const sessionQuery = useQuery({
+    queryKey: ['v2-conversation-session', conversationId],
+    queryFn: () => v2Api.getConversationSession(conversationId),
+    enabled: Boolean(open && active && conversationId),
+    staleTime: 15_000,
+  });
+
+  const applyAndRefresh = (nextSnapshot: PiConversationSnapshot) => {
+    onApplySnapshot(nextSnapshot);
+    void queryClient.invalidateQueries({ queryKey: ['v2-conversation-session', conversationId] });
+  };
+  const reportError = (fallback: string) => (error: unknown) => {
+    setStatusMessage(error instanceof Error ? error.message : fallback);
+  };
+
+  const setThinking = useMutation({
+    mutationFn: (level: PiThinkingLevel) => v2Api.setConversationThinking(conversationId, { level }),
+    onSuccess: (nextSnapshot, level) => {
+      applyAndRefresh(nextSnapshot);
+      setStatusMessage(`Thinking set to ${formatThinkingLevel(level)}.`);
+    },
+    onError: reportError('Could not change thinking level.'),
+  });
+  const setAutoCompaction = useMutation({
+    mutationFn: (enabled: boolean) => v2Api.setConversationAutoCompaction(conversationId, { enabled }),
+    onSuccess: (nextSnapshot, enabled) => {
+      applyAndRefresh(nextSnapshot);
+      setStatusMessage(enabled ? 'Auto-compaction enabled.' : 'Auto-compaction disabled.');
+    },
+    onError: reportError('Could not update auto-compaction.'),
+  });
+  const compact = useMutation({
+    mutationFn: () => v2Api.compactConversation(conversationId, { customInstructions: compactInstructions.trim() || undefined }),
+    onSuccess: (nextSnapshot) => {
+      applyAndRefresh(nextSnapshot);
+      setCompactInstructions('');
+      setStatusMessage('Context compacted.');
+    },
+    onError: reportError('Could not compact context.'),
+  });
+  const exportHTML = useMutation({
+    mutationFn: () => v2Api.exportConversationHTML(conversationId),
+    onSuccess: (result) => setStatusMessage(result.path ? `Exported HTML to ${result.path}` : 'Exported HTML.'),
+    onError: reportError('Could not export conversation.'),
+  });
+  const reloadPi = useMutation({
+    mutationFn: () => v2Api.reloadConversationPi(conversationId),
+    onSuccess: (nextSnapshot) => {
+      applyAndRefresh(nextSnapshot);
+      setStatusMessage('Pi resources reloaded.');
+    },
+    onError: reportError('Could not reload Pi resources.'),
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (menuRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  const copyLastAssistant = async () => {
+    const text = lastAssistantText(snapshot);
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
+    setCopiedLast(true);
+    setStatusMessage('Copied last assistant reply.');
+    window.setTimeout(() => setCopiedLast(false), 1200);
+  };
+
+  const state = snapshot ?? sessionQuery.data?.state;
+  const statRows = sessionStatRows(sessionQuery.data);
+  const disabled = !active || !conversationId;
+
+  return (
+    <div ref={menuRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => {
+          setOpen((value) => !value);
+          setStatusMessage(null);
+        }}
+        className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-[var(--color-text-secondary)] transition-colors hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-50"
+        title="Pi controls"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <Sparkles size={16} />
+        <span className="hidden sm:inline">Pi</span>
+        <ChevronDown size={15} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute bottom-full left-0 z-50 mb-2 w-[min(30rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-subtle bg-card shadow-[0_18px_60px_rgba(15,23,42,0.18)]">
+          <div className="flex items-start gap-3 border-b border-subtle/70 px-4 py-3">
+            <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-[var(--color-text-secondary)]">
+              <Info size={16} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-2">
+                <p className="truncate text-sm font-medium text-[var(--color-text-primary)]">{state?.sessionName || 'Pi session'}</p>
+                {sessionQuery.isFetching && <Loader2 size={13} className="shrink-0 animate-spin text-dim" />}
+              </div>
+              <p className="mt-0.5 truncate text-xs text-dim">{state?.sessionFile || state?.workDir || 'Session details load when Pi is active.'}</p>
+            </div>
+          </div>
+
+          <div className="grid gap-0 border-b border-subtle/70 sm:grid-cols-3">
+            <PiMetric label="Messages" value={formatNumber(state?.messageCount ?? snapshot?.messages.length ?? 0)} />
+            <PiMetric label="Thinking" value={formatThinkingLevel(currentThinking)} />
+            <PiMetric label="Compaction" value={state?.autoCompactionEnabled ? 'Auto' : 'Manual'} />
+          </div>
+
+          <div className="space-y-3 px-3 py-3">
+            <div>
+              <div className="mb-1.5 flex items-center gap-2 px-1 text-xs font-medium text-[var(--color-text-secondary)]">
+                <Brain size={13} />
+                <span>Thinking level</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1 sm:grid-cols-6">
+                {THINKING_LEVELS.map((level) => {
+                  const selected = level === currentThinking;
+                  return (
+                    <button
+                      key={level}
+                      type="button"
+                      disabled={disabled || busy || setThinking.isPending}
+                      onClick={() => setThinking.mutate(level)}
+                      className={`h-8 rounded-lg px-2 text-xs font-medium transition-colors disabled:opacity-45 ${
+                        selected ? 'bg-[var(--color-text-primary)] text-[var(--color-card)]' : 'text-[var(--color-text-secondary)] hover:bg-secondary hover:text-[var(--color-text-primary)]'
+                      }`}
+                    >
+                      {formatThinkingLevel(level)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <label className="flex items-center justify-between gap-3 rounded-xl bg-primary px-3 py-2.5">
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-[var(--color-text-primary)]">Auto-compact context</span>
+                <span className="block text-xs text-dim">Let Pi summarize before the context gets too heavy.</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={Boolean(state?.autoCompactionEnabled)}
+                disabled={disabled || busy || setAutoCompaction.isPending}
+                onChange={(event) => setAutoCompaction.mutate(event.target.checked)}
+                className="h-4 w-4 accent-[var(--color-accent)]"
+              />
+            </label>
+
+            <div className="rounded-xl bg-primary p-2">
+              <textarea
+                value={compactInstructions}
+                onChange={(event) => setCompactInstructions(event.target.value)}
+                rows={2}
+                placeholder="Optional compaction instructions"
+                className="block max-h-24 min-h-16 w-full resize-y rounded-lg bg-card px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-dim"
+              />
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <PiControlButton icon={<Sparkles size={14} />} pending={compact.isPending || Boolean(snapshot?.compacting)} disabled={disabled || busy} onClick={() => compact.mutate()}>
+                  Compact
+                </PiControlButton>
+                <PiControlButton icon={<Download size={14} />} pending={exportHTML.isPending} disabled={disabled} onClick={() => exportHTML.mutate()}>
+                  Export HTML
+                </PiControlButton>
+                <PiControlButton icon={copiedLast ? <Check size={14} /> : <Clipboard size={14} />} disabled={!lastAssistantText(snapshot)} onClick={() => void copyLastAssistant()}>
+                  Copy last
+                </PiControlButton>
+                <PiControlButton icon={<RefreshCw size={14} />} pending={reloadPi.isPending} disabled={disabled || busy} onClick={() => reloadPi.mutate()}>
+                  Reload
+                </PiControlButton>
+                <PiControlButton icon={<MoreHorizontal size={14} />} onClick={onOpenSettings}>
+                  Settings
+                </PiControlButton>
+              </div>
+            </div>
+
+            {statRows.length > 0 && (
+              <div className="grid gap-x-3 gap-y-1 rounded-xl bg-inset px-3 py-2 text-xs sm:grid-cols-2">
+                {statRows.map(([label, value]) => (
+                  <div key={label} className="flex min-w-0 items-center justify-between gap-3">
+                    <span className="truncate text-dim">{label}</span>
+                    <span className="truncate font-medium text-[var(--color-text-secondary)]">{value}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {statusMessage && (
+              <div className="rounded-lg bg-accent/10 px-3 py-2 text-xs text-[var(--color-text-primary)]">
+                {statusMessage}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PiMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 border-b border-subtle/70 px-4 py-3 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0">
+      <div className="truncate text-[10px] uppercase tracking-[0.08em] text-dim">{label}</div>
+      <div className="mt-1 truncate text-sm font-medium text-[var(--color-text-primary)]">{value}</div>
+    </div>
+  );
+}
+
+function PiControlButton({
+  icon,
+  pending,
+  disabled,
+  onClick,
+  children,
+}: {
+  icon: ReactNode;
+  pending?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled || pending}
+      onClick={onClick}
+      className="inline-flex h-8 items-center gap-2 rounded-lg px-2.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-45"
+    >
+      {pending ? <Loader2 size={14} className="animate-spin" /> : icon}
+      <span>{children}</span>
+    </button>
   );
 }
 
@@ -1759,6 +2057,52 @@ function toolMessageTitle(message: PiConversationMessage): string {
 
 function messageCopyText(message: PiConversationMessage): string {
   return [message.thinking, message.text].filter(Boolean).join('\n\n').trim();
+}
+
+function lastAssistantText(snapshot: PiConversationSnapshot | null): string {
+  if (!snapshot) return '';
+  for (let index = snapshot.messages.length - 1; index >= 0; index -= 1) {
+    const message = snapshot.messages[index];
+    if (message.role === 'assistant' && message.text?.trim()) {
+      return message.text.trim();
+    }
+  }
+  return '';
+}
+
+function formatThinkingLevel(level?: string): string {
+  if (!level) return 'Off';
+  if (level === 'xhigh') return 'X high';
+  return level.slice(0, 1).toUpperCase() + level.slice(1);
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value);
+}
+
+function sessionStatRows(session?: PiConversationSessionStats): Array<[string, string]> {
+  if (!session?.stats) return [];
+  return Object.entries(session.stats)
+    .map(([key, value]) => [humanizeStatKey(key), formatPiStatValue(value)] as [string, string])
+    .filter(([, value]) => value !== '')
+    .slice(0, 8);
+}
+
+function formatPiStatValue(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'number') return Number.isFinite(value) ? formatNumber(value) : '';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return `${value.length}`;
+  if (typeof value === 'object') return '';
+  return String(value);
+}
+
+function humanizeStatKey(key: string): string {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function modelOptionValue(provider: string, id: string): string {

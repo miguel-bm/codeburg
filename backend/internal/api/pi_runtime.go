@@ -384,7 +384,7 @@ func (m *piConversationManager) existingRuntime(conversationID string, workDir s
 	return runtime
 }
 
-func (m *piConversationManager) Prompt(conversation *db.Conversation, workDir, prompt string, images []piConversationImageRef) (piConversationSnapshot, error) {
+func (m *piConversationManager) Prompt(conversation *db.Conversation, workDir, prompt string, images []piConversationImageRef, streamingBehavior string) (piConversationSnapshot, error) {
 	if conversation.Status != db.ConversationStatusActive {
 		return piConversationSnapshot{}, fmt.Errorf("conversation must be active before prompting")
 	}
@@ -395,11 +395,19 @@ func (m *piConversationManager) Prompt(conversation *db.Conversation, workDir, p
 	runtime.mu.Lock()
 	streaming := runtime.snapshot.Streaming
 	runtime.mu.Unlock()
-	if streaming {
+	streamingBehavior = strings.TrimSpace(streamingBehavior)
+	if streaming && streamingBehavior != "steer" && streamingBehavior != "followUp" {
 		return piConversationSnapshot{}, fmt.Errorf("conversation is already streaming")
 	}
+	commandType := "prompt"
+	if streamingBehavior == "steer" {
+		commandType = "steer"
+	}
+	if streamingBehavior == "followUp" {
+		commandType = "follow_up"
+	}
 	command := map[string]any{
-		"type":    "prompt",
+		"type":    commandType,
 		"message": prompt,
 	}
 	if len(images) > 0 {
@@ -518,6 +526,176 @@ func (m *piConversationManager) SetModel(conversation *db.Conversation, workDir,
 		return piConversationSnapshot{}, err
 	}
 	if err := runtime.refreshState(conversation); err != nil {
+		return piConversationSnapshot{}, err
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return runtime.snapshot, nil
+}
+
+func (m *piConversationManager) SetSessionName(conversationID, name string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	m.mu.Lock()
+	runtime := m.runtimes[conversationID]
+	m.mu.Unlock()
+	if runtime == nil {
+		return
+	}
+	if _, err := runtime.sendCommand(map[string]any{
+		"type": "set_session_name",
+		"name": name,
+	}); err != nil {
+		slog.Warn("failed to update pi session name", "conversation_id", conversationID, "error", err)
+		return
+	}
+	runtime.mu.Lock()
+	runtime.snapshot.SessionName = stringPtr(name)
+	runtime.snapshot.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	runtime.mu.Unlock()
+	runtime.broadcast()
+}
+
+func (m *piConversationManager) SetThinkingLevel(conversation *db.Conversation, workDir, level string) (piConversationSnapshot, error) {
+	if conversation.Status != db.ConversationStatusActive {
+		return piConversationSnapshot{}, fmt.Errorf("conversation must be active before changing thinking level")
+	}
+	level = strings.TrimSpace(level)
+	switch level {
+	case "off", "minimal", "low", "medium", "high", "xhigh":
+	default:
+		return piConversationSnapshot{}, fmt.Errorf("unsupported thinking level")
+	}
+	runtime, err := m.ensureRuntime(conversation, workDir)
+	if err != nil {
+		return piConversationSnapshot{}, err
+	}
+	if _, err := runtime.sendCommand(map[string]any{
+		"type":  "set_thinking_level",
+		"level": level,
+	}); err != nil {
+		return piConversationSnapshot{}, err
+	}
+	if err := runtime.refreshState(conversation); err != nil {
+		return piConversationSnapshot{}, err
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return runtime.snapshot, nil
+}
+
+func (m *piConversationManager) SetAutoCompaction(conversation *db.Conversation, workDir string, enabled bool) (piConversationSnapshot, error) {
+	if conversation.Status != db.ConversationStatusActive {
+		return piConversationSnapshot{}, fmt.Errorf("conversation must be active before changing compaction settings")
+	}
+	runtime, err := m.ensureRuntime(conversation, workDir)
+	if err != nil {
+		return piConversationSnapshot{}, err
+	}
+	if _, err := runtime.sendCommand(map[string]any{
+		"type":    "set_auto_compaction",
+		"enabled": enabled,
+	}); err != nil {
+		return piConversationSnapshot{}, err
+	}
+	if err := runtime.refreshState(conversation); err != nil {
+		return piConversationSnapshot{}, err
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return runtime.snapshot, nil
+}
+
+func (m *piConversationManager) Compact(conversation *db.Conversation, workDir, customInstructions string) (piConversationSnapshot, error) {
+	if conversation.Status != db.ConversationStatusActive {
+		return piConversationSnapshot{}, fmt.Errorf("conversation must be active before compacting")
+	}
+	runtime, err := m.ensureRuntime(conversation, workDir)
+	if err != nil {
+		return piConversationSnapshot{}, err
+	}
+	command := map[string]any{"type": "compact"}
+	if strings.TrimSpace(customInstructions) != "" {
+		command["customInstructions"] = strings.TrimSpace(customInstructions)
+	}
+	if _, err := runtime.sendCommand(command); err != nil {
+		return piConversationSnapshot{}, err
+	}
+	if err := runtime.refreshState(conversation); err != nil {
+		return piConversationSnapshot{}, err
+	}
+	if err := runtime.refreshMessages(); err != nil {
+		slog.Warn("failed to refresh pi messages after compaction", "conversation_id", conversation.ID, "error", err)
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return runtime.snapshot, nil
+}
+
+func (m *piConversationManager) SessionStats(conversation *db.Conversation, workDir string) (piSessionStatsResponse, error) {
+	if conversation.Status != db.ConversationStatusActive {
+		return piSessionStatsResponse{
+			State: staticPiConversationSnapshot(conversation, workDir),
+			Stats: map[string]any{},
+		}, nil
+	}
+	runtime, err := m.ensureRuntime(conversation, workDir)
+	if err != nil {
+		return piSessionStatsResponse{}, err
+	}
+	response, err := runtime.sendCommand(map[string]any{"type": "get_session_stats"})
+	if err != nil {
+		return piSessionStatsResponse{}, err
+	}
+	if err := runtime.refreshState(conversation); err != nil {
+		return piSessionStatsResponse{}, err
+	}
+	data, _ := response["data"].(map[string]any)
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return piSessionStatsResponse{
+		State: runtime.snapshot,
+		Stats: data,
+	}, nil
+}
+
+func (m *piConversationManager) ExportHTML(conversation *db.Conversation, workDir, outputPath string) (piExportResponse, error) {
+	if conversation.Status != db.ConversationStatusActive {
+		return piExportResponse{}, fmt.Errorf("conversation must be active before exporting")
+	}
+	runtime, err := m.ensureRuntime(conversation, workDir)
+	if err != nil {
+		return piExportResponse{}, err
+	}
+	command := map[string]any{"type": "export_html"}
+	if strings.TrimSpace(outputPath) != "" {
+		command["outputPath"] = strings.TrimSpace(outputPath)
+	}
+	response, err := runtime.sendCommand(command)
+	if err != nil {
+		return piExportResponse{}, err
+	}
+	data, _ := response["data"].(map[string]any)
+	return piExportResponse{Path: stringFromMap(data, "path")}, nil
+}
+
+func (m *piConversationManager) Reload(conversation *db.Conversation, workDir string) (piConversationSnapshot, error) {
+	if conversation.Status != db.ConversationStatusActive {
+		return piConversationSnapshot{}, fmt.Errorf("conversation must be active before reloading pi resources")
+	}
+	if runtime := m.existingRuntime(conversation.ID, workDir); runtime != nil {
+		runtime.mu.Lock()
+		streaming := runtime.snapshot.Streaming
+		runtime.mu.Unlock()
+		if streaming {
+			return piConversationSnapshot{}, fmt.Errorf("cannot reload while pi is streaming")
+		}
+		runtime.stop()
+	}
+	runtime, err := m.ensureRuntime(conversation, workDir)
+	if err != nil {
 		return piConversationSnapshot{}, err
 	}
 	runtime.mu.Lock()

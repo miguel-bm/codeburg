@@ -14,13 +14,30 @@ import (
 )
 
 type conversationPromptRequest struct {
-	Message string                   `json:"message"`
-	Images  []piConversationImageRef `json:"images,omitempty"`
+	Message           string                   `json:"message"`
+	Images            []piConversationImageRef `json:"images,omitempty"`
+	StreamingBehavior string                   `json:"streamingBehavior,omitempty"`
 }
 
 type conversationModelRequest struct {
 	Provider string `json:"provider"`
 	ModelID  string `json:"modelId"`
+}
+
+type conversationThinkingRequest struct {
+	Level string `json:"level"`
+}
+
+type conversationAutoCompactionRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+type conversationCompactRequest struct {
+	CustomInstructions string `json:"customInstructions,omitempty"`
+}
+
+type conversationExportRequest struct {
+	OutputPath string `json:"outputPath,omitempty"`
 }
 
 type conversationForkMessageRequest struct {
@@ -108,7 +125,7 @@ func (s *Server) handlePromptConversation(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	snapshot, err := s.pi.Prompt(conversation, workDir, message, req.Images)
+	snapshot, err := s.pi.Prompt(conversation, workDir, message, req.Images, req.StreamingBehavior)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -161,6 +178,146 @@ func (s *Server) handleSetConversationModel(w http.ResponseWriter, r *http.Reque
 	}
 
 	snapshot, err := s.pi.SetModel(conversation, workDir, provider, modelID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshot)
+}
+
+func (s *Server) handleSetConversationThinking(w http.ResponseWriter, r *http.Request) {
+	conversationID := urlParam(r, "id")
+	conversation, workDir, err := s.conversationContext(conversationID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeDBError(w, err, "conversation")
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var req conversationThinkingRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	snapshot, err := s.pi.SetThinkingLevel(conversation, workDir, req.Level)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshot)
+}
+
+func (s *Server) handleSetConversationAutoCompaction(w http.ResponseWriter, r *http.Request) {
+	conversationID := urlParam(r, "id")
+	conversation, workDir, err := s.conversationContext(conversationID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeDBError(w, err, "conversation")
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var req conversationAutoCompactionRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	snapshot, err := s.pi.SetAutoCompaction(conversation, workDir, req.Enabled)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshot)
+}
+
+func (s *Server) handleCompactConversation(w http.ResponseWriter, r *http.Request) {
+	conversationID := urlParam(r, "id")
+	conversation, workDir, err := s.conversationContext(conversationID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeDBError(w, err, "conversation")
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var req conversationCompactRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	snapshot, err := s.pi.Compact(conversation, workDir, req.CustomInstructions)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshot)
+}
+
+func (s *Server) handleGetConversationSessionStats(w http.ResponseWriter, r *http.Request) {
+	conversationID := urlParam(r, "id")
+	conversation, workDir, err := s.conversationContext(conversationID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeDBError(w, err, "conversation")
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	stats, err := s.pi.SessionStats(conversation, workDir)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
+func (s *Server) handleExportConversationHTML(w http.ResponseWriter, r *http.Request) {
+	conversationID := urlParam(r, "id")
+	conversation, workDir, err := s.conversationContext(conversationID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeDBError(w, err, "conversation")
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var req conversationExportRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	exported, err := s.pi.ExportHTML(conversation, workDir, req.OutputPath)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, exported)
+}
+
+func (s *Server) handleReloadConversationPi(w http.ResponseWriter, r *http.Request) {
+	conversationID := urlParam(r, "id")
+	conversation, workDir, err := s.conversationContext(conversationID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeDBError(w, err, "conversation")
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	snapshot, err := s.pi.Reload(conversation, workDir)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

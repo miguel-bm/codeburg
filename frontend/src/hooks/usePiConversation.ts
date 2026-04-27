@@ -24,7 +24,7 @@ export interface UsePiConversationResult {
   connected: boolean;
   connecting: boolean;
   error: string | null;
-  sendMessage: (message: string, images?: PiConversationImageAttachment[]) => Promise<void>;
+  sendMessage: (message: string, images?: PiConversationImageAttachment[], streamingBehavior?: 'steer' | 'followUp') => Promise<void>;
   abort: () => Promise<void>;
   applySnapshot: (snapshot: PiConversationSnapshot) => void;
 }
@@ -142,10 +142,10 @@ export function usePiConversation(conversationId: string, enabled = true, option
     };
   }, [wsUrl, enabled, conversationId]);
 
-  const sendMessage = useCallback(async (message: string, images: PiConversationImageAttachment[] = []) => {
+  const sendMessage = useCallback(async (message: string, images: PiConversationImageAttachment[] = [], streamingBehavior?: 'steer' | 'followUp') => {
     const trimmed = message.trim();
     if (!trimmed && images.length === 0) return;
-    const nextSnapshot = await v2Api.promptConversation(conversationId, { message: trimmed, images });
+    const nextSnapshot = await v2Api.promptConversation(conversationId, { message: trimmed, images, streamingBehavior });
     setSnapshot(nextSnapshot);
   }, [conversationId]);
 
