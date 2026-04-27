@@ -291,6 +291,28 @@ func (m *piConversationManager) GetSnapshot(conversation *db.Conversation, workD
 	return runtime.snapshot, nil
 }
 
+func (m *piConversationManager) ExistingSnapshotSummary(conversation *db.Conversation) piConversationSnapshot {
+	m.mu.Lock()
+	runtime := m.runtimes[conversation.ID]
+	m.mu.Unlock()
+
+	if runtime == nil {
+		return staticPiConversationSnapshot(conversation, "")
+	}
+
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.closed {
+		return staticPiConversationSnapshot(conversation, runtime.workDir)
+	}
+
+	snapshot := runtime.snapshot
+	snapshot.Messages = []piConversationMessage{}
+	snapshot.Pending = nil
+	snapshot.Tools = nil
+	return snapshot
+}
+
 func (m *piConversationManager) Prompt(conversation *db.Conversation, workDir, prompt string, images []piConversationImageRef) (piConversationSnapshot, error) {
 	if conversation.Status != db.ConversationStatusActive {
 		return piConversationSnapshot{}, fmt.Errorf("conversation must be active before prompting")

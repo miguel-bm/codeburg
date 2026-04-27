@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
   ArrowDownUp,
@@ -44,6 +44,7 @@ import { CodeburgIcon, CodeburgWordmark } from '../../components/ui/CodeburgIcon
 import { useMobile } from '../../hooks/useMobile';
 import { getDesktopTitleBarInsetTop, isDesktopShell } from '../../platform/runtimeConfig';
 import { selectIsExpanded, useSidebarStore } from '../../stores/sidebar';
+import { useSharedWebSocket } from '../../hooks/useSharedWebSocket';
 import type { QueryClient } from '@tanstack/react-query';
 import type { NavigateFunction } from 'react-router-dom';
 
@@ -72,21 +73,31 @@ export function V2Layout() {
   const [sidebarContextMenu, setSidebarContextMenu] = useState<SidebarContextMenu | null>(null);
   const sidebarExpanded = useSidebarStore(selectIsExpanded);
   const toggleSidebarExpanded = useSidebarStore((state) => state.toggleExpanded);
-  const { data: projects, isLoading } = useQuery({
-    queryKey: ['v2-projects'],
-    queryFn: () => projectsApi.list(),
-  });
-  const { data: pinnedProjectIds = [] } = useQuery({
-    queryKey: ['pinned-projects'],
-    queryFn: () => preferencesApi.getPinnedProjects(),
+  const shouldLoadSidebarTree = !isMobile || isMobileHome;
+  const { data: sidebar, isLoading } = useQuery({
+    queryKey: ['v2-sidebar-summary'],
+    queryFn: () => v2Api.getSidebar(),
+    enabled: shouldLoadSidebarTree,
+    staleTime: 20_000,
+    refetchInterval: shouldLoadSidebarTree ? 30_000 : false,
   });
   const { data: pinnedConversationIds = [] } = useQuery({
     queryKey: ['v2-pinned-conversations'],
     queryFn: getPinnedConversationIds,
   });
 
-  const safeProjects = Array.isArray(projects) ? projects : [];
-  const safePinnedProjectIds = Array.isArray(pinnedProjectIds) ? pinnedProjectIds : [];
+  useSharedWebSocket({
+    onMessage: useCallback((data: unknown) => {
+      const msg = data as { type?: string };
+      if (msg.type === 'sidebar_update') {
+        queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] });
+      }
+    }, [queryClient]),
+  });
+
+  const sidebarProjects = Array.isArray(sidebar?.projects) ? sidebar.projects : [];
+  const safeProjects = sidebarProjects.map((entry) => entry.project);
+  const safePinnedProjectIds = sidebarProjects.filter((entry) => entry.pinned).map((entry) => entry.project.id);
   const safePinnedConversationIds = Array.isArray(pinnedConversationIds) ? pinnedConversationIds : [];
   const baseVisibleProjects = orderProjectsForTree(
     safeProjects.filter((project) => !project.hidden),
@@ -95,30 +106,16 @@ export function V2Layout() {
     'updated',
     () => [],
   );
-  const shouldLoadSidebarTree = !isMobile || isMobileHome;
-  const workspaceQueries = useQueries({
-    queries: baseVisibleProjects.map((project) => ({
-      queryKey: ['v2-workspaces', project.id],
-      queryFn: () => v2Api.listWorkspaces(project.id),
-      enabled: shouldLoadSidebarTree && !!project.id,
-      staleTime: 30_000,
-    })),
-  });
-  const conversationQueries = useQueries({
-    queries: baseVisibleProjects.map((project) => ({
-      queryKey: ['v2-project-conversations', project.id, 'sidebar'],
-      queryFn: () => v2Api.listProjectConversations(project.id, { provider: 'pi', status: 'active' }),
-      enabled: shouldLoadSidebarTree && !!project.id,
-      staleTime: 20_000,
-      refetchInterval: shouldLoadSidebarTree ? 5_000 : false,
-    })),
-  });
 
   const workspacesByProject = new Map<string, Workspace[]>();
   const conversationsByProject = new Map<string, Conversation[]>();
-  baseVisibleProjects.forEach((project, index) => {
-    workspacesByProject.set(project.id, workspaceQueries[index]?.data ?? []);
-    conversationsByProject.set(project.id, conversationQueries[index]?.data ?? []);
+  const conversationStateById = new Map<string, PiConversationSnapshot>();
+  sidebarProjects.forEach((entry) => {
+    workspacesByProject.set(entry.project.id, entry.workspaces ?? []);
+    conversationsByProject.set(entry.project.id, entry.conversations ?? []);
+    for (const state of entry.states ?? []) {
+      conversationStateById.set(state.conversationId, state);
+    }
   });
   const visibleProjects = orderProjectsForTree(
     baseVisibleProjects,
@@ -127,26 +124,6 @@ export function V2Layout() {
     projectTreeSort,
     (projectId) => conversationsByProject.get(projectId) ?? [],
   );
-  const visibleConversations = shouldLoadSidebarTree
-    ? Array.from(conversationsByProject.values())
-      .flat()
-      .filter((conversation) => conversation.status === 'active')
-      .slice(0, 60)
-    : [];
-  const conversationStateQueries = useQueries({
-    queries: visibleConversations.map((conversation) => ({
-      queryKey: ['v2-conversation-state', conversation.id, 'sidebar'],
-      queryFn: () => v2Api.getConversationState(conversation.id),
-      enabled: shouldLoadSidebarTree && conversation.provider === 'pi',
-      staleTime: 5_000,
-      refetchInterval: shouldLoadSidebarTree ? 5_000 : false,
-    })),
-  });
-  const conversationStateById = new Map<string, PiConversationSnapshot>();
-  visibleConversations.forEach((conversation, index) => {
-    const snapshot = conversationStateQueries[index]?.data;
-    if (snapshot) conversationStateById.set(conversation.id, snapshot);
-  });
   const createConversation = useMutation({
     mutationFn: ({ project, workspace }: { project: Project; workspace?: Workspace }) =>
       v2Api.createConversation(project.id, {
@@ -158,6 +135,7 @@ export function V2Layout() {
         queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', conversation.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', conversation.projectId, 'sidebar'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
       navigate(`/v2/conversations/${conversation.id}`);
     },
@@ -177,6 +155,7 @@ export function V2Layout() {
         queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', projectId, 'sidebar'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
       if (location.pathname.match(/^\/v2\/conversations\/[^/]+/)) navigate('/v2');
     },
@@ -191,6 +170,7 @@ export function V2Layout() {
         queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations'] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId, 'sidebar'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
     },
   });
@@ -204,6 +184,7 @@ export function V2Layout() {
         queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations'] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId, 'sidebar'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
     },
   });
@@ -222,6 +203,7 @@ export function V2Layout() {
       v2Api.createTerminal(workspace.id, { title: `${workspace.name} terminal` }),
     onSuccess: async (terminal, { project }) => {
       await queryClient.invalidateQueries({ queryKey: ['v2-terminals', terminal.workspaceId] });
+      await queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] });
       navigate(`/v2/projects/${project.id}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`);
     },
   });
@@ -229,6 +211,7 @@ export function V2Layout() {
     mutationFn: (workspace: Workspace) => v2Api.syncWorkspace(workspace.id),
     onSuccess: async (_result, workspace) => {
       await queryClient.invalidateQueries({ queryKey: ['v2-workspaces', workspace.projectId] });
+      await queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] });
     },
   });
   const forkWorkspace = useMutation({
@@ -236,6 +219,7 @@ export function V2Layout() {
       v2Api.forkWorkspace(workspace.id, { name, baseBranch: workspace.branchName || undefined }),
     onSuccess: async (response) => {
       await queryClient.invalidateQueries({ queryKey: ['v2-workspaces', response.workspace.projectId] });
+      await queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] });
       navigate(`/v2/projects/${response.workspace.projectId}?workspace=${response.workspace.id}`);
     },
   });
@@ -251,6 +235,7 @@ export function V2Layout() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['v2-workspaces', updated.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-terminals', updated.id] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
       if (
         action !== 'activate' &&
@@ -413,6 +398,7 @@ export function V2Layout() {
           onClose={() => {
             setShowCreateProject(false);
             void queryClient.invalidateQueries({ queryKey: ['v2-projects'] });
+            void queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] });
           }}
         />
       )}
@@ -1544,6 +1530,7 @@ async function invalidateConversationLists(queryClient: QueryClient, projectId: 
     queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations'] }),
     queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', projectId] }),
     queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', projectId, 'sidebar'] }),
+    queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
   ]);
 }
 
@@ -1555,6 +1542,7 @@ async function togglePinnedProject(projectId: string, queryClient: QueryClient) 
     : [...pinned, projectId];
   await preferencesApi.setPinnedProjects(next);
   await queryClient.invalidateQueries({ queryKey: ['pinned-projects'] });
+  await queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] });
 }
 
 async function renameProject(project: Project, queryClient: QueryClient) {
@@ -1564,6 +1552,7 @@ async function renameProject(project: Project, queryClient: QueryClient) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ['v2-projects'] }),
     queryClient.invalidateQueries({ queryKey: ['project', project.id] }),
+    queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
   ]);
 }
 
@@ -1571,5 +1560,6 @@ async function archiveProject(project: Project, queryClient: QueryClient, naviga
   if (!window.confirm(`Archive ${project.name}? It will be hidden from the active project list.`)) return;
   await projectsApi.update(project.id, { hidden: true });
   await queryClient.invalidateQueries({ queryKey: ['v2-projects'] });
+  await queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] });
   navigate('/v2');
 }

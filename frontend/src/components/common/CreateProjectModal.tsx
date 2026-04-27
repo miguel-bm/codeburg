@@ -75,6 +75,7 @@ export function CreateProjectModal({ onClose }: CreateProjectModalProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['v2-projects'] });
+      queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] });
       queryClient.invalidateQueries({ queryKey: ['sidebar'] });
       onClose();
     },

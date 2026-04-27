@@ -1,13 +1,17 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, FolderGit2, MessageSquareText, SquareTerminal } from 'lucide-react';
+import { ArrowRight, BookPlus, FolderGit2, MessageSquareText, SquareTerminal } from 'lucide-react';
 import { projectsApi } from '../../api';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
+import { Button } from '../../components/ui/Button';
+import { CreateProjectModal } from '../../components/common/CreateProjectModal';
 import { useMobile } from '../../hooks/useMobile';
 
 export function V2ProjectsPage() {
   const isMobile = useMobile();
+  const [showCreateProject, setShowCreateProject] = useState(false);
   const { data: projects, isLoading } = useQuery({
     queryKey: ['v2-projects'],
     queryFn: () => projectsApi.list(),
@@ -20,7 +24,18 @@ export function V2ProjectsPage() {
         <header className="shrink-0 border-b border-[var(--color-card-border)] px-4 py-3 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
           <div className="flex items-center justify-between gap-3">
             <h1 className="truncate text-lg font-semibold text-[var(--color-text-primary)]">Home</h1>
-            <Badge variant="count">{visibleProjects.length}</Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="count">{visibleProjects.length}</Badge>
+              <button
+                type="button"
+                onClick={() => setShowCreateProject(true)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-card text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]"
+                title="New project"
+                aria-label="New project"
+              >
+                <BookPlus size={17} />
+              </button>
+            </div>
           </div>
         </header>
 
@@ -54,9 +69,20 @@ export function V2ProjectsPage() {
           </div>
 
           {!isLoading && visibleProjects.length === 0 && (
-            <div className="px-4 py-10 text-sm text-dim">No projects yet.</div>
+            <div className="px-4 py-10 text-sm text-dim">
+              <div>No projects yet.</div>
+              <button
+                type="button"
+                onClick={() => setShowCreateProject(true)}
+                className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-white"
+              >
+                <BookPlus size={15} />
+                New project
+              </button>
+            </div>
           )}
         </div>
+        {showCreateProject && <CreateProjectModal onClose={() => setShowCreateProject(false)} />}
       </div>
     );
   }
@@ -68,7 +94,12 @@ export function V2ProjectsPage() {
           <div className="text-sm font-medium text-[var(--color-text-primary)]">V2 Projects</div>
           <div className="text-xs text-dim">Project, workspace, and conversation entry point</div>
         </div>
-        <Badge variant="count">{visibleProjects.length}</Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="count">{visibleProjects.length}</Badge>
+          <Button size="xs" variant="primary" icon={<BookPlus size={13} />} onClick={() => setShowCreateProject(true)}>
+            New project
+          </Button>
+        </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-auto p-4">
@@ -109,11 +140,15 @@ export function V2ProjectsPage() {
 
           {!isLoading && visibleProjects.length === 0 && (
             <Card className="text-sm text-dim">
-              No projects yet. Create or import one from the main Codeburg project flow.
+              <div>No projects yet. Create or import one to start using V2.</div>
+              <Button className="mt-4" size="sm" variant="primary" icon={<BookPlus size={14} />} onClick={() => setShowCreateProject(true)}>
+                New project
+              </Button>
             </Card>
           )}
         </div>
       </div>
+      {showCreateProject && <CreateProjectModal onClose={() => setShowCreateProject(false)} />}
     </div>
   );
 }

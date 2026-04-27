@@ -22,13 +22,15 @@ export function V2WorkspaceToolTabs({
   disabled?: boolean;
   placement?: 'inline' | 'panel';
 }) {
+  const isMobile = useMobile();
+  const compact = isMobile && placement === 'inline';
   return (
     <div className={`flex shrink-0 items-center gap-1 ${
-      placement === 'inline' ? 'border-l border-[var(--color-card-border)] pl-1.5' : ''
+      placement === 'inline' && !compact ? 'border-l border-[var(--color-card-border)] pl-1.5' : ''
     }`}>
-      <HelperButton disabled={disabled} active={toolsOpen && helperTab === 'files'} icon={<Files size={14} />} onClick={() => onToggleHelperTab('files')}>Files</HelperButton>
-      <HelperButton disabled={disabled} active={toolsOpen && helperTab === 'search'} icon={<Search size={14} />} onClick={() => onToggleHelperTab('search')}>Search</HelperButton>
-      <HelperButton disabled={disabled} active={toolsOpen && helperTab === 'git'} icon={<GitBranch size={14} />} onClick={() => onToggleHelperTab('git')}>Git</HelperButton>
+      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'files'} icon={<Files size={14} />} onClick={() => onToggleHelperTab('files')}>Files</HelperButton>
+      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'search'} icon={<Search size={14} />} onClick={() => onToggleHelperTab('search')}>Search</HelperButton>
+      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'git'} icon={<GitBranch size={14} />} onClick={() => onToggleHelperTab('git')}>Git</HelperButton>
     </div>
   );
 }
@@ -139,17 +141,37 @@ export function V2WorkspaceToolsSurface({
 
 function HelperButton({
   active,
+  compact,
   disabled,
   icon,
   onClick,
   children,
 }: {
   active: boolean;
+  compact?: boolean;
   disabled?: boolean;
   icon: ReactNode;
   onClick: () => void;
   children: ReactNode;
 }) {
+  if (compact) {
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onClick}
+        className={`inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-md transition-colors disabled:opacity-50 ${
+          active
+            ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
+            : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
+        }`}
+        title={typeof children === 'string' ? children : undefined}
+        aria-label={typeof children === 'string' ? children : undefined}
+      >
+        {icon}
+      </button>
+    );
+  }
   return (
     <V2ToolbarButton active={active} disabled={disabled} onClick={onClick}>
       {icon}

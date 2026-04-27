@@ -17,6 +17,18 @@ type SidebarResponse struct {
 	Projects []SidebarProject `json:"projects"`
 }
 
+type V2SidebarResponse struct {
+	Projects []V2SidebarProject `json:"projects"`
+}
+
+type V2SidebarProject struct {
+	Project       db.Project               `json:"project"`
+	Pinned        bool                     `json:"pinned"`
+	Workspaces    []db.Workspace           `json:"workspaces"`
+	Conversations []db.Conversation        `json:"conversations"`
+	States        []piConversationSnapshot `json:"states"`
+}
+
 type SidebarProject struct {
 	ID       string           `json:"id"`
 	Name     string           `json:"name"`
@@ -269,6 +281,82 @@ func (s *Server) handleSidebar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sort: pinned projects first, preserve existing order within groups
+	sort.SliceStable(resp.Projects, func(i, j int) bool {
+		if resp.Projects[i].Pinned != resp.Projects[j].Pinned {
+			return resp.Projects[i].Pinned
+		}
+		return false
+	})
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleV2Sidebar(w http.ResponseWriter, r *http.Request) {
+	projects, err := s.db.ListProjects()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list projects")
+		return
+	}
+
+	pinnedSet := make(map[string]bool)
+	if pref, err := s.db.GetPreference(db.DefaultUserID, "pinned_projects"); err == nil {
+		var ids []string
+		if json.Unmarshal([]byte(pref.Value), &ids) == nil {
+			for _, id := range ids {
+				pinnedSet[id] = true
+			}
+		}
+	}
+
+	activeStatus := db.ConversationStatusActive
+	conversations, err := s.db.ListConversationsWithOptions(db.ListConversationOptions{
+		Status:   &activeStatus,
+		Provider: "pi",
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list conversations")
+		return
+	}
+
+	conversationsByProject := make(map[string][]db.Conversation)
+	stateByConversation := make(map[string]piConversationSnapshot)
+	for i, conversation := range conversations {
+		conversationsByProject[conversation.ProjectID] = append(conversationsByProject[conversation.ProjectID], *conversation)
+		if i < 60 {
+			stateByConversation[conversation.ID] = s.pi.ExistingSnapshotSummary(conversation)
+		}
+	}
+
+	resp := V2SidebarResponse{Projects: make([]V2SidebarProject, 0, len(projects))}
+	for _, project := range projects {
+		workspaces, err := s.db.ListWorkspacesByProject(project.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to list workspaces")
+			return
+		}
+
+		workspaceValues := make([]db.Workspace, 0, len(workspaces))
+		for _, workspace := range workspaces {
+			workspaceValues = append(workspaceValues, *workspace)
+		}
+
+		projectConversations := conversationsByProject[project.ID]
+		states := make([]piConversationSnapshot, 0, len(projectConversations))
+		for _, conversation := range projectConversations {
+			if state, ok := stateByConversation[conversation.ID]; ok {
+				states = append(states, state)
+			}
+		}
+
+		resp.Projects = append(resp.Projects, V2SidebarProject{
+			Project:       *project,
+			Pinned:        pinnedSet[project.ID],
+			Workspaces:    workspaceValues,
+			Conversations: projectConversations,
+			States:        states,
+		})
+	}
+
 	sort.SliceStable(resp.Projects, func(i, j int) bool {
 		if resp.Projects[i].Pinned != resp.Projects[j].Pinned {
 			return resp.Projects[i].Pinned

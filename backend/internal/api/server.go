@@ -230,6 +230,7 @@ func (s *Server) setupRoutes() {
 
 		// Sidebar (aggregated)
 		r.Get("/api/sidebar", s.handleSidebar)
+		r.Get("/api/sidebar/v2", s.handleV2Sidebar)
 
 		// Projects
 		r.Get("/api/projects", s.handleListProjects)
