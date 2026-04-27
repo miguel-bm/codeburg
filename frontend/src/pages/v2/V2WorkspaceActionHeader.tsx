@@ -189,7 +189,7 @@ export function V2WorkspaceActionHeader({
             {detail}
           </div>
 
-          <div className="flex shrink-0 items-center gap-1 overflow-x-auto scrollbar-none">
+          <div className="flex shrink-0 items-center gap-1 overflow-x-auto scrollbar-none md:overflow-visible">
             <V2QuickActionsMenu projectId={project.id} workspaceId={workspace.id} disabled={!isActive} />
             <ActionMenu
               name="Update"
