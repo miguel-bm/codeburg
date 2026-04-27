@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ClipboardEvent, Dispatch, DragEvent, ReactNode, SetStateAction } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -22,6 +22,7 @@ import {
   MessageSquareText,
   Paperclip,
   PlusCircle,
+  Search,
   Slash,
   Sparkles,
   Square,
@@ -34,6 +35,7 @@ import type { Conversation, PiAvailableModel, PiConversationImageAttachment, PiC
 import { v2Api, type V2FileEntry } from '../../api/v2';
 import { Badge } from '../../components/ui/Badge';
 import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
+import { Modal } from '../../components/ui/Modal';
 import { DiffTab } from '../../components/workspace/DiffTab';
 import { EditorTab } from '../../components/workspace/EditorTab';
 import { WorkspaceProvider } from '../../components/workspace/WorkspaceContext';
@@ -42,7 +44,7 @@ import { usePiConversation } from '../../hooks/usePiConversation';
 import { useVirtualKeyboard } from '../../hooks/useVirtualKeyboard';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { applySuggestionToText, findActiveToken, fuzzyScore, type InputSelection } from '../../components/chat/chatAutocomplete';
-import { Button, V2Empty, V2Input, V2Screen, V2Select } from './v2-ui';
+import { Button, V2Empty, V2Screen } from './v2-ui';
 import { V2QuickActionsMenu } from './V2QuickActionsMenu';
 import { V2WorkspaceToolTabs, V2WorkspaceTools, V2WorkspaceToolsSurface, type V2HelperTab } from './V2WorkspaceTools';
 
@@ -96,8 +98,7 @@ export function V2ConversationDetailPage() {
   const [draft, setDraft] = useState('');
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [sending, setSending] = useState(false);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('');
-  const [forkTitle, setForkTitle] = useState('');
+  const [pendingWorkspaceId, setPendingWorkspaceId] = useState<string | null>(null);
   const [helperTab, setHelperTab] = useState<V2HelperTab>('files');
   const [toolsOpen, setToolsOpen] = useState(() => typeof window === 'undefined' || window.innerWidth >= 768);
   const [toolsWidth, setToolsWidth] = useState(360);
@@ -188,7 +189,6 @@ export function V2ConversationDetailPage() {
   const updateWorkspace = useMutation({
     mutationFn: (currentWorkspaceId?: string) => v2Api.switchConversationWorkspace(conversationId!, { currentWorkspaceId }),
     onSuccess: async (updated) => {
-      startTransition(() => setSelectedWorkspaceId(updated.currentWorkspaceId ?? ''));
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['v2-conversation', conversationId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-conversation-state', conversationId] }),
@@ -270,11 +270,10 @@ export function V2ConversationDetailPage() {
   const forkConversation = useMutation({
     mutationFn: () =>
       v2Api.forkConversation(conversationId!, {
-        title: forkTitle.trim() || `${conversation?.title ?? 'Conversation'} fork`,
-        currentWorkspaceId: selectedWorkspaceId || conversation?.currentWorkspaceId,
+        title: `${conversation?.title ?? 'Conversation'} fork`,
+        currentWorkspaceId: conversation?.currentWorkspaceId,
       }),
     onSuccess: async (forked) => {
-      setForkTitle('');
       await queryClient.invalidateQueries({ queryKey: ['v2-conversations'] });
       await queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.projectId] });
       await queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.projectId, 'sidebar'] });
@@ -398,7 +397,7 @@ export function V2ConversationDetailPage() {
     setToolsOpen(true);
   }, [helperTab, toolsOpen]);
 
-  const workspaceValue = selectedWorkspaceId || conversation?.currentWorkspaceId || '';
+  const pendingWorkspace = safeWorkspaces.find((workspace) => workspace.id === pendingWorkspaceId) ?? null;
   const sortedTerminals = [...safeTerminals].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const shell = (
     <V2Screen>
@@ -485,13 +484,8 @@ export function V2ConversationDetailPage() {
                   <>
                     <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close conversation actions" onClick={() => setConversationActionsOpen(false)} />
                     <div className="fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-3 shadow-[var(--shadow-card)] md:absolute md:inset-auto md:right-0 md:top-7 md:w-80">
-                      {conversation && <CompactWorkspaceMenu value={workspaceValue} workspaces={safeWorkspaces} pending={updateWorkspace.isPending} onChange={setSelectedWorkspaceId} onSave={() => updateWorkspace.mutate(workspaceValue || '')} />}
-                      <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-center">
-                        <V2Input value={forkTitle} onChange={(event) => setForkTitle(event.target.value)} placeholder="Fork title" className="min-w-0 flex-1" />
-                        <Button size="xs" variant="secondary" icon={<GitBranchPlus size={13} />} loading={forkConversation.isPending} onClick={() => forkConversation.mutate()} title="Fork conversation">Fork</Button>
-                      </div>
                       <Button
-                        className="mt-3 w-full"
+                        className="w-full"
                         size="xs"
                         variant="ghost"
                         icon={<CircleDot size={13} />}
@@ -532,6 +526,12 @@ export function V2ConversationDetailPage() {
                 forkPending={forkConversationFromMessage.isPending}
                 onSetModel={(provider, modelId) => setConversationModel.mutate({ provider, modelId })}
                 onForkFromMessage={(entryId) => forkConversationFromMessage.mutate({ entryId })}
+                workspaces={safeWorkspaces}
+                activeWorkspace={activeWorkspace}
+                movePending={updateWorkspace.isPending}
+                forkConversationPending={forkConversation.isPending}
+                onRequestWorkspaceChange={(workspaceId) => setPendingWorkspaceId(workspaceId)}
+                onForkConversation={() => forkConversation.mutate()}
                 abort={() => void abort()}
                 submit={() => void handleSubmit()}
               />
@@ -555,6 +555,33 @@ export function V2ConversationDetailPage() {
           )}
         </V2WorkspaceToolsSurface>
       </div>
+      <Modal
+        open={Boolean(pendingWorkspaceId)}
+        onClose={() => setPendingWorkspaceId(null)}
+        title="Move conversation"
+        size="sm"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button size="xs" variant="ghost" onClick={() => setPendingWorkspaceId(null)}>Cancel</Button>
+            <Button
+              size="xs"
+              loading={updateWorkspace.isPending}
+              onClick={() => {
+                if (!pendingWorkspaceId) return;
+                updateWorkspace.mutate(pendingWorkspaceId, {
+                  onSuccess: () => setPendingWorkspaceId(null),
+                });
+              }}
+            >
+              Move
+            </Button>
+          </div>
+        }
+      >
+        <div className="px-5 py-4 text-sm leading-6 text-[var(--color-text-secondary)]">
+          Move this conversation to <span className="font-medium text-[var(--color-text-primary)]">{pendingWorkspace ? workspaceBranchLabel(pendingWorkspace) : 'Project default'}</span>?
+        </div>
+      </Modal>
     </V2Screen>
   );
 
@@ -580,6 +607,12 @@ function ConversationSurface({
   forkPending,
   onSetModel,
   onForkFromMessage,
+  workspaces,
+  activeWorkspace,
+  movePending,
+  forkConversationPending,
+  onRequestWorkspaceChange,
+  onForkConversation,
   abort,
   submit,
 }: {
@@ -596,6 +629,12 @@ function ConversationSurface({
   forkPending: boolean;
   onSetModel: (provider: string, modelId: string) => void;
   onForkFromMessage: (entryId: string) => void;
+  workspaces: Workspace[];
+  activeWorkspace: Workspace | null;
+  movePending: boolean;
+  forkConversationPending: boolean;
+  onRequestWorkspaceChange: (workspaceId: string) => void;
+  onForkConversation: () => void;
   abort: () => void;
   submit: () => void;
 }) {
@@ -1132,7 +1171,130 @@ function ConversationSurface({
             </div>
           </div>
         </div>
+        <ConversationComposerActions
+          workspaces={workspaces}
+          activeWorkspace={activeWorkspace}
+          movePending={movePending}
+          forkPending={forkConversationPending}
+          onRequestWorkspaceChange={onRequestWorkspaceChange}
+          onForkConversation={onForkConversation}
+        />
       </div>
+    </div>
+  );
+}
+
+function ConversationComposerActions({
+  workspaces,
+  activeWorkspace,
+  movePending,
+  forkPending,
+  onRequestWorkspaceChange,
+  onForkConversation,
+}: {
+  workspaces: Workspace[];
+  activeWorkspace: Workspace | null;
+  movePending: boolean;
+  forkPending: boolean;
+  onRequestWorkspaceChange: (workspaceId: string) => void;
+  onForkConversation: () => void;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const activeWorkspaceId = activeWorkspace?.id ?? '';
+  const filteredWorkspaces = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return workspaces;
+    return workspaces.filter((workspace) => `${workspace.name} ${workspace.branchName}`.toLowerCase().includes(normalizedQuery));
+  }, [query, workspaces]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (menuRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div className="mx-auto mt-1 flex max-w-5xl items-center gap-2 px-1 text-sm text-dim md:px-1.5">
+      <div ref={menuRef} className="relative">
+        <button
+          type="button"
+          disabled={movePending || workspaces.length === 0}
+          onClick={() => {
+            setOpen((value) => !value);
+            setQuery('');
+          }}
+          className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-[var(--color-text-secondary)] transition-colors hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-50"
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          title="Move conversation"
+        >
+          {movePending ? <Loader2 size={16} className="animate-spin" /> : <GitBranch size={16} />}
+          <span className="max-w-44 truncate">{activeWorkspace ? workspaceBranchLabel(activeWorkspace) : 'Project default'}</span>
+          <ChevronDown size={15} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+        {open && (
+          <div className="absolute bottom-full left-0 z-50 mb-2 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-subtle bg-card p-2 shadow-[0_18px_60px_rgba(15,23,42,0.18)]">
+            <label className="flex h-10 items-center gap-2 px-2 text-dim">
+              <Search size={16} />
+              <input
+                autoFocus
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search branches"
+                className="min-w-0 flex-1 bg-transparent text-sm text-[var(--color-text-primary)] outline-none placeholder:text-dim"
+              />
+            </label>
+            <div className="px-2 pb-1 pt-3 text-xs font-medium text-dim">Branches</div>
+            <div className="max-h-72 overflow-y-auto" role="listbox">
+              {filteredWorkspaces.length === 0 ? (
+                <div className="px-3 py-6 text-center text-sm text-dim">No branches found</div>
+              ) : filteredWorkspaces.map((workspace) => {
+                const selected = workspace.id === activeWorkspaceId;
+                return (
+                  <button
+                    key={workspace.id}
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    onClick={() => {
+                      setOpen(false);
+                      if (!selected) onRequestWorkspaceChange(workspace.id);
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-secondary ${selected ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}`}
+                  >
+                    <GitBranch size={17} className={selected ? 'text-[var(--color-text-primary)]' : 'text-dim'} />
+                    <span className="min-w-0 flex-1 truncate">{workspaceBranchLabel(workspace)}</span>
+                    {selected && <Check size={17} className="text-[var(--color-text-primary)]" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+      <button
+        type="button"
+        disabled={forkPending}
+        onClick={onForkConversation}
+        className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-[var(--color-text-secondary)] transition-colors hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-50"
+        title="Fork conversation"
+      >
+        {forkPending ? <Loader2 size={16} className="animate-spin" /> : <GitBranchPlus size={16} />}
+        <span>Fork</span>
+      </button>
     </div>
   );
 }
@@ -1524,34 +1686,6 @@ function canDropFiles(event: DragEvent<HTMLElement>, isActiveConversation: boole
   return Array.from(event.dataTransfer.types ?? []).includes('Files');
 }
 
-function CompactWorkspaceMenu({
-  value,
-  workspaces,
-  pending,
-  onChange,
-  onSave,
-}: {
-  value: string;
-  workspaces: Workspace[];
-  pending: boolean;
-  onChange: (value: string) => void;
-  onSave: () => void;
-}) {
-  return (
-    <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-1">
-      <V2Select value={value} onChange={(event) => onChange(event.target.value)} className="w-full md:w-48">
-        <option value="">Project default</option>
-        {workspaces.map((workspace) => (
-          <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
-        ))}
-      </V2Select>
-      <Button size="xs" variant="ghost" loading={pending} onClick={onSave} title="Attach conversation to selected workspace">
-        Save
-      </Button>
-    </div>
-  );
-}
-
 function NewTabMenuItem({ icon, children, disabled, onClick }: { icon: ReactNode; children: ReactNode; disabled?: boolean; onClick: () => void }) {
   return (
     <button
@@ -1630,6 +1764,10 @@ function ConversationTab({
 
 function terminalWorkspaceProjectId(project?: { id: string } | null, conversation?: { projectId: string } | null) {
   return project?.id ?? conversation?.projectId ?? '';
+}
+
+function workspaceBranchLabel(workspace: Workspace): string {
+  return workspace.branchName || workspace.name;
 }
 
 function statusColor(status: Workspace['status']): 'blue' | 'green' | 'yellow' | 'gray' {
