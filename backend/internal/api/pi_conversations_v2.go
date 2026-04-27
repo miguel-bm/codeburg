@@ -320,7 +320,8 @@ func (s *Server) handleConversationWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	snapshot, stream, cancel, err := s.pi.Attach(conversation, workDir)
+	activateRuntime := r.URL.Query().Get("activate") == "1" || strings.EqualFold(r.URL.Query().Get("activate"), "true")
+	snapshot, stream, cancel, err := s.pi.Attach(conversation, workDir, activateRuntime)
 	if err != nil {
 		_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4000, "conversation runtime unavailable"))
 		_ = conn.Close()

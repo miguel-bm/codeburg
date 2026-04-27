@@ -9,7 +9,6 @@ import {
   Check,
   ChevronDown,
   Clipboard,
-  CircleDot,
   Command,
   FileCode2,
   FolderTree,
@@ -97,6 +96,8 @@ export function V2ConversationDetailPage() {
   const [draft, setDraft] = useState('');
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [runtimeRequested, setRuntimeRequested] = useState(false);
   const [pendingWorkspaceId, setPendingWorkspaceId] = useState<string | undefined | null>(null);
   const [helperTab, setHelperTab] = useState<V2HelperTab>('files');
   const [toolsOpen, setToolsOpen] = useState(() => typeof window === 'undefined' || window.innerWidth >= 768);
@@ -104,7 +105,6 @@ export function V2ConversationDetailPage() {
   const [toolsResizing, setToolsResizing] = useState(false);
   const [mainSurface, setMainSurface] = useState<MainSurface>('conversation');
   const [newTabOpen, setNewTabOpen] = useState(false);
-  const [conversationActionsOpen, setConversationActionsOpen] = useState(false);
   const resizeStart = useRef<{ x: number; width: number } | null>(null);
   const readOnFocusConversation = useRef<string | null>(null);
   const wasStreaming = useRef(false);
@@ -133,17 +133,12 @@ export function V2ConversationDetailPage() {
     enabled: !!conversationId,
   });
 
-  const { data: workspaceHistory } = useQuery({
-    queryKey: ['v2-conversation-workspaces', conversationId],
-    queryFn: () => v2Api.listConversationWorkspaceLinks(conversationId!),
-    enabled: !!conversationId,
-  });
-
   const isActiveConversation = conversation?.status === 'active';
-  const { snapshot: liveSnapshot, connected, connecting, error, sendMessage, abort, applySnapshot } = usePiConversation(conversationId ?? '', isActiveConversation);
+  const shouldConnectRuntime = isActiveConversation && (runtimeRequested || Boolean(stateSnapshot?.runtimeActive));
+  const activateRuntime = runtimeRequested && !stateSnapshot?.runtimeActive;
+  const { snapshot: liveSnapshot, connected, connecting, error, sendMessage, abort, applySnapshot } = usePiConversation(conversationId ?? '', shouldConnectRuntime, { activate: activateRuntime });
   const snapshot: PiConversationSnapshot | null = liveSnapshot ?? stateSnapshot ?? null;
   const safeWorkspaces = useMemo(() => Array.isArray(workspaces) ? workspaces : [], [workspaces]);
-  const safeWorkspaceHistory = Array.isArray(workspaceHistory) ? workspaceHistory : [];
   const attachedWorkspace = useMemo(
     () => safeWorkspaces.find((workspace) => workspace.id === conversation?.currentWorkspaceId),
     [safeWorkspaces, conversation?.currentWorkspaceId],
@@ -162,7 +157,15 @@ export function V2ConversationDetailPage() {
   useEffect(() => {
     resetWorkspaceTabs();
     setMainSurface('conversation');
+    setRuntimeRequested(false);
+    setSendError(null);
   }, [conversationId, activeWorkspace?.id, resetWorkspaceTabs]);
+
+  useEffect(() => {
+    if (stateSnapshot?.runtimeActive) {
+      setRuntimeRequested(true);
+    }
+  }, [stateSnapshot?.runtimeActive]);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -276,12 +279,20 @@ export function V2ConversationDetailPage() {
     mutationFn: () =>
       v2Api.forkConversation(conversationId!, {
         title: `${conversation?.title ?? 'Conversation'} fork`,
-        currentWorkspaceId: conversation?.currentWorkspaceId,
+        currentWorkspaceId: activeWorkspaceId ?? conversation?.currentWorkspaceId,
       }),
     onSuccess: async (forked) => {
-      await queryClient.invalidateQueries({ queryKey: ['v2-conversations'] });
-      await queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.projectId] });
-      await queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.projectId, 'sidebar'] });
+      if (activeWorkspaceId) {
+        queryClient.setQueryData<Conversation[]>(['v2-workspace-conversations', activeWorkspaceId], (current = []) => (
+          current.some((candidate) => candidate.id === forked.id) ? current : [forked, ...current]
+        ));
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.projectId, 'sidebar'] }),
+      ]);
       navigate(`/v2/conversations/${forked.id}`);
     },
   });
@@ -301,6 +312,11 @@ export function V2ConversationDetailPage() {
     onSuccess: async (forked) => {
       if (forked.selectedText) {
         window.sessionStorage.setItem(forkDraftStorageKey(forked.conversation.id), forked.selectedText);
+      }
+      if (activeWorkspaceId) {
+        queryClient.setQueryData<Conversation[]>(['v2-workspace-conversations', activeWorkspaceId], (current = []) => (
+          current.some((candidate) => candidate.id === forked.conversation.id) ? current : [forked.conversation, ...current]
+        ));
       }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
@@ -448,12 +464,17 @@ export function V2ConversationDetailPage() {
   const handleSubmit = async () => {
     const trimmed = draft.trim();
     if ((!trimmed && attachments.length === 0) || !conversationId) return;
+    if (!isActiveConversation || snapshot?.streaming) return;
+    setRuntimeRequested(true);
+    setSendError(null);
     setSending(true);
     try {
       await sendMessage(trimmed, attachments.map(({ image }) => image));
       setDraft('');
       setAttachments([]);
       setMainSurface('conversation');
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : 'Failed to send prompt');
     } finally {
       setSending(false);
     }
@@ -598,43 +619,6 @@ export function V2ConversationDetailPage() {
               onToggleHelperTab={toggleHelperTab}
             />
           )}
-          {!activePreviewTab && (
-            <div className="mx-auto flex min-h-12 w-full max-w-5xl shrink-0 items-center justify-between gap-3 px-3 py-1 md:h-9 md:min-h-0 md:px-6 md:py-0">
-              <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
-                <Sparkles size={13} />
-                <span className="truncate font-medium text-[var(--color-text-primary)]">{conversation?.title ?? 'Conversation'}</span>
-                {safeWorkspaceHistory.length > 1 && <span>{safeWorkspaceHistory.length} moves</span>}
-              </div>
-              <div className="relative flex shrink-0 items-center gap-1">
-                <button type="button" onClick={() => setConversationActionsOpen((value) => !value)} className="rounded-md px-3 py-2 text-sm text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] md:px-2 md:py-1 md:text-xs">
-                  Actions
-                </button>
-                {conversationActionsOpen && (
-                  <>
-                    <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close conversation actions" onClick={() => setConversationActionsOpen(false)} />
-                    <div className="fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-3 shadow-[var(--shadow-card)] md:absolute md:inset-auto md:right-0 md:top-7 md:w-80">
-                      <Button
-                        className="w-full"
-                        size="xs"
-                        variant="ghost"
-                        icon={<CircleDot size={13} />}
-                        loading={markConversationReadState.isPending}
-                        onClick={() => markConversationReadState.mutate(!conversation?.unreadAt)}
-                      >
-                        {conversation?.unreadAt ? 'Mark read' : 'Mark unread'}
-                      </Button>
-                      {conversation?.status !== 'archived' && (
-                        <Button className="mt-3 w-full" size="xs" variant="ghost" icon={<Archive size={13} />} disabled={transitionConversation.isPending} onClick={() => transitionConversation.mutate('archive')} title="Archive conversation">
-                          Archive conversation
-                        </Button>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-
           <div className="min-h-0 flex-1 overflow-hidden">
             {activeWorkspaceTab?.type === 'editor' && workspaceContextReady ? (
               <EditorTab path={activeWorkspaceTab.path} line={activeWorkspaceTab.line} onClose={closeWorkspaceSurface} />
@@ -651,6 +635,7 @@ export function V2ConversationDetailPage() {
                 setDraft={setDraft}
                 attachments={attachments}
                 setAttachments={setAttachments}
+                sendError={sendError}
                 modelSwitching={setConversationModel.isPending}
                 forkPending={forkConversationFromMessage.isPending}
                 onSetModel={(provider, modelId) => setConversationModel.mutate({ provider, modelId })}
@@ -659,8 +644,11 @@ export function V2ConversationDetailPage() {
                 activeWorkspace={attachedWorkspace ?? null}
                 movePending={updateWorkspace.isPending}
                 forkConversationPending={forkConversation.isPending}
+                archivePending={transitionConversation.isPending}
+                archiveDisabled={conversation?.status === 'archived'}
                 onRequestWorkspaceChange={(workspaceId) => setPendingWorkspaceId(workspaceId)}
                 onForkConversation={() => forkConversation.mutate()}
+                onArchiveConversation={() => transitionConversation.mutate('archive')}
                 abort={() => void abort()}
                 submit={() => void handleSubmit()}
               />
@@ -732,6 +720,7 @@ function ConversationSurface({
   setDraft,
   attachments,
   setAttachments,
+  sendError,
   modelSwitching,
   forkPending,
   onSetModel,
@@ -740,8 +729,11 @@ function ConversationSurface({
   activeWorkspace,
   movePending,
   forkConversationPending,
+  archivePending,
+  archiveDisabled,
   onRequestWorkspaceChange,
   onForkConversation,
+  onArchiveConversation,
   abort,
   submit,
 }: {
@@ -754,6 +746,7 @@ function ConversationSurface({
   setDraft: (draft: string) => void;
   attachments: ComposerAttachment[];
   setAttachments: Dispatch<SetStateAction<ComposerAttachment[]>>;
+  sendError: string | null;
   modelSwitching: boolean;
   forkPending: boolean;
   onSetModel: (provider: string, modelId: string) => void;
@@ -762,8 +755,11 @@ function ConversationSurface({
   activeWorkspace: Workspace | null;
   movePending: boolean;
   forkConversationPending: boolean;
+  archivePending: boolean;
+  archiveDisabled: boolean;
   onRequestWorkspaceChange: (workspaceId?: string) => void;
   onForkConversation: () => void;
+  onArchiveConversation: () => void;
   abort: () => void;
   submit: () => void;
 }) {
@@ -787,6 +783,8 @@ function ConversationSurface({
     ? { paddingBottom: keyboardHeight + 12 }
     : undefined;
   const messages = useMemo(() => snapshot?.messages ?? [], [snapshot?.messages]);
+  const isStreaming = Boolean(snapshot?.streaming);
+  const composerDisabled = !isActiveConversation || sending || isStreaming;
   const pendingVisible = hasPendingAssistant(snapshot);
   const messageItems = useMemo(() => buildConversationItems(messages), [messages]);
   const selectedModel = snapshot?.model ? { provider: snapshot.model.provider, id: snapshot.model.id } : null;
@@ -803,13 +801,13 @@ function ConversationSurface({
   const { data: commandResponse } = useQuery({
     queryKey: ['v2-conversation-commands', conversationId],
     queryFn: () => v2Api.listConversationCommands(conversationId),
-    enabled: Boolean(conversationId && isActiveConversation),
+    enabled: Boolean(conversationId && isActiveConversation && snapshot?.runtimeActive),
     staleTime: 60_000,
   });
   const { data: modelResponse, isFetching: modelsLoading } = useQuery({
     queryKey: ['v2-conversation-models', conversationId],
     queryFn: () => v2Api.listConversationModels(conversationId),
-    enabled: Boolean(conversationId && isActiveConversation),
+    enabled: Boolean(conversationId && isActiveConversation && snapshot?.runtimeActive),
     staleTime: 60_000,
   });
 
@@ -995,28 +993,28 @@ function ConversationSurface({
   };
 
   const handleComposerDragEnter = (event: DragEvent<HTMLDivElement>) => {
-    if (!canDropFiles(event, isActiveConversation, sending)) return;
+    if (!canDropFiles(event, isActiveConversation, composerDisabled)) return;
     event.preventDefault();
     imageDragDepth.current += 1;
     setImageDragActive(true);
   };
 
   const handleComposerDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (!canDropFiles(event, isActiveConversation, sending)) return;
+    if (!canDropFiles(event, isActiveConversation, composerDisabled)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
     setImageDragActive(true);
   };
 
   const handleComposerDragLeave = (event: DragEvent<HTMLDivElement>) => {
-    if (!canDropFiles(event, isActiveConversation, sending)) return;
+    if (!canDropFiles(event, isActiveConversation, composerDisabled)) return;
     event.preventDefault();
     imageDragDepth.current = Math.max(0, imageDragDepth.current - 1);
     if (imageDragDepth.current === 0) setImageDragActive(false);
   };
 
   const handleComposerDrop = (event: DragEvent<HTMLDivElement>) => {
-    if (!canDropFiles(event, isActiveConversation, sending)) return;
+    if (!canDropFiles(event, isActiveConversation, composerDisabled)) return;
     event.preventDefault();
     imageDragDepth.current = 0;
     setImageDragActive(false);
@@ -1078,7 +1076,7 @@ function ConversationSurface({
             <div className="flex flex-wrap gap-2 px-3 pb-1 pt-2 md:px-4">
               {attachments.map((attachment) => (
                 <div key={attachment.id} className="group inline-flex h-8 max-w-full items-center gap-2 rounded-full border border-subtle bg-primary px-2.5 pr-1.5 text-sm text-[var(--color-text-primary)] shadow-sm">
-                  <span className="h-3.5 w-3.5 shrink-0 rounded-full bg-secondary" />
+                  <img src={attachment.previewUrl} alt="" className="h-5 w-5 shrink-0 rounded-md object-cover" />
                   <span className="max-w-52 truncate">{attachment.name}</span>
                   <button
                     type="button"
@@ -1091,6 +1089,11 @@ function ConversationSurface({
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+          {sendError && (
+            <div className="mx-3 mt-2 rounded-xl bg-[var(--color-error)]/10 px-3 py-2 text-xs text-[var(--color-error)] md:mx-4">
+              {sendError}
             </div>
           )}
           {visibleSuggestions.length > 0 && (
@@ -1176,15 +1179,15 @@ function ConversationSurface({
               }
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
-                submit();
+                if (!composerDisabled) submit();
                 return;
               }
               if (event.key === 'Escape') {
                 textareaRef.current?.blur();
               }
             }}
-            placeholder={isActiveConversation ? 'Send a prompt to Pi...' : 'Resume the conversation before sending a prompt'}
-            disabled={!isActiveConversation || sending}
+            placeholder={isStreaming ? 'Pi is working...' : isActiveConversation ? 'Send a prompt to Pi...' : 'Resume the conversation before sending a prompt'}
+            disabled={composerDisabled}
             className="block w-full resize-none rounded-t-[1.35rem] bg-transparent px-3 pt-3 text-sm leading-6 text-[var(--color-text-primary)] outline-none placeholder:text-dim disabled:opacity-60 md:px-4 md:pt-3"
           />
 
@@ -1227,7 +1230,7 @@ function ConversationSurface({
               <div ref={modelMenuRef} className="relative max-w-[14rem]">
                 <button
                   type="button"
-                  disabled={!isActiveConversation || sending || modelSwitching || models.length === 0}
+                  disabled={composerDisabled || modelSwitching || models.length === 0}
                   onClick={() => {
                     setModelMenuOpen((open) => !open);
                     setModelSearch('');
@@ -1290,7 +1293,7 @@ function ConversationSurface({
               <button
                 type="button"
                 onClick={submit}
-                disabled={(!draft.trim() && attachments.length === 0) || !isActiveConversation || sending}
+                disabled={(!draft.trim() && attachments.length === 0) || composerDisabled}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-text-primary)] text-[var(--color-card)] shadow-[0_7px_16px_rgba(15,23,42,0.16)] transition-transform hover:scale-[1.03] disabled:scale-100 disabled:opacity-35"
                 title="Send"
                 aria-label="Send"
@@ -1305,8 +1308,11 @@ function ConversationSurface({
           activeWorkspace={activeWorkspace}
           movePending={movePending}
           forkPending={forkConversationPending}
+          archivePending={archivePending}
+          archiveDisabled={archiveDisabled}
           onRequestWorkspaceChange={onRequestWorkspaceChange}
           onForkConversation={onForkConversation}
+          onArchiveConversation={onArchiveConversation}
         />
       </div>
     </div>
@@ -1318,15 +1324,21 @@ function ConversationComposerActions({
   activeWorkspace,
   movePending,
   forkPending,
+  archivePending,
+  archiveDisabled,
   onRequestWorkspaceChange,
   onForkConversation,
+  onArchiveConversation,
 }: {
   workspaces: Workspace[];
   activeWorkspace: Workspace | null;
   movePending: boolean;
   forkPending: boolean;
+  archivePending: boolean;
+  archiveDisabled: boolean;
   onRequestWorkspaceChange: (workspaceId?: string) => void;
   onForkConversation: () => void;
+  onArchiveConversation: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -1371,7 +1383,7 @@ function ConversationComposerActions({
           title="Move conversation"
         >
           {movePending ? <Loader2 size={16} className="animate-spin" /> : <GitBranch size={16} />}
-          <span className="max-w-44 truncate">{activeWorkspace ? workspaceBranchLabel(activeWorkspace) : 'Project default'}</span>
+          <span className="max-w-[46vw] truncate md:max-w-44">{activeWorkspace ? workspaceBranchLabel(activeWorkspace) : 'Project default'}</span>
           <ChevronDown size={15} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>
         {open && (
@@ -1436,7 +1448,17 @@ function ConversationComposerActions({
         title="Fork conversation"
       >
         {forkPending ? <Loader2 size={16} className="animate-spin" /> : <GitBranchPlus size={16} />}
-        <span>Fork</span>
+        <span className="hidden sm:inline">Fork</span>
+      </button>
+      <button
+        type="button"
+        disabled={archivePending || archiveDisabled}
+        onClick={onArchiveConversation}
+        className="ml-auto inline-flex h-9 items-center gap-2 rounded-full px-3 text-[var(--color-text-secondary)] transition-colors hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-50"
+        title="Archive conversation"
+      >
+        {archivePending ? <Loader2 size={16} className="animate-spin" /> : <Archive size={16} />}
+        <span className="hidden sm:inline">Archive</span>
       </button>
     </div>
   );
@@ -1613,8 +1635,8 @@ function ToolExecutionList({ tools }: { tools: PiToolExecution[] }) {
   if (tools.length === 0) return null;
   return (
     <div className="space-y-2">
-      {tools.map((tool) => (
-        <details key={tool.toolCallId || tool.toolName} className="group rounded-lg bg-inset px-3 py-2 text-xs">
+      {tools.map((tool, index) => (
+        <details key={tool.toolCallId || `${tool.toolName}-${index}`} className="group rounded-lg bg-inset px-3 py-2 text-xs">
           <summary className="flex cursor-pointer list-none items-center gap-2 text-dim">
             {tool.status === 'running' ? <Loader2 size={13} className="animate-spin" /> : <Wrench size={13} />}
             <span className="font-medium text-[var(--color-text-secondary)]">{tool.toolName || 'Tool'}</span>
@@ -1716,12 +1738,12 @@ function buildConversationItems(messages: PiConversationMessage[]): Conversation
 }
 
 function isFinalAssistantMessage(message: PiConversationMessage): boolean {
-  return message.role === 'assistant' && Boolean(message.text?.trim()) && (message.toolCalls?.length ?? 0) === 0;
+  return message.role === 'assistant' && Boolean(message.text?.trim());
 }
 
 function isTurnNoiseMessage(message: PiConversationMessage): boolean {
   if (isToolMessage(message)) return true;
-  if (message.role === 'assistant') return Boolean(message.thinking || (message.toolCalls?.length ?? 0) > 0 || !message.text?.trim());
+  if (message.role === 'assistant') return !message.text?.trim();
   return message.role !== 'user';
 }
 

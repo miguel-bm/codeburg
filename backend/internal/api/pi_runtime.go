@@ -100,8 +100,17 @@ type piConversationSnapshot struct {
 type piConversationManager struct {
 	db *db.DB
 
-	mu       sync.Mutex
-	runtimes map[string]*piConversationRuntime
+	mu             sync.Mutex
+	runtimes       map[string]*piConversationRuntime
+	starts         map[string]*piRuntimeStart
+	startRuntimeFn func(*db.Conversation, string) (*piConversationRuntime, error)
+}
+
+type piRuntimeStart struct {
+	workDir string
+	done    chan struct{}
+	runtime *piConversationRuntime
+	err     error
 }
 
 type piConversationRuntime struct {
@@ -122,10 +131,13 @@ type piConversationRuntime struct {
 }
 
 func newPiConversationManager(database *db.DB) *piConversationManager {
-	return &piConversationManager{
+	manager := &piConversationManager{
 		db:       database,
 		runtimes: make(map[string]*piConversationRuntime),
+		starts:   make(map[string]*piRuntimeStart),
 	}
+	manager.startRuntimeFn = manager.startRuntimeProcess
+	return manager
 }
 
 func (m *piConversationManager) removeRuntime(conversationID string, runtime *piConversationRuntime) {
@@ -146,29 +158,51 @@ func (m *piConversationManager) StopConversation(conversationID string) {
 }
 
 func (m *piConversationManager) ensureRuntime(conversation *db.Conversation, workDir string) (*piConversationRuntime, error) {
-	m.mu.Lock()
-	if runtime, ok := m.runtimes[conversation.ID]; ok {
-		m.mu.Unlock()
-		if runtime.isCompatible(workDir) {
-			return runtime, nil
+	for {
+		m.mu.Lock()
+		if runtime, ok := m.runtimes[conversation.ID]; ok {
+			m.mu.Unlock()
+			if runtime.isCompatible(workDir) {
+				return runtime, nil
+			}
+			runtime.stop()
+			m.removeRuntime(conversation.ID, runtime)
+			continue
 		}
-		runtime.stop()
-	} else {
+
+		if start, ok := m.starts[conversation.ID]; ok {
+			m.mu.Unlock()
+			<-start.done
+			if start.workDir == workDir {
+				return start.runtime, start.err
+			}
+			continue
+		}
+
+		start := &piRuntimeStart{
+			workDir: workDir,
+			done:    make(chan struct{}),
+		}
+		m.starts[conversation.ID] = start
 		m.mu.Unlock()
-	}
 
-	runtime, err := m.startRuntime(conversation, workDir)
-	if err != nil {
-		return nil, err
-	}
+		runtime, err := m.startRuntimeFn(conversation, workDir)
 
-	m.mu.Lock()
-	m.runtimes[conversation.ID] = runtime
-	m.mu.Unlock()
-	return runtime, nil
+		m.mu.Lock()
+		if err == nil {
+			m.runtimes[conversation.ID] = runtime
+		}
+		delete(m.starts, conversation.ID)
+		m.mu.Unlock()
+
+		start.runtime = runtime
+		start.err = err
+		close(start.done)
+		return runtime, err
+	}
 }
 
-func (m *piConversationManager) startRuntime(conversation *db.Conversation, workDir string) (*piConversationRuntime, error) {
+func (m *piConversationManager) startRuntimeProcess(conversation *db.Conversation, workDir string) (*piConversationRuntime, error) {
 	cmd := exec.Command("pi", "--mode", "rpc")
 	cmd.Dir = workDir
 
@@ -245,7 +279,7 @@ func (m *piConversationManager) startRuntime(conversation *db.Conversation, work
 	return runtime, nil
 }
 
-func (m *piConversationManager) Attach(conversation *db.Conversation, workDir string) (piConversationSnapshot, <-chan piConversationSnapshot, func(), error) {
+func (m *piConversationManager) Attach(conversation *db.Conversation, workDir string, activate bool) (piConversationSnapshot, <-chan piConversationSnapshot, func(), error) {
 	if conversation.Status != db.ConversationStatusActive {
 		snapshot := staticPiConversationSnapshot(conversation, workDir)
 		stream := make(chan piConversationSnapshot)
@@ -253,9 +287,19 @@ func (m *piConversationManager) Attach(conversation *db.Conversation, workDir st
 		return snapshot, stream, cancel, nil
 	}
 
-	runtime, err := m.ensureRuntime(conversation, workDir)
-	if err != nil {
-		return piConversationSnapshot{}, nil, nil, err
+	runtime := m.existingRuntime(conversation.ID, workDir)
+	if runtime == nil && activate {
+		var err error
+		runtime, err = m.ensureRuntime(conversation, workDir)
+		if err != nil {
+			return piConversationSnapshot{}, nil, nil, err
+		}
+	}
+	if runtime == nil {
+		snapshot := staticPiConversationSnapshot(conversation, workDir)
+		stream := make(chan piConversationSnapshot)
+		cancel := func() { close(stream) }
+		return snapshot, stream, cancel, nil
 	}
 
 	runtime.mu.Lock()
@@ -279,16 +323,17 @@ func (m *piConversationManager) Attach(conversation *db.Conversation, workDir st
 }
 
 func (m *piConversationManager) GetSnapshot(conversation *db.Conversation, workDir string) (piConversationSnapshot, error) {
-	if conversation.Status != db.ConversationStatusActive {
-		return staticPiConversationSnapshot(conversation, workDir), nil
-	}
-	runtime, err := m.ensureRuntime(conversation, workDir)
-	if err != nil {
-		return piConversationSnapshot{}, err
+	return m.PassiveSnapshot(conversation, workDir), nil
+}
+
+func (m *piConversationManager) PassiveSnapshot(conversation *db.Conversation, workDir string) piConversationSnapshot {
+	runtime := m.existingRuntime(conversation.ID, workDir)
+	if conversation.Status != db.ConversationStatusActive || runtime == nil {
+		return staticPiConversationSnapshot(conversation, workDir)
 	}
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
-	return runtime.snapshot, nil
+	return runtime.snapshot
 }
 
 func (m *piConversationManager) ExistingSnapshotSummary(conversation *db.Conversation) piConversationSnapshot {
@@ -313,6 +358,16 @@ func (m *piConversationManager) ExistingSnapshotSummary(conversation *db.Convers
 	return snapshot
 }
 
+func (m *piConversationManager) existingRuntime(conversationID string, workDir string) *piConversationRuntime {
+	m.mu.Lock()
+	runtime := m.runtimes[conversationID]
+	m.mu.Unlock()
+	if runtime == nil || !runtime.isCompatible(workDir) {
+		return nil
+	}
+	return runtime
+}
+
 func (m *piConversationManager) Prompt(conversation *db.Conversation, workDir, prompt string, images []piConversationImageRef) (piConversationSnapshot, error) {
 	if conversation.Status != db.ConversationStatusActive {
 		return piConversationSnapshot{}, fmt.Errorf("conversation must be active before prompting")
@@ -320,6 +375,12 @@ func (m *piConversationManager) Prompt(conversation *db.Conversation, workDir, p
 	runtime, err := m.ensureRuntime(conversation, workDir)
 	if err != nil {
 		return piConversationSnapshot{}, err
+	}
+	runtime.mu.Lock()
+	streaming := runtime.snapshot.Streaming
+	runtime.mu.Unlock()
+	if streaming {
+		return piConversationSnapshot{}, fmt.Errorf("conversation is already streaming")
 	}
 	command := map[string]any{
 		"type":    "prompt",
@@ -362,9 +423,12 @@ func normalizePiPromptImages(images []piConversationImageRef) []piConversationIm
 }
 
 func (m *piConversationManager) AvailableModels(conversation *db.Conversation, workDir string) ([]piAvailableModel, error) {
-	runtime, err := m.ensureRuntime(conversation, workDir)
-	if err != nil {
-		return nil, err
+	if conversation.Status != db.ConversationStatusActive {
+		return []piAvailableModel{}, nil
+	}
+	runtime := m.existingRuntime(conversation.ID, workDir)
+	if runtime == nil {
+		return []piAvailableModel{}, nil
 	}
 	response, err := runtime.sendCommand(map[string]any{"type": "get_available_models"})
 	if err != nil {
@@ -390,9 +454,12 @@ func (m *piConversationManager) AvailableModels(conversation *db.Conversation, w
 }
 
 func (m *piConversationManager) Commands(conversation *db.Conversation, workDir string) ([]piSlashCommand, error) {
-	runtime, err := m.ensureRuntime(conversation, workDir)
-	if err != nil {
-		return nil, err
+	if conversation.Status != db.ConversationStatusActive {
+		return []piSlashCommand{}, nil
+	}
+	runtime := m.existingRuntime(conversation.ID, workDir)
+	if runtime == nil {
+		return []piSlashCommand{}, nil
 	}
 	response, err := runtime.sendCommand(map[string]any{"type": "get_commands"})
 	if err != nil {
@@ -510,11 +577,11 @@ func (m *piConversationManager) Abort(conversation *db.Conversation, workDir str
 	if conversation.Status != db.ConversationStatusActive {
 		return fmt.Errorf("conversation is not active")
 	}
-	runtime, err := m.ensureRuntime(conversation, workDir)
-	if err != nil {
-		return err
+	runtime := m.existingRuntime(conversation.ID, workDir)
+	if runtime == nil {
+		return nil
 	}
-	_, err = runtime.sendCommand(map[string]any{"type": "abort"})
+	_, err := runtime.sendCommand(map[string]any{"type": "abort"})
 	return err
 }
 

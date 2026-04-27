@@ -896,14 +896,8 @@ for line in sys.stdin:
 	}
 	var state piConversationSnapshot
 	decodeResponse(t, stateResp, &state)
-	if !state.RuntimeActive {
-		t.Fatal("expected runtime to be active")
-	}
-	if state.SessionFile == nil || *state.SessionFile == "" {
-		t.Fatal("expected session file")
-	}
-	if state.Model == nil || state.Model.ID != "gpt-5.4" {
-		t.Fatalf("unexpected model: %+v", state.Model)
+	if state.RuntimeActive {
+		t.Fatal("expected passive state read not to start runtime")
 	}
 
 	promptResp := env.post("/api/conversations/"+conversation.ID+"/prompt", map[string]any{
@@ -915,6 +909,15 @@ for line in sys.stdin:
 
 	var promptState piConversationSnapshot
 	decodeResponse(t, promptResp, &promptState)
+	if !promptState.RuntimeActive {
+		t.Fatal("expected prompt to activate runtime")
+	}
+	if promptState.SessionFile == nil || *promptState.SessionFile == "" {
+		t.Fatal("expected session file")
+	}
+	if promptState.Model == nil || promptState.Model.ID != "gpt-5.4" {
+		t.Fatalf("unexpected model: %+v", promptState.Model)
+	}
 	if len(promptState.Messages) < 2 {
 		t.Fatalf("expected at least 2 messages, got %d", len(promptState.Messages))
 	}
@@ -1166,8 +1169,8 @@ for line in sys.stdin:
 	}
 	var activeState piConversationSnapshot
 	decodeResponse(t, stateResp, &activeState)
-	if !activeState.RuntimeActive {
-		t.Fatal("expected active runtime for active conversation")
+	if activeState.RuntimeActive {
+		t.Fatal("expected passive state read not to start runtime")
 	}
 
 	switchResp := env.post("/api/conversations/"+conversation.ID+"/workspace", map[string]any{

@@ -29,8 +29,9 @@ export interface UsePiConversationResult {
   applySnapshot: (snapshot: PiConversationSnapshot) => void;
 }
 
-export function usePiConversation(conversationId: string, enabled = true): UsePiConversationResult {
+export function usePiConversation(conversationId: string, enabled = true, options?: { activate?: boolean }): UsePiConversationResult {
   const token = useAuthStore((state) => state.token);
+  const activate = options?.activate ?? false;
 
   const wsRef = useRef<WebSocket | null>(null);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -44,11 +45,14 @@ export function usePiConversation(conversationId: string, enabled = true): UsePi
 
   const wsUrl = useMemo(() => {
     let path = `/ws/conversation?conversation=${encodeURIComponent(conversationId)}`;
+    if (activate) {
+      path += '&activate=1';
+    }
     if (token) {
       path += `&token=${encodeURIComponent(token)}`;
     }
     return buildWsUrl(path);
-  }, [conversationId, token]);
+  }, [activate, conversationId, token]);
 
   useEffect(() => {
     if (!enabled || !conversationId) {
@@ -58,8 +62,10 @@ export function usePiConversation(conversationId: string, enabled = true): UsePi
       }
       wsRef.current?.close();
       wsRef.current = null;
+      setSnapshot(null);
       setConnected(false);
       setConnecting(false);
+      setError(null);
       return;
     }
 
