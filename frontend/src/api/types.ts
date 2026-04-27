@@ -195,6 +195,18 @@ export interface SidebarSession {
   number: number;
 }
 
+export interface V2SidebarData {
+  projects: V2SidebarProject[];
+}
+
+export interface V2SidebarProject {
+  project: Project;
+  pinned: boolean;
+  workspaces: Workspace[];
+  conversations: Conversation[];
+  states: PiConversationSnapshot[];
+}
+
 export interface ArchiveInfo {
   filename: string;
   projectName: string;
