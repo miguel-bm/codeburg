@@ -83,18 +83,34 @@ type piForkMessage struct {
 }
 
 type piConversationSnapshot struct {
-	ConversationID string                  `json:"conversationId"`
-	RuntimeActive  bool                    `json:"runtimeActive"`
-	Streaming      bool                    `json:"streaming"`
-	WorkDir        string                  `json:"workDir"`
-	Model          *piConversationModel    `json:"model,omitempty"`
-	SessionFile    *string                 `json:"sessionFile,omitempty"`
-	SessionName    *string                 `json:"sessionName,omitempty"`
-	Messages       []piConversationMessage `json:"messages"`
-	Pending        *piStreamingAssistant   `json:"pending,omitempty"`
-	Tools          []piToolExecution       `json:"tools,omitempty"`
-	LastError      *string                 `json:"lastError,omitempty"`
-	UpdatedAt      string                  `json:"updatedAt"`
+	ConversationID        string                  `json:"conversationId"`
+	RuntimeActive         bool                    `json:"runtimeActive"`
+	Streaming             bool                    `json:"streaming"`
+	Compacting            bool                    `json:"compacting,omitempty"`
+	WorkDir               string                  `json:"workDir"`
+	Model                 *piConversationModel    `json:"model,omitempty"`
+	ThinkingLevel         string                  `json:"thinkingLevel,omitempty"`
+	SteeringMode          string                  `json:"steeringMode,omitempty"`
+	FollowUpMode          string                  `json:"followUpMode,omitempty"`
+	AutoCompactionEnabled bool                    `json:"autoCompactionEnabled,omitempty"`
+	MessageCount          int                     `json:"messageCount,omitempty"`
+	PendingMessageCount   int                     `json:"pendingMessageCount,omitempty"`
+	SessionFile           *string                 `json:"sessionFile,omitempty"`
+	SessionName           *string                 `json:"sessionName,omitempty"`
+	Messages              []piConversationMessage `json:"messages"`
+	Pending               *piStreamingAssistant   `json:"pending,omitempty"`
+	Tools                 []piToolExecution       `json:"tools,omitempty"`
+	LastError             *string                 `json:"lastError,omitempty"`
+	UpdatedAt             string                  `json:"updatedAt"`
+}
+
+type piSessionStatsResponse struct {
+	State piConversationSnapshot `json:"state"`
+	Stats map[string]any         `json:"stats"`
+}
+
+type piExportResponse struct {
+	Path string `json:"path"`
 }
 
 type piConversationManager struct {
