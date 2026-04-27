@@ -150,12 +150,17 @@ export function usePiConversation(conversationId: string, enabled = true, option
   }, [conversationId]);
 
   const abort = useCallback(async () => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'abort' }));
-      return;
+    setSnapshot((current) => current ? {
+      ...current,
+      streaming: false,
+      updatedAt: new Date().toISOString(),
+    } : current);
+    try {
+      await v2Api.abortConversation(conversationId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not stop the current turn');
+      throw err;
     }
-    await v2Api.abortConversation(conversationId);
   }, [conversationId]);
 
   const applySnapshot = useCallback((nextSnapshot: PiConversationSnapshot) => {

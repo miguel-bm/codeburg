@@ -786,8 +786,15 @@ func (m *piConversationManager) Abort(conversation *db.Conversation, workDir str
 	if runtime == nil {
 		return nil
 	}
-	_, err := runtime.sendCommand(map[string]any{"type": "abort"})
-	return err
+	if _, err := runtime.sendCommand(map[string]any{"type": "abort"}); err != nil {
+		return err
+	}
+	runtime.mu.Lock()
+	runtime.snapshot.Streaming = false
+	runtime.snapshot.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	runtime.mu.Unlock()
+	runtime.broadcast()
+	return nil
 }
 
 func staticPiConversationSnapshot(conversation *db.Conversation, workDir string) piConversationSnapshot {

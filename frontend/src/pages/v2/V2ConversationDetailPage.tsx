@@ -645,7 +645,7 @@ export function V2ConversationDetailPage() {
                 onRequestWorkspaceChange={(workspaceId) => setPendingWorkspaceId(workspaceId)}
                 onForkConversation={() => forkConversation.mutate()}
                 onArchiveConversation={() => transitionConversation.mutate('archive')}
-                abort={() => void abort()}
+                abort={abort}
                 submit={(streamingBehavior) => void handleSubmit(streamingBehavior)}
                 onOpenPiSettings={() => {
                   if (conversation?.projectId) navigate(`/v2/projects/${conversation.projectId}/settings`);
@@ -762,7 +762,7 @@ function ConversationSurface({
   onRequestWorkspaceChange: (workspaceId?: string) => void;
   onForkConversation: () => void;
   onArchiveConversation: () => void;
-  abort: () => void;
+  abort: () => Promise<void>;
   submit: (streamingBehavior?: 'steer' | 'followUp') => void;
   onOpenPiSettings: () => void;
   onApplySnapshot: (snapshot: PiConversationSnapshot) => void;
@@ -784,6 +784,7 @@ function ConversationSurface({
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState('');
   const [streamingMode, setStreamingMode] = useState<'steer' | 'followUp'>('followUp');
+  const [abortPending, setAbortPending] = useState(false);
   const imageDragDepth = useRef(0);
   const composerStyle = isMobile && keyboardVisible
     ? { paddingBottom: keyboardHeight + 12 }
@@ -995,6 +996,18 @@ function ConversationSurface({
       el.focus();
       el.setSelectionRange(cursor, cursor);
     });
+  };
+
+  const stopStreaming = async () => {
+    if (abortPending) return;
+    setAbortPending(true);
+    try {
+      await abort();
+    } catch {
+      // usePiConversation surfaces the error in the connection status.
+    } finally {
+      setAbortPending(false);
+    }
   };
 
   const copyMessage = async (message: PiConversationMessage) => {
@@ -1270,8 +1283,8 @@ function ConversationSurface({
                 </div>
               )}
               {snapshot?.streaming && (
-                <button type="button" onClick={abort} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--color-error)] hover:bg-[var(--color-error)]/10" title="Abort" aria-label="Abort">
-                  <Square size={13} />
+                <button type="button" onClick={() => void stopStreaming()} disabled={abortPending} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--color-error)] hover:bg-[var(--color-error)]/10 disabled:opacity-50" title="Stop current turn" aria-label="Stop current turn">
+                  {abortPending ? <Loader2 size={14} className="animate-spin" /> : <Square size={13} />}
                 </button>
               )}
               <div ref={modelMenuRef} className="relative max-w-[14rem]">
@@ -1565,7 +1578,7 @@ function ConversationMoreActions({
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [compactInstructions, setCompactInstructions] = useState('');
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [copiedLast, setCopiedLast] = useState(false);
   const busy = Boolean(snapshot?.streaming || snapshot?.compacting);
 
@@ -1581,14 +1594,14 @@ function ConversationMoreActions({
     void queryClient.invalidateQueries({ queryKey: ['v2-conversation-session', conversationId] });
   };
   const reportError = (fallback: string) => (error: unknown) => {
-    setStatusMessage(error instanceof Error ? error.message : fallback);
+    setActionError(error instanceof Error ? error.message : fallback);
   };
 
   const setAutoCompaction = useMutation({
     mutationFn: (enabled: boolean) => v2Api.setConversationAutoCompaction(conversationId, { enabled }),
-    onSuccess: (nextSnapshot, enabled) => {
+    onSuccess: (nextSnapshot) => {
       applyAndRefresh(nextSnapshot);
-      setStatusMessage(enabled ? 'Auto-compaction enabled.' : 'Auto-compaction disabled.');
+      setActionError(null);
     },
     onError: reportError('Could not update auto-compaction.'),
   });
@@ -1597,20 +1610,20 @@ function ConversationMoreActions({
     onSuccess: (nextSnapshot) => {
       applyAndRefresh(nextSnapshot);
       setCompactInstructions('');
-      setStatusMessage('Context compacted.');
+      setActionError(null);
     },
     onError: reportError('Could not compact context.'),
   });
   const exportHTML = useMutation({
     mutationFn: () => v2Api.exportConversationHTML(conversationId),
-    onSuccess: (result) => setStatusMessage(result.path ? `Exported HTML to ${result.path}` : 'Exported HTML.'),
+    onSuccess: () => setActionError(null),
     onError: reportError('Could not export conversation.'),
   });
   const reloadPi = useMutation({
     mutationFn: () => v2Api.reloadConversationPi(conversationId),
     onSuccess: (nextSnapshot) => {
       applyAndRefresh(nextSnapshot);
-      setStatusMessage('Pi resources reloaded.');
+      setActionError(null);
     },
     onError: reportError('Could not reload Pi resources.'),
   });
@@ -1637,7 +1650,7 @@ function ConversationMoreActions({
     if (!text) return;
     await navigator.clipboard.writeText(text);
     setCopiedLast(true);
-    setStatusMessage('Copied last assistant reply.');
+    setActionError(null);
     window.setTimeout(() => setCopiedLast(false), 1200);
   };
 
@@ -1652,7 +1665,7 @@ function ConversationMoreActions({
         disabled={disabled}
         onClick={() => {
           setOpen((value) => !value);
-          setStatusMessage(null);
+          setActionError(null);
         }}
         className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-[var(--color-text-secondary)] transition-colors hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-50"
         title="More conversation actions"
@@ -1664,8 +1677,8 @@ function ConversationMoreActions({
         <ChevronDown size={15} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute bottom-full left-0 z-50 mb-2 w-[min(26rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-subtle bg-card shadow-[0_18px_60px_rgba(15,23,42,0.18)]">
-          <div className="border-b border-subtle/70 px-4 py-3">
+        <div className="absolute bottom-full left-0 z-50 mb-2 w-[min(26rem,calc(100vw-1rem))] rounded-2xl border border-subtle bg-card p-3 shadow-[0_18px_60px_rgba(15,23,42,0.18)]">
+          <div className="px-1 pb-1">
             <div className="flex min-w-0 items-center gap-2">
               <p className="truncate text-sm font-medium text-[var(--color-text-primary)]">{state?.sessionName || 'Conversation'}</p>
               {sessionQuery.isFetching && <Loader2 size={13} className="shrink-0 animate-spin text-dim" />}
@@ -1673,8 +1686,8 @@ function ConversationMoreActions({
             <p className="mt-0.5 truncate text-xs text-dim">{state?.sessionFile || state?.workDir || 'Session details load when Pi is active.'}</p>
           </div>
 
-          <div className="divide-y divide-subtle/70">
-            <div className="flex items-center justify-between gap-3 px-4 py-3">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3 px-1 pt-1">
               <span className="min-w-0">
                 <span className="block text-sm font-medium text-[var(--color-text-primary)]">Auto-compact context</span>
                 <span className="block text-xs text-dim">Let Pi summarize before the context gets too heavy.</span>
@@ -1686,7 +1699,7 @@ function ConversationMoreActions({
               />
             </div>
 
-            <div className="px-4 py-3">
+            <div>
               <textarea
                 value={compactInstructions}
                 onChange={(event) => setCompactInstructions(event.target.value)}
@@ -1714,7 +1727,7 @@ function ConversationMoreActions({
             </div>
 
             {statRows.length > 0 && (
-              <div className="grid gap-x-4 gap-y-1 px-4 py-3 text-xs sm:grid-cols-2">
+              <div className="grid gap-x-4 gap-y-1 px-1 text-xs sm:grid-cols-2">
                 {statRows.map(([label, value]) => (
                   <div key={label} className="flex min-w-0 items-center justify-between gap-3">
                     <span className="truncate text-dim">{label}</span>
@@ -1723,9 +1736,9 @@ function ConversationMoreActions({
                 ))}
               </div>
             )}
-            {statusMessage && (
-              <div className="px-4 py-2 text-xs text-[var(--color-text-secondary)]">
-                {statusMessage}
+            {actionError && (
+              <div className="px-1 text-xs text-[var(--color-error)]">
+                {actionError}
               </div>
             )}
           </div>
@@ -1751,13 +1764,13 @@ function ToggleSwitch({
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
-        checked ? 'bg-accent' : 'bg-secondary'
+      className={`relative h-6 w-10 shrink-0 rounded-full p-0.5 shadow-inner transition-colors duration-150 disabled:opacity-50 ${
+        checked ? 'bg-accent' : 'bg-primary'
       }`}
     >
       <span
-        className={`absolute top-1 h-4 w-4 rounded-full bg-card shadow-sm transition-transform ${
-          checked ? 'translate-x-6' : 'translate-x-1'
+        className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-[var(--color-card)] shadow-[0_1px_4px_rgba(15,23,42,0.22)] transition-transform duration-150 ease-out ${
+          checked ? 'translate-x-4' : 'translate-x-0'
         }`}
       />
     </button>
