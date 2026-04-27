@@ -31,9 +31,8 @@ import {
   X,
 } from 'lucide-react';
 import { projectsApi } from '../../api';
-import type { Conversation, PiAvailableModel, PiConversationImageAttachment, PiConversationMessage, PiConversationSnapshot, PiSlashCommand, PiToolExecution, Workspace } from '../../api/types';
+import type { Conversation, PiAvailableModel, PiConversationImageAttachment, PiConversationMessage, PiConversationSnapshot, PiSlashCommand, PiToolExecution, TerminalSession, Workspace } from '../../api/types';
 import { v2Api, type V2FileEntry } from '../../api/v2';
-import { Badge } from '../../components/ui/Badge';
 import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
 import { Modal } from '../../components/ui/Modal';
 import { DiffTab } from '../../components/workspace/DiffTab';
@@ -45,7 +44,7 @@ import { useVirtualKeyboard } from '../../hooks/useVirtualKeyboard';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { applySuggestionToText, findActiveToken, fuzzyScore, type InputSelection } from '../../components/chat/chatAutocomplete';
 import { Button, V2Empty, V2Screen } from './v2-ui';
-import { V2QuickActionsMenu } from './V2QuickActionsMenu';
+import { V2WorkspaceActionHeader } from './V2WorkspaceActionHeader';
 import { V2WorkspaceToolTabs, V2WorkspaceTools, V2WorkspaceToolsSurface, type V2HelperTab } from './V2WorkspaceTools';
 
 type MainSurface = 'conversation' | { type: 'workspaceTab'; index: number };
@@ -98,7 +97,7 @@ export function V2ConversationDetailPage() {
   const [draft, setDraft] = useState('');
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [sending, setSending] = useState(false);
-  const [pendingWorkspaceId, setPendingWorkspaceId] = useState<string | null>(null);
+  const [pendingWorkspaceId, setPendingWorkspaceId] = useState<string | undefined | null>(null);
   const [helperTab, setHelperTab] = useState<V2HelperTab>('files');
   const [toolsOpen, setToolsOpen] = useState(() => typeof window === 'undefined' || window.innerWidth >= 768);
   const [toolsWidth, setToolsWidth] = useState(360);
@@ -185,6 +184,12 @@ export function V2ConversationDetailPage() {
       setMainSurface({ type: 'workspaceTab', index: activeTabIndex });
     }
   }, [tabs, activeTabIndex]);
+
+  useEffect(() => {
+    if (isMobile && activePreviewTab && toolsOpen) {
+      setToolsOpen(false);
+    }
+  }, [activePreviewTab, isMobile, toolsOpen]);
 
   const updateWorkspace = useMutation({
     mutationFn: (currentWorkspaceId?: string) => v2Api.switchConversationWorkspace(conversationId!, { currentWorkspaceId }),
@@ -325,6 +330,77 @@ export function V2ConversationDetailPage() {
     },
   });
 
+  const syncWorkspace = useMutation({
+    mutationFn: (workspaceId: string) => v2Api.syncWorkspace(workspaceId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['v2-workspaces', conversation?.projectId] });
+    },
+  });
+
+  const mutateWorkspaceStatus = useMutation({
+    mutationFn: ({ workspaceId, action, mergeInput }: { workspaceId: string; action: 'activate' | 'merge' | 'abandon' | 'archive'; mergeInput?: Parameters<typeof v2Api.mergeWorkspace>[1] }) => {
+      if (action === 'activate') return v2Api.activateWorkspace(workspaceId);
+      if (action === 'merge') return v2Api.mergeWorkspace(workspaceId, mergeInput ?? { cleanupWorktree: true });
+      if (action === 'abandon') return v2Api.abandonWorkspace(workspaceId, { cleanupWorktree: true });
+      return v2Api.archiveWorkspace(workspaceId, { cleanupWorktree: true });
+    },
+    onSuccess: async (updated) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-workspaces', updated.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-terminals', updated.id] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-conversation', conversationId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-conversation-workspaces', conversationId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId, 'sidebar'] }),
+      ]);
+    },
+  });
+
+  const deleteWorkspace = useMutation({
+    mutationFn: (workspaceId: string) => v2Api.deleteWorkspace(workspaceId),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-workspaces', conversation?.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-conversation', conversationId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-conversation-workspaces', conversationId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', conversation?.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', conversation?.projectId, 'sidebar'] }),
+      ]);
+    },
+  });
+
+  const resolveConflictWithAgent = useMutation({
+    mutationFn: async (target: 'current' | 'new') => {
+      if (!activeWorkspaceId || !conversation?.projectId || !conversationId) throw new Error('No active workspace');
+      const context = await v2Api.getWorkspaceConflictContext(activeWorkspaceId);
+      if (target === 'current') {
+        const snapshot = await v2Api.promptConversation(conversationId, { message: context.prompt });
+        return { target, snapshot };
+      }
+      const created = await v2Api.createConversation(conversation.projectId, {
+        title: `Resolve ${activeWorkspace?.name ?? 'workspace'} conflicts`,
+        currentWorkspaceId: activeWorkspaceId,
+      });
+      await v2Api.promptConversation(created.id, { message: context.prompt });
+      return { target, conversation: created };
+    },
+    onSuccess: async (result) => {
+      if (result.target === 'current') {
+        applySnapshot(result.snapshot);
+        setMainSurface('conversation');
+        return;
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', result.conversation.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', result.conversation.projectId, 'sidebar'] }),
+      ]);
+      navigate(`/v2/conversations/${result.conversation.id}`);
+    },
+  });
+
   const beginResize = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
     setToolsResizing(true);
@@ -397,25 +473,59 @@ export function V2ConversationDetailPage() {
     setToolsOpen(true);
   }, [helperTab, toolsOpen]);
 
-  const pendingWorkspace = safeWorkspaces.find((workspace) => workspace.id === pendingWorkspaceId) ?? null;
+  const pendingWorkspace = typeof pendingWorkspaceId === 'string'
+    ? safeWorkspaces.find((workspace) => workspace.id === pendingWorkspaceId) ?? null
+    : null;
+  const mobileConversations = conversation && !safeWorkspaceConversations.some((candidate) => candidate.id === conversation.id)
+    ? [conversation, ...safeWorkspaceConversations]
+    : safeWorkspaceConversations;
   const sortedTerminals = [...safeTerminals].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const workspaceActionPending =
+    syncWorkspace.isPending ||
+    mutateWorkspaceStatus.isPending ||
+    deleteWorkspace.isPending ||
+    resolveConflictWithAgent.isPending;
   const shell = (
     <V2Screen>
-      <div className="flex min-h-14 shrink-0 items-center justify-between gap-3 bg-canvas px-3 py-2 md:h-10 md:min-h-0 md:px-4 md:py-0">
-        <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
-          <GitBranch size={14} />
-          <span className="truncate font-medium text-[var(--color-text-primary)]">{activeWorkspace?.name ?? 'Workspace'}</span>
-          {activeWorkspace && activeWorkspace.branchName !== activeWorkspace.name && <span className="truncate">{activeWorkspace.branchName}</span>}
-          {activeWorkspace && <Badge variant="label" color={statusColor(activeWorkspace.status)}>{activeWorkspace.status}</Badge>}
-          {connected ? <span className="text-[var(--color-success)]">connected</span> : connecting ? <span>connecting</span> : error ? <span className="text-[var(--color-error)]">{error}</span> : null}
+      {project && activeWorkspace ? (
+        <V2WorkspaceActionHeader
+          project={project}
+          workspace={activeWorkspace}
+          pending={workspaceActionPending}
+          currentConversationAvailable={Boolean(conversationId && isActiveConversation)}
+          detail={connected ? <span className="text-[var(--color-success)]">connected</span> : connecting ? <span>connecting</span> : error ? <span className="text-[var(--color-error)]">{error}</span> : null}
+          onUpdateFromBase={() => syncWorkspace.mutate(activeWorkspace.id)}
+          onMerge={(mergeInput) => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'merge', mergeInput })}
+          onCloseWithoutMerging={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'abandon' })}
+          onReactivate={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'activate' })}
+          onArchive={() => {
+            if (window.confirm(`Archive "${activeWorkspace.name}" and clean up its local worktree?`)) {
+              mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'archive' });
+            }
+          }}
+          onDelete={() => {
+            if (window.confirm(`Delete workspace "${activeWorkspace.name}"? This removes the workspace record and local worktree.`)) {
+              deleteWorkspace.mutate(activeWorkspace.id);
+            }
+          }}
+          onOpenGitPanel={() => {
+            setHelperTab('git');
+            setToolsOpen(true);
+          }}
+          onResolveConflicts={(target) => resolveConflictWithAgent.mutate(target)}
+        />
+      ) : (
+        <div className="flex min-h-14 shrink-0 items-center justify-between gap-3 bg-canvas px-3 py-2 md:h-10 md:min-h-0 md:px-4 md:py-0">
+          <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
+            <GitBranch size={14} />
+            <span className="truncate font-medium text-[var(--color-text-primary)]">Workspace</span>
+            {connected ? <span className="text-[var(--color-success)]">connected</span> : connecting ? <span>connecting</span> : error ? <span className="text-[var(--color-error)]">{error}</span> : null}
+          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <V2QuickActionsMenu projectId={project?.id} workspaceId={activeWorkspace?.id} disabled={!project || !activeWorkspace || activeWorkspace.status !== 'active'} />
-        </div>
-      </div>
+      )}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <section className="flex min-w-0 flex-1 flex-col bg-primary">
-          {!activePreviewTab && (
+          {!activePreviewTab && !isMobile && (
             <div className="flex h-12 shrink-0 items-center gap-1 bg-canvas px-2 md:h-9">
               <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
                 {safeWorkspaceConversations.map((candidate) => (
@@ -468,6 +578,25 @@ export function V2ConversationDetailPage() {
                 />
               )}
             </div>
+          )}
+          {!activePreviewTab && isMobile && (
+            <MobileConversationSurfaceBar
+              conversations={mobileConversations}
+              activeConversationId={conversationId}
+              terminals={sortedTerminals}
+              projectId={terminalWorkspaceProjectId(project, conversation)}
+              onSelectConversation={(candidate) => navigate(`/v2/conversations/${candidate.id}`)}
+              onSelectTerminal={(terminal) => navigate(`/v2/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`)}
+              onCreateConversation={() => createConversation.mutate()}
+              onCreateTerminal={() => createTerminal.mutate()}
+              createConversationPending={createConversation.isPending}
+              createTerminalPending={createTerminal.isPending}
+              createTerminalDisabled={!activeWorkspace || activeWorkspace.status !== 'active'}
+              helperTab={helperTab}
+              toolsOpen={toolsOpen}
+              toolsDisabled={!project || !activeWorkspace}
+              onToggleHelperTab={toggleHelperTab}
+            />
           )}
           {!activePreviewTab && (
             <div className="mx-auto flex min-h-12 w-full max-w-5xl shrink-0 items-center justify-between gap-3 px-3 py-1 md:h-9 md:min-h-0 md:px-6 md:py-0">
@@ -527,7 +656,7 @@ export function V2ConversationDetailPage() {
                 onSetModel={(provider, modelId) => setConversationModel.mutate({ provider, modelId })}
                 onForkFromMessage={(entryId) => forkConversationFromMessage.mutate({ entryId })}
                 workspaces={safeWorkspaces}
-                activeWorkspace={activeWorkspace}
+                activeWorkspace={attachedWorkspace ?? null}
                 movePending={updateWorkspace.isPending}
                 forkConversationPending={forkConversation.isPending}
                 onRequestWorkspaceChange={(workspaceId) => setPendingWorkspaceId(workspaceId)}
@@ -556,7 +685,7 @@ export function V2ConversationDetailPage() {
         </V2WorkspaceToolsSurface>
       </div>
       <Modal
-        open={Boolean(pendingWorkspaceId)}
+        open={pendingWorkspaceId !== null}
         onClose={() => setPendingWorkspaceId(null)}
         title="Move conversation"
         size="sm"
@@ -567,7 +696,7 @@ export function V2ConversationDetailPage() {
               size="xs"
               loading={updateWorkspace.isPending}
               onClick={() => {
-                if (!pendingWorkspaceId) return;
+                if (pendingWorkspaceId === null) return;
                 updateWorkspace.mutate(pendingWorkspaceId, {
                   onSuccess: () => setPendingWorkspaceId(null),
                 });
@@ -633,7 +762,7 @@ function ConversationSurface({
   activeWorkspace: Workspace | null;
   movePending: boolean;
   forkConversationPending: boolean;
-  onRequestWorkspaceChange: (workspaceId: string) => void;
+  onRequestWorkspaceChange: (workspaceId?: string) => void;
   onForkConversation: () => void;
   abort: () => void;
   submit: () => void;
@@ -1196,7 +1325,7 @@ function ConversationComposerActions({
   activeWorkspace: Workspace | null;
   movePending: boolean;
   forkPending: boolean;
-  onRequestWorkspaceChange: (workspaceId: string) => void;
+  onRequestWorkspaceChange: (workspaceId?: string) => void;
   onForkConversation: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -1259,6 +1388,20 @@ function ConversationComposerActions({
             </label>
             <div className="px-2 pb-1 pt-3 text-xs font-medium text-dim">Branches</div>
             <div className="max-h-72 overflow-y-auto" role="listbox">
+              <button
+                type="button"
+                role="option"
+                aria-selected={!activeWorkspace}
+                onClick={() => {
+                  setOpen(false);
+                  if (activeWorkspace) onRequestWorkspaceChange(undefined);
+                }}
+                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-secondary ${!activeWorkspace ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}`}
+              >
+                <MessageSquareText size={17} className={!activeWorkspace ? 'text-[var(--color-text-primary)]' : 'text-dim'} />
+                <span className="min-w-0 flex-1 truncate">Project default</span>
+                {!activeWorkspace && <Check size={17} className="text-[var(--color-text-primary)]" />}
+              </button>
               {filteredWorkspaces.length === 0 ? (
                 <div className="px-3 py-6 text-center text-sm text-dim">No branches found</div>
               ) : filteredWorkspaces.map((workspace) => {
@@ -1700,6 +1843,98 @@ function NewTabMenuItem({ icon, children, disabled, onClick }: { icon: ReactNode
   );
 }
 
+function MobileConversationSurfaceBar({
+  conversations,
+  activeConversationId,
+  terminals,
+  projectId,
+  onSelectConversation,
+  onSelectTerminal,
+  onCreateConversation,
+  onCreateTerminal,
+  createConversationPending,
+  createTerminalPending,
+  createTerminalDisabled,
+  helperTab,
+  toolsOpen,
+  toolsDisabled,
+  onToggleHelperTab,
+}: {
+  conversations: Conversation[];
+  activeConversationId?: string;
+  terminals: TerminalSession[];
+  projectId: string;
+  onSelectConversation: (conversation: Conversation) => void;
+  onSelectTerminal: (terminal: TerminalSession) => void;
+  onCreateConversation: () => void;
+  onCreateTerminal: () => void;
+  createConversationPending: boolean;
+  createTerminalPending: boolean;
+  createTerminalDisabled: boolean;
+  helperTab: V2HelperTab;
+  toolsOpen: boolean;
+  toolsDisabled?: boolean;
+  onToggleHelperTab: (tab: V2HelperTab) => void;
+}) {
+  const [newTabOpen, setNewTabOpen] = useState(false);
+  const activeValue = activeConversationId ? `conversation:${activeConversationId}` : '';
+
+  return (
+    <div className="flex h-12 shrink-0 items-center gap-1 bg-canvas px-2">
+      <select
+        value={activeValue}
+        onChange={(event) => {
+          const [type, id] = event.target.value.split(':');
+          if (type === 'conversation') {
+            const conversation = conversations.find((candidate) => candidate.id === id);
+            if (conversation) onSelectConversation(conversation);
+          }
+          if (type === 'terminal') {
+            const terminal = terminals.find((candidate) => candidate.id === id);
+            if (terminal) onSelectTerminal(terminal);
+          }
+        }}
+        className="h-[44px] min-w-0 flex-1 rounded-md bg-transparent px-2 text-sm text-[var(--color-text-primary)] outline-none hover:bg-[var(--color-card)]"
+        aria-label="Select conversation or terminal"
+      >
+        {conversations.map((conversation) => (
+          <option key={conversation.id} value={`conversation:${conversation.id}`}>{conversation.title}</option>
+        ))}
+        {terminals.map((terminal) => (
+          <option key={terminal.id} value={`terminal:${terminal.id}`}>{terminal.title || 'Terminal'}</option>
+        ))}
+      </select>
+      <div className="relative shrink-0">
+        <button
+          type="button"
+          disabled={createTerminalDisabled && createConversationPending}
+          onClick={() => setNewTabOpen((value) => !value)}
+          className="inline-flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
+          title="New tab"
+          aria-label="New tab"
+        >
+          <PlusCircle size={15} />
+        </button>
+        {newTabOpen && (
+          <>
+            <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close new tab menu" onClick={() => setNewTabOpen(false)} />
+            <div className="fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
+              <NewTabMenuItem icon={<MessageSquarePlus size={14} />} disabled={createConversationPending} onClick={() => { setNewTabOpen(false); onCreateConversation(); }}>Conversation</NewTabMenuItem>
+              <NewTabMenuItem icon={<SquareTerminal size={14} />} disabled={!projectId || createTerminalDisabled || createTerminalPending} onClick={() => { setNewTabOpen(false); onCreateTerminal(); }}>Terminal</NewTabMenuItem>
+            </div>
+          </>
+        )}
+      </div>
+      <V2WorkspaceToolTabs
+        helperTab={helperTab}
+        toolsOpen={toolsOpen}
+        disabled={toolsDisabled}
+        onToggleHelperTab={onToggleHelperTab}
+      />
+    </div>
+  );
+}
+
 function ConversationTab({
   conversation,
   active,
@@ -1768,11 +2003,4 @@ function terminalWorkspaceProjectId(project?: { id: string } | null, conversatio
 
 function workspaceBranchLabel(workspace: Workspace): string {
   return workspace.branchName || workspace.name;
-}
-
-function statusColor(status: Workspace['status']): 'blue' | 'green' | 'yellow' | 'gray' {
-  if (status === 'active') return 'blue';
-  if (status === 'merged') return 'green';
-  if (status === 'abandoned') return 'yellow';
-  return 'gray';
 }

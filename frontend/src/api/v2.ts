@@ -19,6 +19,7 @@ import type {
   ProjectSkillsResponse,
   HarnessStatus,
   HarnessToolId,
+  V2SidebarData,
 } from './types';
 import type { GitStatus, GitDiff, GitDiffContent } from './git';
 
@@ -65,6 +66,26 @@ export interface MergeWorkspaceInput extends WorkspaceLifecycleInput {
   pushAfterMerge?: boolean;
   deleteBranch?: boolean;
   mergeStrategy?: string;
+  targetBranch?: string;
+}
+
+export interface WorkspaceConflictContext {
+  operation: string;
+  branch: string;
+  baseBranch: string;
+  conflictedFiles: string[];
+  status: string;
+  unmerged: string;
+  prompt: string;
+}
+
+export interface WorkspacePullRequest {
+  exists: boolean;
+  url?: string;
+  state?: string;
+  title?: string;
+  baseBranch?: string;
+  headBranch?: string;
 }
 
 export interface CreateConversationInput {
@@ -100,6 +121,9 @@ export interface InstallProjectSkillInput {
 }
 
 export const v2Api = {
+  getSidebar: () =>
+    api.get<V2SidebarData>('/sidebar/v2'),
+
   listConversations: (input?: string | ListConversationsInput) => {
     const search = new URLSearchParams();
     const params = typeof input === 'string' ? { projectId: input } : input;
@@ -143,6 +167,24 @@ export const v2Api = {
 
   deleteWorkspace: (workspaceId: string) =>
     api.delete(`/workspaces/${workspaceId}`),
+
+  rebaseWorkspace: (workspaceId: string, input: { baseBranch: string; fetch?: boolean }) =>
+    api.post<void>(`/workspaces/${workspaceId}/git/rebase`, input),
+
+  continueWorkspaceGitOperation: (workspaceId: string) =>
+    api.post<void>(`/workspaces/${workspaceId}/git/operation/continue`, {}),
+
+  abortWorkspaceGitOperation: (workspaceId: string) =>
+    api.post<void>(`/workspaces/${workspaceId}/git/operation/abort`, {}),
+
+  getWorkspaceConflictContext: (workspaceId: string) =>
+    api.get<WorkspaceConflictContext>(`/workspaces/${workspaceId}/git/conflict-context`),
+
+  getWorkspacePullRequest: (workspaceId: string) =>
+    api.get<WorkspacePullRequest>(`/workspaces/${workspaceId}/pull-request`),
+
+  createWorkspacePullRequest: (workspaceId: string, input: { title?: string; body?: string }) =>
+    api.post<WorkspacePullRequest>(`/workspaces/${workspaceId}/pull-request`, input),
 
   listProjectConversations: (projectId: string, input?: Omit<ListConversationsInput, 'projectId'>) => {
     const search = new URLSearchParams();

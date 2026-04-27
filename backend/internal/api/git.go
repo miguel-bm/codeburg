@@ -24,14 +24,17 @@ type GitFileEntry struct {
 }
 
 type GitStatusResponse struct {
-	Branch      string         `json:"branch"`
-	Upstream    string         `json:"upstream,omitempty"`
-	HasUpstream bool           `json:"hasUpstream"`
-	Ahead       int            `json:"ahead"`
-	Behind      int            `json:"behind"`
-	Staged      []GitFileEntry `json:"staged"`
-	Unstaged    []GitFileEntry `json:"unstaged"`
-	Untracked   []string       `json:"untracked"`
+	Branch       string         `json:"branch"`
+	Upstream     string         `json:"upstream,omitempty"`
+	HasUpstream  bool           `json:"hasUpstream"`
+	Ahead        int            `json:"ahead"`
+	Behind       int            `json:"behind"`
+	Operation    string         `json:"operation,omitempty"`
+	HasConflicts bool           `json:"hasConflicts"`
+	Conflicted   []GitFileEntry `json:"conflicted"`
+	Staged       []GitFileEntry `json:"staged"`
+	Unstaged     []GitFileEntry `json:"unstaged"`
+	Untracked    []string       `json:"untracked"`
 }
 
 type GitDiffResponse struct {
@@ -117,6 +120,20 @@ func runGit(dir string, args ...string) (string, error) {
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %s: %w", args[0], strings.TrimSpace(string(out)), err)
+	}
+	return string(out), nil
+}
+
+func runGitWithEnv(dir string, env []string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git %s: %s: %w", args[0], strings.TrimSpace(string(out)), err)
@@ -249,6 +266,8 @@ func gitStatus(workDir string) (*GitStatusResponse, error) {
 	}
 
 	resp := parseGitStatus(out)
+	resp.Operation = gitOperation(workDir)
+	resp.HasConflicts = len(resp.Conflicted) > 0
 	mergeNumstat(workDir, &resp)
 	return &resp, nil
 }
@@ -286,9 +305,10 @@ func (s *Server) handleProjectGitStatus(w http.ResponseWriter, r *http.Request) 
 // parseGitStatus parses `git status --porcelain=v1 -b` output.
 func parseGitStatus(output string) GitStatusResponse {
 	resp := GitStatusResponse{
-		Staged:    []GitFileEntry{},
-		Unstaged:  []GitFileEntry{},
-		Untracked: []string{},
+		Conflicted: []GitFileEntry{},
+		Staged:     []GitFileEntry{},
+		Unstaged:   []GitFileEntry{},
+		Untracked:  []string{},
 	}
 
 	scanner := bufio.NewScanner(strings.NewReader(output))
@@ -311,10 +331,19 @@ func parseGitStatus(output string) GitStatusResponse {
 		x := line[0] // staged status
 		y := line[1] // unstaged status
 		path := line[3:]
+		statusCode := string([]byte{x, y})
 
 		// Handle renames: "R  old -> new"
 		if idx := strings.Index(path, " -> "); idx >= 0 {
 			path = path[idx+4:]
+		}
+
+		if isUnmergedGitStatus(statusCode) {
+			resp.Conflicted = append(resp.Conflicted, GitFileEntry{
+				Path:   path,
+				Status: statusCode,
+			})
+			continue
 		}
 
 		// Untracked
@@ -341,6 +370,44 @@ func parseGitStatus(output string) GitStatusResponse {
 	}
 
 	return resp
+}
+
+func isUnmergedGitStatus(status string) bool {
+	switch status {
+	case "DD", "AU", "UD", "UA", "DU", "AA", "UU":
+		return true
+	default:
+		return false
+	}
+}
+
+func gitOperation(workDir string) string {
+	if gitPathExists(workDir, "rebase-merge") || gitPathExists(workDir, "rebase-apply") {
+		return "rebase"
+	}
+	if gitPathExists(workDir, "MERGE_HEAD") {
+		return "merge"
+	}
+	if gitPathExists(workDir, "CHERRY_PICK_HEAD") {
+		return "cherry-pick"
+	}
+	return ""
+}
+
+func gitPathExists(workDir, gitPath string) bool {
+	out, err := runGit(workDir, "rev-parse", "--git-path", gitPath)
+	if err != nil {
+		return false
+	}
+	path := strings.TrimSpace(out)
+	if path == "" {
+		return false
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(workDir, path)
+	}
+	_, err = os.Stat(path)
+	return err == nil
 }
 
 // parseBranchLine parses the ## header from porcelain output.

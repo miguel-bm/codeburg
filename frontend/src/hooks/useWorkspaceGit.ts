@@ -1,9 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useWorkspace } from '../components/workspace/WorkspaceContext';
 
-export function useWorkspaceGit() {
+export function useWorkspaceGit(options?: { enabled?: boolean }) {
   const { api, scopeType, scopeId } = useWorkspace();
   const queryClient = useQueryClient();
+  const enabled = options?.enabled ?? true;
 
   const statusKey = ['workspace-git-status', scopeType, scopeId];
   const baseDiffKey = ['workspace-git-basediff', scopeType, scopeId];
@@ -12,18 +13,21 @@ export function useWorkspaceGit() {
   const statusQuery = useQuery({
     queryKey: statusKey,
     queryFn: () => api.git.status(),
+    enabled,
     refetchInterval: 5000,
   });
 
   const baseDiffQuery = useQuery({
     queryKey: baseDiffKey,
     queryFn: () => api.git.diff({ base: true }),
+    enabled,
     refetchInterval: 5000,
   });
 
   const logQuery = useQuery({
     queryKey: logKey,
     queryFn: () => api.git.log(20),
+    enabled,
     refetchInterval: 10000,
   });
 

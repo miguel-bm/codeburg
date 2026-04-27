@@ -3,6 +3,7 @@ package api
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/miguel-bm/codeburg/internal/db"
+	"github.com/miguel-bm/codeburg/internal/github"
 	"github.com/miguel-bm/codeburg/internal/ptyruntime"
 	"github.com/miguel-bm/codeburg/internal/worktree"
 )
@@ -69,10 +71,40 @@ type mergeWorkspaceRequest struct {
 	CleanupWorktree *bool   `json:"cleanupWorktree,omitempty"`
 	DeleteBranch    *bool   `json:"deleteBranch,omitempty"`
 	MergeStrategy   *string `json:"mergeStrategy,omitempty"`
+	TargetBranch    *string `json:"targetBranch,omitempty"`
 }
 
 type workspaceLifecycleRequest struct {
 	CleanupWorktree *bool `json:"cleanupWorktree,omitempty"`
+}
+
+type workspaceGitRebaseRequest struct {
+	BaseBranch string `json:"baseBranch"`
+	Fetch      *bool  `json:"fetch,omitempty"`
+}
+
+type workspaceConflictContextResponse struct {
+	Operation       string   `json:"operation"`
+	Branch          string   `json:"branch"`
+	BaseBranch      string   `json:"baseBranch"`
+	ConflictedFiles []string `json:"conflictedFiles"`
+	Status          string   `json:"status"`
+	Unmerged        string   `json:"unmerged"`
+	Prompt          string   `json:"prompt"`
+}
+
+type workspacePullRequestResponse struct {
+	Exists     bool   `json:"exists"`
+	URL        string `json:"url,omitempty"`
+	State      string `json:"state,omitempty"`
+	Title      string `json:"title,omitempty"`
+	BaseBranch string `json:"baseBranch,omitempty"`
+	HeadBranch string `json:"headBranch,omitempty"`
+}
+
+type createWorkspacePullRequestRequest struct {
+	Title string `json:"title"`
+	Body  string `json:"body,omitempty"`
 }
 
 type workspaceMergeOptions struct {
@@ -81,6 +113,7 @@ type workspaceMergeOptions struct {
 	CleanupWorktree bool
 	DeleteBranch    bool
 	MergeStrategy   string
+	TargetBranch    string
 }
 
 func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
@@ -514,6 +547,9 @@ func (s *Server) handleMergeWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	baseBranch := workspaceBaseBranch(project, workspace)
+	if strings.TrimSpace(options.TargetBranch) != "" {
+		baseBranch = strings.TrimSpace(options.TargetBranch)
+	}
 	if options.SyncFirst {
 		if _, _, err := s.syncWorkspaceBranch(project, workspace, root); err != nil {
 			writeError(w, http.StatusConflict, "failed to sync workspace before merge: "+err.Error())
@@ -968,6 +1004,9 @@ func resolveWorkspaceMergeOptions(project *db.Project, req mergeWorkspaceRequest
 	}
 	if req.MergeStrategy != nil && strings.TrimSpace(*req.MergeStrategy) != "" {
 		options.MergeStrategy = strings.TrimSpace(*req.MergeStrategy)
+	}
+	if req.TargetBranch != nil && strings.TrimSpace(*req.TargetBranch) != "" {
+		options.TargetBranch = strings.TrimSpace(*req.TargetBranch)
 	}
 	switch options.MergeStrategy {
 	case "merge", "squash", "rebase":
@@ -1675,6 +1714,196 @@ func (s *Server) handleWorkspaceGitPush(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleWorkspaceGitRebase(w http.ResponseWriter, r *http.Request) {
+	_, _, workDir, ok := s.requireMutableWorkspace(w, urlParam(r, "id"))
+	if !ok {
+		return
+	}
+	var req workspaceGitRebaseRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	baseBranch := strings.TrimSpace(req.BaseBranch)
+	if baseBranch == "" {
+		writeError(w, http.StatusBadRequest, "baseBranch is required")
+		return
+	}
+	fetch := true
+	if req.Fetch != nil {
+		fetch = *req.Fetch
+	}
+	if fetch {
+		if _, err := runGit(workDir, "fetch", "--prune"); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+	}
+	if err := requireCleanGitWorktree(workDir); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	if _, err := runGit(workDir, "rebase", baseBranch); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleWorkspaceGitOperationContinue(w http.ResponseWriter, r *http.Request) {
+	_, _, workDir, ok := s.requireMutableWorkspace(w, urlParam(r, "id"))
+	if !ok {
+		return
+	}
+	status, err := gitStatus(workDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	switch status.Operation {
+	case "rebase":
+		if _, err := runGitWithEnv(workDir, []string{"GIT_EDITOR=true"}, "rebase", "--continue"); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+	case "merge":
+		if _, err := runGitWithEnv(workDir, []string{"GIT_EDITOR=true"}, "merge", "--continue"); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+	case "cherry-pick":
+		if _, err := runGitWithEnv(workDir, []string{"GIT_EDITOR=true"}, "cherry-pick", "--continue"); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+	default:
+		writeError(w, http.StatusConflict, "no paused git operation")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleWorkspaceGitOperationAbort(w http.ResponseWriter, r *http.Request) {
+	_, _, workDir, ok := s.requireMutableWorkspace(w, urlParam(r, "id"))
+	if !ok {
+		return
+	}
+	status, err := gitStatus(workDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	switch status.Operation {
+	case "rebase":
+		if _, err := runGit(workDir, "rebase", "--abort"); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+	case "merge":
+		if _, err := runGit(workDir, "merge", "--abort"); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+	case "cherry-pick":
+		if _, err := runGit(workDir, "cherry-pick", "--abort"); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+	default:
+		writeError(w, http.StatusConflict, "no paused git operation")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleWorkspaceGitConflictContext(w http.ResponseWriter, r *http.Request) {
+	workspace, project, workDir, ok := s.requireMutableWorkspace(w, urlParam(r, "id"))
+	if !ok {
+		return
+	}
+	status, err := gitStatus(workDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	statusText, _ := runGit(workDir, "status", "--short", "--branch")
+	unmerged, _ := runGit(workDir, "ls-files", "-u")
+	baseBranch := workspaceBaseBranch(project, workspace)
+	conflictedFiles := make([]string, 0, len(status.Conflicted))
+	for _, file := range status.Conflicted {
+		conflictedFiles = append(conflictedFiles, file.Path)
+	}
+	operation := status.Operation
+	if operation == "" && status.HasConflicts {
+		operation = "conflict"
+	}
+	prompt := workspaceConflictPrompt(operation, workspace.BranchName, baseBranch, conflictedFiles, statusText, unmerged)
+	writeJSON(w, http.StatusOK, workspaceConflictContextResponse{
+		Operation:       operation,
+		Branch:          workspace.BranchName,
+		BaseBranch:      baseBranch,
+		ConflictedFiles: conflictedFiles,
+		Status:          strings.TrimSpace(statusText),
+		Unmerged:        strings.TrimSpace(unmerged),
+		Prompt:          prompt,
+	})
+}
+
+func (s *Server) handleWorkspacePullRequest(w http.ResponseWriter, r *http.Request) {
+	workspace, _, workDir, ok := s.resolveWorkspaceResources(w, urlParam(r, "id"))
+	if !ok {
+		return
+	}
+	pr, err := lookupWorkspacePullRequest(workDir, workspace.BranchName)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, pr)
+}
+
+func (s *Server) handleCreateWorkspacePullRequest(w http.ResponseWriter, r *http.Request) {
+	workspace, project, workDir, ok := s.requireMutableWorkspace(w, urlParam(r, "id"))
+	if !ok {
+		return
+	}
+	if workspace.Kind == db.WorkspaceKindMain {
+		writeError(w, http.StatusBadRequest, "canonical main workspace cannot create a pull request")
+		return
+	}
+	var req createWorkspacePullRequestRequest
+	if err := decodeJSON(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		title = workspace.Name
+	}
+	body := strings.TrimSpace(req.Body)
+	if body == "" {
+		body = fmt.Sprintf("Created from Codeburg workspace `%s`.", workspace.Name)
+	}
+	if err := gitPushCurrentBranch(workDir, false); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	baseBranch := workspaceBaseBranch(project, workspace)
+	prURL, err := github.CreatePR(workDir, title, body, baseBranch, workspace.BranchName)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, workspacePullRequestResponse{
+		Exists:     true,
+		URL:        prURL,
+		State:      "OPEN",
+		Title:      title,
+		BaseBranch: baseBranch,
+		HeadBranch: workspace.BranchName,
+	})
+}
+
 func (s *Server) handleWorkspaceGitStash(w http.ResponseWriter, r *http.Request) {
 	_, _, workDir, ok := s.requireMutableWorkspace(w, urlParam(r, "id"))
 	if !ok {
@@ -1909,4 +2138,74 @@ func workspaceGitDiff(workDir, file string, staged, base bool, commitHash, baseB
 		args = append(args, "--", file)
 	}
 	return runGit(workDir, args...)
+}
+
+func workspaceConflictPrompt(operation, branch, baseBranch string, conflictedFiles []string, statusText, unmerged string) string {
+	if strings.TrimSpace(operation) == "" {
+		operation = "git operation"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "The workspace is currently paused during a %s.\n\n", operation)
+	b.WriteString("Goal:\nResolve the Git conflicts without changing unrelated behavior.\n\n")
+	b.WriteString("Operation context:\n")
+	fmt.Fprintf(&b, "- Current branch: %s\n", branch)
+	fmt.Fprintf(&b, "- Base branch: %s\n", baseBranch)
+	if len(conflictedFiles) > 0 {
+		b.WriteString("\nConflicted files:\n")
+		for _, file := range conflictedFiles {
+			fmt.Fprintf(&b, "- %s\n", file)
+		}
+	}
+	if trimmed := strings.TrimSpace(statusText); trimmed != "" {
+		b.WriteString("\nGit status:\n```text\n")
+		b.WriteString(trimmed)
+		b.WriteString("\n```\n")
+	}
+	if trimmed := strings.TrimSpace(unmerged); trimmed != "" {
+		b.WriteString("\nUnmerged index entries:\n```text\n")
+		b.WriteString(trimmed)
+		b.WriteString("\n```\n")
+	}
+	b.WriteString("\nInstructions:\n")
+	b.WriteString("Open each conflicted file, resolve conflict markers, preserve the intended workspace changes unless the base branch clearly supersedes them, run the relevant checks, then stage the resolved files. Do not continue or abort the Git operation yourself unless explicitly asked; leave that final step to the UI after review.")
+	return b.String()
+}
+
+func lookupWorkspacePullRequest(workDir, branch string) (workspacePullRequestResponse, error) {
+	if _, err := exec.LookPath("gh"); err != nil {
+		return workspacePullRequestResponse{Exists: false}, nil
+	}
+	cmd := exec.Command("gh", "pr", "view", branch, "--json", "url,state,title,baseRefName,headRefName")
+	cmd.Dir = workDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		message := strings.ToLower(strings.TrimSpace(string(output)))
+		if strings.Contains(message, "no pull requests found") ||
+			strings.Contains(message, "could not resolve to a pull request") ||
+			strings.Contains(message, "not found") {
+			return workspacePullRequestResponse{Exists: false}, nil
+		}
+		return workspacePullRequestResponse{}, fmt.Errorf("gh pr view: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	var payload struct {
+		URL         string `json:"url"`
+		State       string `json:"state"`
+		Title       string `json:"title"`
+		BaseRefName string `json:"baseRefName"`
+		HeadRefName string `json:"headRefName"`
+	}
+	if err := json.Unmarshal(output, &payload); err != nil {
+		return workspacePullRequestResponse{}, fmt.Errorf("parse gh pr view: %w", err)
+	}
+	if strings.TrimSpace(payload.URL) == "" {
+		return workspacePullRequestResponse{Exists: false}, nil
+	}
+	return workspacePullRequestResponse{
+		Exists:     true,
+		URL:        payload.URL,
+		State:      payload.State,
+		Title:      payload.Title,
+		BaseBranch: payload.BaseRefName,
+		HeadBranch: payload.HeadRefName,
+	}, nil
 }

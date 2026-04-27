@@ -13,6 +13,9 @@ export interface GitStatus {
   hasUpstream: boolean;
   ahead: number;
   behind: number;
+  operation?: 'rebase' | 'merge' | 'cherry-pick' | string;
+  hasConflicts: boolean;
+  conflicted: GitFileStatus[];
   staged: GitFileStatus[];
   unstaged: GitFileStatus[];
   untracked: string[];

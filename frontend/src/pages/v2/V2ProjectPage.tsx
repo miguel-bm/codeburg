@@ -2,24 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Archive,
-  CircleSlash,
   Files,
-  GitBranch,
   GitCommitHorizontal,
   MessageSquarePlus,
   MessageSquareText,
   PlusCircle,
-  RefreshCw,
   SquareTerminal,
-  Trash2,
   X,
 } from 'lucide-react';
 import { projectsApi } from '../../api';
 import type { Conversation, TerminalSession, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { TerminalView } from '../../components/session/TerminalView';
-import { Badge } from '../../components/ui/Badge';
 import { DiffTab } from '../../components/workspace/DiffTab';
 import { EditorTab } from '../../components/workspace/EditorTab';
 import { WorkspaceProvider } from '../../components/workspace/WorkspaceContext';
@@ -33,7 +27,7 @@ import {
   V2Input,
   V2Screen,
 } from './v2-ui';
-import { V2QuickActionsMenu } from './V2QuickActionsMenu';
+import { V2WorkspaceActionHeader } from './V2WorkspaceActionHeader';
 import { V2WorkspaceToolTabs, V2WorkspaceTools, V2WorkspaceToolsSurface, type V2HelperTab } from './V2WorkspaceTools';
 
 type MainSurface = { type: 'terminal'; terminalId: string } | { type: 'workspaceTab'; index: number } | null;
@@ -142,6 +136,12 @@ export function V2ProjectPage() {
     }
   }, [tabs, activeTabIndex]);
 
+  useEffect(() => {
+    if (isMobile && activePreviewTab && toolsOpen) {
+      setToolsOpen(false);
+    }
+  }, [activePreviewTab, isMobile, toolsOpen]);
+
   const invalidateTerminals = async () => {
     await queryClient.invalidateQueries({ queryKey: ['v2-terminals', activeWorkspaceId] });
   };
@@ -227,9 +227,9 @@ export function V2ProjectPage() {
   });
 
   const mutateWorkspaceStatus = useMutation({
-    mutationFn: async ({ workspaceId, action }: { workspaceId: string; action: 'activate' | 'merge' | 'abandon' | 'archive' }) => {
+    mutationFn: async ({ workspaceId, action, mergeInput }: { workspaceId: string; action: 'activate' | 'merge' | 'abandon' | 'archive'; mergeInput?: Parameters<typeof v2Api.mergeWorkspace>[1] }) => {
       if (action === 'activate') return v2Api.activateWorkspace(workspaceId);
-      if (action === 'merge') return v2Api.mergeWorkspace(workspaceId, { cleanupWorktree: true });
+      if (action === 'merge') return v2Api.mergeWorkspace(workspaceId, mergeInput ?? { cleanupWorktree: true });
       if (action === 'abandon') return v2Api.abandonWorkspace(workspaceId, { cleanupWorktree: true });
       return v2Api.archiveWorkspace(workspaceId, { cleanupWorktree: true });
     },
@@ -247,6 +247,26 @@ export function V2ProjectPage() {
     mutationFn: (workspaceId: string) => v2Api.syncWorkspace(workspaceId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: workspacesQueryKey });
+    },
+  });
+
+  const resolveConflictWithAgent = useMutation({
+    mutationFn: async (workspaceId: string) => {
+      const context = await v2Api.getWorkspaceConflictContext(workspaceId);
+      const conversation = await v2Api.createConversation(id!, {
+        title: `Resolve ${activeWorkspace?.name ?? 'workspace'} conflicts`,
+        currentWorkspaceId: workspaceId,
+      });
+      await v2Api.promptConversation(conversation.id, { message: context.prompt });
+      return conversation;
+    },
+    onSuccess: async (conversation) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', conversation.currentWorkspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', conversation.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', conversation.projectId, 'sidebar'] }),
+      ]);
+      navigate(`/v2/conversations/${conversation.id}`);
     },
   });
 
@@ -275,9 +295,10 @@ export function V2ProjectPage() {
     forkWorkspace.isPending ||
     deleteWorkspace.isPending ||
     mutateWorkspaceStatus.isPending ||
-    syncWorkspace.isPending;
+    syncWorkspace.isPending ||
+    resolveConflictWithAgent.isPending;
   const workspaceError =
-    createWorkspace.error ?? forkWorkspace.error ?? deleteWorkspace.error ?? mutateWorkspaceStatus.error ?? syncWorkspace.error;
+    createWorkspace.error ?? forkWorkspace.error ?? deleteWorkspace.error ?? mutateWorkspaceStatus.error ?? syncWorkspace.error ?? resolveConflictWithAgent.error;
   const terminalDisabled = !activeWorkspaceId || activeWorkspace?.status !== 'active' || createTerminal.isPending;
 
   const closeComposer = (targetWorkspaceId?: string) => {
@@ -357,44 +378,29 @@ export function V2ProjectPage() {
         />
       )}
 
-      {activeWorkspace && (
-        <div className="flex min-h-14 shrink-0 flex-col items-stretch gap-2 bg-canvas px-3 py-2 md:h-10 md:min-h-0 md:flex-row md:items-center md:justify-between md:gap-3 md:px-4 md:py-0">
-          <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
-            <GitBranch size={14} />
-            <span className="truncate font-medium text-[var(--color-text-primary)]">{activeWorkspace.name}</span>
-            {activeWorkspace.branchName !== activeWorkspace.name && <span className="truncate">{activeWorkspace.branchName}</span>}
-            <Badge variant="label" color={statusColor(activeWorkspace.status)}>{activeWorkspace.status}</Badge>
-          </div>
-          <div className="flex shrink-0 items-center gap-2 overflow-x-auto md:gap-1">
-            {project && (
-              <V2QuickActionsMenu projectId={project.id} workspaceId={activeWorkspace.id} disabled={terminalDisabled} />
-            )}
-            <WorkspaceActions
-              workspace={activeWorkspace}
-              pending={workspacePending}
-              onSync={() => syncWorkspace.mutate(activeWorkspace.id)}
-              onMerge={() => {
-                if (confirmWorkspaceCleanupAction(activeWorkspace, 'Merge and clean up')) {
-                  mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'merge' });
-                }
-              }}
-              onAbandon={() => {
-                if (confirmWorkspaceCleanupAction(activeWorkspace, 'Abandon and clean up')) {
-                  mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'abandon' });
-                }
-              }}
-              onReactivate={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'activate' })}
-              onArchive={() => {
-                if (confirmWorkspaceCleanupAction(activeWorkspace, 'Archive and clean up')) {
-                  mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'archive' });
-                }
-              }}
-              onDelete={() => {
-                if (confirmWorkspaceDelete(activeWorkspace)) deleteWorkspace.mutate(activeWorkspace.id);
-              }}
-            />
-          </div>
-        </div>
+      {project && activeWorkspace && (
+        <V2WorkspaceActionHeader
+          project={project}
+          workspace={activeWorkspace}
+          pending={workspacePending}
+          onUpdateFromBase={() => syncWorkspace.mutate(activeWorkspace.id)}
+          onMerge={(mergeInput) => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'merge', mergeInput })}
+          onCloseWithoutMerging={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'abandon' })}
+          onReactivate={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'activate' })}
+          onArchive={() => {
+            if (confirmWorkspaceCleanupAction(activeWorkspace, 'Archive and clean up')) {
+              mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'archive' });
+            }
+          }}
+          onDelete={() => {
+            if (confirmWorkspaceDelete(activeWorkspace)) deleteWorkspace.mutate(activeWorkspace.id);
+          }}
+          onOpenGitPanel={() => {
+            setHelperTab('git');
+            setToolsOpen(true);
+          }}
+          onResolveConflicts={() => resolveConflictWithAgent.mutate(activeWorkspace.id)}
+        />
       )}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -604,51 +610,6 @@ function WorkspaceComposerModal({
   );
 }
 
-function WorkspaceActions({
-  workspace,
-  pending,
-  onSync,
-  onMerge,
-  onAbandon,
-  onReactivate,
-  onArchive,
-  onDelete,
-}: {
-  workspace: Workspace;
-  pending: boolean;
-  onSync: () => void;
-  onMerge: () => void;
-  onAbandon: () => void;
-  onReactivate: () => void;
-  onArchive: () => void;
-  onDelete: () => void;
-}) {
-  if (workspace.kind === 'main') {
-    return (
-      <Button size="xs" variant="secondary" icon={<RefreshCw size={13} />} disabled={pending || workspace.status !== 'active'} onClick={onSync}>
-        <span title="Fetch the default branch and fast-forward this main workspace branch when possible.">Sync branch</span>
-      </Button>
-    );
-  }
-  if (workspace.status !== 'active') {
-    return (
-      <div className="flex items-center gap-1">
-        <Button size="xs" variant="secondary" icon={<RefreshCw size={13} />} disabled={pending} onClick={onReactivate}>Reactivate</Button>
-        {workspace.status !== 'archived' && <Button size="xs" variant="ghost" icon={<Archive size={13} />} disabled={pending} onClick={onArchive}>Archive</Button>}
-        <Button size="xs" variant="danger" icon={<Trash2 size={13} />} disabled={pending} onClick={onDelete}>Delete</Button>
-      </div>
-    );
-  }
-  return (
-    <div className="flex items-center gap-1">
-      <Button size="xs" variant="secondary" icon={<RefreshCw size={13} />} disabled={pending} onClick={onSync}>Sync</Button>
-      <Button size="xs" variant="secondary" icon={<GitCommitHorizontal size={13} />} disabled={pending} onClick={onMerge}>Merge</Button>
-      <Button size="xs" variant="ghost" icon={<CircleSlash size={13} />} disabled={pending} onClick={onAbandon}>Abandon</Button>
-      <Button size="xs" variant="danger" icon={<Trash2 size={13} />} disabled={pending} onClick={onDelete}>Delete</Button>
-    </div>
-  );
-}
-
 function MainTabBar({
   terminals,
   terminalPending,
@@ -700,6 +661,78 @@ function MainTabBar({
   const workspaceTabs = tabs
     .map((tab, index) => ({ tab, index }))
     .filter((entry): entry is { tab: Extract<WorkspaceTab, { type: 'editor' | 'diff' }>; index: number } => entry.tab.type === 'editor' || entry.tab.type === 'diff');
+  const isMobile = useMobile();
+
+  if (isMobile) {
+    const activeValue = activeSurface?.type === 'terminal'
+      ? `terminal:${activeSurface.terminalId}`
+      : activeSurface?.type === 'workspaceTab'
+        ? `workspaceTab:${activeSurface.index}`
+        : '';
+
+    return (
+      <div className="flex h-12 shrink-0 items-center gap-1 bg-canvas px-2">
+        <select
+          value={activeValue}
+          onChange={(event) => {
+            const [type, id] = event.target.value.split(':');
+            if (type === 'conversation') {
+              const conversation = conversations.find((candidate) => candidate.id === id);
+              if (conversation) onSelectConversation(conversation);
+            }
+            if (type === 'terminal') {
+              const terminal = terminals.find((candidate) => candidate.id === id);
+              if (terminal) onSelectTerminal(terminal);
+            }
+            if (type === 'workspaceTab') {
+              const index = Number(id);
+              if (Number.isInteger(index)) onSelectWorkspaceTab(index);
+            }
+          }}
+          className="h-[44px] min-w-0 flex-1 rounded-md bg-transparent px-2 text-sm text-[var(--color-text-primary)] outline-none hover:bg-[var(--color-card)]"
+          aria-label="Select conversation, terminal, file, or diff"
+        >
+          <option value="">Choose focus</option>
+          {conversations.map((conversation) => (
+            <option key={conversation.id} value={`conversation:${conversation.id}`}>{conversation.title}</option>
+          ))}
+          {terminals.map((terminal) => (
+            <option key={terminal.id} value={`terminal:${terminal.id}`}>{terminal.title || 'Terminal'}</option>
+          ))}
+          {workspaceTabs.map(({ tab, index }) => (
+            <option key={previewTabKey(tab, index)} value={`workspaceTab:${index}`}>{previewTabLabel(tab)}</option>
+          ))}
+        </select>
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            disabled={createTerminalDisabled && createConversationPending}
+            onClick={() => setNewTabOpen((value) => !value)}
+            className="inline-flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
+            title="New tab"
+            aria-label="New tab"
+          >
+            <PlusCircle size={15} />
+          </button>
+          {newTabOpen && (
+            <>
+              <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close new tab menu" onClick={() => setNewTabOpen(false)} />
+              <div className="fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
+                <NewTabMenuItem icon={<MessageSquarePlus size={14} />} disabled={createConversationPending} onClick={() => { setNewTabOpen(false); onCreateConversation(); }}>Conversation</NewTabMenuItem>
+                <NewTabMenuItem icon={<SquareTerminal size={14} />} disabled={createTerminalDisabled || createTerminalPending} onClick={() => { setNewTabOpen(false); onCreateTerminal(); }}>Terminal</NewTabMenuItem>
+              </div>
+            </>
+          )}
+        </div>
+        <V2WorkspaceToolTabs
+          helperTab={helperTab}
+          toolsOpen={toolsOpen}
+          disabled={toolsDisabled}
+          onToggleHelperTab={onToggleHelperTab}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-12 shrink-0 items-center gap-1 bg-canvas px-2 md:h-9">
@@ -925,13 +958,6 @@ function previewTabLabel(tab: Extract<WorkspaceTab, { type: 'editor' | 'diff' }>
   if (tab.file) return fileName(tab.file);
   if (tab.commit) return tab.commit.slice(0, 7);
   return 'All changes';
-}
-
-function statusColor(status: Workspace['status']): 'blue' | 'green' | 'yellow' | 'gray' {
-  if (status === 'active') return 'blue';
-  if (status === 'merged') return 'green';
-  if (status === 'abandoned') return 'yellow';
-  return 'gray';
 }
 
 function confirmWorkspaceCleanupAction(workspace: Workspace, action: string) {
