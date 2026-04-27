@@ -3,9 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Files,
-  GitCommitHorizontal,
   MessageSquarePlus,
-  MessageSquareText,
   PlusCircle,
   SquareTerminal,
   X,
@@ -18,7 +16,6 @@ import { DiffTab } from '../../components/workspace/DiffTab';
 import { EditorTab } from '../../components/workspace/EditorTab';
 import { WorkspaceProvider } from '../../components/workspace/WorkspaceContext';
 import { useMobile } from '../../hooks/useMobile';
-import { fileName } from '../../components/workspace/editorUtils';
 import { useWorkspaceStore, type WorkspaceTab } from '../../stores/workspace';
 import type { ReactNode } from 'react';
 import {
@@ -29,6 +26,7 @@ import {
 } from './v2-ui';
 import { V2WorkspaceActionHeader } from './V2WorkspaceActionHeader';
 import { V2WorkspaceToolTabs, V2WorkspaceTools, V2WorkspaceToolsSurface, type V2HelperTab } from './V2WorkspaceTools';
+import { WorkspaceConversationTab, WorkspacePreviewTab, WorkspaceTerminalTab, workspacePreviewTabKey, workspacePreviewTabLabel } from './V2WorkspaceTabs';
 
 type MainSurface = { type: 'terminal'; terminalId: string } | { type: 'workspaceTab'; index: number } | null;
 
@@ -700,7 +698,7 @@ function MainTabBar({
             <option key={terminal.id} value={`terminal:${terminal.id}`}>{terminal.title || 'Terminal'}</option>
           ))}
           {workspaceTabs.map(({ tab, index }) => (
-            <option key={previewTabKey(tab, index)} value={`workspaceTab:${index}`}>{previewTabLabel(tab)}</option>
+          <option key={workspacePreviewTabKey(tab, index)} value={`workspaceTab:${index}`}>{workspacePreviewTabLabel(tab)}</option>
           ))}
         </select>
         <div className="relative shrink-0">
@@ -738,15 +736,16 @@ function MainTabBar({
     <div className="flex h-12 shrink-0 items-center gap-1 bg-canvas px-2 md:h-9">
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
         {conversations.map((conversation) => (
-          <ConversationTab
+          <WorkspaceConversationTab
             key={conversation.id}
             conversation={conversation}
+            active={false}
             onSelect={() => onSelectConversation(conversation)}
             onRename={(title) => onRenameConversation(conversation, title)}
           />
         ))}
         {terminals.map((terminal) => (
-          <TerminalTab
+          <WorkspaceTerminalTab
             key={terminal.id}
             terminal={terminal}
             active={activeSurface?.type === 'terminal' && activeSurface.terminalId === terminal.id}
@@ -757,38 +756,15 @@ function MainTabBar({
           />
         ))}
         {workspaceTabs.map(({ tab, index }) => (
-          <button
-            key={previewTabKey(tab, index)}
-            type="button"
-            onClick={() => onSelectWorkspaceTab(index)}
-            className={`inline-flex h-[44px] max-w-[15rem] shrink-0 items-center gap-2 rounded-md px-3 text-sm md:h-7 md:gap-1.5 md:px-2 md:text-xs ${
-              activeSurface?.type === 'workspaceTab' && activeSurface.index === index
-                ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
-                : 'bg-[var(--color-card)] text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)]'
-            }`}
-          >
-            {tab.type === 'editor' ? <Files size={13} /> : <GitCommitHorizontal size={13} />}
-            <span className="truncate">{previewTabLabel(tab)}</span>
-            {index === activeTabIndex && tab.ephemeral && <span className="text-dim">preview</span>}
-            <span
-              role="button"
-              tabIndex={0}
-              onClick={(event) => {
-                event.stopPropagation();
-                onCloseWorkspaceTab(index);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onCloseWorkspaceTab(index);
-                }
-              }}
-              className="text-dim hover:text-[var(--color-text-primary)]"
-            >
-              <X size={12} />
-            </span>
-          </button>
+          <WorkspacePreviewTab
+            key={workspacePreviewTabKey(tab, index)}
+            tab={tab}
+            index={index}
+            active={activeSurface?.type === 'workspaceTab' && activeSurface.index === index}
+            activeTabIndex={activeTabIndex}
+            onSelect={() => onSelectWorkspaceTab(index)}
+            onClose={() => onCloseWorkspaceTab(index)}
+          />
         ))}
       </div>
       <div className="relative shrink-0">
@@ -835,129 +811,6 @@ function NewTabMenuItem({ icon, children, disabled, onClick }: { icon: ReactNode
       <span>{children}</span>
     </button>
   );
-}
-
-function ConversationTab({
-  conversation,
-  onSelect,
-  onRename,
-}: {
-  conversation: Conversation;
-  onSelect: () => void;
-  onRename: (title: string) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(conversation.title);
-
-  useEffect(() => {
-    setDraft(conversation.title);
-  }, [conversation.title]);
-
-  const save = () => {
-    const title = draft.trim();
-    setEditing(false);
-    if (title && title !== conversation.title) onRename(title);
-    else setDraft(conversation.title);
-  };
-
-  return (
-    <div className="inline-flex h-[44px] max-w-[15rem] shrink-0 items-center gap-2 rounded-md px-3 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] md:h-7 md:gap-1.5 md:px-2 md:text-xs">
-      <MessageSquareText size={13} className="shrink-0" />
-      {editing ? (
-        <input
-          autoFocus
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={save}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') save();
-            if (event.key === 'Escape') {
-              setEditing(false);
-              setDraft(conversation.title);
-            }
-          }}
-          className="h-8 min-w-0 bg-transparent outline-none md:h-6"
-        />
-      ) : (
-        <button
-          type="button"
-          onClick={onSelect}
-          onDoubleClick={() => setEditing(true)}
-          className="flex h-full min-w-0 items-center truncate text-left"
-          title="Double-click to rename"
-        >
-          {conversation.title}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function TerminalTab({
-  terminal,
-  active,
-  pending,
-  onSelect,
-  onClose,
-  onRename,
-}: {
-  terminal: TerminalSession;
-  active: boolean;
-  pending: boolean;
-  onSelect: () => void;
-  onClose: () => void;
-  onRename: (title: string) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(terminal.title ?? '');
-
-  useEffect(() => {
-    setDraft(terminal.title ?? '');
-  }, [terminal.title]);
-
-  const save = () => {
-    const title = draft.trim();
-    setEditing(false);
-    if (title && title !== terminal.title) onRename(title);
-  };
-
-  return (
-    <div className={`inline-flex h-[44px] items-center overflow-hidden rounded-md text-sm md:h-7 md:text-xs ${active ? 'bg-[var(--color-card-hover)]' : 'bg-[var(--color-card)]'}`}>
-      {editing ? (
-        <input
-          autoFocus
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={save}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') save();
-            if (event.key === 'Escape') setEditing(false);
-          }}
-          className="h-[44px] w-36 bg-transparent px-3 outline-none md:h-7 md:w-28 md:px-2"
-        />
-      ) : (
-        <button type="button" onClick={onSelect} onDoubleClick={() => setEditing(true)} className="flex h-full items-center gap-1.5 px-2">
-          <SquareTerminal size={13} />
-          <span className="max-w-32 truncate">{terminal.title || 'Terminal'}</span>
-        </button>
-      )}
-      <button type="button" disabled={pending} onClick={onClose} className="px-1.5 text-dim hover:text-[var(--color-text-primary)]" aria-label="Close terminal">
-        <X size={12} />
-      </button>
-    </div>
-  );
-}
-
-function previewTabKey(tab: Extract<WorkspaceTab, { type: 'editor' | 'diff' }>, index: number) {
-  if (tab.type === 'editor') return `editor:${tab.path}:${index}`;
-  return `diff:${tab.file ?? 'all'}:${tab.staged}:${tab.base}:${tab.commit ?? 'none'}:${index}`;
-}
-
-function previewTabLabel(tab: Extract<WorkspaceTab, { type: 'editor' | 'diff' }>) {
-  if (tab.type === 'editor') return fileName(tab.path);
-  if (tab.file) return fileName(tab.file);
-  if (tab.commit) return tab.commit.slice(0, 7);
-  return 'All changes';
 }
 
 function confirmWorkspaceCleanupAction(workspace: Workspace, action: string) {

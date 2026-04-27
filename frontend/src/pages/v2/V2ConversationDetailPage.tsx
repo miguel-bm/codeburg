@@ -48,6 +48,7 @@ import { useWorkspaceStore } from '../../stores/workspace';
 import { applySuggestionToText, findActiveToken, fuzzyScore, type InputSelection } from '../../components/chat/chatAutocomplete';
 import { Button, V2Empty, V2Screen } from './v2-ui';
 import { V2WorkspaceActionHeader } from './V2WorkspaceActionHeader';
+import { WorkspaceConversationTab, WorkspaceTerminalTab } from './V2WorkspaceTabs';
 import { V2WorkspaceToolTabs, V2WorkspaceTools, V2WorkspaceToolsSurface, type V2HelperTab } from './V2WorkspaceTools';
 
 type MainSurface = 'conversation' | { type: 'workspaceTab'; index: number };
@@ -556,7 +557,7 @@ export function V2ConversationDetailPage() {
             <div className="flex h-12 shrink-0 items-center gap-1 bg-canvas px-2 md:h-9">
               <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
                 {safeWorkspaceConversations.map((candidate) => (
-                  <ConversationTab
+                  <WorkspaceConversationTab
                     key={candidate.id}
                     conversation={candidate}
                     active={candidate.id === conversationId}
@@ -565,15 +566,12 @@ export function V2ConversationDetailPage() {
                   />
                 ))}
                 {sortedTerminals.map((terminal) => (
-                  <button
+                  <WorkspaceTerminalTab
                     key={terminal.id}
-                    type="button"
-                    onClick={() => navigate(`/v2/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`)}
-                    className="inline-flex h-[44px] max-w-[12rem] shrink-0 items-center gap-2 rounded-md px-3 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] md:h-7 md:gap-1.5 md:px-2 md:text-xs"
-                  >
-                    <SquareTerminal size={13} />
-                    <span className="truncate">{terminal.title || 'Terminal'}</span>
-                  </button>
+                    terminal={terminal}
+                    active={false}
+                    onSelect={() => navigate(`/v2/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`)}
+                  />
                 ))}
               </div>
               <div className="relative shrink-0">
@@ -782,6 +780,8 @@ function ConversationSurface({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
+  const messageScrollerRef = useRef<HTMLDivElement>(null);
+  const stickToLatestRef = useRef(true);
   const suggestionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const queryClient = useQueryClient();
   const [selection, setSelection] = useState<InputSelection>({ start: 0, end: 0 });
@@ -795,6 +795,7 @@ function ConversationSurface({
   const [modelSearch, setModelSearch] = useState('');
   const [streamingMode, setStreamingMode] = useState<'steer' | 'followUp'>('followUp');
   const [abortPending, setAbortPending] = useState(false);
+  const [isAtLatest, setIsAtLatest] = useState(true);
   const imageDragDepth = useRef(0);
   const composerStyle = isMobile && keyboardVisible
     ? { paddingBottom: keyboardHeight + 12 }
@@ -804,6 +805,7 @@ function ConversationSurface({
   const composerDisabled = !isActiveConversation || sending;
   const pendingVisible = hasPendingAssistant(snapshot);
   const messageItems = useMemo(() => buildConversationItems(messages), [messages]);
+  const messageActivityKey = `${messages.length}:${snapshot?.updatedAt ?? ''}:${snapshot?.pending?.text?.length ?? 0}:${snapshot?.pending?.thinking?.length ?? 0}:${snapshot?.tools?.map((tool) => `${tool.toolCallId}:${tool.status}:${tool.output?.length ?? 0}`).join('|') ?? ''}`;
   const selectedModel = snapshot?.model ? { provider: snapshot.model.provider, id: snapshot.model.id } : null;
   const activeToken = useMemo(
     () => findActiveToken(draft, selection, ['/', '@']),
@@ -834,6 +836,20 @@ function ConversationSurface({
   });
 
   const slashCommands = useMemo(() => commandResponse?.commands ?? [], [commandResponse?.commands]);
+  const scrollToLatest = useCallback((behavior: ScrollBehavior = 'auto') => {
+    requestAnimationFrame(() => {
+      const node = messageScrollerRef.current;
+      if (!node) return;
+      node.scrollTo({ top: node.scrollHeight, behavior });
+    });
+  }, []);
+  const updateStickToLatest = useCallback(() => {
+    const node = messageScrollerRef.current;
+    if (!node) return;
+    const atLatest = node.scrollHeight - node.scrollTop - node.clientHeight < 96;
+    stickToLatestRef.current = atLatest;
+    setIsAtLatest(atLatest);
+  }, []);
   const setThinking = useMutation({
     mutationFn: (level: PiThinkingLevel) => v2Api.setConversationThinking(conversationId, { level }),
     onSuccess: (nextSnapshot) => {
@@ -964,6 +980,16 @@ function ConversationSurface({
   }, [modelMenuOpen]);
 
   useEffect(() => {
+    stickToLatestRef.current = true;
+    setIsAtLatest(true);
+    scrollToLatest();
+  }, [conversationId, scrollToLatest]);
+
+  useEffect(() => {
+    if (stickToLatestRef.current) scrollToLatest();
+  }, [messageActivityKey, scrollToLatest]);
+
+  useEffect(() => {
     const node = textareaRef.current;
     if (!node) return;
     const minHeight = isMobile ? 70 : 82;
@@ -1077,9 +1103,9 @@ function ConversationSurface({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-auto px-3 py-4 md:px-6 md:py-5">
+      <div ref={messageScrollerRef} onScroll={updateStickToLatest} className="relative min-h-0 flex-1 overflow-auto px-3 py-4 md:px-6 md:py-5">
         {messages.length ? (
-          <div className="mx-auto max-w-5xl space-y-4 md:space-y-6">
+          <div className="mx-auto max-w-4xl space-y-4 md:space-y-5">
             {messageItems.map((item, index) => item.type === 'message' ? (
               <MessageRow
                 key={item.message.id || `${item.message.role}-${index}`}
@@ -1103,8 +1129,38 @@ function ConversationSurface({
           <V2Empty
             icon={<Sparkles size={28} />}
             title="Start with a prompt"
-            body="This conversation is attached to the current workspace."
+            body="Use a command, mention a file, or attach a screenshot to give Pi useful context."
+            action={(
+              <div className="flex flex-wrap justify-center gap-2">
+                <button type="button" onClick={() => insertTrigger('/')} className="inline-flex h-8 items-center gap-2 rounded-full bg-card px-3 text-xs text-[var(--color-text-secondary)] shadow-[var(--shadow-card)] transition-colors hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]">
+                  <Slash size={13} />
+                  Command
+                </button>
+                <button type="button" onClick={() => insertTrigger('@')} className="inline-flex h-8 items-center gap-2 rounded-full bg-card px-3 text-xs text-[var(--color-text-secondary)] shadow-[var(--shadow-card)] transition-colors hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]">
+                  <AtSign size={13} />
+                  Mention file
+                </button>
+                <button type="button" onClick={() => fileInputRef.current?.click()} className="inline-flex h-8 items-center gap-2 rounded-full bg-card px-3 text-xs text-[var(--color-text-secondary)] shadow-[var(--shadow-card)] transition-colors hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]">
+                  <Paperclip size={13} />
+                  Attach
+                </button>
+              </div>
+            )}
           />
+        )}
+        {!isAtLatest && (
+          <button
+            type="button"
+            onClick={() => {
+              stickToLatestRef.current = true;
+              setIsAtLatest(true);
+              scrollToLatest('smooth');
+            }}
+            className="sticky bottom-2 z-20 mx-auto mt-3 flex w-fit items-center gap-2 rounded-full bg-card px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] shadow-[var(--shadow-card-hover)] transition-colors hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]"
+          >
+            <ChevronDown size={13} />
+            Latest activity
+          </button>
         )}
       </div>
 
@@ -1119,7 +1175,7 @@ function ConversationSurface({
         } ${imageDragActive ? 'border-accent bg-accent/5 shadow-[0_20px_70px_rgba(37,99,235,0.2)] ring-2 ring-accent/25' : ''}`}
         >
           {imageDragActive && (
-            <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center rounded-[1.35rem] border-2 border-dashed border-accent bg-[var(--color-card)]/88 backdrop-blur-sm">
+            <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center rounded-[1.35rem] border-2 border-dashed border-accent bg-[var(--color-card)]/88 backdrop-blur-sm animate-fadeIn">
               <div className="flex items-center gap-3 rounded-full bg-accent px-4 py-2 text-sm font-medium text-white shadow-lg">
                 <ImageIcon size={17} />
                 <span>Drop image to attach</span>
@@ -1151,12 +1207,12 @@ function ConversationSurface({
             </div>
           )}
           {visibleSuggestions.length > 0 && (
-            <div className="absolute bottom-full left-3 right-3 z-30 mb-2 overflow-hidden rounded-xl border border-subtle bg-card shadow-[var(--shadow-card)]">
-              <div className="flex items-center justify-between border-b border-subtle px-3 py-1.5 text-[10px] uppercase tracking-[0.08em] text-dim">
-                <span>{activeToken?.prefix === '@' ? 'Workspace files' : 'Pi prompt commands'}</span>
-                {!isMobile && <span className="normal-case tracking-normal">Arrows, Enter, Esc</span>}
+            <div className="absolute bottom-full left-3 right-3 z-30 mb-2 overflow-hidden rounded-xl border border-subtle bg-card p-1 shadow-[var(--shadow-card-hover)] animate-popover-rise">
+              <div className="flex items-center justify-between px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-dim">
+                <span>{activeToken?.prefix === '@' ? 'Workspace files' : 'Commands'}</span>
+                {!isMobile && <span className="normal-case tracking-normal">Enter to insert</span>}
               </div>
-              <div className="max-h-56 overflow-y-auto py-1">
+              <div className="max-h-56 overflow-y-auto">
                 {visibleSuggestions.map((suggestion, index) => {
                   const selected = index === selectedSuggestionIndex;
                   return (
@@ -1167,11 +1223,11 @@ function ConversationSurface({
                       disabled={Boolean(suggestion.disabled)}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => applyComposerSuggestion(suggestion)}
-                      className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs transition-colors ${
-                        selected ? 'bg-accent/10' : 'hover:bg-secondary'
+                      className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors ${
+                        selected ? 'bg-accent/10 text-[var(--color-text-primary)]' : 'hover:bg-secondary'
                       } ${suggestion.disabled ? 'cursor-default opacity-70' : ''}`}
                     >
-                      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-subtle bg-primary">
+                      <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary ${selected ? 'text-accent' : 'text-dim'}`}>
                         {suggestionIcon(suggestion.icon)}
                       </span>
                       <span className="min-w-0 flex-1">
@@ -1261,7 +1317,7 @@ function ConversationSurface({
               <button type="button" onClick={() => fileInputRef.current?.click()} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Attach screenshot" aria-label="Attach screenshot">
                 <Paperclip size={16} />
               </button>
-              <button type="button" onClick={() => insertTrigger('/')} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Prompt, skill, or extension command" aria-label="Prompt, skill, or extension command">
+              <button type="button" onClick={() => insertTrigger('/')} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Insert command" aria-label="Insert command">
                 <Slash size={15} />
               </button>
               <button type="button" onClick={() => insertTrigger('@')} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Mention file" aria-label="Mention file">
@@ -1283,6 +1339,7 @@ function ConversationSurface({
                       key={mode}
                       type="button"
                       onClick={() => setStreamingMode(mode)}
+                      title={mode === 'steer' ? 'Steer the turn Pi is currently producing' : 'Queue the next prompt after this turn'}
                       className={`h-7 rounded-full px-2 text-[11px] font-medium transition-colors sm:px-2.5 sm:text-xs ${
                         streamingMode === mode ? 'bg-card text-[var(--color-text-primary)] shadow-sm' : 'text-dim hover:text-[var(--color-text-secondary)]'
                       }`}
@@ -1315,8 +1372,8 @@ function ConversationSurface({
                   <ChevronDown size={14} className={`shrink-0 text-dim transition-transform ${modelMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {modelMenuOpen && (
-                  <div className="absolute bottom-full right-0 z-50 mb-2 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-subtle bg-card shadow-[0_18px_60px_rgba(15,23,42,0.18)]">
-                    <div className="border-b border-subtle/70 p-2">
+                  <div className="absolute bottom-full right-0 z-50 mb-2 w-[min(24rem,calc(100vw-2rem))] rounded-2xl border border-subtle bg-card p-2 shadow-[0_18px_60px_rgba(15,23,42,0.18)] animate-popover-rise">
+                    <div className="pb-1">
                       <input
                         autoFocus
                         value={modelSearch}
@@ -1325,7 +1382,7 @@ function ConversationSurface({
                         className="h-9 w-full rounded-xl bg-primary px-3 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-dim"
                       />
                     </div>
-                    <div className="max-h-60 overflow-y-auto p-1" role="listbox">
+                    <div className="max-h-60 overflow-y-auto" role="listbox">
                       {filteredModels.length === 0 ? (
                         <div className="px-3 py-6 text-center text-sm text-dim">No models found</div>
                       ) : filteredModels.map((model) => {
@@ -1354,7 +1411,7 @@ function ConversationSurface({
                         );
                       })}
                     </div>
-                    <div className="border-t border-subtle/70 px-3 py-2.5">
+                    <div className="px-1 pt-2">
                       <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--color-text-secondary)]">
                         <Brain size={13} />
                         <span>Thinking</span>
@@ -1389,7 +1446,7 @@ function ConversationSurface({
                 type="button"
                 onClick={() => submit(isStreaming ? streamingMode : undefined)}
                 disabled={(!draft.trim() && attachments.length === 0) || composerDisabled}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-text-primary)] text-[var(--color-card)] shadow-[0_7px_16px_rgba(15,23,42,0.16)] transition-transform hover:scale-[1.03] disabled:scale-100 disabled:opacity-35"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-text-primary)] text-[var(--color-card)] shadow-[0_7px_16px_rgba(15,23,42,0.16)] transition-transform duration-150 ease-out-quart hover:scale-[1.03] active:scale-95 disabled:scale-100 disabled:opacity-35"
                 title={isStreaming ? (streamingMode === 'steer' ? 'Steer current turn' : 'Queue follow-up') : 'Send'}
                 aria-label={isStreaming ? (streamingMode === 'steer' ? 'Steer current turn' : 'Queue follow-up') : 'Send'}
               >
@@ -1678,12 +1735,12 @@ function ConversationMoreActions({
           setActionError(null);
         }}
         className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-[var(--color-text-secondary)] transition-colors hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-50"
-        title="More conversation actions"
+        title="Conversation actions"
         aria-haspopup="menu"
         aria-expanded={open}
       >
         <MoreHorizontal size={16} />
-        <span className="hidden sm:inline">More</span>
+        <span className="hidden sm:inline">Conversation</span>
         <ChevronDown size={15} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
@@ -1835,16 +1892,17 @@ function MessageRow({
 
   if (isUser) {
     return (
-      <div className="group flex justify-end">
+      <div className="group flex justify-end animate-message-enter">
         <div className="max-w-[90%] md:max-w-[min(74%,46rem)]">
           <MessageActions
             copied={copied}
+            align="right"
             canFork={Boolean(message.entryId && onForkFromMessage && !compact)}
             forkPending={forkPending}
             onCopy={onCopy}
             onFork={() => message.entryId && onForkFromMessage?.(message.entryId)}
           />
-          <div className="rounded-2xl rounded-br-md bg-[var(--color-accent)]/10 px-4 py-3 text-sm text-[var(--color-text-primary)]">
+          <div className="rounded-2xl rounded-br-md bg-[var(--color-accent)]/10 px-4 py-3 text-sm leading-6 text-[var(--color-text-primary)] shadow-[inset_0_0_0_1px_var(--color-accent-glow)]">
             {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
             <MessageImages images={message.images ?? []} />
             <ToolCallSummary message={message} />
@@ -1854,11 +1912,22 @@ function MessageRow({
     );
   }
   return (
-    <article className={`group w-full text-sm leading-6 ${message.isError ? 'text-[var(--color-error)]' : 'text-[var(--color-text-primary)]'}`}>
-      <MessageActions copied={copied} onCopy={onCopy} />
-      {message.thinking && <CollapsibleEvent icon={<Sparkles size={14} />} title="Thinking" body={message.thinking} />}
-      {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
-      <ToolCallSummary message={message} />
+    <article className={`group w-full max-w-[74ch] animate-message-enter text-sm leading-6 ${message.isError ? 'text-[var(--color-error)]' : 'text-[var(--color-text-primary)]'}`}>
+      {!compact && (
+        <div className="mb-1 flex min-h-7 items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-dim">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent/80" />
+            Pi
+          </div>
+          <MessageActions copied={copied} onCopy={onCopy} />
+        </div>
+      )}
+      {compact && <MessageActions copied={copied} onCopy={onCopy} />}
+      <div>
+        {message.thinking && <CollapsibleEvent icon={<Sparkles size={14} />} title="Thinking" body={message.thinking} />}
+        {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
+        <ToolCallSummary message={message} />
+      </div>
     </article>
   );
 }
@@ -1897,12 +1966,11 @@ function CollapsedTurnEvents({
 
   return (
     <details className="group">
-      <summary className="flex cursor-pointer list-none items-center gap-3 py-1 text-xs text-dim/80 transition-colors hover:text-[var(--color-text-secondary)]">
-        <span className="h-px flex-1 bg-[var(--color-border)]/60" />
+      <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-full bg-inset px-3 py-1.5 text-xs text-dim/90 transition-colors hover:bg-secondary hover:text-[var(--color-text-secondary)]">
         <span>{labelParts.join(', ') || `${messages.length} background ${messages.length === 1 ? 'event' : 'events'}`}</span>
         <ChevronDown size={13} className="transition-transform group-open:rotate-180" />
       </summary>
-      <div className="mt-2 space-y-3 pl-4">
+      <div className="mt-2 space-y-3 pl-3">
         {messages.map((message, index) => (
           <MessageRow
             key={message.id || `${message.role}-${index}`}
@@ -1919,19 +1987,21 @@ function CollapsedTurnEvents({
 
 function MessageActions({
   copied,
+  align = 'left',
   canFork = false,
   forkPending = false,
   onCopy,
   onFork,
 }: {
   copied: boolean;
+  align?: 'left' | 'right';
   canFork?: boolean;
   forkPending?: boolean;
   onCopy: () => void;
   onFork?: () => void;
 }) {
   return (
-    <div className="mb-1 flex h-7 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+    <div className={`mb-1 flex h-7 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${align === 'right' ? 'justify-end' : ''}`}>
       <button type="button" onClick={onCopy} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Copy message" aria-label="Copy message">
         {copied ? <Check size={14} /> : <Clipboard size={14} />}
       </button>
@@ -1946,15 +2016,15 @@ function MessageActions({
 
 function ToolResultRow({ message, compact }: { message: PiConversationMessage; compact?: boolean }) {
   return (
-    <details className={`group rounded-xl border border-subtle bg-inset text-xs ${compact ? '' : 'mx-0'}`}>
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-dim">
+    <details className={`group rounded-xl bg-inset text-xs ${compact ? '' : 'mx-0'} animate-message-enter`}>
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
         <Wrench size={13} />
         <span className="min-w-0 flex-1 truncate font-medium text-[var(--color-text-secondary)]">{toolMessageTitle(message)}</span>
         {message.isError && <span className="text-[var(--color-error)]">error</span>}
         <ChevronDown size={13} className="transition-transform group-open:rotate-180" />
       </summary>
       {message.text && (
-        <div className="border-t border-subtle px-3 py-2 text-[var(--color-text-secondary)]">
+        <div className="px-3 pb-2 text-[var(--color-text-secondary)]">
           {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
         </div>
       )}
@@ -1965,7 +2035,14 @@ function ToolResultRow({ message, compact }: { message: PiConversationMessage; c
 function PendingAssistant({ snapshot }: { snapshot: PiConversationSnapshot | null }) {
   if (!snapshot) return null;
   return (
-    <article className="space-y-3 text-sm leading-6 text-[var(--color-text-primary)]">
+    <article className="max-w-[74ch] animate-message-enter space-y-3 text-sm leading-6 text-[var(--color-text-primary)]">
+      <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-dim">
+        <span className="relative flex h-2 w-2">
+          <span className="absolute inline-flex h-full w-full rounded-full bg-accent/60 motion-safe:animate-ping" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
+        </span>
+        Pi is active
+      </div>
       {snapshot.pending?.thinking && <CollapsibleEvent icon={<Sparkles size={14} />} title="Thinking" body={snapshot.pending.thinking} />}
       {snapshot.pending?.text && <MarkdownRenderer>{snapshot.pending.text}</MarkdownRenderer>}
       <ToolCallsList toolCalls={snapshot.pending?.toolCalls ?? []} />
@@ -1973,7 +2050,7 @@ function PendingAssistant({ snapshot }: { snapshot: PiConversationSnapshot | nul
       {snapshot.streaming && !snapshot.pending?.text && !snapshot.pending?.thinking && (
         <div className="flex items-center gap-2 text-xs text-dim">
           <Loader2 size={13} className="animate-spin" />
-          <span>Pi is working...</span>
+          <span>Working through the next step...</span>
         </div>
       )}
     </article>
@@ -1986,7 +2063,7 @@ function ToolExecutionList({ tools }: { tools: PiToolExecution[] }) {
     <div className="space-y-2">
       {tools.map((tool, index) => (
         <details key={tool.toolCallId || `${tool.toolName}-${index}`} className="group rounded-lg bg-inset px-3 py-2 text-xs">
-          <summary className="flex cursor-pointer list-none items-center gap-2 text-dim">
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
             {tool.status === 'running' ? <Loader2 size={13} className="animate-spin" /> : <Wrench size={13} />}
             <span className="font-medium text-[var(--color-text-secondary)]">{tool.toolName || 'Tool'}</span>
             <span>{tool.status}</span>
@@ -2010,7 +2087,7 @@ function ToolCallsList({ toolCalls }: { toolCalls: NonNullable<PiConversationMes
     <div className="mt-3 space-y-2">
       {toolCalls.map((tool, index) => (
         <details key={tool.id || index} className="group rounded-lg bg-inset px-3 py-2 text-xs">
-          <summary className="flex cursor-pointer list-none items-center gap-2 text-dim">
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
             <Wrench size={13} />
             <span className="font-medium text-[var(--color-text-secondary)]">{tool.name || 'Tool call'}</span>
             <span>call</span>
@@ -2026,10 +2103,10 @@ function ToolCallsList({ toolCalls }: { toolCalls: NonNullable<PiConversationMes
 function CollapsibleEvent({ icon, title, body }: { icon: ReactNode; title: string; body: ReactNode }) {
   return (
     <details className="group mb-3 rounded-lg bg-inset px-3 py-2 text-xs">
-      <summary className="flex cursor-pointer list-none items-center gap-2 text-dim">
+      <summary className="flex cursor-pointer list-none items-center gap-2 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
         {icon}
         <span className="font-medium text-[var(--color-text-secondary)]">{title}</span>
-        <span className="ml-auto">collapsed</span>
+        <span className="ml-auto">details</span>
         <ChevronDown size={13} className="transition-transform group-open:rotate-180" />
       </summary>
       {body && <div className="mt-2 whitespace-pre-wrap text-[var(--color-text-secondary)]">{body}</div>}
@@ -2348,68 +2425,6 @@ function MobileConversationSurfaceBar({
         disabled={toolsDisabled}
         onToggleHelperTab={onToggleHelperTab}
       />
-    </div>
-  );
-}
-
-function ConversationTab({
-  conversation,
-  active,
-  onSelect,
-  onRename,
-}: {
-  conversation: Conversation;
-  active: boolean;
-  onSelect: () => void;
-  onRename: (title: string) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(conversation.title);
-
-  useEffect(() => {
-    setDraft(conversation.title);
-  }, [conversation.title]);
-
-  const save = () => {
-    const title = draft.trim();
-    setEditing(false);
-    if (title && title !== conversation.title) onRename(title);
-    else setDraft(conversation.title);
-  };
-
-  return (
-    <div className={`inline-flex h-[44px] max-w-[15rem] shrink-0 items-center gap-2 rounded-md px-3 text-sm md:h-7 md:gap-1.5 md:px-2 md:text-xs ${
-      active
-        ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
-        : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]'
-    }`}>
-      <MessageSquareText size={13} className="shrink-0" />
-      {editing ? (
-        <input
-          autoFocus
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={save}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') save();
-            if (event.key === 'Escape') {
-              setEditing(false);
-              setDraft(conversation.title);
-            }
-          }}
-          className="h-8 min-w-0 bg-transparent outline-none md:h-6"
-        />
-      ) : (
-        <button
-          type="button"
-          onClick={onSelect}
-          onDoubleClick={() => setEditing(true)}
-          className="flex h-full min-w-0 items-center truncate text-left"
-          title="Double-click to rename"
-        >
-          {conversation.title}
-        </button>
-      )}
     </div>
   );
 }
