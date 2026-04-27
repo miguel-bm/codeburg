@@ -1966,11 +1966,11 @@ function CollapsedTurnEvents({
 
   return (
     <details className="group">
-      <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-full bg-inset px-3 py-1.5 text-xs text-dim/90 transition-colors hover:bg-secondary hover:text-[var(--color-text-secondary)]">
+      <summary className="inline-flex cursor-pointer list-none items-center gap-2 py-1 text-xs text-dim transition-colors hover:text-[var(--color-text-secondary)]">
         <span>{labelParts.join(', ') || `${messages.length} background ${messages.length === 1 ? 'event' : 'events'}`}</span>
         <ChevronDown size={13} className="transition-transform group-open:rotate-180" />
       </summary>
-      <div className="mt-2 space-y-3 pl-3">
+      <div className="mt-2 space-y-3 pl-4 text-[var(--color-text-secondary)]">
         {messages.map((message, index) => (
           <MessageRow
             key={message.id || `${message.role}-${index}`}
@@ -2016,15 +2016,15 @@ function MessageActions({
 
 function ToolResultRow({ message, compact }: { message: PiConversationMessage; compact?: boolean }) {
   return (
-    <details className={`group rounded-xl bg-inset text-xs ${compact ? '' : 'mx-0'} animate-message-enter`}>
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
+    <details className={`group text-xs ${compact ? '' : 'mx-0'} animate-message-enter`}>
+      <summary className="flex cursor-pointer list-none items-center gap-2 py-1 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
         <Wrench size={13} />
         <span className="min-w-0 flex-1 truncate font-medium text-[var(--color-text-secondary)]">{toolMessageTitle(message)}</span>
         {message.isError && <span className="text-[var(--color-error)]">error</span>}
         <ChevronDown size={13} className="transition-transform group-open:rotate-180" />
       </summary>
       {message.text && (
-        <div className="px-3 pb-2 text-[var(--color-text-secondary)]">
+        <div className="mt-1 pl-5 text-[var(--color-text-secondary)]">
           {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
         </div>
       )}
@@ -2034,20 +2034,29 @@ function ToolResultRow({ message, compact }: { message: PiConversationMessage; c
 
 function PendingAssistant({ snapshot }: { snapshot: PiConversationSnapshot | null }) {
   if (!snapshot) return null;
+  const activitySummary = assistantActivitySummary(snapshot);
+  const hasActivity = Boolean(snapshot.pending?.thinking || (snapshot.pending?.toolCalls?.length ?? 0) > 0 || (snapshot.tools?.length ?? 0) > 0);
   return (
-    <article className="max-w-[74ch] animate-message-enter space-y-3 text-sm leading-6 text-[var(--color-text-primary)]">
-      <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-dim">
-        <span className="relative flex h-2 w-2">
-          <span className="absolute inline-flex h-full w-full rounded-full bg-accent/60 motion-safe:animate-ping" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
-        </span>
-        Pi is active
-      </div>
-      {snapshot.pending?.thinking && <CollapsibleEvent icon={<Sparkles size={14} />} title="Thinking" body={snapshot.pending.thinking} />}
+    <article className="max-w-[74ch] animate-message-enter space-y-4 text-sm leading-6 text-[var(--color-text-primary)]">
+      {hasActivity && (
+        <details className="group" open={!snapshot.pending?.text}>
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-sm text-dim transition-colors hover:text-[var(--color-text-secondary)]">
+            <span className="relative flex h-2 w-2">
+              {snapshot.streaming && <span className="absolute inline-flex h-full w-full rounded-full bg-accent/60 motion-safe:animate-ping" />}
+              <span className={`relative inline-flex h-2 w-2 rounded-full ${snapshot.streaming ? 'bg-accent' : 'bg-[var(--color-text-dim)]'}`} />
+            </span>
+            <span>{activitySummary}</span>
+            <ChevronDown size={15} className="transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="mt-3 space-y-2 pl-4 text-sm text-dim">
+            {snapshot.pending?.thinking && <ActivityDisclosure icon={<Sparkles size={14} />} title="Thinking" body={snapshot.pending.thinking} />}
+            <ToolCallsList toolCalls={snapshot.pending?.toolCalls ?? []} compact />
+            <ToolExecutionList tools={snapshot.tools ?? []} />
+          </div>
+        </details>
+      )}
       {snapshot.pending?.text && <MarkdownRenderer>{snapshot.pending.text}</MarkdownRenderer>}
-      <ToolCallsList toolCalls={snapshot.pending?.toolCalls ?? []} />
-      <ToolExecutionList tools={snapshot.tools ?? []} />
-      {snapshot.streaming && !snapshot.pending?.text && !snapshot.pending?.thinking && (
+      {snapshot.streaming && !snapshot.pending?.text && !hasActivity && (
         <div className="flex items-center gap-2 text-xs text-dim">
           <Loader2 size={13} className="animate-spin" />
           <span>Working through the next step...</span>
@@ -2062,15 +2071,14 @@ function ToolExecutionList({ tools }: { tools: PiToolExecution[] }) {
   return (
     <div className="space-y-2">
       {tools.map((tool, index) => (
-        <details key={tool.toolCallId || `${tool.toolName}-${index}`} className="group rounded-lg bg-inset px-3 py-2 text-xs">
+        <details key={tool.toolCallId || `${tool.toolName}-${index}`} className="group">
           <summary className="flex cursor-pointer list-none items-center gap-2 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
             {tool.status === 'running' ? <Loader2 size={13} className="animate-spin" /> : <Wrench size={13} />}
-            <span className="font-medium text-[var(--color-text-secondary)]">{tool.toolName || 'Tool'}</span>
-            <span>{tool.status}</span>
+            <span>{toolActivityLabel(tool)}</span>
             {tool.isError && <span className="text-[var(--color-error)]">error</span>}
             <ChevronDown size={13} className="ml-auto transition-transform group-open:rotate-180" />
           </summary>
-          {tool.output && <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-primary p-2 font-mono text-[11px] text-[var(--color-text-secondary)]">{tool.output}</pre>}
+          {tool.output && <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap pl-5 font-mono text-[11px] text-[var(--color-text-secondary)]">{tool.output}</pre>}
         </details>
       ))}
     </div>
@@ -2081,19 +2089,18 @@ function ToolCallSummary({ message }: { message: PiConversationMessage }) {
   return <ToolCallsList toolCalls={message.toolCalls ?? []} />;
 }
 
-function ToolCallsList({ toolCalls }: { toolCalls: NonNullable<PiConversationMessage['toolCalls']> }) {
+function ToolCallsList({ toolCalls, compact = false }: { toolCalls: NonNullable<PiConversationMessage['toolCalls']>; compact?: boolean }) {
   if (toolCalls.length === 0) return null;
   return (
-    <div className="mt-3 space-y-2">
+    <div className={`${compact ? '' : 'mt-3'} space-y-2`}>
       {toolCalls.map((tool, index) => (
-        <details key={tool.id || index} className="group rounded-lg bg-inset px-3 py-2 text-xs">
+        <details key={tool.id || index} className="group text-xs">
           <summary className="flex cursor-pointer list-none items-center gap-2 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
-            <Wrench size={13} />
-            <span className="font-medium text-[var(--color-text-secondary)]">{tool.name || 'Tool call'}</span>
-            <span>call</span>
+            <Command size={13} />
+            <span>{tool.name ? `Called ${tool.name}` : 'Called a tool'}</span>
             <ChevronDown size={13} className="ml-auto transition-transform group-open:rotate-180" />
           </summary>
-          {tool.arguments && <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-primary p-2 font-mono text-[11px] text-[var(--color-text-secondary)]">{tool.arguments}</pre>}
+          {tool.arguments && <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap pl-5 font-mono text-[11px] text-[var(--color-text-secondary)]">{tool.arguments}</pre>}
         </details>
       ))}
     </div>
@@ -2101,15 +2108,19 @@ function ToolCallsList({ toolCalls }: { toolCalls: NonNullable<PiConversationMes
 }
 
 function CollapsibleEvent({ icon, title, body }: { icon: ReactNode; title: string; body: ReactNode }) {
+  return <ActivityDisclosure icon={icon} title={title} body={body} />;
+}
+
+function ActivityDisclosure({ icon, title, body }: { icon: ReactNode; title: string; body: ReactNode }) {
   return (
-    <details className="group mb-3 rounded-lg bg-inset px-3 py-2 text-xs">
+    <details className="group mb-3 text-xs">
       <summary className="flex cursor-pointer list-none items-center gap-2 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
         {icon}
-        <span className="font-medium text-[var(--color-text-secondary)]">{title}</span>
+        <span>{title}</span>
         <span className="ml-auto">details</span>
         <ChevronDown size={13} className="transition-transform group-open:rotate-180" />
       </summary>
-      {body && <div className="mt-2 whitespace-pre-wrap text-[var(--color-text-secondary)]">{body}</div>}
+      {body && <div className="mt-1 whitespace-pre-wrap pl-5 text-[var(--color-text-secondary)]">{body}</div>}
     </details>
   );
 }
@@ -2123,6 +2134,29 @@ function hasPendingAssistant(snapshot: PiConversationSnapshot | null): boolean {
       || (snapshot.pending?.toolCalls?.length ?? 0) > 0
       || (snapshot.tools?.some((tool) => tool.status === 'running') ?? false),
   );
+}
+
+function assistantActivitySummary(snapshot: PiConversationSnapshot): string {
+  const toolExecutions = snapshot.tools ?? [];
+  const toolCalls = snapshot.pending?.toolCalls ?? [];
+  const runningCount = toolExecutions.filter((tool) => tool.status === 'running').length;
+  const completedCount = toolExecutions.length - runningCount;
+  const parts = [
+    snapshot.pending?.thinking ? 'thinking' : null,
+    toolCalls.length > 0 ? `${toolCalls.length} ${toolCalls.length === 1 ? 'tool call' : 'tool calls'}` : null,
+    runningCount > 0 ? `${runningCount} running` : null,
+    completedCount > 0 ? `${completedCount} done` : null,
+  ].filter(Boolean);
+  if (parts.length === 0) return snapshot.streaming ? 'Working' : 'Activity';
+  return `${snapshot.streaming ? 'Working' : 'Activity'}: ${parts.join(', ')}`;
+}
+
+function toolActivityLabel(tool: PiToolExecution): string {
+  const name = tool.toolName || 'tool';
+  if (tool.status === 'running') return `Running ${name}`;
+  if (tool.isError) return `${name} failed`;
+  if (tool.status === 'completed' || tool.status === 'done') return `Ran ${name}`;
+  return `${name} ${tool.status}`;
 }
 
 function buildConversationItems(messages: PiConversationMessage[]): ConversationRenderItem[] {

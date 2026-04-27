@@ -3,7 +3,6 @@ import {
   Files,
   GitCommitHorizontal,
   MessageSquareText,
-  Pencil,
   SquareTerminal,
   X,
 } from 'lucide-react';
@@ -22,8 +21,8 @@ function tabSurface(active: boolean, tone: 'conversation' | 'terminal' | 'previe
 
   return [
     toneClass,
-    'group/tab relative isolate inline-flex h-[44px] max-w-[15rem] shrink-0 items-center overflow-hidden rounded-md text-sm transition-[background-color,box-shadow,color,transform] duration-150 ease-out-quart animate-tab-enter md:h-7 md:text-xs',
-    'hover:-translate-y-px hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]',
+    'group/tab relative isolate inline-flex h-[44px] max-w-[15rem] shrink-0 items-center overflow-hidden rounded-md text-sm transition-[background-color,box-shadow,color] duration-150 ease-out-quart animate-tab-enter md:h-7 md:text-xs',
+    'hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]',
     active
       ? 'bg-[var(--color-card)] text-[var(--color-text-primary)] shadow-[inset_0_0_0_1px_var(--color-card-border),0_1px_2px_oklch(0_0_0_/_0.08)] before:absolute before:inset-x-2 before:top-0 before:h-px before:bg-[var(--tab-accent,var(--color-accent))]/75'
       : 'text-[var(--color-text-secondary)]',
@@ -77,24 +76,11 @@ export function WorkspaceConversationTab({
         <button
           type="button"
           onClick={onSelect}
+          onDoubleClick={() => setEditing(true)}
           className="flex h-full min-w-0 flex-1 items-center px-2 text-left"
-          title={conversation.title}
+          title={`${conversation.title}. Double-click to rename.`}
         >
           <span className="truncate">{conversation.title}</span>
-        </button>
-      )}
-      {!editing && (
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            setEditing(true);
-          }}
-          className="mr-1 hidden h-6 w-6 shrink-0 items-center justify-center rounded-md text-dim opacity-0 transition-opacity hover:bg-secondary hover:text-[var(--color-text-primary)] group-hover/tab:flex group-hover/tab:opacity-100 group-focus-within/tab:flex group-focus-within/tab:opacity-100"
-          title="Rename conversation"
-          aria-label="Rename conversation"
-        >
-          <Pencil size={12} />
         </button>
       )}
     </div>
@@ -131,6 +117,7 @@ export function WorkspaceTerminalTab({
 
   return (
     <div className={tabSurface(active, 'terminal')} data-tone="terminal">
+      <SquareTerminal size={13} className="ml-2.5 shrink-0 text-[var(--tab-accent,var(--color-success))] md:ml-2" />
       {editing ? (
         <input
           autoFocus
@@ -144,8 +131,7 @@ export function WorkspaceTerminalTab({
           className="h-full w-36 bg-transparent px-3 outline-none md:w-28 md:px-2"
         />
       ) : (
-        <button type="button" onClick={onSelect} onDoubleClick={() => onRename && setEditing(true)} className="flex h-full min-w-0 items-center gap-1.5 px-2.5 md:px-2" title={terminal.title || 'Terminal'}>
-          <SquareTerminal size={13} className="shrink-0 text-[var(--tab-accent,var(--color-success))]" />
+        <button type="button" onClick={onSelect} onDoubleClick={() => onRename && setEditing(true)} className="flex h-full min-w-0 items-center px-2.5 md:px-2" title={`${terminal.title || 'Terminal'}. Double-click to rename.`}>
           <span className="max-w-32 truncate">{terminal.title || 'Terminal'}</span>
         </button>
       )}
