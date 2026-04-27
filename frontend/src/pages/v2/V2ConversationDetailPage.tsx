@@ -330,13 +330,23 @@ export function V2ConversationDetailPage() {
       if (nextState === 'complete') return v2Api.completeConversation(conversationId!);
       return v2Api.archiveConversation(conversationId!);
     },
-    onSuccess: async (updated) => {
+    onSuccess: async (updated, nextState) => {
+      if (nextState === 'archive') {
+        if (activeWorkspaceId) {
+          queryClient.setQueryData<Conversation[]>(['v2-workspace-conversations', activeWorkspaceId], (current = []) => (
+            current.filter((candidate) => candidate.id !== updated.id)
+          ));
+        }
+        navigate(nextConversationDestination(updated.id, updated.projectId, activeWorkspaceId, safeWorkspaceConversations), { replace: true });
+      }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['v2-conversation', conversationId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-conversation-state', conversationId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId, 'sidebar'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
     },
   });
@@ -2406,6 +2416,27 @@ function ConversationTab({
 
 function terminalWorkspaceProjectId(project?: { id: string } | null, conversation?: { projectId: string } | null) {
   return project?.id ?? conversation?.projectId ?? '';
+}
+
+function nextConversationDestination(
+  archivedConversationId: string,
+  projectId: string,
+  workspaceId: string | null,
+  conversations: Conversation[],
+) {
+  const activeConversations = conversations.filter((candidate) => (
+    candidate.id !== archivedConversationId && candidate.status === 'active'
+  ));
+  if (activeConversations.length > 0) {
+    const archivedIndex = conversations.findIndex((candidate) => candidate.id === archivedConversationId);
+    const nextIndex = archivedIndex >= 0 ? Math.min(archivedIndex, activeConversations.length - 1) : 0;
+    return `/v2/conversations/${activeConversations[nextIndex].id}`;
+  }
+
+  const params = new URLSearchParams();
+  if (workspaceId) params.set('workspace', workspaceId);
+  const query = params.toString();
+  return `/v2/projects/${projectId}${query ? `?${query}` : ''}`;
 }
 
 function workspaceBranchLabel(workspace: Workspace): string {

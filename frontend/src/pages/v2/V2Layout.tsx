@@ -145,19 +145,31 @@ export function V2Layout() {
       const snapshot = await v2Api.getConversationState(conversation.id).catch(() => null);
       if (!snapshot || snapshot.messages.length === 0) {
         await v2Api.deleteConversation(conversation.id);
-        return { projectId: conversation.projectId };
+        return { conversationId: conversation.id, projectId: conversation.projectId, workspaceId: conversation.currentWorkspaceId ?? null };
       }
       const archived = await v2Api.archiveConversation(conversation.id);
-      return { projectId: archived.projectId };
+      return { conversationId: archived.id, projectId: archived.projectId, workspaceId: archived.currentWorkspaceId ?? null };
     },
-    onSuccess: async ({ projectId }) => {
+    onSuccess: async ({ conversationId, projectId, workspaceId }) => {
+      if (workspaceId) {
+        queryClient.setQueryData<Conversation[]>(['v2-workspace-conversations', workspaceId], (current = []) => (
+          current.filter((candidate) => candidate.id !== conversationId)
+        ));
+      }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-conversation', conversationId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', workspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', projectId, 'sidebar'] }),
         queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
-      if (location.pathname.match(/^\/v2\/conversations\/[^/]+/)) navigate('/v2');
+      if (location.pathname === `/v2/conversations/${conversationId}`) {
+        const params = new URLSearchParams();
+        if (workspaceId) params.set('workspace', workspaceId);
+        const query = params.toString();
+        navigate(`/v2/projects/${projectId}${query ? `?${query}` : ''}`, { replace: true });
+      }
     },
   });
   const renameConversation = useMutation({
