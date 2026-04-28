@@ -221,8 +221,11 @@ export function V2ConversationDetailPage() {
         queryClient.invalidateQueries({ queryKey: ['v2-conversation-state', conversationId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-conversation-workspaces', conversationId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', updated.currentWorkspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId, 'sidebar'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
     },
   });
@@ -259,9 +262,11 @@ export function V2ConversationDetailPage() {
     }),
     onSuccess: async (created) => {
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
         queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', created.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', created.projectId, 'sidebar'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
       navigate(`/conversations/${created.id}`);
     },
@@ -276,6 +281,7 @@ export function V2ConversationDetailPage() {
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId, 'sidebar'] }),
         queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
     },
   });
@@ -290,6 +296,7 @@ export function V2ConversationDetailPage() {
         queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId, 'sidebar'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
     },
   });
@@ -394,6 +401,7 @@ export function V2ConversationDetailPage() {
         queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', updated.projectId, 'sidebar'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
     },
   });
@@ -408,6 +416,7 @@ export function V2ConversationDetailPage() {
         queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', conversation?.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', conversation?.projectId, 'sidebar'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
     },
   });
@@ -434,9 +443,11 @@ export function V2ConversationDetailPage() {
         return;
       }
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
         queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', result.conversation.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', result.conversation.projectId, 'sidebar'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
       navigate(`/conversations/${result.conversation.id}`);
     },
@@ -523,12 +534,15 @@ export function V2ConversationDetailPage() {
   const pendingWorkspace = typeof pendingWorkspaceId === 'string'
     ? safeWorkspaces.find((workspace) => workspace.id === pendingWorkspaceId) ?? null
     : null;
-  const mobileConversations = conversation && !safeWorkspaceConversations.some((candidate) => candidate.id === conversation.id)
-    ? [conversation, ...safeWorkspaceConversations]
-    : safeWorkspaceConversations;
+  const visibleTabConversations = useMemo(() => (
+    conversation?.status === 'active' && !safeWorkspaceConversations.some((candidate) => candidate.id === conversation.id)
+      ? [conversation, ...safeWorkspaceConversations]
+      : safeWorkspaceConversations
+  ), [conversation, safeWorkspaceConversations]);
+  const mobileConversations = visibleTabConversations;
   const sortedTerminals = useMemo(() => [...safeTerminals].sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [safeTerminals]);
   const tabShortcutItems = useMemo<MacTabShortcutItem[]>(() => ([
-    ...safeWorkspaceConversations.map((candidate) => ({
+    ...visibleTabConversations.map((candidate) => ({
       id: `conversation:${candidate.id}`,
       action: () => navigate(`/conversations/${candidate.id}`),
     })),
@@ -536,7 +550,7 @@ export function V2ConversationDetailPage() {
       id: `terminal:${terminal.id}`,
       action: () => navigate(`/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`),
     })),
-  ].slice(0, 9)), [conversation, navigate, project, safeWorkspaceConversations, sortedTerminals]);
+  ].slice(0, 9)), [conversation, navigate, project, sortedTerminals, visibleTabConversations]);
   const showTabShortcutHints = useMacTabShortcuts(tabShortcutItems, !isMobile && !activePreviewTab);
   const workspaceActionPending =
     syncWorkspace.isPending ||
@@ -586,7 +600,7 @@ export function V2ConversationDetailPage() {
           {!activePreviewTab && !isMobile && (
             <div className="flex h-12 shrink-0 items-center gap-1 bg-canvas px-2 md:h-9">
               <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
-                {safeWorkspaceConversations.map((candidate, index) => (
+                {visibleTabConversations.map((candidate, index) => (
                   <WorkspaceConversationTab
                     key={candidate.id}
                     conversation={candidate}
@@ -603,7 +617,7 @@ export function V2ConversationDetailPage() {
                     terminal={terminal}
                     active={false}
                     onSelect={() => navigate(`/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`)}
-                    shortcutIndex={safeWorkspaceConversations.length + index + 1}
+                    shortcutIndex={visibleTabConversations.length + index + 1}
                     showShortcutHint={showTabShortcutHints}
                   />
                 ))}
@@ -1277,7 +1291,7 @@ function ConversationSurface({
                 onCopy={() => void copyMessage(item.message)}
                 forkTarget={messageForkTarget(item.message, messages)}
                 onRequestFork={requestForkConversation}
-                version={item.message.entryId ? versionsByEntryId.get(item.message.entryId) : undefined}
+                version={item.message.version ?? (item.message.entryId ? versionsByEntryId.get(item.message.entryId) : undefined)}
                 versionPending={selectTreeLeaf.isPending}
                 onSelectVersion={(leafId) => selectTreeLeaf.mutate(leafId)}
                 onEdit={() => beginEditingMessage(item.message)}
@@ -2172,14 +2186,7 @@ function MessageRow({
     return (
       <div className="group flex justify-end animate-message-enter">
         <div className="max-w-[90%] md:max-w-[min(74%,46rem)]">
-          <div className="relative rounded-2xl rounded-br-md bg-[var(--color-accent)]/8 px-2.5 py-2 text-sm leading-6 text-[var(--color-text-primary)] md:px-3">
-            {version && version.versionCount > 1 && (
-              <MessageVersionBadge
-                version={version}
-                pending={versionPending}
-                onSelectVersion={onSelectVersion}
-              />
-            )}
+          <div className="rounded-2xl rounded-br-md bg-[var(--color-accent)]/8 px-2.5 py-2 text-sm leading-6 text-[var(--color-text-primary)] md:px-3">
             {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
             <MessageImages images={message.images ?? []} />
             <ToolCallSummary message={message} />
@@ -2189,8 +2196,11 @@ function MessageRow({
             align="right"
             canEdit={Boolean(!compact && onEdit && version?.canEdit)}
             editDisabled={editDisabled}
+            version={version}
+            versionPending={versionPending}
             onCopy={onCopy}
             onEdit={onEdit}
+            onSelectVersion={onSelectVersion}
           />
         </div>
       </div>
@@ -2214,7 +2224,7 @@ function MessageRow({
   );
 }
 
-function MessageVersionBadge({
+function MessageVersionControls({
   version,
   pending,
   onSelectVersion,
@@ -2226,7 +2236,7 @@ function MessageVersionBadge({
   const previousDisabled = pending || !version.previousLeafId || !onSelectVersion;
   const nextDisabled = pending || !version.nextLeafId || !onSelectVersion;
   return (
-    <div className="absolute -top-3 right-1 inline-flex h-6 items-center gap-0.5 rounded-full bg-card px-1 text-[11px] font-medium text-dim shadow-[0_5px_18px_rgba(15,23,42,0.12)]">
+    <div className="inline-flex h-7 items-center gap-0.5 rounded-md px-0.5 text-[11px] font-medium text-dim">
       <button
         type="button"
         disabled={previousDisabled}
@@ -2237,7 +2247,7 @@ function MessageVersionBadge({
       >
         <ChevronLeft size={13} />
       </button>
-      <span className="min-w-7 text-center tabular-nums">{version.versionIndex}/{version.versionCount}</span>
+      <span className="min-w-7 text-center tabular-nums text-[var(--color-text-secondary)]">{version.versionIndex}/{version.versionCount}</span>
       <button
         type="button"
         disabled={nextDisabled}
@@ -2312,9 +2322,12 @@ function MessageActions({
   forkPending = false,
   canEdit = false,
   editDisabled = false,
+  version,
+  versionPending = false,
   onCopy,
   onFork,
   onEdit,
+  onSelectVersion,
 }: {
   copied: boolean;
   align?: 'left' | 'right';
@@ -2322,9 +2335,12 @@ function MessageActions({
   forkPending?: boolean;
   canEdit?: boolean;
   editDisabled?: boolean;
+  version?: PiConversationMessageVersionInfo;
+  versionPending?: boolean;
   onCopy: () => void;
   onFork?: () => void;
   onEdit?: () => void;
+  onSelectVersion?: (leafId: string) => void;
 }) {
   return (
     <div className={`mt-1.5 flex h-7 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${align === 'right' ? 'justify-end' : ''}`}>
@@ -2335,6 +2351,13 @@ function MessageActions({
         <button type="button" onClick={onEdit} disabled={editDisabled} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-dim hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-40" title="Edit and continue from here" aria-label="Edit and continue from here">
           <Pencil size={14} />
         </button>
+      )}
+      {version && version.versionCount > 1 && (
+        <MessageVersionControls
+          version={version}
+          pending={versionPending}
+          onSelectVersion={onSelectVersion}
+        />
       )}
       {canFork && (
         <button type="button" onClick={onFork} disabled={forkPending} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-dim hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-50" title="Fork from here" aria-label="Fork from here">

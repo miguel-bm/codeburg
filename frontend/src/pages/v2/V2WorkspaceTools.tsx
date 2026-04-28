@@ -109,26 +109,16 @@ export function V2WorkspaceToolsSurface({
         <motion.div
           key="workspace-tools"
           className="flex min-h-0 shrink-0 overflow-hidden bg-canvas"
-          style={{ width: width + 6 }}
-          initial={false}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: reducedMotion ? 0 : 1 }}
+          initial={{ width: 0, opacity: reducedMotion ? 0 : 1 }}
+          animate={{ width: width + 6, opacity: 1 }}
+          exit={{ width: 0, opacity: reducedMotion ? 0 : 1 }}
           transition={{
-            duration: resizing || reducedMotion ? 0 : 0.16,
+            width: { duration: resizing || reducedMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] },
+            opacity: { duration: resizing || reducedMotion ? 0 : 0.12 },
             ease: [0.22, 1, 0.36, 1],
           }}
         >
-          <motion.div
-            className="flex min-h-0 shrink-0 will-change-transform"
-            style={{ width: width + 6 }}
-            initial={reducedMotion ? { opacity: 0 } : { x: width + 6, opacity: 0.98 }}
-            animate={reducedMotion ? { opacity: 1 } : { x: 0, opacity: 1 }}
-            exit={reducedMotion ? { opacity: 0 } : { x: width + 6, opacity: 0.98 }}
-            transition={{
-              duration: resizing || reducedMotion ? 0 : 0.22,
-              ease: [0.22, 1, 0.36, 1],
-            }}
-          >
+          <div className="flex min-h-0 shrink-0" style={{ width: width + 6 }}>
             <div className="group flex w-1.5 shrink-0 cursor-col-resize items-stretch justify-center bg-canvas" onMouseDown={onResizeStart}>
               <div className="my-2 w-px rounded-full bg-transparent transition-colors group-hover:bg-accent/35" />
             </div>
@@ -146,7 +136,7 @@ export function V2WorkspaceToolsSurface({
                 {children}
               </div>
             </aside>
-          </motion.div>
+          </div>
         </motion.div>
       )}
     </AnimatePresence>

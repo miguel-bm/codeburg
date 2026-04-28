@@ -465,6 +465,7 @@ export interface PiConversationMessage {
   toolCalls?: PiConversationToolCall[];
   isError?: boolean;
   timestamp?: string;
+  version?: PiConversationMessageVersionInfo;
 }
 
 export type PiConversationForkPosition = 'before' | 'at';

@@ -40,16 +40,17 @@ type piConversationImageRef struct {
 }
 
 type piConversationMessage struct {
-	ID        string                   `json:"id"`
-	EntryID   string                   `json:"entryId,omitempty"`
-	Role      string                   `json:"role"`
-	Text      string                   `json:"text,omitempty"`
-	Thinking  string                   `json:"thinking,omitempty"`
-	Images    []piConversationImageRef `json:"images,omitempty"`
-	ToolName  string                   `json:"toolName,omitempty"`
-	ToolCalls []piConversationToolCall `json:"toolCalls,omitempty"`
-	IsError   bool                     `json:"isError,omitempty"`
-	Timestamp string                   `json:"timestamp,omitempty"`
+	ID        string                            `json:"id"`
+	EntryID   string                            `json:"entryId,omitempty"`
+	Role      string                            `json:"role"`
+	Text      string                            `json:"text,omitempty"`
+	Thinking  string                            `json:"thinking,omitempty"`
+	Images    []piConversationImageRef          `json:"images,omitempty"`
+	ToolName  string                            `json:"toolName,omitempty"`
+	ToolCalls []piConversationToolCall          `json:"toolCalls,omitempty"`
+	IsError   bool                              `json:"isError,omitempty"`
+	Timestamp string                            `json:"timestamp,omitempty"`
+	Version   *piConversationMessageVersionInfo `json:"version,omitempty"`
 }
 
 type piStreamingAssistant struct {
@@ -1424,6 +1425,10 @@ func piSessionTree(sessionFile string) (piConversationTree, error) {
 	if err != nil {
 		return piConversationTree{}, err
 	}
+	return piSessionTreeFromSession(session)
+}
+
+func piSessionTreeFromSession(session *piSessionFile) (piConversationTree, error) {
 	branch, err := session.branchEntries(session.LeafID)
 	if err != nil {
 		return piConversationTree{}, err
@@ -1473,6 +1478,18 @@ func piSessionTree(sessionFile string) (piConversationTree, error) {
 		ActiveLeafID: session.LeafID,
 		Messages:     infos,
 	}, nil
+}
+
+func piSessionVersionInfoByEntryID(session *piSessionFile) map[string]piConversationMessageVersionInfo {
+	tree, err := piSessionTreeFromSession(session)
+	if err != nil {
+		return map[string]piConversationMessageVersionInfo{}
+	}
+	byEntryID := make(map[string]piConversationMessageVersionInfo, len(tree.Messages))
+	for _, info := range tree.Messages {
+		byEntryID[info.EntryID] = info
+	}
+	return byEntryID
 }
 
 func (session *piSessionFile) latestLeafForAncestor(ancestorID string) string {
@@ -1582,9 +1599,13 @@ func piSessionMessages(sessionFile string) ([]piConversationMessage, error) {
 		return nil, err
 	}
 	messages := make([]piConversationMessage, 0, len(entries))
+	versionInfoByEntryID := piSessionVersionInfoByEntryID(session)
 	for _, entry := range entries {
 		message, ok := piMessageFromSessionEntry(entry, len(messages))
 		if ok {
+			if info, hasInfo := versionInfoByEntryID[entry.ID]; hasInfo {
+				message.Version = &info
+			}
 			messages = append(messages, message)
 		}
 	}
