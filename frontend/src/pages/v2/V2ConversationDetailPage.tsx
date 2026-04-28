@@ -837,8 +837,8 @@ function ConversationSurface({
   const modelOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const messageScrollerRef = useRef<HTMLDivElement>(null);
   const stickToLatestRef = useRef(true);
-  const branchSwitchScrollRef = useRef<{ top: number; height: number } | null>(null);
   const branchSwitchTimerRef = useRef<number | null>(null);
+  const suppressBranchAutoScrollRef = useRef(false);
   const suggestionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const queryClient = useQueryClient();
   const [selection, setSelection] = useState<InputSelection>({ start: 0, end: 0 });
@@ -934,30 +934,18 @@ function ConversationSurface({
         window.clearTimeout(branchSwitchTimerRef.current);
         branchSwitchTimerRef.current = null;
       }
-      const node = messageScrollerRef.current;
-      branchSwitchScrollRef.current = node ? { top: node.scrollTop, height: node.scrollHeight } : null;
+      suppressBranchAutoScrollRef.current = true;
       setBranchSwitching(true);
     },
     onSuccess: (nextSnapshot) => {
       onApplySnapshot(nextSnapshot);
-      requestAnimationFrame(() => {
-        const node = messageScrollerRef.current;
-        const previous = branchSwitchScrollRef.current;
-        if (node && previous) {
-          const delta = node.scrollHeight - previous.height;
-          node.scrollTop = Math.max(0, previous.top + delta);
-          updateStickToLatest();
-        }
-        branchSwitchScrollRef.current = null;
-      });
-      void queryClient.invalidateQueries({ queryKey: ['v2-conversation-tree', conversationId] });
-      void queryClient.invalidateQueries({ queryKey: ['v2-conversation-state', conversationId] });
     },
     onSettled: () => {
       branchSwitchTimerRef.current = window.setTimeout(() => {
         setBranchSwitching(false);
+        suppressBranchAutoScrollRef.current = false;
         branchSwitchTimerRef.current = null;
-      }, 180);
+      }, 120);
     },
   });
   const editTreeMessage = useMutation({
@@ -1133,9 +1121,11 @@ function ConversationSurface({
     if (branchSwitchTimerRef.current) {
       window.clearTimeout(branchSwitchTimerRef.current);
     }
+    suppressBranchAutoScrollRef.current = false;
   }, []);
 
   useEffect(() => {
+    if (suppressBranchAutoScrollRef.current) return;
     if (stickToLatestRef.current) scrollToLatest();
   }, [messageActivityKey, scrollToLatest]);
 
@@ -1312,7 +1302,7 @@ function ConversationSurface({
     <div className="flex h-full min-h-0 flex-col">
       <div ref={messageScrollerRef} onScroll={updateStickToLatest} className="relative min-h-0 flex-1 overflow-auto px-3 py-4 md:px-6 md:py-5">
         {messages.length ? (
-          <div className={`mx-auto max-w-4xl space-y-4 transition-opacity duration-150 ease-out-quart md:space-y-5 ${selectTreeLeaf.isPending ? 'opacity-85' : 'opacity-100'}`}>
+          <div className="mx-auto max-w-4xl space-y-4 md:space-y-5">
             {messageItems.map((item, index) => item.type === 'message' ? (
               <MessageRow
                 key={item.message.id || `${item.message.role}-${index}`}
