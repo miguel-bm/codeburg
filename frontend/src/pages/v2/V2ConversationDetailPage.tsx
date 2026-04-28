@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ClipboardEvent, Dispatch, DragEvent, ReactNode, SetStateAction } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -836,7 +836,9 @@ function ConversationSurface({
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const modelOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const messageScrollerRef = useRef<HTMLDivElement>(null);
+  const messageRowRefs = useRef<Map<number, HTMLElement>>(new Map());
   const stickToLatestRef = useRef(true);
+  const branchSwitchAnchorRef = useRef<{ index: number; top: number } | null>(null);
   const branchSwitchTimerRef = useRef<number | null>(null);
   const suppressBranchAutoScrollRef = useRef(false);
   const suggestionRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -944,6 +946,7 @@ function ConversationSurface({
       branchSwitchTimerRef.current = window.setTimeout(() => {
         setBranchSwitching(false);
         suppressBranchAutoScrollRef.current = false;
+        branchSwitchAnchorRef.current = null;
         branchSwitchTimerRef.current = null;
       }, 120);
     },
@@ -979,6 +982,18 @@ function ConversationSurface({
     }
     return map;
   }, [tree?.messages]);
+  const setMessageRowRef = useCallback((index: number, node: HTMLElement | null) => {
+    if (node) {
+      messageRowRefs.current.set(index, node);
+      return;
+    }
+    messageRowRefs.current.delete(index);
+  }, []);
+  const selectVersionAt = useCallback((leafId: string, index: number) => {
+    const node = messageRowRefs.current.get(index);
+    branchSwitchAnchorRef.current = node ? { index, top: node.getBoundingClientRect().top } : null;
+    selectTreeLeaf.mutate(leafId);
+  }, [selectTreeLeaf]);
   const filteredModels = useMemo(() => {
     const query = modelSearch.trim().toLowerCase();
     if (!query) return models;
@@ -1112,6 +1127,8 @@ function ConversationSurface({
   useEffect(() => {
     stickToLatestRef.current = true;
     setIsAtLatest(true);
+    branchSwitchAnchorRef.current = null;
+    messageRowRefs.current.clear();
     scrollToLatest();
     setEditingMessage(null);
     setEditError(null);
@@ -1123,6 +1140,19 @@ function ConversationSurface({
     }
     suppressBranchAutoScrollRef.current = false;
   }, []);
+
+  useLayoutEffect(() => {
+    if (!branchSwitching) return;
+    const anchor = branchSwitchAnchorRef.current;
+    const scroller = messageScrollerRef.current;
+    if (!anchor || !scroller) return;
+    const node = messageRowRefs.current.get(anchor.index);
+    if (!node) return;
+    const delta = node.getBoundingClientRect().top - anchor.top;
+    if (Math.abs(delta) > 0.5) {
+      scroller.scrollTop += delta;
+    }
+  }, [branchSwitching, messageActivityKey]);
 
   useEffect(() => {
     if (suppressBranchAutoScrollRef.current) return;
@@ -1300,7 +1330,7 @@ function ConversationSurface({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div ref={messageScrollerRef} onScroll={updateStickToLatest} className="relative min-h-0 flex-1 overflow-auto px-3 py-4 md:px-6 md:py-5">
+      <div ref={messageScrollerRef} onScroll={updateStickToLatest} className={`relative min-h-0 flex-1 overflow-auto px-3 py-4 md:px-6 md:py-5 ${branchSwitching ? '[overflow-anchor:none]' : ''}`}>
         {messages.length ? (
           <div className="mx-auto max-w-4xl space-y-4 md:space-y-5">
             {messageItems.map((item, index) => item.type === 'message' ? (
@@ -1314,10 +1344,11 @@ function ConversationSurface({
                 onRequestFork={requestForkConversation}
                 version={item.message.version ?? (item.message.entryId ? versionsByEntryId.get(item.message.entryId) : undefined)}
                 versionPending={selectTreeLeaf.isPending}
-                onSelectVersion={(leafId) => selectTreeLeaf.mutate(leafId)}
+                onSelectVersion={(leafId) => selectVersionAt(leafId, index)}
                 onEdit={() => beginEditingMessage(item.message)}
                 editDisabled={Boolean(isStreaming || sending || editTreeMessage.isPending)}
                 animate={!branchSwitching}
+                rowRef={(node) => setMessageRowRef(index, node)}
               />
             ) : (
               <CollapsedTurnEvents
@@ -1326,6 +1357,7 @@ function ConversationSurface({
                 copiedMessageId={copiedMessageId}
                 onCopy={(message) => void copyMessage(message)}
                 animate={!branchSwitching}
+                rowRef={(node) => setMessageRowRef(index, node)}
               />
             ))}
             {pendingVisible && <PendingAssistant snapshot={snapshot} />}
@@ -2187,6 +2219,7 @@ function MessageRow({
   onEdit,
   editDisabled = false,
   animate = true,
+  rowRef,
 }: {
   message: PiConversationMessage;
   copied: boolean;
@@ -2201,15 +2234,16 @@ function MessageRow({
   onEdit?: () => void;
   editDisabled?: boolean;
   animate?: boolean;
+  rowRef?: (node: HTMLElement | null) => void;
 }) {
   const isUser = message.role === 'user';
   if (isToolMessage(message)) {
-    return <ToolResultRow message={message} compact={compact} />;
+    return <ToolResultRow message={message} compact={compact} animate={animate} rowRef={rowRef} />;
   }
 
   if (isUser) {
     return (
-      <div className={`group flex justify-end ${animate ? 'animate-message-enter' : ''}`}>
+      <div ref={rowRef as ((node: HTMLDivElement | null) => void) | undefined} className={`group flex justify-end ${animate ? 'animate-message-enter' : ''}`}>
         <div className="max-w-[90%] md:max-w-[min(74%,46rem)]">
           <div className="rounded-2xl rounded-br-md bg-[var(--color-accent)]/8 px-2.5 py-2 text-sm leading-6 text-[var(--color-text-primary)] md:px-3">
             {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
@@ -2232,7 +2266,7 @@ function MessageRow({
     );
   }
   return (
-    <article className={`group w-full max-w-[74ch] text-sm leading-6 ${animate ? 'animate-message-enter' : ''} ${message.isError ? 'text-[var(--color-error)]' : 'text-[var(--color-text-primary)]'}`}>
+    <article ref={rowRef as ((node: HTMLElement | null) => void) | undefined} className={`group w-full max-w-[74ch] text-sm leading-6 ${animate ? 'animate-message-enter' : ''} ${message.isError ? 'text-[var(--color-error)]' : 'text-[var(--color-text-primary)]'}`}>
       <div>
         {message.thinking && <CollapsibleEvent icon={<Sparkles size={14} />} title="Thinking" body={message.thinking} />}
         {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
@@ -2308,11 +2342,13 @@ function CollapsedTurnEvents({
   copiedMessageId,
   onCopy,
   animate = true,
+  rowRef,
 }: {
   messages: PiConversationMessage[];
   copiedMessageId: string | null;
   onCopy: (message: PiConversationMessage) => void;
   animate?: boolean;
+  rowRef?: (node: HTMLElement | null) => void;
 }) {
   const toolCount = messages.filter((message) => isToolMessage(message) || (message.toolCalls?.length ?? 0) > 0).length;
   const thinkingCount = messages.filter((message) => Boolean(message.thinking)).length;
@@ -2322,7 +2358,7 @@ function CollapsedTurnEvents({
   ].filter(Boolean);
 
   return (
-    <details className="group">
+    <details ref={rowRef as ((node: HTMLDetailsElement | null) => void) | undefined} className="group">
       <summary className="inline-flex cursor-pointer list-none items-center gap-2 py-1 text-xs text-dim transition-colors hover:text-[var(--color-text-secondary)]">
         <span>{labelParts.join(', ') || `${messages.length} background ${messages.length === 1 ? 'event' : 'events'}`}</span>
         <ChevronDown size={13} className="transition-transform group-open:rotate-180" />
@@ -2396,9 +2432,9 @@ function MessageActions({
   );
 }
 
-function ToolResultRow({ message, compact }: { message: PiConversationMessage; compact?: boolean }) {
+function ToolResultRow({ message, compact, animate = true, rowRef }: { message: PiConversationMessage; compact?: boolean; animate?: boolean; rowRef?: (node: HTMLElement | null) => void }) {
   return (
-    <details className={`group text-xs ${compact ? '' : 'mx-0'} animate-message-enter`}>
+    <details ref={rowRef as ((node: HTMLDetailsElement | null) => void) | undefined} className={`group text-xs ${compact ? '' : 'mx-0'} ${animate ? 'animate-message-enter' : ''}`}>
       <summary className="flex cursor-pointer list-none items-center gap-2 py-1 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
         <Wrench size={13} />
         <span className="min-w-0 flex-1 truncate font-medium text-[var(--color-text-secondary)]">{toolMessageTitle(message)}</span>
