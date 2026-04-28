@@ -1696,6 +1696,46 @@ func TestCuratedSkillCatalogDiscoveryAndInstall(t *testing.T) {
 		t.Fatalf("expected 2 catalog skills, got %+v", catalog)
 	}
 
+	customSourceRoot := filepath.Join(catalogRoot, "custom")
+	if err := os.MkdirAll(filepath.Join(customSourceRoot, "skills", "team-review"), 0755); err != nil {
+		t.Fatalf("mkdir custom catalog: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(customSourceRoot, "skills", "team-review", "SKILL.md"), []byte("---\nname: team-review\ndescription: Team review conventions\n---\n"), 0644); err != nil {
+		t.Fatalf("write custom skill: %v", err)
+	}
+	createSourceResp := env.post("/api/skills/catalog/sources", map[string]any{
+		"name":          "Team Skills",
+		"repoUrl":       customSourceRoot,
+		"skillPrefixes": []string{"skills/"},
+	})
+	if createSourceResp.Code != http.StatusCreated {
+		t.Fatalf("create custom catalog source: %d %s", createSourceResp.Code, createSourceResp.Body.String())
+	}
+	var customSource curatedSkillCatalogSource
+	decodeResponse(t, createSourceResp, &customSource)
+	if customSource.ID == "" || customSource.BuiltIn {
+		t.Fatalf("unexpected custom source: %+v", customSource)
+	}
+
+	sourcesResp := env.get("/api/skills/catalog/sources")
+	if sourcesResp.Code != http.StatusOK {
+		t.Fatalf("list catalog sources: %d %s", sourcesResp.Code, sourcesResp.Body.String())
+	}
+	var sources []curatedSkillCatalogSource
+	decodeResponse(t, sourcesResp, &sources)
+	if len(sources) != 3 {
+		t.Fatalf("expected 3 catalog sources, got %+v", sources)
+	}
+
+	catalogResp = env.get("/api/skills/catalog")
+	if catalogResp.Code != http.StatusOK {
+		t.Fatalf("list skill catalog with custom source: %d %s", catalogResp.Code, catalogResp.Body.String())
+	}
+	decodeResponse(t, catalogResp, &catalog)
+	if len(catalog) != 3 {
+		t.Fatalf("expected 3 catalog skills after custom source, got %+v", catalog)
+	}
+
 	installResp := env.post("/api/projects/"+project.ID+"/skills/catalog", map[string]any{
 		"sourceId":  "openai-curated",
 		"skillPath": "skills/.curated/frontend-skill",
@@ -1713,6 +1753,24 @@ func TestCuratedSkillCatalogDiscoveryAndInstall(t *testing.T) {
 	}
 	if !strings.Contains(string(installedRaw), "Makes frontend work better") {
 		t.Fatalf("unexpected installed skill content: %q", string(installedRaw))
+	}
+
+	customInstallResp := env.post("/api/projects/"+project.ID+"/skills/catalog", map[string]any{
+		"sourceId":  customSource.ID,
+		"skillPath": "skills/team-review",
+		"target":    "agents",
+		"name":      "team-review",
+	})
+	if customInstallResp.Code != http.StatusCreated {
+		t.Fatalf("install custom catalog skill: %d %s", customInstallResp.Code, customInstallResp.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(repoPath, ".agents", "skills", "team-review", "SKILL.md")); err != nil {
+		t.Fatalf("expected custom catalog skill: %v", err)
+	}
+
+	deleteSourceResp := env.delete("/api/skills/catalog/sources/" + customSource.ID)
+	if deleteSourceResp.Code != http.StatusNoContent {
+		t.Fatalf("delete custom catalog source: %d %s", deleteSourceResp.Code, deleteSourceResp.Body.String())
 	}
 
 	homeDir := t.TempDir()

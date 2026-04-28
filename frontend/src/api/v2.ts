@@ -18,6 +18,7 @@ import type {
   ConversationWorkspaceLink,
   ManagedSkill,
   SkillCatalogEntry,
+  SkillCatalogSource,
   ProjectSkillsResponse,
   HarnessStatus,
   HarnessToolId,
@@ -346,6 +347,15 @@ export const v2Api = {
 
   listSkillCatalog: () =>
     api.get<SkillCatalogEntry[]>('/skills/catalog'),
+
+  listSkillCatalogSources: () =>
+    api.get<SkillCatalogSource[]>('/skills/catalog/sources'),
+
+  createSkillCatalogSource: (input: { name: string; repoUrl: string; repoRef?: string; skillPrefixes?: string[] }) =>
+    api.post<SkillCatalogSource>('/skills/catalog/sources', input),
+
+  deleteSkillCatalogSource: (sourceId: string) =>
+    api.delete(`/skills/catalog/sources/${encodeURIComponent(sourceId)}`),
 
   listProjectSkills: (projectId: string) =>
     api.get<ProjectSkillsResponse>(`/projects/${projectId}/skills`),

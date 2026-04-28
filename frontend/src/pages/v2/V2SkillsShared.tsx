@@ -52,7 +52,7 @@ export function SkillList({
     return <V2Empty title={emptyTitle} body={emptyBody} />;
   }
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-0.5">
       {skills.map((skill) => (
         <SkillRow key={`${skill.scope}-${skill.target}-${skill.name}`} skill={skill} actions={actions(skill)} />
       ))}
@@ -62,15 +62,17 @@ export function SkillList({
 
 export function SkillRow({ skill, actions }: { skill: ManagedSkill; actions: ReactNode }) {
   return (
-    <div className="grid gap-3 rounded-lg px-3 py-3 transition-colors hover:bg-[var(--color-card-hover)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+    <div className="grid gap-2 rounded-lg px-2.5 py-2 transition-colors hover:bg-[var(--color-card-hover)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
       <div className="min-w-0">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <div className="truncate text-sm font-medium">{skill.title}</div>
           <TargetPill target={skill.target} />
           {skill.symlinked && <span className="rounded-md bg-[var(--color-inset)] px-1.5 py-0.5 text-[10px] text-dim">symlink</span>}
         </div>
-        {skill.description && <div className="mt-1 max-w-3xl text-sm leading-5 text-[var(--color-text-secondary)]">{skill.description}</div>}
-        <div className="mt-1 break-all font-mono text-[11px] text-dim">{skill.path}</div>
+        <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] text-dim">
+          {skill.description && <span className="min-w-0 max-w-[36rem] truncate">{skill.description}</span>}
+          <span className="min-w-0 truncate font-mono">{skill.path}</span>
+        </div>
       </div>
       {actions}
     </div>
@@ -96,16 +98,19 @@ export function CatalogSkillList({
     return <V2Empty title={emptyTitle} />;
   }
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-0.5">
       {entries.map((entry) => (
-        <div key={`${entry.sourceId}:${entry.skillPath}`} className="grid gap-3 rounded-lg px-3 py-3 transition-colors hover:bg-[var(--color-card-hover)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+        <div key={`${entry.sourceId}:${entry.skillPath}`} className="grid gap-2 rounded-lg px-2.5 py-2 transition-colors hover:bg-[var(--color-card-hover)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
           <div className="min-w-0">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <div className="truncate text-sm font-medium">{entry.title}</div>
               <TargetPill target={target} />
             </div>
-            <div className="mt-1 text-xs text-dim">{entry.sourceName} · {entry.skillPath}</div>
-            {entry.description && <div className="mt-1 max-w-3xl text-sm leading-5 text-[var(--color-text-secondary)]">{entry.description}</div>}
+            <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] text-dim">
+              <span className="shrink-0">{entry.sourceName}</span>
+              <span className="min-w-0 truncate font-mono">{entry.skillPath}</span>
+              {entry.description && <span className="min-w-0 max-w-[30rem] truncate">{entry.description}</span>}
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {onInstallProject && (

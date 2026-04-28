@@ -42,6 +42,7 @@ import { Modal } from '../../components/ui/Modal';
 import { DiffTab } from '../../components/workspace/DiffTab';
 import { EditorTab } from '../../components/workspace/EditorTab';
 import { WorkspaceProvider } from '../../components/workspace/WorkspaceContext';
+import { useMacTabShortcuts, type MacTabShortcutItem } from '../../hooks/useMacTabShortcuts';
 import { useMobile } from '../../hooks/useMobile';
 import { usePiConversation } from '../../hooks/usePiConversation';
 import { useVirtualKeyboard } from '../../hooks/useVirtualKeyboard';
@@ -131,10 +132,6 @@ export function V2ConversationDetailPage() {
   });
 
   const isActiveConversation = conversation?.status === 'active';
-  const shouldConnectRuntime = isActiveConversation && (runtimeRequested || Boolean(stateSnapshot?.runtimeActive));
-  const activateRuntime = runtimeRequested && !stateSnapshot?.runtimeActive;
-  const { snapshot: liveSnapshot, connected, connecting, error, sendMessage, abort, applySnapshot } = usePiConversation(conversationId ?? '', shouldConnectRuntime, { activate: activateRuntime });
-  const snapshot: PiConversationSnapshot | null = liveSnapshot ?? stateSnapshot ?? null;
   const safeWorkspaces = useMemo(() => Array.isArray(workspaces) ? workspaces : [], [workspaces]);
   const attachedWorkspace = useMemo(
     () => safeWorkspaces.find((workspace) => workspace.id === conversation?.currentWorkspaceId),
@@ -145,6 +142,10 @@ export function V2ConversationDetailPage() {
     ?? safeWorkspaces[0]
     ?? null;
   const activeWorkspaceId = activeWorkspace?.id ?? null;
+  const shouldConnectRuntime = isActiveConversation && (runtimeRequested || Boolean(stateSnapshot?.runtimeActive));
+  const activateRuntime = runtimeRequested;
+  const { snapshot: liveSnapshot, connected, connecting, error, sendMessage, abort, applySnapshot } = usePiConversation(conversationId ?? '', shouldConnectRuntime, { activate: activateRuntime, resetKey: activeWorkspaceId });
+  const snapshot: PiConversationSnapshot | null = liveSnapshot ?? stateSnapshot ?? null;
   const activeWorkspaceTab = mainSurface !== 'conversation' ? tabs[mainSurface.index] : null;
   const activePreviewTab = activeWorkspaceTab?.type === 'editor' || activeWorkspaceTab?.type === 'diff'
     ? activeWorkspaceTab
@@ -163,6 +164,12 @@ export function V2ConversationDetailPage() {
       setRuntimeRequested(true);
     }
   }, [stateSnapshot?.runtimeActive]);
+
+  useEffect(() => {
+    if (isActiveConversation) {
+      setRuntimeRequested(true);
+    }
+  }, [activeWorkspaceId, conversationId, isActiveConversation]);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -219,8 +226,8 @@ export function V2ConversationDetailPage() {
     },
     enabled: !!project && !!activeWorkspaceId,
   });
-  const safeTerminals = Array.isArray(terminals) ? terminals : [];
-  const safeWorkspaceConversations = Array.isArray(workspaceConversations) ? workspaceConversations : [];
+  const safeTerminals = useMemo(() => Array.isArray(terminals) ? terminals : [], [terminals]);
+  const safeWorkspaceConversations = useMemo(() => Array.isArray(workspaceConversations) ? workspaceConversations : [], [workspaceConversations]);
   const createTerminal = useMutation({
     mutationFn: () => v2Api.createTerminal(activeWorkspaceId!, {
       title: `Terminal #${safeTerminals.length + 1}`,
@@ -504,7 +511,18 @@ export function V2ConversationDetailPage() {
   const mobileConversations = conversation && !safeWorkspaceConversations.some((candidate) => candidate.id === conversation.id)
     ? [conversation, ...safeWorkspaceConversations]
     : safeWorkspaceConversations;
-  const sortedTerminals = [...safeTerminals].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const sortedTerminals = useMemo(() => [...safeTerminals].sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [safeTerminals]);
+  const tabShortcutItems = useMemo<MacTabShortcutItem[]>(() => ([
+    ...safeWorkspaceConversations.map((candidate) => ({
+      id: `conversation:${candidate.id}`,
+      action: () => navigate(`/conversations/${candidate.id}`),
+    })),
+    ...sortedTerminals.map((terminal) => ({
+      id: `terminal:${terminal.id}`,
+      action: () => navigate(`/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`),
+    })),
+  ].slice(0, 9)), [conversation, navigate, project, safeWorkspaceConversations, sortedTerminals]);
+  const showTabShortcutHints = useMacTabShortcuts(tabShortcutItems, !isMobile && !activePreviewTab);
   const workspaceActionPending =
     syncWorkspace.isPending ||
     mutateWorkspaceStatus.isPending ||
@@ -553,21 +571,25 @@ export function V2ConversationDetailPage() {
           {!activePreviewTab && !isMobile && (
             <div className="flex h-12 shrink-0 items-center gap-1 bg-canvas px-2 md:h-9">
               <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
-                {safeWorkspaceConversations.map((candidate) => (
+                {safeWorkspaceConversations.map((candidate, index) => (
                   <WorkspaceConversationTab
                     key={candidate.id}
                     conversation={candidate}
                     active={candidate.id === conversationId}
                     onSelect={() => navigate(`/conversations/${candidate.id}`)}
                     onRename={(title) => renameConversation.mutate({ id: candidate.id, title })}
+                    shortcutIndex={index + 1}
+                    showShortcutHint={showTabShortcutHints}
                   />
                 ))}
-                {sortedTerminals.map((terminal) => (
+                {sortedTerminals.map((terminal, index) => (
                   <WorkspaceTerminalTab
                     key={terminal.id}
                     terminal={terminal}
                     active={false}
                     onSelect={() => navigate(`/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`)}
+                    shortcutIndex={safeWorkspaceConversations.length + index + 1}
+                    showShortcutHint={showTabShortcutHints}
                   />
                 ))}
               </div>
@@ -777,6 +799,7 @@ function ConversationSurface({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
+  const modelOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const messageScrollerRef = useRef<HTMLDivElement>(null);
   const stickToLatestRef = useRef(true);
   const suggestionRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -790,6 +813,7 @@ function ConversationSurface({
   const [imageDragActive, setImageDragActive] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState('');
+  const [selectedModelIndex, setSelectedModelIndex] = useState(0);
   const [streamingMode, setStreamingMode] = useState<'steer' | 'followUp'>('followUp');
   const [abortPending, setAbortPending] = useState(false);
   const [isAtLatest, setIsAtLatest] = useState(true);
@@ -865,6 +889,7 @@ function ConversationSurface({
     if (!query) return models;
     return models.filter((model) => `${model.id} ${model.name ?? ''} ${model.provider}`.toLowerCase().includes(query));
   }, [modelSearch, models]);
+  const selectedFilteredModel = filteredModels[selectedModelIndex];
   const suggestions = useMemo<ComposerSuggestion[]>(() => {
     if (!activeToken) return [];
 
@@ -958,6 +983,19 @@ function ConversationSurface({
     if (!node) return;
     node.scrollIntoView({ block: 'nearest' });
   }, [selectedSuggestionIndex, visibleSuggestions.length]);
+
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    const selectedIndex = filteredModels.findIndex((model) => selectedModel?.provider === model.provider && selectedModel.id === model.id);
+    setSelectedModelIndex(selectedIndex >= 0 ? selectedIndex : 0);
+  }, [filteredModels, modelMenuOpen, selectedModel?.id, selectedModel?.provider]);
+
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    const node = modelOptionRefs.current[selectedModelIndex];
+    if (!node) return;
+    node.scrollIntoView({ block: 'nearest' });
+  }, [modelMenuOpen, selectedModelIndex]);
 
   useEffect(() => {
     if (!modelMenuOpen) return;
@@ -1358,6 +1396,7 @@ function ConversationSurface({
                   onClick={() => {
                     setModelMenuOpen((open) => !open);
                     setModelSearch('');
+                    setSelectedModelIndex(0);
                   }}
                   className="inline-flex h-9 max-w-full items-center gap-2 rounded-full px-2.5 text-sm text-[var(--color-text-secondary)] outline-none hover:bg-secondary disabled:opacity-50"
                   title="Model"
@@ -1374,7 +1413,27 @@ function ConversationSurface({
                       <input
                         autoFocus
                         value={modelSearch}
-                        onChange={(event) => setModelSearch(event.target.value)}
+                        onChange={(event) => {
+                          setModelSearch(event.target.value);
+                          setSelectedModelIndex(0);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'ArrowDown') {
+                            event.preventDefault();
+                            setSelectedModelIndex((current) => Math.min(filteredModels.length - 1, current + 1));
+                            return;
+                          }
+                          if (event.key === 'ArrowUp') {
+                            event.preventDefault();
+                            setSelectedModelIndex((current) => Math.max(0, current - 1));
+                            return;
+                          }
+                          if (event.key === 'Enter' && selectedFilteredModel) {
+                            event.preventDefault();
+                            onSetModel(selectedFilteredModel.provider, selectedFilteredModel.id);
+                            setModelMenuOpen(false);
+                          }
+                        }}
                         placeholder="Search models"
                         className="h-9 w-full rounded-xl bg-primary px-3 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-dim"
                       />
@@ -1382,19 +1441,22 @@ function ConversationSurface({
                     <div className="max-h-60 overflow-y-auto" role="listbox">
                       {filteredModels.length === 0 ? (
                         <div className="px-3 py-6 text-center text-sm text-dim">No models found</div>
-                      ) : filteredModels.map((model) => {
+                      ) : filteredModels.map((model, index) => {
                         const selected = selectedModel?.provider === model.provider && selectedModel.id === model.id;
+                        const highlighted = index === selectedModelIndex;
                         return (
                           <button
                             key={modelOptionValue(model.provider, model.id)}
+                            ref={(el) => { modelOptionRefs.current[index] = el; }}
                             type="button"
                             role="option"
                             aria-selected={selected}
+                            onMouseEnter={() => setSelectedModelIndex(index)}
                             onClick={() => {
                               onSetModel(model.provider, model.id);
                               setModelMenuOpen(false);
                             }}
-                            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm hover:bg-secondary ${selected ? 'bg-secondary' : ''}`}
+                            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm hover:bg-secondary ${highlighted || selected ? 'bg-secondary' : ''}`}
                           >
                             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-medium text-[var(--color-text-secondary)]">
                               {providerInitial(model.provider)}

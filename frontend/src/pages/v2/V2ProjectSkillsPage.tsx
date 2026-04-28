@@ -1,30 +1,15 @@
-import { useDeferredValue, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ExternalLink, Globe2, Hammer, Link2, PackagePlus, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Globe2, Hammer, Link2, PackagePlus, Trash2 } from 'lucide-react';
 import { projectsApi } from '../../api';
-import type { ManagedSkill, SkillCatalogEntry } from '../../api/types';
+import type { ManagedSkill } from '../../api/types';
 import { v2Api } from '../../api/v2';
-import { Button, V2Input, V2Screen } from './v2-ui';
-import {
-  CatalogSkillList,
-  InstallFromPathForm,
-  SkillList,
-  SkillSection,
-  type InstallMode,
-  type InstallScope,
-  type SkillTarget,
-} from './V2SkillsShared';
+import { Button, V2Screen } from './v2-ui';
+import { SkillList, SkillSection } from './V2SkillsShared';
 
 export function V2ProjectSkillsPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
-  const [sourcePath, setSourcePath] = useState('');
-  const [installScope, setInstallScope] = useState<InstallScope>('project');
-  const [target, setTarget] = useState<SkillTarget>('agents');
-  const [mode, setMode] = useState<InstallMode>('symlink');
-  const [catalogSearch, setCatalogSearch] = useState('');
-  const deferredCatalogSearch = useDeferredValue(catalogSearch);
 
   const { data: project } = useQuery({
     queryKey: ['project', id],
@@ -38,35 +23,15 @@ export function V2ProjectSkillsPage() {
     enabled: !!id,
   });
 
-  const { data: catalog } = useQuery({
-    queryKey: ['v2-skill-catalog'],
-    queryFn: () => v2Api.listSkillCatalog(),
-  });
-
   const installed = Array.isArray(skills?.installed) ? skills.installed : [];
   const available = Array.isArray(skills?.available) ? skills.available : [];
-  const catalogEntries = useMemo(() => Array.isArray(catalog) ? catalog : [], [catalog]);
-  const filteredCatalog = useMemo(() => filterCatalog(catalogEntries, deferredCatalogSearch), [catalogEntries, deferredCatalogSearch]);
 
   const invalidateSkills = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['v2-project-skills', id] }),
-      queryClient.invalidateQueries({ queryKey: ['v2-skill-catalog'] }),
       queryClient.invalidateQueries({ queryKey: ['v2-global-skills'] }),
     ]);
   };
-
-  const installFromPath = useMutation({
-    mutationFn: (input: { sourcePath: string; target: SkillTarget; mode: InstallMode; scope: InstallScope; name?: string }) => {
-      const payload = { sourcePath: input.sourcePath, target: input.target, mode: input.mode, name: input.name };
-      if (input.scope === 'global') return v2Api.installGlobalSkill(payload);
-      return v2Api.installProjectSkill(id!, payload);
-    },
-    onSuccess: async () => {
-      setSourcePath('');
-      await invalidateSkills();
-    },
-  });
 
   const linkGlobalSkill = useMutation({
     mutationFn: (skill: ManagedSkill) =>
@@ -84,16 +49,7 @@ export function V2ProjectSkillsPage() {
     onSuccess: invalidateSkills,
   });
 
-  const installCatalogSkill = useMutation({
-    mutationFn: ({ entry, scope }: { entry: SkillCatalogEntry; scope: InstallScope }) => {
-      const input = { sourceId: entry.sourceId, skillPath: entry.skillPath, target, name: entry.name };
-      if (scope === 'global') return v2Api.installGlobalCatalogSkill(input);
-      return v2Api.installCatalogSkill(id!, input);
-    },
-    onSuccess: invalidateSkills,
-  });
-
-  const error = installFromPath.error || linkGlobalSkill.error || removeProjectSkill.error || installCatalogSkill.error;
+  const error = linkGlobalSkill.error || removeProjectSkill.error;
 
   return (
     <V2Screen>
@@ -106,11 +62,14 @@ export function V2ProjectSkillsPage() {
             <div className="min-w-0">
               <div className="text-[11px] font-medium uppercase text-dim">Project skills</div>
               <h1 className="mt-1 truncate text-lg font-semibold">{project?.name ?? 'Project'}</h1>
-              <div className="mt-1 text-xs text-dim">{installed.length} project · {available.length} global available</div>
+              <div className="mt-1 text-xs text-dim">{installed.length} project installed · {available.length} global available</div>
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <Link to="/skills">
+            <Link to={id ? `/skills/discover?scope=project&project=${id}` : '/skills/discover'}>
+              <Button size="sm" variant="primary" icon={<PackagePlus size={14} />}>Discover</Button>
+            </Link>
+            <Link to={id ? `/skills?project=${id}` : '/skills'}>
               <Button size="sm" variant="secondary" icon={<Globe2 size={14} />}>Global skills</Button>
             </Link>
             <a
@@ -127,17 +86,18 @@ export function V2ProjectSkillsPage() {
       </header>
 
       <main className="min-h-0 flex-1 overflow-auto px-4 pb-8 pt-2 md:px-6">
-        <div className="mx-auto grid w-full max-w-6xl gap-8 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="mx-auto grid w-full max-w-6xl gap-8 xl:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="min-w-0 space-y-8">
             <SkillSection
               icon={<Hammer size={15} />}
               title="Installed in this project"
               meta={<span className="text-xs text-dim">{installed.length} installed</span>}
+              actions={<Link to={id ? `/skills/discover?scope=project&project=${id}` : '/skills/discover'}><Button size="xs" variant="secondary" icon={<PackagePlus size={13} />}>Install</Button></Link>}
             >
               <SkillList
                 skills={installed}
                 emptyTitle="No project skills installed"
-                emptyBody="Install from the catalog, link a global skill, or add a local skill directory."
+                emptyBody="Install from discovery or link a global skill below."
                 actions={(skill) => (
                   <Button
                     size="xs"
@@ -155,13 +115,13 @@ export function V2ProjectSkillsPage() {
             <SkillSection
               icon={<Globe2 size={15} />}
               title="Global library"
-              meta={<span className="text-xs text-dim">{available.length} available</span>}
-              actions={<Link to="/skills"><Button size="xs" variant="secondary">Manage global</Button></Link>}
+              meta={<span className="text-xs text-dim">{available.length} available to link</span>}
+              actions={<Link to={id ? `/skills?project=${id}` : '/skills'}><Button size="xs" variant="secondary">Manage global</Button></Link>}
             >
               <SkillList
                 skills={available}
                 emptyTitle="No global skills found"
-                emptyBody="Global skills are managed from the shared skills page."
+                emptyBody="Install global skills once, then link them into projects as needed."
                 actions={(skill) => (
                   <Button
                     size="xs"
@@ -175,58 +135,23 @@ export function V2ProjectSkillsPage() {
                 )}
               />
             </SkillSection>
-
-            <SkillSection
-              icon={<Search size={15} />}
-              title="Catalog"
-              meta={<span className="text-xs text-dim">{filteredCatalog.length} matches</span>}
-              actions={
-                <V2Input
-                  value={catalogSearch}
-                  onChange={(event) => setCatalogSearch(event.target.value)}
-                  placeholder="Search catalog"
-                  className="w-48"
-                />
-              }
-            >
-              <CatalogSkillList
-                entries={filteredCatalog}
-                target={target}
-                installing={installCatalogSkill.isPending}
-                emptyTitle="No catalog skills matched"
-                onInstallProject={(entry) => installCatalogSkill.mutate({ entry, scope: 'project' })}
-                onInstallGlobal={(entry) => installCatalogSkill.mutate({ entry, scope: 'global' })}
-              />
-            </SkillSection>
           </div>
 
           <aside className="space-y-8">
-            <SkillSection
-              icon={<PackagePlus size={15} />}
-              title="Install from path"
-              meta={<span className="text-xs text-dim">Local folder</span>}
-            >
-              <InstallFromPathForm
-                sourcePath={sourcePath}
-                onSourcePathChange={setSourcePath}
-                target={target}
-                onTargetChange={setTarget}
-                mode={mode}
-                onModeChange={setMode}
-                scope={installScope}
-                onScopeChange={setInstallScope}
-                scopeOptions={['project', 'global']}
-                pending={installFromPath.isPending}
-                disabled={!sourcePath.trim()}
-                error={error}
-                onSubmit={() => installFromPath.mutate({ sourcePath: sourcePath.trim(), target, mode, scope: installScope })}
-              />
+            <SkillSection icon={<PackagePlus size={15} />} title="Install flow" meta={<span className="text-xs text-dim">Catalogs and local folders</span>}>
+              <div className="space-y-3 text-sm leading-5 text-[var(--color-text-secondary)]">
+                <p>Use discovery to search catalogs, add a catalog source, or install a local skill directory.</p>
+                <Link to={id ? `/skills/discover?scope=project&project=${id}` : '/skills/discover'}>
+                  <Button className="w-full" size="sm" variant="primary" icon={<PackagePlus size={14} />}>Open discovery</Button>
+                </Link>
+              </div>
+              {error instanceof Error && <div className="mt-3 text-xs text-[var(--color-error)]">{error.message}</div>}
             </SkillSection>
 
-            <SkillSection icon={<Hammer size={15} />} title="Paths" meta={<span className="text-xs text-dim">Standards</span>}>
+            <SkillSection icon={<Hammer size={15} />} title="Paths" meta={<span className="text-xs text-dim">Project roots</span>}>
               <div className="space-y-3 text-xs leading-5 text-dim">
-                <PathRow label="Universal project" value=".agents/skills/<name>/SKILL.md" />
-                <PathRow label="Claude project" value=".claude/skills/<name>/SKILL.md" />
+                <PathRow label="Universal" value=".agents/skills/<name>/SKILL.md" />
+                <PathRow label="Claude" value=".claude/skills/<name>/SKILL.md" />
                 <PathRow label="Codex legacy" value=".codex/skills/<name>/SKILL.md" />
               </div>
             </SkillSection>
@@ -234,14 +159,6 @@ export function V2ProjectSkillsPage() {
         </div>
       </main>
     </V2Screen>
-  );
-}
-
-function filterCatalog(entries: SkillCatalogEntry[], query: string) {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return entries;
-  return entries.filter((entry) =>
-    `${entry.title} ${entry.name} ${entry.sourceName} ${entry.description ?? ''}`.toLowerCase().includes(needle),
   );
 }
 

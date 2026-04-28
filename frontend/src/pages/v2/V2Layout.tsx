@@ -826,7 +826,8 @@ function ProjectTree({
             return;
           }
           onCloseContextMenu();
-          navigate(`/projects/${project.id}`);
+          setUserToggled(true);
+          setExpanded((value) => !value);
         }}
         onContextMenu={(event) => {
           event.preventDefault();
@@ -870,6 +871,19 @@ function ProjectTree({
           }}
         >
           <FolderPlus size={13} />
+        </button>
+        <button
+          type="button"
+          className={`inline-flex cursor-pointer items-center justify-center rounded text-dim transition-opacity hover:bg-accent/10 hover:text-accent ${mobile ? 'h-9 w-9' : 'p-1'} ${projectActionVisibility}`}
+          title="Project settings"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onCloseContextMenu();
+            navigate(`/projects/${project.id}/settings`);
+          }}
+        >
+          <Settings size={13} />
         </button>
         <button
           type="button"

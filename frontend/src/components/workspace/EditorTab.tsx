@@ -24,6 +24,7 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
   const { readFile, writeFile } = useWorkspaceFiles();
   const { scope, project } = useWorkspace();
   const { markDirty } = useWorkspaceStore();
+  const [loadedPath, setLoadedPath] = useState(path);
   const [content, setContent] = useState<string | null>(null);
   const [originalContent, setOriginalContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -59,24 +60,38 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
     readFile(path)
       .then((res) => {
         if (cancelled) return;
+        setLoadedPath(path);
         setBinary(res.binary);
         setTruncated(res.truncated);
         if (!res.binary) {
           setContent(res.content);
           setOriginalContent(res.content);
+        } else {
+          setContent(null);
+          setOriginalContent(null);
         }
         setLoading(false);
       })
       .catch((err) => {
         if (cancelled) return;
+        setLoadedPath(path);
+        setBinary(false);
+        setTruncated(false);
+        setContent(null);
+        setOriginalContent(null);
         setError(err.message);
         setLoading(false);
       });
     return () => { cancelled = true; };
   }, [path, readFile]);
 
+  useEffect(() => {
+    lastScrolledLine.current = undefined;
+  }, [path]);
+
   // Go-to-line when `line` prop changes
   useEffect(() => {
+    if (loadedPath !== path) return;
     if (!line || line === lastScrolledLine.current) return;
     const view = cmRef.current?.view;
     if (!view) return;
@@ -90,7 +105,7 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
     } catch {
       // line out of range
     }
-  }, [line, loading]);
+  }, [line, loadedPath, loading, path]);
 
   const isDirty = content !== null && originalContent !== null && content !== originalContent;
   isDirtyRef.current = isDirty;
@@ -98,15 +113,15 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
   savingRef.current = saving;
 
   useEffect(() => {
-    markDirty(path, isDirty);
-  }, [isDirty, markDirty, path]);
+    markDirty(loadedPath, isDirty);
+  }, [isDirty, loadedPath, markDirty]);
 
   const refreshFromDisk = useCallback(async () => {
     if (isDirtyRef.current || loadingRef.current || savingRef.current) return;
     const activeElement = document.activeElement;
     if (activeElement && editorRootRef.current?.contains(activeElement)) return;
     try {
-      const res = await readFile(path);
+      const res = await readFile(loadedPath);
       if (isDirtyRef.current) return;
       setBinary(res.binary);
       setTruncated(res.truncated);
@@ -117,7 +132,7 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
     } catch {
       // Background refresh is best-effort.
     }
-  }, [path, readFile]);
+  }, [loadedPath, readFile]);
 
   useSharedWebSocket({
     onMessage: useCallback((data: unknown) => {
@@ -136,34 +151,34 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
   }, [refreshFromDisk]);
 
   const extensions = useMemo(() => {
-    const langExts = getLanguageExtension(path);
+    const langExts = getLanguageExtension(loadedPath);
     return [
       ...langExts,
       EditorView.lineWrapping,
       ...(editorTheme === 'dark' ? [oneDark] : []),
       editorTheme === 'dark' ? darkEditorTheme : lightEditorTheme,
     ];
-  }, [path, editorTheme]);
+  }, [loadedPath, editorTheme]);
 
   const handleSave = useCallback(async () => {
     if (content === null || binary || truncated) return;
     setSaving(true);
     try {
-      await writeFile({ path, content });
+      await writeFile({ path: loadedPath, content });
       setOriginalContent(content);
-      markDirty(path, false);
+      markDirty(loadedPath, false);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Save failed');
     } finally {
       setSaving(false);
     }
-  }, [content, binary, truncated, writeFile, path, markDirty]);
+  }, [content, binary, truncated, writeFile, loadedPath, markDirty]);
 
   const handleReset = useCallback(() => {
     if (originalContent === null || saving) return;
     setContent(originalContent);
-    markDirty(path, false);
-  }, [markDirty, originalContent, path, saving]);
+    markDirty(loadedPath, false);
+  }, [loadedPath, markDirty, originalContent, saving]);
 
   const openInCursor = useCallback(() => {
     const rootPath = scope.type === 'workspace'
@@ -171,7 +186,7 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
       : scope.type === 'task'
         ? scope.task.worktreePath ?? project.path
         : project.path;
-    const absolutePath = `${rootPath.replace(/\/$/, '')}/${path}`;
+    const absolutePath = `${rootPath.replace(/\/$/, '')}/${loadedPath}`;
     const encodedPath = encodeUriPath(absolutePath);
     const sshHost = editorConfig?.sshHost;
     const targetLine = line ?? 1;
@@ -179,7 +194,7 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
       ? `cursor://vscode-remote/ssh-remote+${sshHost}${encodedPath}:${targetLine}:1`
       : `cursor://file${encodedPath}:${targetLine}:1`;
     window.open(uri, '_self');
-  }, [editorConfig?.sshHost, line, path, project.path, scope]);
+  }, [editorConfig?.sshHost, line, loadedPath, project.path, scope]);
 
   useEffect(() => {
     const onKeyDown = (ev: KeyboardEvent) => {
@@ -201,7 +216,9 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [handleSave]);
 
-  if (loading) {
+  const switchingFiles = loading && loadedPath !== path && content !== null && !binary && !error;
+
+  if (loading && !switchingFiles) {
     return <div className="flex items-center justify-center h-full text-xs text-dim">Loading {fileName(path)}...</div>;
   }
 
@@ -214,15 +231,16 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
   }
 
   return (
-    <div ref={editorRootRef} className="flex flex-col h-full">
+    <div ref={editorRootRef} className="flex h-full flex-col">
       {/* Editor toolbar */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-subtle bg-canvas">
         <div className="flex min-w-0 items-center gap-1.5">
-          <StyledPath path={path} />
+          <StyledPath path={loadedPath} />
           <button
             type="button"
             onClick={openInCursor}
-            className="shrink-0 rounded p-1 text-dim hover:bg-tertiary hover:text-accent"
+            disabled={switchingFiles}
+            className="shrink-0 rounded p-1 text-dim hover:bg-tertiary hover:text-accent disabled:opacity-30"
             title="Open this file in Cursor"
             aria-label="Open in Cursor"
           >
@@ -239,7 +257,7 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
           <button
             type="button"
             onClick={handleReset}
-            disabled={!isDirty || saving}
+            disabled={!isDirty || saving || switchingFiles}
             className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded text-dim hover:text-[var(--color-text-primary)] hover:bg-tertiary disabled:opacity-30 transition-colors"
             title="Reset changes"
           >
@@ -249,7 +267,7 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
           <button
             type="button"
             onClick={handleSave}
-            disabled={!isDirty || saving}
+            disabled={!isDirty || saving || switchingFiles}
             className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded text-dim hover:text-accent hover:bg-accent/10 disabled:opacity-30 transition-colors"
             title="Save (Cmd+S)"
           >
@@ -271,7 +289,12 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
       </div>
 
       {/* CodeMirror */}
-      <div className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--color-inset)' }}>
+      <div className="relative flex-1 overflow-auto" style={{ backgroundColor: 'var(--color-inset)' }}>
+        {switchingFiles && (
+          <div className="pointer-events-none absolute right-3 top-3 z-10 rounded-full bg-card px-2.5 py-1 text-[11px] text-dim shadow-[var(--shadow-card)]">
+            Loading {fileName(path)}
+          </div>
+        )}
         <CodeMirror
           ref={cmRef}
           value={content ?? ''}
@@ -279,7 +302,7 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
           extensions={extensions}
           height="100%"
           style={{ height: '100%' }}
-          readOnly={truncated}
+          readOnly={truncated || switchingFiles}
         />
       </div>
     </div>

@@ -29,9 +29,10 @@ export interface UsePiConversationResult {
   applySnapshot: (snapshot: PiConversationSnapshot) => void;
 }
 
-export function usePiConversation(conversationId: string, enabled = true, options?: { activate?: boolean }): UsePiConversationResult {
+export function usePiConversation(conversationId: string, enabled = true, options?: { activate?: boolean; resetKey?: string | null }): UsePiConversationResult {
   const token = useAuthStore((state) => state.token);
   const activate = options?.activate ?? false;
+  const resetKey = options?.resetKey ?? '';
 
   const wsRef = useRef<WebSocket | null>(null);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -140,7 +141,7 @@ export function usePiConversation(conversationId: string, enabled = true, option
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [wsUrl, enabled, conversationId]);
+  }, [wsUrl, enabled, conversationId, resetKey]);
 
   const sendMessage = useCallback(async (message: string, images: PiConversationImageAttachment[] = [], streamingBehavior?: 'steer' | 'followUp') => {
     const trimmed = message.trim();

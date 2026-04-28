@@ -24,13 +24,12 @@ export function V2WorkspaceToolTabs({
 }) {
   const isMobile = useMobile();
   const compact = isMobile && placement === 'inline';
+  const panel = placement === 'panel';
   return (
-    <div className={`flex shrink-0 items-center gap-1 ${
-      placement === 'panel' ? 'rounded-md bg-[var(--color-card)] p-0.5' : ''
-    }`}>
-      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'files'} icon={<Files size={14} />} onClick={() => onToggleHelperTab('files')}>Files</HelperButton>
-      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'search'} icon={<Search size={14} />} onClick={() => onToggleHelperTab('search')}>Search</HelperButton>
-      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'git'} icon={<GitBranch size={14} />} onClick={() => onToggleHelperTab('git')}>Changes</HelperButton>
+    <div className="flex shrink-0 items-center gap-0.5">
+      <HelperButton panel={panel} compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'files'} icon={<Files size={14} />} onClick={() => onToggleHelperTab('files')}>Files</HelperButton>
+      <HelperButton panel={panel} compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'search'} icon={<Search size={14} />} onClick={() => onToggleHelperTab('search')}>Search</HelperButton>
+      <HelperButton panel={panel} compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'git'} icon={<GitBranch size={14} />} onClick={() => onToggleHelperTab('git')}>Changes</HelperButton>
     </div>
   );
 }
@@ -145,6 +144,7 @@ export function V2WorkspaceToolsSurface({
 function HelperButton({
   active,
   compact,
+  panel,
   disabled,
   icon,
   onClick,
@@ -152,6 +152,7 @@ function HelperButton({
 }: {
   active: boolean;
   compact?: boolean;
+  panel?: boolean;
   disabled?: boolean;
   icon: ReactNode;
   onClick: () => void;
@@ -172,6 +173,32 @@ function HelperButton({
         aria-label={typeof children === 'string' ? children : undefined}
       >
         {icon}
+      </button>
+    );
+  }
+  if (panel) {
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onClick}
+        className={`relative inline-flex h-8 shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-md px-2 text-xs font-medium transition-colors disabled:opacity-50 ${
+          active
+            ? 'text-[var(--color-text-primary)]'
+            : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
+        }`}
+      >
+        {active && (
+          <motion.span
+            layoutId="v2-workspace-tool-tab-active"
+            className="absolute inset-0 rounded-md bg-[var(--color-card-hover)]"
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          />
+        )}
+        <span className="relative z-10 inline-flex items-center gap-1.5">
+          {icon}
+          {children}
+        </span>
       </button>
     );
   }

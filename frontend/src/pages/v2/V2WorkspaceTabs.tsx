@@ -26,16 +26,30 @@ function tabSurface(active: boolean, tone: 'conversation' | 'terminal' | 'previe
   ].join(' ');
 }
 
+function ShortcutHint({ index, show }: { index?: number; show?: boolean }) {
+  if (!show || !index || index < 1 || index > 9) return null;
+
+  return (
+    <span className="pointer-events-none absolute left-1 top-1/2 z-20 inline-flex min-w-8 -translate-y-1/2 items-center justify-center rounded-md bg-[var(--color-bg-primary)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--color-text-primary)] shadow-[0_1px_4px_oklch(0_0_0_/_0.16)] ring-1 ring-[var(--color-card-border)]">
+      ⌘{index}
+    </span>
+  );
+}
+
 export function WorkspaceConversationTab({
   conversation,
   active = false,
   onSelect,
   onRename,
+  shortcutIndex,
+  showShortcutHint,
 }: {
   conversation: Conversation;
   active?: boolean;
   onSelect: () => void;
   onRename: (title: string) => void;
+  shortcutIndex?: number;
+  showShortcutHint?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(conversation.title);
@@ -53,6 +67,7 @@ export function WorkspaceConversationTab({
 
   return (
     <div className={tabSurface(active, 'conversation')} data-tone="conversation">
+      <ShortcutHint index={shortcutIndex} show={showShortcutHint} />
       <MessageSquareText size={13} className="ml-2.5 shrink-0 text-[var(--tab-accent,var(--color-accent))] md:ml-2" />
       {editing ? (
         <input
@@ -91,6 +106,8 @@ export function WorkspaceTerminalTab({
   onSelect,
   onClose,
   onRename,
+  shortcutIndex,
+  showShortcutHint,
 }: {
   terminal: TerminalSession;
   active: boolean;
@@ -98,6 +115,8 @@ export function WorkspaceTerminalTab({
   onSelect: () => void;
   onClose?: () => void;
   onRename?: (title: string) => void;
+  shortcutIndex?: number;
+  showShortcutHint?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(terminal.title ?? '');
@@ -114,6 +133,7 @@ export function WorkspaceTerminalTab({
 
   return (
     <div className={tabSurface(active, 'terminal')} data-tone="terminal">
+      <ShortcutHint index={shortcutIndex} show={showShortcutHint} />
       <SquareTerminal size={13} className="ml-2.5 shrink-0 text-[var(--tab-accent,var(--color-success))] md:ml-2" />
       {editing ? (
         <input
@@ -148,6 +168,8 @@ export function WorkspacePreviewTab({
   activeTabIndex,
   onSelect,
   onClose,
+  shortcutIndex,
+  showShortcutHint,
 }: {
   tab: PreviewWorkspaceTab;
   index: number;
@@ -155,6 +177,8 @@ export function WorkspacePreviewTab({
   activeTabIndex: number;
   onSelect: () => void;
   onClose: () => void;
+  shortcutIndex?: number;
+  showShortcutHint?: boolean;
 }) {
   return (
     <button
@@ -163,6 +187,7 @@ export function WorkspacePreviewTab({
       className={tabSurface(active, 'preview')}
       data-tone="preview"
     >
+      <ShortcutHint index={shortcutIndex} show={showShortcutHint} />
       <span className="ml-2.5 shrink-0 text-[var(--tab-accent,var(--color-warning))] md:ml-2">
         {tab.type === 'editor' ? <Files size={13} /> : <GitCommitHorizontal size={13} />}
       </span>

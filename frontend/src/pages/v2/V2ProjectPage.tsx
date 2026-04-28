@@ -15,6 +15,7 @@ import { TerminalView } from '../../components/session/TerminalView';
 import { DiffTab } from '../../components/workspace/DiffTab';
 import { EditorTab } from '../../components/workspace/EditorTab';
 import { WorkspaceProvider } from '../../components/workspace/WorkspaceContext';
+import { useMacTabShortcuts, type MacTabShortcutItem } from '../../hooks/useMacTabShortcuts';
 import { useMobile } from '../../hooks/useMobile';
 import { useWorkspaceStore, type WorkspaceTab } from '../../stores/workspace';
 import type { ReactNode } from 'react';
@@ -97,7 +98,7 @@ export function V2ProjectPage() {
   });
 
   const safeTerminals = useMemo(() => Array.isArray(terminals) ? terminals : [], [terminals]);
-  const safeWorkspaceConversations = Array.isArray(workspaceConversations) ? workspaceConversations : [];
+  const safeWorkspaceConversations = useMemo(() => Array.isArray(workspaceConversations) ? workspaceConversations : [], [workspaceConversations]);
   const sortedTerminals = useMemo(() => [...safeTerminals].sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [safeTerminals]);
   const activeTerminal = mainSurface?.type === 'terminal'
     ? sortedTerminals.find((terminal) => terminal.id === mainSurface.terminalId) ?? null
@@ -335,6 +336,34 @@ export function V2ProjectPage() {
     setToolsOpen(true);
   }, [helperTab, toolsOpen]);
 
+  const tabShortcutItems = useMemo<MacTabShortcutItem[]>(() => {
+    const workspaceTabs = tabs
+      .map((tab, index) => ({ tab, index }))
+      .filter((entry): entry is { tab: Extract<WorkspaceTab, { type: 'editor' | 'diff' }>; index: number } => entry.tab.type === 'editor' || entry.tab.type === 'diff');
+
+    return [
+      ...safeWorkspaceConversations.map((conversation) => ({
+        id: `conversation:${conversation.id}`,
+        action: () => navigate(`/conversations/${conversation.id}`),
+      })),
+      ...sortedTerminals.map((terminal) => ({
+        id: `terminal:${terminal.id}`,
+        action: () => {
+          setMainSurface({ type: 'terminal', terminalId: terminal.id });
+          navigate(`/projects/${id}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`, { replace: true });
+        },
+      })),
+      ...workspaceTabs.map(({ tab, index }) => ({
+        id: `workspace:${workspacePreviewTabKey(tab, index)}`,
+        action: () => {
+          setActiveTab(index);
+          setMainSurface({ type: 'workspaceTab', index });
+        },
+      })),
+    ].slice(0, 9);
+  }, [id, navigate, safeWorkspaceConversations, setActiveTab, sortedTerminals, tabs]);
+  const showTabShortcutHints = useMacTabShortcuts(tabShortcutItems, !isMobile && !activePreviewTab);
+
   const beginResize = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
     setToolsResizing(true);
@@ -437,6 +466,7 @@ export function V2ProjectPage() {
               toolsOpen={toolsOpen}
               toolsDisabled={!project || !activeWorkspace}
               onToggleHelperTab={toggleHelperTab}
+              showShortcutHints={showTabShortcutHints}
             />
           )}
 
@@ -632,6 +662,7 @@ function MainTabBar({
   toolsOpen,
   toolsDisabled,
   onToggleHelperTab,
+  showShortcutHints = false,
 }: {
   terminals: TerminalSession[];
   terminalPending: boolean;
@@ -655,6 +686,7 @@ function MainTabBar({
   toolsOpen: boolean;
   toolsDisabled?: boolean;
   onToggleHelperTab: (tab: V2HelperTab) => void;
+  showShortcutHints?: boolean;
 }) {
   const [newTabOpen, setNewTabOpen] = useState(false);
   const workspaceTabs = tabs
@@ -736,16 +768,18 @@ function MainTabBar({
   return (
     <div className="flex h-12 shrink-0 items-center gap-1 bg-canvas px-2 md:h-9">
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
-        {conversations.map((conversation) => (
+        {conversations.map((conversation, index) => (
           <WorkspaceConversationTab
             key={conversation.id}
             conversation={conversation}
             active={false}
             onSelect={() => onSelectConversation(conversation)}
             onRename={(title) => onRenameConversation(conversation, title)}
+            shortcutIndex={index + 1}
+            showShortcutHint={showShortcutHints}
           />
         ))}
-        {terminals.map((terminal) => (
+        {terminals.map((terminal, index) => (
           <WorkspaceTerminalTab
             key={terminal.id}
             terminal={terminal}
@@ -754,9 +788,11 @@ function MainTabBar({
             onSelect={() => onSelectTerminal(terminal)}
             onClose={() => onCloseTerminal(terminal)}
             onRename={(title) => onRenameTerminal(terminal, title)}
+            shortcutIndex={conversations.length + index + 1}
+            showShortcutHint={showShortcutHints}
           />
         ))}
-        {workspaceTabs.map(({ tab, index }) => (
+        {workspaceTabs.map(({ tab, index }, tabPosition) => (
           <WorkspacePreviewTab
             key={workspacePreviewTabKey(tab, index)}
             tab={tab}
@@ -765,6 +801,8 @@ function MainTabBar({
             activeTabIndex={activeTabIndex}
             onSelect={() => onSelectWorkspaceTab(index)}
             onClose={() => onCloseWorkspaceTab(index)}
+            shortcutIndex={conversations.length + terminals.length + tabPosition + 1}
+            showShortcutHint={showShortcutHints}
           />
         ))}
       </div>

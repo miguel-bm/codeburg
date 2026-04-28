@@ -320,6 +320,15 @@ export interface SkillCatalogEntry {
   description?: string;
 }
 
+export interface SkillCatalogSource {
+  id: string;
+  name: string;
+  repoUrl: string;
+  repoRef: string;
+  skillPrefixes: string[];
+  builtIn: boolean;
+}
+
 export interface ProjectSkillsResponse {
   installed: ManagedSkill[];
   available: ManagedSkill[];

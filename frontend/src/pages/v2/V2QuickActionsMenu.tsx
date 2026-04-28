@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bolt, Play, Settings2 } from 'lucide-react';
+import { Bolt, ChevronRight, Play, Settings2 } from 'lucide-react';
 import { preferencesApi } from '../../api';
 import { v2Api } from '../../api/v2';
 import { Button } from './v2-ui';
@@ -61,31 +61,27 @@ export function V2QuickActionsMenu({
       {open && (
         <>
           <button type="button" className="fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} aria-label="Close quick actions" />
-          <div className="fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 max-h-[min(34rem,calc(100dvh-96px))] overflow-auto rounded-xl bg-card p-2 shadow-[var(--shadow-card)] md:absolute md:inset-auto md:right-0 md:top-8 md:w-80 md:max-h-none">
+          <div className="fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 max-h-[min(34rem,calc(100dvh-96px))] overflow-auto rounded-2xl bg-card p-2 shadow-[var(--shadow-card)] ring-1 ring-[var(--color-card-border)] md:absolute md:inset-auto md:right-0 md:top-8 md:w-80 md:max-h-[min(34rem,calc(100vh-5rem))]">
             <div className="flex items-center justify-between px-2 py-1.5">
-              <div className="flex items-center gap-2 text-sm font-medium">
+              <div className="flex items-center gap-2 text-sm font-medium text-[var(--color-text-primary)]">
                 <Bolt size={14} />
-                Quick actions
+                Run
               </div>
-              {projectId && (
-                <Link to={`/projects/${projectId}/actions`} onClick={() => setOpen(false)} className="rounded-md p-1 text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]" title="Manage quick actions">
-                  <Settings2 size={14} />
-                </Link>
-              )}
             </div>
 
             <div className="max-h-72 overflow-auto py-1">
               {safeActions.map((action) => (
-                <div key={action.id} className="group flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-[var(--color-card-hover)]">
+                <div key={action.id} className="group flex min-h-10 items-center gap-2 rounded-lg px-2 py-2 hover:bg-[var(--color-card-hover)]">
                   <button type="button" className="min-w-0 flex-1 text-left" onClick={() => runAction.mutate(action)}>
                     <div className="truncate text-sm">{action.name}</div>
                     <div className="truncate font-mono text-[11px] text-dim">{action.command}</div>
                   </button>
+                  <ChevronRight size={14} className="shrink-0 text-dim opacity-0 transition-opacity group-hover:opacity-100" />
                 </div>
               ))}
               {safeActions.length === 0 && (
-                <div className="px-2 py-4 text-sm text-dim">
-                  No quick actions.
+                <div className="px-2 py-5 text-sm text-dim">
+                  No run commands yet.
                 </div>
               )}
             </div>
@@ -94,9 +90,9 @@ export function V2QuickActionsMenu({
               <Link
                 to={`/projects/${projectId}/actions`}
                 onClick={() => setOpen(false)}
-                className="mt-1 flex items-center justify-between rounded-lg px-2 py-2 text-xs text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]"
+                className="mt-1 flex min-h-10 items-center justify-between rounded-lg px-2 py-2 text-xs text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]"
               >
-                Manage quick actions
+                {safeActions.length > 0 ? 'Edit run commands' : 'Configure run commands'}
                 <Settings2 size={13} />
               </Link>
             )}

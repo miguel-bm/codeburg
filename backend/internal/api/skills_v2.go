@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/miguel-bm/codeburg/internal/db"
 )
 
 type managedSkill struct {
@@ -36,11 +39,12 @@ type installProjectSkillRequest struct {
 }
 
 type curatedSkillCatalogSource struct {
-	ID            string
-	Name          string
-	RepoURL       string
-	RepoRef       string
-	SkillPrefixes []string
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	RepoURL       string   `json:"repoUrl"`
+	RepoRef       string   `json:"repoRef"`
+	SkillPrefixes []string `json:"skillPrefixes"`
+	BuiltIn       bool     `json:"builtIn"`
 }
 
 type curatedSkillCatalogEntry struct {
@@ -61,6 +65,15 @@ type installCatalogSkillRequest struct {
 	Name      string `json:"name,omitempty"`
 }
 
+type createSkillCatalogSourceRequest struct {
+	Name          string   `json:"name"`
+	RepoURL       string   `json:"repoUrl"`
+	RepoRef       string   `json:"repoRef"`
+	SkillPrefixes []string `json:"skillPrefixes"`
+}
+
+const customSkillCatalogSourcesPreferenceKey = "v2_skill_catalog_sources"
+
 var curatedSkillCatalogSources = []curatedSkillCatalogSource{
 	{
 		ID:            "openai-curated",
@@ -68,6 +81,7 @@ var curatedSkillCatalogSources = []curatedSkillCatalogSource{
 		RepoURL:       "https://github.com/openai/skills.git",
 		RepoRef:       "main",
 		SkillPrefixes: []string{"skills/.curated/"},
+		BuiltIn:       true,
 	},
 	{
 		ID:            "cloudflare",
@@ -75,6 +89,7 @@ var curatedSkillCatalogSources = []curatedSkillCatalogSource{
 		RepoURL:       "https://github.com/cloudflare/skills.git",
 		RepoRef:       "main",
 		SkillPrefixes: []string{"skills/"},
+		BuiltIn:       true,
 	},
 }
 
@@ -112,12 +127,113 @@ func (s *Server) handleListProjectSkills(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleListSkillCatalog(w http.ResponseWriter, r *http.Request) {
-	entries, err := discoverCuratedSkillCatalog()
+	sources, err := s.skillCatalogSources()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load skill catalog sources")
+		return
+	}
+	entries, err := discoverCuratedSkillCatalog(sources)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to discover remote skill catalog")
 		return
 	}
 	writeJSON(w, http.StatusOK, entries)
+}
+
+func (s *Server) handleListSkillCatalogSources(w http.ResponseWriter, r *http.Request) {
+	sources, err := s.skillCatalogSources()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load skill catalog sources")
+		return
+	}
+	writeJSON(w, http.StatusOK, sources)
+}
+
+func (s *Server) handleCreateSkillCatalogSource(w http.ResponseWriter, r *http.Request) {
+	var req createSkillCatalogSourceRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	source := normalizeCustomSkillCatalogSource(req)
+	if source.Name == "" {
+		writeError(w, http.StatusBadRequest, "catalog name is required")
+		return
+	}
+	if source.RepoURL == "" {
+		writeError(w, http.StatusBadRequest, "catalog repository or local path is required")
+		return
+	}
+
+	sources, err := s.skillCatalogSources()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load skill catalog sources")
+		return
+	}
+	source.ID = uniqueSkillCatalogSourceID(source.Name, source.RepoURL, sources)
+
+	checkedOutDir, err := checkoutCatalogRepo(source)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to fetch catalog source")
+		return
+	}
+	entries, scanErr := scanCuratedSkillCatalogRepo(checkedOutDir, source)
+	_ = os.RemoveAll(checkedOutDir)
+	if scanErr != nil || len(entries) == 0 {
+		writeError(w, http.StatusBadRequest, "catalog source did not expose any skills")
+		return
+	}
+
+	customSources, err := s.customSkillCatalogSources()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load custom catalog sources")
+		return
+	}
+	customSources = append(customSources, source)
+	if err := s.saveCustomSkillCatalogSources(customSources); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save catalog source")
+		return
+	}
+	writeJSON(w, http.StatusCreated, source)
+}
+
+func (s *Server) handleDeleteSkillCatalogSource(w http.ResponseWriter, r *http.Request) {
+	sourceID := strings.TrimSpace(urlParam(r, "sourceId"))
+	if sourceID == "" {
+		writeError(w, http.StatusBadRequest, "catalog source id is required")
+		return
+	}
+	for _, source := range curatedSkillCatalogSources {
+		if source.ID == sourceID {
+			writeError(w, http.StatusBadRequest, "built-in catalog sources cannot be removed")
+			return
+		}
+	}
+
+	customSources, err := s.customSkillCatalogSources()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load custom catalog sources")
+		return
+	}
+	nextSources := customSources[:0]
+	removed := false
+	for _, source := range customSources {
+		if source.ID == sourceID {
+			removed = true
+			continue
+		}
+		nextSources = append(nextSources, source)
+	}
+	if !removed {
+		writeError(w, http.StatusNotFound, "catalog source not found")
+		return
+	}
+	if err := s.saveCustomSkillCatalogSources(nextSources); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save catalog source")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleInstallGlobalSkill(w http.ResponseWriter, r *http.Request) {
@@ -293,7 +409,11 @@ func (s *Server) handleInstallCatalogSkill(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	source, ok := findCuratedSkillCatalogSource(req.SourceID)
+	source, ok, err := s.findSkillCatalogSource(req.SourceID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load skill catalog sources")
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusBadRequest, "unknown skill catalog source")
 		return
@@ -362,7 +482,11 @@ func (s *Server) handleInstallGlobalCatalogSkill(w http.ResponseWriter, r *http.
 		return
 	}
 
-	source, ok := findCuratedSkillCatalogSource(req.SourceID)
+	source, ok, err := s.findSkillCatalogSource(req.SourceID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load skill catalog sources")
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusBadRequest, "unknown skill catalog source")
 		return
@@ -435,9 +559,9 @@ func discoverGlobalSkills() ([]managedSkill, error) {
 	return discoverSkillsForRoots(globalSkillRoots(), "global")
 }
 
-func discoverCuratedSkillCatalog() ([]curatedSkillCatalogEntry, error) {
+func discoverCuratedSkillCatalog(sources []curatedSkillCatalogSource) ([]curatedSkillCatalogEntry, error) {
 	entries := make([]curatedSkillCatalogEntry, 0)
-	for _, source := range curatedSkillCatalogSources {
+	for _, source := range sources {
 		checkedOutDir, err := checkoutCatalogRepo(source)
 		if err != nil {
 			return nil, err
@@ -589,13 +713,162 @@ func normalizeSkillMode(value string) string {
 	return "symlink"
 }
 
-func findCuratedSkillCatalogSource(id string) (curatedSkillCatalogSource, bool) {
+func (s *Server) skillCatalogSources() ([]curatedSkillCatalogSource, error) {
+	customSources, err := s.customSkillCatalogSources()
+	if err != nil {
+		return nil, err
+	}
+	sources := make([]curatedSkillCatalogSource, 0, len(curatedSkillCatalogSources)+len(customSources))
 	for _, source := range curatedSkillCatalogSources {
+		source.BuiltIn = true
+		sources = append(sources, source)
+	}
+	for _, source := range customSources {
+		source.BuiltIn = false
+		sources = append(sources, source)
+	}
+	return sources, nil
+}
+
+func (s *Server) customSkillCatalogSources() ([]curatedSkillCatalogSource, error) {
+	pref, err := s.db.GetPreference(db.DefaultUserID, customSkillCatalogSourcesPreferenceKey)
+	if err != nil {
+		if err == db.ErrNotFound {
+			return []curatedSkillCatalogSource{}, nil
+		}
+		return nil, err
+	}
+	var sources []curatedSkillCatalogSource
+	if err := json.Unmarshal([]byte(pref.Value), &sources); err != nil {
+		return nil, err
+	}
+	for index := range sources {
+		sources[index] = normalizeStoredSkillCatalogSource(sources[index])
+	}
+	return sources, nil
+}
+
+func (s *Server) saveCustomSkillCatalogSources(sources []curatedSkillCatalogSource) error {
+	clean := make([]curatedSkillCatalogSource, 0, len(sources))
+	for _, source := range sources {
+		source = normalizeStoredSkillCatalogSource(source)
+		if source.ID == "" || source.Name == "" || source.RepoURL == "" {
+			continue
+		}
+		clean = append(clean, source)
+	}
+	raw, err := json.Marshal(clean)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.SetPreference(db.DefaultUserID, customSkillCatalogSourcesPreferenceKey, string(raw))
+	return err
+}
+
+func (s *Server) findSkillCatalogSource(id string) (curatedSkillCatalogSource, bool, error) {
+	sources, err := s.skillCatalogSources()
+	if err != nil {
+		return curatedSkillCatalogSource{}, false, err
+	}
+	for _, source := range sources {
 		if source.ID == strings.TrimSpace(id) {
-			return source, true
+			return source, true, nil
 		}
 	}
-	return curatedSkillCatalogSource{}, false
+	return curatedSkillCatalogSource{}, false, nil
+}
+
+func normalizeCustomSkillCatalogSource(req createSkillCatalogSourceRequest) curatedSkillCatalogSource {
+	return normalizeStoredSkillCatalogSource(curatedSkillCatalogSource{
+		Name:          req.Name,
+		RepoURL:       req.RepoURL,
+		RepoRef:       req.RepoRef,
+		SkillPrefixes: req.SkillPrefixes,
+	})
+}
+
+func normalizeStoredSkillCatalogSource(source curatedSkillCatalogSource) curatedSkillCatalogSource {
+	source.ID = strings.TrimSpace(source.ID)
+	source.Name = strings.TrimSpace(source.Name)
+	source.RepoURL = strings.TrimSpace(source.RepoURL)
+	source.RepoRef = strings.TrimSpace(source.RepoRef)
+	if source.RepoRef == "" {
+		source.RepoRef = "main"
+	}
+	prefixes := make([]string, 0, len(source.SkillPrefixes))
+	for _, prefix := range source.SkillPrefixes {
+		prefix = filepath.ToSlash(strings.TrimSpace(prefix))
+		if prefix == "" {
+			continue
+		}
+		if !strings.HasSuffix(prefix, "/") {
+			prefix += "/"
+		}
+		prefixes = append(prefixes, prefix)
+	}
+	if len(prefixes) == 0 {
+		prefixes = []string{"skills/"}
+	}
+	source.SkillPrefixes = prefixes
+	source.BuiltIn = false
+	return source
+}
+
+func uniqueSkillCatalogSourceID(name, repoURL string, sources []curatedSkillCatalogSource) string {
+	base := "custom-" + slugifySkillCatalogSourceID(name)
+	if base == "custom-" {
+		base = "custom-catalog"
+	}
+	if !skillCatalogSourceIDExists(base, sources) {
+		return base
+	}
+	suffix := shortSkillCatalogSourceSuffix(repoURL)
+	candidate := base + "-" + suffix
+	if !skillCatalogSourceIDExists(candidate, sources) {
+		return candidate
+	}
+	for index := 2; ; index++ {
+		candidate = fmt.Sprintf("%s-%s-%d", base, suffix, index)
+		if !skillCatalogSourceIDExists(candidate, sources) {
+			return candidate
+		}
+	}
+}
+
+func slugifySkillCatalogSourceID(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var builder strings.Builder
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') {
+			builder.WriteRune(char)
+			continue
+		}
+		if builder.Len() > 0 {
+			last := builder.String()[builder.Len()-1]
+			if last != '-' {
+				builder.WriteByte('-')
+			}
+		}
+	}
+	return strings.Trim(builder.String(), "-")
+}
+
+func skillCatalogSourceIDExists(id string, sources []curatedSkillCatalogSource) bool {
+	for _, source := range sources {
+		if source.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func shortSkillCatalogSourceSuffix(value string) string {
+	hash := uint32(2166136261)
+	for _, char := range value {
+		hash ^= uint32(char)
+		hash *= 16777619
+	}
+	return fmt.Sprintf("%08x", hash)[:6]
 }
 
 func checkoutCatalogRepo(source curatedSkillCatalogSource) (string, error) {

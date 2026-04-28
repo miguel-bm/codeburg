@@ -15,8 +15,8 @@ import {
   GitMerge,
   GitPullRequest,
   Loader2,
+  MoreHorizontal,
   RefreshCw,
-  Send,
   ShieldAlert,
   Trash2,
   X,
@@ -48,7 +48,7 @@ interface V2WorkspaceActionHeaderProps {
   onResolveConflicts?: (target: WorkspaceResolveTarget) => void;
 }
 
-type ActionMenuName = 'update' | 'publish' | 'branch' | 'finish' | null;
+type ActionMenuName = 'more' | null;
 
 export function V2WorkspaceActionHeader({
   project,
@@ -78,7 +78,6 @@ export function V2WorkspaceActionHeader({
   const isActive = workspace.status === 'active';
   const branchLabel = status?.branch || workspace.branchName;
   const baseBranch = workspace.baseBranch || project.defaultBranch || 'main';
-  const actionDisabled = pending || !isActive || hasConflicts;
 
   const prQuery = useQuery({
     queryKey: ['v2-workspace-pr', workspace.id],
@@ -157,51 +156,71 @@ export function V2WorkspaceActionHeader({
     git.isPushing ||
     createPr.isPending ||
     forkWorkspace.isPending;
+  const stateSummary = workspaceStateSummary(status, workspace);
+  const primaryAction = getPrimaryWorkspaceAction({
+    status,
+    workspace,
+    pending,
+    isActive,
+    hasConflicts,
+    onCommit: () => setCommitOpen(true),
+    onOpenConflicts: () => {
+      if (onOpenGitPanel) {
+        onOpenGitPanel();
+      } else if (onResolveConflicts && currentConversationAvailable) {
+        onResolveConflicts('current');
+      }
+    },
+    onPull: () => {
+      void git.pull().catch((error) => setOperationError(error instanceof Error ? error.message : 'Pull failed'));
+    },
+    onPush: () => {
+      void git.push({}).catch((error) => setOperationError(error instanceof Error ? error.message : 'Push failed'));
+    },
+    onReactivate,
+    pulling: git.isPulling,
+    pushing: git.isPushing,
+  });
 
   return (
     <>
       <header className="shrink-0 bg-canvas px-3 py-2 md:px-4">
-        <div className="flex min-h-10 flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
-            <GitBranch size={14} className="shrink-0" />
-            <span className="truncate font-medium text-[var(--color-text-primary)]">{workspace.name}</span>
-            {workspace.branchName !== workspace.name && <span className="truncate">{branchLabel}</span>}
-            <Badge variant="label" color={statusColor(workspace.status)}>{workspace.status}</Badge>
-            {pr?.exists && pr.url && (
-              <a
-                href={pr.url}
-                target="_blank"
-                rel="noreferrer"
-                className="hidden items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[11px] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] sm:inline-flex"
-                title={pr.title || pr.url}
-              >
-                <GitPullRequest size={12} />
-                PR {pr.state ? pr.state.toLowerCase() : 'open'}
-              </a>
-            )}
-            {status && (status.ahead > 0 || status.behind > 0) && (
-              <span className="hidden rounded-full bg-secondary px-2 py-0.5 text-[11px] sm:inline-flex">
-                {status.ahead > 0 ? `↑ ${status.ahead}` : null}
-                {status.ahead > 0 && status.behind > 0 ? ' · ' : null}
-                {status.behind > 0 ? `↓ ${status.behind}` : null}
-              </span>
-            )}
-            {detail}
+        <div className="grid min-h-10 gap-2 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-center">
+          <WorkspaceIdentity
+            workspace={workspace}
+            branchLabel={branchLabel}
+            pr={pr}
+            detail={detail}
+          />
+
+          <div className="flex min-w-0 lg:justify-center">
+            <WorkspaceStatePill summary={stateSummary} />
           </div>
 
-          <div className="flex shrink-0 items-center gap-1 overflow-x-auto scrollbar-none md:overflow-visible">
+          <div className="flex min-w-0 items-center justify-end gap-1">
+            {primaryAction && (
+              <Button
+                size="xs"
+                variant={primaryAction.variant}
+                icon={primaryAction.icon}
+                loading={primaryAction.loading}
+                disabled={primaryAction.disabled}
+                onClick={primaryAction.onClick}
+                className="min-w-0 max-sm:flex-1"
+              >
+                <span className="truncate">{primaryAction.label}</span>
+              </Button>
+            )}
             <V2QuickActionsMenu projectId={project.id} workspaceId={workspace.id} disabled={!isActive} />
             <ActionMenu
-              name="Update"
-              icon={<RefreshCw size={13} />}
-              open={openMenu === 'update'}
-              disabled={!isActive}
-              pending={rebaseWorkspace.isPending || continueOperation.isPending || abortOperation.isPending || git.isPulling}
-              onToggle={() => setOpenMenu(openMenu === 'update' ? null : 'update')}
+              name="More"
+              icon={<MoreHorizontal size={13} />}
+              open={openMenu === 'more'}
+              onToggle={() => setOpenMenu(openMenu === 'more' ? null : 'more')}
               onClose={() => setOpenMenu(null)}
             >
               {hasConflicts ? (
-                <>
+                <MenuGroup title={`${operationLabel(status?.operation)} paused`}>
                   <MenuNote title={`${operationLabel(status?.operation)} paused`} body={`${status?.conflicted?.length ?? 0} conflicted file${(status?.conflicted?.length ?? 0) === 1 ? '' : 's'} need review.`} />
                   <ActionMenuItem icon={<Check size={14} />} disabled={updatePending} onClick={() => { setOpenMenu(null); continueOperation.mutate(); }}>
                     Continue {operationLabel(status?.operation)}
@@ -209,18 +228,26 @@ export function V2WorkspaceActionHeader({
                   <ActionMenuItem icon={<X size={14} />} danger disabled={updatePending} onClick={() => { setOpenMenu(null); abortOperation.mutate(); }}>
                     Abort {operationLabel(status?.operation)}
                   </ActionMenuItem>
-                </>
-              ) : (
-                <>
-                  <ActionMenuItem icon={<RefreshCw size={14} />} disabled={updatePending || workspace.kind === 'main'} onClick={() => { setOpenMenu(null); onUpdateFromBase(); }}>
+                </MenuGroup>
+              ) : null}
+
+              <MenuGroup title="Sync">
+                {onOpenGitPanel && (
+                  <ActionMenuItem icon={<GitCommitHorizontal size={14} />} disabled={!isActive} onClick={() => { setOpenMenu(null); onOpenGitPanel(); }}>
+                    Open Git panel
+                  </ActionMenuItem>
+                )}
+                {!hasConflicts && (
+                  <>
+                  <ActionMenuItem icon={<RefreshCw size={14} />} disabled={!isActive || updatePending || workspace.kind === 'main'} onClick={() => { setOpenMenu(null); onUpdateFromBase(); }}>
                     <span>Update from base</span>
                     <span className="text-[10px] text-dim">Fetch {baseBranch}, then rebase</span>
                   </ActionMenuItem>
-                  <ActionMenuItem icon={<ArrowUp size={14} className="rotate-180" />} disabled={updatePending || !status?.hasUpstream} onClick={() => { setOpenMenu(null); void git.pull().catch((error) => setOperationError(error instanceof Error ? error.message : 'Pull failed')); }}>
+                  <ActionMenuItem icon={<ArrowUp size={14} className="rotate-180" />} disabled={!isActive || updatePending || !status?.hasUpstream} onClick={() => { setOpenMenu(null); void git.pull().catch((error) => setOperationError(error instanceof Error ? error.message : 'Pull failed')); }}>
                     <span>Pull branch</span>
                     <span className="text-[10px] text-dim">Fast-forward from upstream</span>
                   </ActionMenuItem>
-                  <ActionMenuItem icon={<GitBranch size={14} />} disabled={updatePending} onClick={() => {
+                  <ActionMenuItem icon={<GitBranch size={14} />} disabled={!isActive || updatePending} onClick={() => {
                     const target = window.prompt('Rebase onto branch or ref', baseBranch)?.trim();
                     if (!target) return;
                     setOpenMenu(null);
@@ -229,30 +256,12 @@ export function V2WorkspaceActionHeader({
                     <span>Rebase onto...</span>
                     <span className="text-[10px] text-dim">Choose another branch or ref</span>
                   </ActionMenuItem>
-                </>
-              )}
-            </ActionMenu>
+                  </>
+                )}
+              </MenuGroup>
 
-            <Button
-              size="xs"
-              variant="secondary"
-              icon={<GitCommitHorizontal size={13} />}
-              disabled={!isActive || hasConflicts}
-              onClick={() => setCommitOpen(true)}
-            >
-              Commit
-            </Button>
-
-            <ActionMenu
-              name="Publish"
-              icon={<Send size={13} />}
-              open={openMenu === 'publish'}
-              disabled={actionDisabled}
-              pending={git.isPushing || createPr.isPending || prQuery.isFetching}
-              onToggle={() => setOpenMenu(openMenu === 'publish' ? null : 'publish')}
-              onClose={() => setOpenMenu(null)}
-            >
-              <ActionMenuItem icon={<ArrowUp size={14} />} disabled={updatePending} onClick={() => { setOpenMenu(null); void git.push({}).catch((error) => setOperationError(error instanceof Error ? error.message : 'Push failed')); }}>
+              <MenuGroup title="Publish">
+              <ActionMenuItem icon={<ArrowUp size={14} />} disabled={!isActive || hasConflicts || updatePending} onClick={() => { setOpenMenu(null); void git.push({}).catch((error) => setOperationError(error instanceof Error ? error.message : 'Push failed')); }}>
                 <span>Push branch</span>
                 <span className="text-[10px] text-dim">{status?.hasUpstream ? 'Update upstream' : 'Publish upstream'}</span>
               </ActionMenuItem>
@@ -267,22 +276,14 @@ export function V2WorkspaceActionHeader({
                   </ActionMenuItem>
                 </>
               ) : (
-                <ActionMenuItem icon={<GitPullRequest size={14} />} disabled={updatePending || workspace.kind === 'main'} onClick={() => { setOpenMenu(null); void createPullRequest(); }}>
+                <ActionMenuItem icon={<GitPullRequest size={14} />} disabled={!isActive || hasConflicts || updatePending || workspace.kind === 'main'} onClick={() => { setOpenMenu(null); void createPullRequest(); }}>
                   <span>Create PR</span>
                   <span className="text-[10px] text-dim">Push branch first, then open review</span>
                 </ActionMenuItem>
               )}
-            </ActionMenu>
+              </MenuGroup>
 
-            <ActionMenu
-              name="Branch"
-              icon={<GitBranchPlus size={13} />}
-              open={openMenu === 'branch'}
-              disabled={pending}
-              pending={forkWorkspace.isPending}
-              onToggle={() => setOpenMenu(openMenu === 'branch' ? null : 'branch')}
-              onClose={() => setOpenMenu(null)}
-            >
+              <MenuGroup title="Workspace">
               <ActionMenuItem icon={<GitBranchPlus size={14} />} disabled={updatePending} onClick={() => { setOpenMenu(null); setBranchMode('current'); }}>
                 <span>New workspace from this branch</span>
                 <span className="text-[10px] text-dim">{workspace.branchName}</span>
@@ -291,17 +292,6 @@ export function V2WorkspaceActionHeader({
                 <span>New workspace from base</span>
                 <span className="text-[10px] text-dim">{baseBranch}</span>
               </ActionMenuItem>
-            </ActionMenu>
-
-            <ActionMenu
-              name="Finish"
-              icon={<GitMerge size={13} />}
-              open={openMenu === 'finish'}
-              disabled={pending}
-              pending={pending}
-              onToggle={() => setOpenMenu(openMenu === 'finish' ? null : 'finish')}
-              onClose={() => setOpenMenu(null)}
-            >
               {workspace.status !== 'active' ? (
                 <>
                   <ActionMenuItem icon={<RefreshCw size={14} />} disabled={pending} onClick={() => { setOpenMenu(null); onReactivate(); }}>
@@ -338,11 +328,12 @@ export function V2WorkspaceActionHeader({
                   </ActionMenuItem>
                 </>
               )}
+              </MenuGroup>
             </ActionMenu>
           </div>
         </div>
         {operationError && (
-          <div className="mt-2 rounded-md border border-[var(--color-error)]/30 bg-[var(--color-error)]/10 px-3 py-2 text-xs leading-5 text-[var(--color-error)]">
+          <div className="mt-2 rounded-lg bg-[var(--color-error)]/10 px-3 py-2 text-xs leading-5 text-[var(--color-error)]">
             {operationError}
           </div>
         )}
@@ -405,6 +396,263 @@ export function V2WorkspaceActionHeader({
   );
 }
 
+function WorkspaceIdentity({
+  workspace,
+  branchLabel,
+  pr,
+  detail,
+}: {
+  workspace: Workspace;
+  branchLabel: string;
+  pr?: WorkspacePullRequest;
+  detail?: ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
+      <GitBranch size={14} className="shrink-0" />
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate font-medium text-[var(--color-text-primary)]">{workspace.name}</span>
+          <Badge variant="label" color={statusColor(workspace.status)} className="shrink-0">{workspace.status}</Badge>
+        </div>
+        {workspace.branchName !== workspace.name && (
+          <div className="truncate font-mono text-[11px] text-dim">{branchLabel}</div>
+        )}
+      </div>
+      {pr?.exists && pr.url && (
+        <a
+          href={pr.url}
+          target="_blank"
+          rel="noreferrer"
+          className="hidden shrink-0 items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[11px] text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)] sm:inline-flex"
+          title={pr.title || pr.url}
+        >
+          <GitPullRequest size={12} />
+          PR {pr.state ? pr.state.toLowerCase() : 'open'}
+        </a>
+      )}
+      {detail && <span className="hidden shrink-0 sm:inline-flex">{detail}</span>}
+    </div>
+  );
+}
+
+interface WorkspaceStateSummary {
+  label: string;
+  detail?: string;
+  files?: number;
+  additions?: number;
+  deletions?: number;
+  tone: 'neutral' | 'success' | 'warning' | 'danger' | 'accent';
+  title: string;
+}
+
+function WorkspaceStatePill({ summary }: { summary: WorkspaceStateSummary }) {
+  const hasLineStats = Boolean((summary.additions ?? 0) > 0 || (summary.deletions ?? 0) > 0);
+  return (
+    <div
+      className="flex max-w-full min-w-0 items-center gap-2 rounded-full bg-secondary px-2.5 py-1 text-xs text-[var(--color-text-secondary)]"
+      title={summary.title}
+    >
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${stateToneClass(summary.tone)}`} />
+      <span className="shrink-0 font-medium text-[var(--color-text-primary)]">{summary.label}</span>
+      {summary.files !== undefined && (
+        <span className="shrink-0 text-dim">{summary.files} file{summary.files === 1 ? '' : 's'}</span>
+      )}
+      {hasLineStats && (
+        <span className="flex shrink-0 items-center gap-1 font-mono">
+          {(summary.additions ?? 0) > 0 && <span className="text-[var(--color-success)]">+{summary.additions}</span>}
+          {(summary.deletions ?? 0) > 0 && <span className="text-[var(--color-error)]">-{summary.deletions}</span>}
+        </span>
+      )}
+      {summary.detail && <span className="hidden min-w-0 truncate text-dim sm:inline">{summary.detail}</span>}
+    </div>
+  );
+}
+
+function getPrimaryWorkspaceAction({
+  status,
+  workspace,
+  pending,
+  isActive,
+  hasConflicts,
+  onCommit,
+  onOpenConflicts,
+  onPull,
+  onPush,
+  onReactivate,
+  pulling,
+  pushing,
+}: {
+  status?: GitStatus;
+  workspace: Workspace;
+  pending: boolean;
+  isActive: boolean;
+  hasConflicts: boolean;
+  onCommit: () => void;
+  onOpenConflicts: () => void;
+  onPull: () => void;
+  onPush: () => void;
+  onReactivate: () => void;
+  pulling: boolean;
+  pushing: boolean;
+}): {
+  label: string;
+  icon: ReactNode;
+  variant: 'primary' | 'secondary';
+  disabled?: boolean;
+  loading?: boolean;
+  onClick: () => void;
+} | null {
+  if (!isActive) {
+    if (workspace.status === 'archived') return null;
+    return {
+      label: 'Reactivate',
+      icon: <RefreshCw size={13} />,
+      variant: 'primary',
+      disabled: pending,
+      onClick: onReactivate,
+    };
+  }
+
+  if (hasConflicts) {
+    return {
+      label: 'Resolve',
+      icon: <ShieldAlert size={13} />,
+      variant: 'primary',
+      disabled: pending,
+      onClick: onOpenConflicts,
+    };
+  }
+
+  if (changeCount(status) > 0) {
+    return {
+      label: 'Commit',
+      icon: <GitCommitHorizontal size={13} />,
+      variant: 'primary',
+      disabled: pending,
+      onClick: onCommit,
+    };
+  }
+
+  if ((status?.behind ?? 0) > 0) {
+    return {
+      label: 'Pull',
+      icon: <ArrowUp size={13} className="rotate-180" />,
+      variant: 'primary',
+      disabled: pending || !status?.hasUpstream,
+      loading: pulling,
+      onClick: onPull,
+    };
+  }
+
+  if ((status?.ahead ?? 0) > 0) {
+    return {
+      label: 'Push',
+      icon: <ArrowUp size={13} />,
+      variant: 'primary',
+      disabled: pending,
+      loading: pushing,
+      onClick: onPush,
+    };
+  }
+
+  return null;
+}
+
+function workspaceStateSummary(status: GitStatus | undefined, workspace: Workspace): WorkspaceStateSummary {
+  if (workspace.status !== 'active') {
+    return {
+      label: workspaceStatusLabel(workspace.status),
+      detail: 'workspace inactive',
+      tone: 'neutral',
+      title: 'This workspace is not currently active.',
+    };
+  }
+
+  if (!status) {
+    return {
+      label: 'Checking git',
+      detail: 'status loading',
+      tone: 'neutral',
+      title: 'Loading workspace git status.',
+    };
+  }
+
+  if (status.hasConflicts) {
+    const count = status.conflicted.length;
+    return {
+      label: `${operationLabel(status.operation)} paused`,
+      files: count,
+      tone: 'danger',
+      title: `${count} conflicted file${count === 1 ? '' : 's'} need review before this operation can continue.`,
+    };
+  }
+
+  const stats = gitStats(status);
+  const files = changeCount(status);
+  if (files > 0) {
+    const untracked = status.untracked.length;
+    return {
+      label: 'Uncommitted',
+      files,
+      additions: stats.additions,
+      deletions: stats.deletions,
+      detail: untracked > 0 ? `${untracked} untracked` : undefined,
+      tone: 'accent',
+      title: 'Staged, unstaged, and untracked files in this workspace.',
+    };
+  }
+
+  if (status.ahead > 0 && status.behind > 0) {
+    return {
+      label: 'Diverged',
+      detail: `${status.ahead} ahead, ${status.behind} behind`,
+      tone: 'warning',
+      title: 'This branch has local commits and is behind its upstream.',
+    };
+  }
+
+  if (status.ahead > 0) {
+    return {
+      label: 'Ready to publish',
+      detail: `${status.ahead} commit${status.ahead === 1 ? '' : 's'} ahead`,
+      tone: 'success',
+      title: 'This branch has local commits that are not on the upstream branch.',
+    };
+  }
+
+  if (status.behind > 0) {
+    return {
+      label: 'Behind upstream',
+      detail: `${status.behind} commit${status.behind === 1 ? '' : 's'}`,
+      tone: 'warning',
+      title: 'This branch is behind its upstream branch.',
+    };
+  }
+
+  return {
+    label: 'Clean',
+    detail: 'no local changes',
+    tone: 'success',
+    title: 'No staged, unstaged, untracked, or divergent branch changes detected.',
+  };
+}
+
+function stateToneClass(tone: WorkspaceStateSummary['tone']) {
+  if (tone === 'success') return 'bg-[var(--color-success)]';
+  if (tone === 'warning') return 'bg-[var(--color-warning)]';
+  if (tone === 'danger') return 'bg-[var(--color-error)]';
+  if (tone === 'accent') return 'bg-[var(--color-accent)]';
+  return 'bg-[var(--color-text-dim)]';
+}
+
+function workspaceStatusLabel(status: Workspace['status']) {
+  if (status === 'merged') return 'Merged';
+  if (status === 'abandoned') return 'Closed';
+  if (status === 'archived') return 'Archived';
+  return 'Inactive';
+}
+
 function ActionMenu({
   name,
   icon,
@@ -439,11 +687,20 @@ function ActionMenu({
       {open && (
         <>
           <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label={`Close ${name} menu`} onClick={onClose} />
-          <div className="fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 max-h-[min(30rem,calc(100dvh-96px))] overflow-auto rounded-xl border border-subtle bg-card p-1.5 shadow-[var(--shadow-card)] md:absolute md:inset-auto md:right-0 md:top-8 md:w-72">
+          <div className="fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 max-h-[min(34rem,calc(100dvh-96px))] overflow-auto rounded-2xl bg-card p-2 shadow-[var(--shadow-card)] ring-1 ring-[var(--color-card-border)] md:absolute md:inset-auto md:right-0 md:top-8 md:w-80 md:max-h-[min(34rem,calc(100vh-5rem))]">
             {children}
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function MenuGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="py-1 first:pt-0 last:pb-0">
+      <div className="px-2.5 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-dim">{title}</div>
+      <div className="space-y-0.5">{children}</div>
     </div>
   );
 }
@@ -466,7 +723,7 @@ function ActionMenuItem({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors disabled:cursor-default disabled:opacity-45 ${
+      className={`flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors disabled:cursor-default disabled:opacity-45 ${
         danger
           ? 'text-[var(--color-error)] hover:bg-[var(--color-error)]/10'
           : 'text-[var(--color-text-secondary)] hover:bg-secondary hover:text-[var(--color-text-primary)]'
@@ -506,7 +763,7 @@ function ConflictBanner({
 }) {
   const count = status.conflicted?.length ?? 0;
   return (
-    <div className="shrink-0 border-y border-[var(--color-warning)]/25 bg-[var(--color-warning)]/10 px-3 py-2 md:px-4">
+    <div className="shrink-0 bg-[var(--color-warning)]/10 px-3 py-2 md:px-4">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="flex min-w-0 items-center gap-2 text-sm">
           <ShieldAlert size={16} className="shrink-0 text-[var(--color-warning)]" />
@@ -631,14 +888,7 @@ function CommitDialog({
 
         <label className="flex items-center justify-between gap-3 rounded-lg bg-inset px-3 py-2">
           <span className="text-sm font-medium text-[var(--color-text-primary)]">Include unstaged</span>
-          <button
-            type="button"
-            aria-pressed={includeUnstaged}
-            onClick={() => setIncludeUnstaged((value) => !value)}
-            className={`relative h-6 w-11 rounded-full transition-colors ${includeUnstaged ? 'bg-accent' : 'bg-secondary'}`}
-          >
-            <span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-transform ${includeUnstaged ? 'translate-x-5' : 'translate-x-1'}`} />
-          </button>
+          <V2Switch checked={includeUnstaged} onChange={() => setIncludeUnstaged((value) => !value)} label="Include unstaged" />
         </label>
 
         <label className="block">
@@ -656,7 +906,7 @@ function CommitDialog({
 
         <div>
           <div className="mb-2 text-sm font-medium">Next step</div>
-          <div className="overflow-hidden rounded-xl border border-subtle">
+          <div className="space-y-1 rounded-xl bg-inset p-1">
             <StepChoice icon={<GitCommitHorizontal size={16} />} label="Commit" selected={nextStep === 'commit'} onClick={() => setNextStep('commit')} />
             <StepChoice icon={<ArrowUp size={16} />} label="Commit & push" selected={nextStep === 'push'} onClick={() => setNextStep('push')} />
             <StepChoice icon={<GitPullRequest size={16} />} label="Commit, push & create PR" selected={nextStep === 'pr'} onClick={() => setNextStep('pr')} />
@@ -688,11 +938,37 @@ function InfoRow({ label, value, icon }: { label: string; value: string; icon?: 
   );
 }
 
+function V2Switch({ checked, onChange, label }: { checked: boolean; onChange: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={checked}
+      onClick={onChange}
+      className={`relative h-7 w-12 shrink-0 rounded-full transition-colors duration-200 ease-out ${
+        checked ? 'bg-accent' : 'bg-secondary'
+      }`}
+    >
+      <span
+        className={`absolute top-1 h-5 w-5 rounded-full bg-card shadow-sm transition-transform duration-200 ease-out ${
+          checked ? 'translate-x-6' : 'translate-x-1'
+        }`}
+      />
+    </button>
+  );
+}
+
 function StepChoice({ icon, label, selected, onClick }: { icon: ReactNode; label: string; selected: boolean; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="flex h-12 w-full items-center gap-3 border-b border-subtle px-4 text-left last:border-b-0 hover:bg-secondary">
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex h-12 w-full items-center gap-3 rounded-lg px-3 text-left transition-colors ${
+        selected ? 'bg-card text-[var(--color-text-primary)] shadow-[var(--shadow-card)]' : 'text-[var(--color-text-secondary)] hover:bg-secondary hover:text-[var(--color-text-primary)]'
+      }`}
+    >
       <span className="text-dim">{icon}</span>
-      <span className="flex-1 text-sm text-[var(--color-text-primary)]">{label}</span>
+      <span className="flex-1 text-sm">{label}</span>
       {selected && <Check size={17} className="text-[var(--color-text-primary)]" />}
     </button>
   );
@@ -847,14 +1123,7 @@ function MergeDialog({
         </div>
         <label className="flex items-center justify-between gap-3 rounded-lg bg-inset px-3 py-2">
           <span className="text-sm font-medium text-[var(--color-text-primary)]">Push target after merge</span>
-          <button
-            type="button"
-            aria-pressed={pushAfterMerge}
-            onClick={() => setPushAfterMerge((value) => !value)}
-            className={`relative h-6 w-11 rounded-full transition-colors ${pushAfterMerge ? 'bg-accent' : 'bg-secondary'}`}
-          >
-            <span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-transform ${pushAfterMerge ? 'translate-x-5' : 'translate-x-1'}`} />
-          </button>
+          <V2Switch checked={pushAfterMerge} onChange={() => setPushAfterMerge((value) => !value)} label="Push target after merge" />
         </label>
       </div>
     </Modal>
