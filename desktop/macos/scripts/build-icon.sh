@@ -6,11 +6,12 @@ MACOS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="$MACOS_DIR/assets"
 OUT_FILE="$OUT_DIR/codeburg.icns"
 
+MACOS_SVG_SOURCE="$MACOS_DIR/assets/codeburg-macos.svg"
 SVG_SOURCE="$ROOT_DIR/frontend/public/codeburg-logo.svg"
 ICO_SOURCE="$ROOT_DIR/frontend/public/codeburg-logo.ico"
 
-if [[ ! -f "$SVG_SOURCE" && ! -f "$ICO_SOURCE" ]]; then
-  echo "No icon source found in frontend/public (expected codeburg-logo.svg or codeburg-logo.ico)" >&2
+if [[ ! -f "$MACOS_SVG_SOURCE" && ! -f "$SVG_SOURCE" && ! -f "$ICO_SOURCE" ]]; then
+  echo "No icon source found (expected desktop/macos/assets/codeburg-macos.svg, frontend/public/codeburg-logo.svg, or frontend/public/codeburg-logo.ico)" >&2
   exit 1
 fi
 
@@ -27,7 +28,9 @@ ICONSET_DIR="$WORK_DIR/codeburg.iconset"
 mkdir -p "$ICONSET_DIR"
 
 BASE_PNG="$WORK_DIR/base.png"
-if [[ -f "$SVG_SOURCE" ]]; then
+if [[ -f "$MACOS_SVG_SOURCE" ]]; then
+  sips -s format png "$MACOS_SVG_SOURCE" --out "$BASE_PNG" >/dev/null
+elif [[ -f "$SVG_SOURCE" ]]; then
   sips -s format png "$SVG_SOURCE" --out "$BASE_PNG" >/dev/null
 else
   # Fallback: ICO works, but quality depends on source resolution.

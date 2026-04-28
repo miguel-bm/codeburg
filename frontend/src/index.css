@@ -88,6 +88,19 @@ html, body {
   overscroll-behavior: none;
 }
 
+.desktop-drag-region {
+  -webkit-app-region: drag;
+}
+
+.desktop-no-drag,
+button,
+a,
+input,
+textarea,
+select {
+  -webkit-app-region: no-drag;
+}
+
 /* Animate visual theme changes without affecting first paint */
 :root.theme-transitioning,
 :root.theme-transitioning *,

@@ -461,7 +461,13 @@ export function V2Layout() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-canvas text-[var(--color-text-primary)]">
+    <div className="relative flex h-screen overflow-hidden bg-canvas text-[var(--color-text-primary)]">
+      {desktopTopInset > 0 && (
+        <div
+          className="desktop-drag-region fixed inset-x-0 top-0 z-[90]"
+          style={{ height: `${desktopTopInset}px` }}
+        />
+      )}
       <aside
         className={`flex shrink-0 flex-col border-r border-[var(--color-card-border)] bg-canvas transition-[width] duration-200 ${sidebarExpanded ? 'w-[19.5rem]' : 'w-[3.25rem]'}`}
         style={desktopTopInset > 0 ? { paddingTop: `${desktopTopInset}px` } : undefined}
@@ -500,7 +506,10 @@ export function V2Layout() {
         )}
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-hidden">
+      <main
+        className="min-w-0 flex-1 overflow-hidden"
+        style={desktopTopInset > 0 ? { paddingTop: `${desktopTopInset}px` } : undefined}
+      >
         <Outlet />
       </main>
     </div>
