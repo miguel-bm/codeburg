@@ -104,6 +104,10 @@ function createSearchValue(parts: Array<string | undefined | null>) {
   return parts.filter(Boolean).join(' ');
 }
 
+function keywordList(parts: Array<string | undefined | null>) {
+  return parts.filter((part): part is string => typeof part === 'string');
+}
+
 export function CommandPalette({ initialSearch = '', onClose }: CommandPaletteProps) {
   const [search, setSearch] = useState(initialSearch);
   const navigate = useNavigate();
@@ -127,18 +131,18 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
     const attentionEntries: PaletteConversation[] = [];
 
     for (const entry of sidebar?.projects ?? []) {
-      if (entry.project.hidden) continue;
+      if (!entry?.project || entry.project.hidden) continue;
       projectEntries.push({ entry, project: entry.project });
 
-      const projectWorkspaces = entry.workspaces.filter((workspace) => workspace.status !== 'archived');
+      const projectWorkspaces = (entry.workspaces ?? []).filter((workspace) => workspace.status !== 'archived');
       const workspaceById = new Map(projectWorkspaces.map((workspace) => [workspace.id, workspace]));
-      const stateByConversationId = new Map(entry.states.map((state) => [state.conversationId, state]));
+      const stateByConversationId = new Map((entry.states ?? []).map((state) => [state.conversationId, state]));
 
       for (const workspace of projectWorkspaces) {
         workspaceEntries.push({ workspace, project: entry.project });
       }
 
-      for (const conversation of entry.conversations) {
+      for (const conversation of entry.conversations ?? []) {
         if (conversation.status === 'archived') continue;
         const item = {
           conversation,
@@ -321,7 +325,7 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
                     <Command.Item
                       key={`attention-${conversation.id}`}
                       value={createSearchValue(['attention conversation chat', conversation.title, project.name, workspace?.name, snapshot?.lastError])}
-                      keywords={[project.name, workspace?.name ?? '', conversation.provider, conversationStateLabel({ conversation, project, workspace, snapshot })]}
+                      keywords={keywordList([project.name, workspace?.name, conversation.provider, conversationStateLabel({ conversation, project, workspace, snapshot })])}
                       onSelect={() => select(() => navigate(`/conversations/${conversation.id}`))}
                       className="cmdk-item"
                     >
@@ -344,7 +348,7 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
                     <Command.Item
                       key={`project-${project.id}`}
                       value={createSearchValue(['project repo repository', project.name, project.path, project.gitOrigin, project.defaultBranch])}
-                      keywords={[project.path, project.gitOrigin ?? '', project.defaultBranch, entry.pinned ? 'pinned' : '']}
+                      keywords={keywordList([project.path, project.gitOrigin, project.defaultBranch, entry.pinned ? 'pinned' : null])}
                       onSelect={() => select(() => navigate(`/projects/${project.id}`))}
                       className="cmdk-item"
                     >
@@ -365,7 +369,7 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
                     <Command.Item
                       key={`workspace-${workspace.id}`}
                       value={createSearchValue(['workspace worktree branch', workspace.name, workspace.branchName, workspace.worktreePath, project.name, project.path])}
-                      keywords={[project.name, project.path, workspace.branchName, workspace.worktreePath ?? '', workspace.kind, workspace.status]}
+                      keywords={keywordList([project.name, project.path, workspace.branchName, workspace.worktreePath, workspace.kind, workspace.status])}
                       onSelect={() => select(() => navigate(`/projects/${project.id}?workspace=${workspace.id}`))}
                       className="cmdk-item"
                     >
@@ -388,7 +392,7 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
                     <Command.Item
                       key={`conversation-${conversation.id}`}
                       value={createSearchValue(['conversation chat thread pi', conversation.title, conversation.summary, project.name, workspace?.name])}
-                      keywords={[project.name, workspace?.name ?? '', conversation.provider, conversation.status, conversationStateLabel({ conversation, project, workspace, snapshot })]}
+                      keywords={keywordList([project.name, workspace?.name, conversation.provider, conversation.status, conversationStateLabel({ conversation, project, workspace, snapshot })])}
                       onSelect={() => select(() => navigate(`/conversations/${conversation.id}`))}
                       className="cmdk-item"
                     >
