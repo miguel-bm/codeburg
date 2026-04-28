@@ -165,6 +165,26 @@ func (s *Server) handleForkConversation(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "failed to fork conversation")
 		return
 	}
+	if current.Provider == "pi" && current.ProviderSessionID != nil && strings.TrimSpace(*current.ProviderSessionID) != "" {
+		_, sourceWorkDir, err := s.conversationContext(current.ID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		_, targetWorkDir, err := s.conversationContext(forked.ID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if _, forkedPiSession, err := s.pi.ForkCurrent(current, forked, sourceWorkDir, targetWorkDir); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		} else if forkedPiSession {
+			if refreshed, err := s.db.GetConversation(forked.ID); err == nil {
+				forked = refreshed
+			}
+		}
+	}
 	writeJSON(w, http.StatusCreated, forked)
 }
 

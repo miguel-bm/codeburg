@@ -77,6 +77,13 @@ type ConversationRenderItem =
   | { type: 'message'; message: PiConversationMessage }
   | { type: 'collapsed'; messages: PiConversationMessage[] };
 
+type ForkDialogState =
+  | { kind: 'current'; title: string }
+  | { kind: 'message'; entryId: string; title: string };
+type ForkDialogTarget =
+  | { kind: 'current' }
+  | { kind: 'message'; entryId: string };
+
 const MAX_SUGGESTIONS = 8;
 const FILE_INDEX_DEPTH = 12;
 const THINKING_LEVELS: PiThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
@@ -151,6 +158,17 @@ export function V2ConversationDetailPage() {
     ? activeWorkspaceTab
     : null;
   const workspaceContextReady = !!project && !!activeWorkspace;
+  const insertWorkspaceReference = useCallback((path: string) => {
+    setDraft((current) => appendWorkspaceReference(current, path));
+    setMainSurface('conversation');
+  }, []);
+  const conversationDraftTarget = useMemo(
+    () => ({
+      enabled: isActiveConversation && mainSurface === 'conversation',
+      insertReference: insertWorkspaceReference,
+    }),
+    [insertWorkspaceReference, isActiveConversation, mainSurface],
+  );
 
   useEffect(() => {
     resetWorkspaceTabs();
@@ -170,15 +188,6 @@ export function V2ConversationDetailPage() {
       setRuntimeRequested(true);
     }
   }, [activeWorkspaceId, conversationId, isActiveConversation]);
-
-  useEffect(() => {
-    if (!conversationId) return;
-    const key = forkDraftStorageKey(conversationId);
-    const savedDraft = window.sessionStorage.getItem(key);
-    if (!savedDraft) return;
-    window.sessionStorage.removeItem(key);
-    setDraft(savedDraft);
-  }, [conversationId]);
 
   useEffect(() => {
     setToolsOpen(!isMobile);
@@ -280,9 +289,9 @@ export function V2ConversationDetailPage() {
   });
 
   const forkConversation = useMutation({
-    mutationFn: () =>
+    mutationFn: ({ title }: { title?: string }) =>
       v2Api.forkConversation(conversationId!, {
-        title: `${conversation?.title ?? 'Conversation'} fork`,
+        title: cleanForkTitle(title, conversation?.title),
         currentWorkspaceId: activeWorkspaceId ?? conversation?.currentWorkspaceId,
       }),
     onSuccess: async (forked) => {
@@ -296,6 +305,7 @@ export function V2ConversationDetailPage() {
         queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.projectId, 'sidebar'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
       navigate(`/conversations/${forked.id}`);
     },
@@ -307,16 +317,13 @@ export function V2ConversationDetailPage() {
     },
   });
   const forkConversationFromMessage = useMutation({
-    mutationFn: ({ entryId }: { entryId: string }) =>
+    mutationFn: ({ entryId, title }: { entryId: string; title?: string }) =>
       v2Api.forkConversationFromMessage(conversationId!, {
         entryId,
-        title: `${conversation?.title ?? 'Conversation'} fork`,
+        title: cleanForkTitle(title, conversation?.title),
         currentWorkspaceId: activeWorkspaceId ?? conversation?.currentWorkspaceId,
       }),
     onSuccess: async (forked) => {
-      if (forked.selectedText) {
-        window.sessionStorage.setItem(forkDraftStorageKey(forked.conversation.id), forked.selectedText);
-      }
       if (activeWorkspaceId) {
         queryClient.setQueryData<Conversation[]>(['v2-workspace-conversations', activeWorkspaceId], (current = []) => (
           current.some((candidate) => candidate.id === forked.conversation.id) ? current : [forked.conversation, ...current]
@@ -327,6 +334,7 @@ export function V2ConversationDetailPage() {
         queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations', activeWorkspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.conversation.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.conversation.projectId, 'sidebar'] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
       navigate(`/conversations/${forked.conversation.id}`);
     },
@@ -652,6 +660,7 @@ export function V2ConversationDetailPage() {
                 conversationId={conversationId ?? ''}
                 activeWorkspaceId={activeWorkspaceId ?? undefined}
                 snapshot={snapshot}
+                conversationTitle={conversation?.title ?? 'Conversation'}
                 isActiveConversation={isActiveConversation}
                 sending={sending}
                 draft={draft}
@@ -662,7 +671,7 @@ export function V2ConversationDetailPage() {
                 modelSwitching={setConversationModel.isPending}
                 forkPending={forkConversationFromMessage.isPending}
                 onSetModel={(provider, modelId) => setConversationModel.mutate({ provider, modelId })}
-                onForkFromMessage={(entryId) => forkConversationFromMessage.mutate({ entryId })}
+                onForkFromMessage={async (entryId, title) => { await forkConversationFromMessage.mutateAsync({ entryId, title }); }}
                 workspaces={safeWorkspaces}
                 activeWorkspace={attachedWorkspace ?? null}
                 movePending={updateWorkspace.isPending}
@@ -670,7 +679,7 @@ export function V2ConversationDetailPage() {
                 archivePending={transitionConversation.isPending}
                 archiveDisabled={conversation?.status === 'archived'}
                 onRequestWorkspaceChange={(workspaceId) => setPendingWorkspaceId(workspaceId)}
-                onForkConversation={() => forkConversation.mutate()}
+                onForkConversation={async (title) => { await forkConversation.mutateAsync({ title }); }}
                 onArchiveConversation={() => transitionConversation.mutate('archive')}
                 abort={abort}
                 submit={(streamingBehavior) => void handleSubmit(streamingBehavior)}
@@ -731,7 +740,10 @@ export function V2ConversationDetailPage() {
 
   if (!project || !activeWorkspace) return shell;
   return (
-    <WorkspaceProvider scope={{ type: 'workspace', workspaceId: activeWorkspace.id, workspace: activeWorkspace, project }}>
+    <WorkspaceProvider
+      scope={{ type: 'workspace', workspaceId: activeWorkspace.id, workspace: activeWorkspace, project }}
+      conversationDraft={conversationDraftTarget}
+    >
       {shell}
     </WorkspaceProvider>
   );
@@ -741,6 +753,7 @@ function ConversationSurface({
   conversationId,
   activeWorkspaceId,
   snapshot,
+  conversationTitle,
   isActiveConversation,
   sending,
   draft,
@@ -769,6 +782,7 @@ function ConversationSurface({
   conversationId: string;
   activeWorkspaceId?: string;
   snapshot: PiConversationSnapshot | null;
+  conversationTitle: string;
   isActiveConversation: boolean;
   sending: boolean;
   draft: string;
@@ -779,7 +793,7 @@ function ConversationSurface({
   modelSwitching: boolean;
   forkPending: boolean;
   onSetModel: (provider: string, modelId: string) => void;
-  onForkFromMessage: (entryId: string) => void;
+  onForkFromMessage: (entryId: string, title?: string) => Promise<void>;
   workspaces: Workspace[];
   activeWorkspace: Workspace | null;
   movePending: boolean;
@@ -787,7 +801,7 @@ function ConversationSurface({
   archivePending: boolean;
   archiveDisabled: boolean;
   onRequestWorkspaceChange: (workspaceId?: string) => void;
-  onForkConversation: () => void;
+  onForkConversation: (title?: string) => Promise<void>;
   onArchiveConversation: () => void;
   abort: () => Promise<void>;
   submit: (streamingBehavior?: 'steer' | 'followUp') => void;
@@ -817,6 +831,8 @@ function ConversationSurface({
   const [streamingMode, setStreamingMode] = useState<'steer' | 'followUp'>('followUp');
   const [abortPending, setAbortPending] = useState(false);
   const [isAtLatest, setIsAtLatest] = useState(true);
+  const [forkDialog, setForkDialog] = useState<ForkDialogState | null>(null);
+  const [forkDialogError, setForkDialogError] = useState<string | null>(null);
   const imageDragDepth = useRef(0);
   const composerStyle = isMobile && keyboardVisible
     ? { paddingBottom: keyboardHeight + 12 }
@@ -828,6 +844,7 @@ function ConversationSurface({
   const messageItems = useMemo(() => buildConversationItems(messages), [messages]);
   const messageActivityKey = `${messages.length}:${snapshot?.updatedAt ?? ''}:${snapshot?.pending?.text?.length ?? 0}:${snapshot?.pending?.thinking?.length ?? 0}:${snapshot?.tools?.map((tool) => `${tool.toolCallId}:${tool.status}:${tool.output?.length ?? 0}`).join('|') ?? ''}`;
   const selectedModel = snapshot?.model ? { provider: snapshot.model.provider, id: snapshot.model.id } : null;
+  const forkDialogPending = forkPending || forkConversationPending;
   const activeToken = useMemo(
     () => findActiveToken(draft, selection, ['/', '@']),
     [draft, selection],
@@ -1089,6 +1106,27 @@ function ConversationSurface({
     window.setTimeout(() => setCopiedMessageId((current) => current === message.id ? null : current), 1200);
   };
 
+  const requestForkConversation = (target: ForkDialogTarget) => {
+    setForkDialog({ ...target, title: defaultForkTitle(conversationTitle) });
+    setForkDialogError(null);
+  };
+
+  const confirmForkConversation = async () => {
+    if (!forkDialog) return;
+    const title = cleanForkTitle(forkDialog.title, conversationTitle);
+    setForkDialogError(null);
+    try {
+      if (forkDialog.kind === 'message') {
+        await onForkFromMessage(forkDialog.entryId, title);
+      } else {
+        await onForkConversation(title);
+      }
+      setForkDialog(null);
+    } catch (err) {
+      setForkDialogError(err instanceof Error ? err.message : 'Could not fork conversation');
+    }
+  };
+
   const attachImageFiles = useCallback(async (files: File[]) => {
     const imageFiles = files.filter((file) => file.type.startsWith('image/'));
     if (imageFiles.length === 0) return;
@@ -1148,7 +1186,8 @@ function ConversationSurface({
                 copied={copiedMessageId === item.message.id}
                 forkPending={forkPending}
                 onCopy={() => void copyMessage(item.message)}
-                onForkFromMessage={onForkFromMessage}
+                forkTarget={messageForkTarget(item.message, messages)}
+                onRequestFork={requestForkConversation}
               />
             ) : (
               <CollapsedTurnEvents
@@ -1522,7 +1561,7 @@ function ConversationSurface({
           archivePending={archivePending}
           archiveDisabled={archiveDisabled}
           onRequestWorkspaceChange={onRequestWorkspaceChange}
-          onForkConversation={onForkConversation}
+          onForkConversation={() => requestForkConversation({ kind: 'current' })}
           onArchiveConversation={onArchiveConversation}
           conversationActions={(
             <ConversationMoreActions
@@ -1535,6 +1574,19 @@ function ConversationSurface({
           )}
         />
       </div>
+      <ForkConversationDialog
+        state={forkDialog}
+        pending={forkDialogPending}
+        error={forkDialogError}
+        onChangeTitle={(title) => {
+          setForkDialog((current) => current ? { ...current, title } : current);
+          setForkDialogError(null);
+        }}
+        onClose={() => {
+          if (!forkDialogPending) setForkDialog(null);
+        }}
+        onConfirm={() => void confirmForkConversation()}
+      />
     </div>
   );
 }
@@ -1684,6 +1736,58 @@ function ConversationComposerActions({
         <span className="hidden sm:inline">Archive</span>
       </button>
     </div>
+  );
+}
+
+function ForkConversationDialog({
+  state,
+  pending,
+  error,
+  onChangeTitle,
+  onClose,
+  onConfirm,
+}: {
+  state: ForkDialogState | null;
+  pending: boolean;
+  error: string | null;
+  onChangeTitle: (title: string) => void;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const title = state?.title ?? '';
+  return (
+    <Modal
+      open={Boolean(state)}
+      onClose={onClose}
+      title="Fork conversation"
+      size="sm"
+      footer={(
+        <div className="flex items-center justify-end gap-2">
+          <Button size="xs" variant="ghost" disabled={pending} onClick={onClose}>Cancel</Button>
+          <Button size="xs" loading={pending} disabled={!title.trim()} onClick={onConfirm}>Fork</Button>
+        </div>
+      )}
+    >
+      <div className="space-y-3 px-5 py-4">
+        <p className="text-sm leading-6 text-[var(--color-text-secondary)]">
+          {state?.kind === 'message' ? 'Start a new conversation from this reply.' : 'Start a new conversation from the current state.'}
+        </p>
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-medium text-dim">Name</span>
+          <input
+            autoFocus
+            value={title}
+            onChange={(event) => onChangeTitle(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && title.trim() && !pending) onConfirm();
+            }}
+            className="h-10 w-full rounded-lg bg-primary px-3 text-sm text-[var(--color-text-primary)] outline-none ring-1 ring-transparent transition-shadow placeholder:text-dim focus:ring-accent/40"
+            placeholder="Conversation name"
+          />
+        </label>
+        {error && <p className="text-xs text-[var(--color-error)]">{error}</p>}
+      </div>
+    </Modal>
   );
 }
 
@@ -1935,14 +2039,16 @@ function MessageRow({
   compact = false,
   forkPending = false,
   onCopy,
-  onForkFromMessage,
+  forkTarget,
+  onRequestFork,
 }: {
   message: PiConversationMessage;
   copied: boolean;
   compact?: boolean;
   forkPending?: boolean;
   onCopy: () => void;
-  onForkFromMessage?: (entryId: string) => void;
+  forkTarget?: ForkDialogTarget | null;
+  onRequestFork?: (target: ForkDialogTarget) => void;
 }) {
   const isUser = message.role === 'user';
   if (isToolMessage(message)) {
@@ -1953,40 +2059,34 @@ function MessageRow({
     return (
       <div className="group flex justify-end animate-message-enter">
         <div className="max-w-[90%] md:max-w-[min(74%,46rem)]">
-          <MessageActions
-            copied={copied}
-            align="right"
-            canFork={Boolean(message.entryId && onForkFromMessage && !compact)}
-            forkPending={forkPending}
-            onCopy={onCopy}
-            onFork={() => message.entryId && onForkFromMessage?.(message.entryId)}
-          />
-          <div className="rounded-2xl rounded-br-md bg-[var(--color-accent)]/10 px-4 py-3 text-sm leading-6 text-[var(--color-text-primary)] shadow-[inset_0_0_0_1px_var(--color-accent-glow)]">
+          <div className="rounded-2xl rounded-br-md bg-[var(--color-accent)]/10 px-3 py-2.5 text-sm leading-6 text-[var(--color-text-primary)]">
             {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
             <MessageImages images={message.images ?? []} />
             <ToolCallSummary message={message} />
           </div>
+          <MessageActions
+            copied={copied}
+            align="right"
+            onCopy={onCopy}
+          />
         </div>
       </div>
     );
   }
   return (
     <article className={`group w-full max-w-[74ch] animate-message-enter text-sm leading-6 ${message.isError ? 'text-[var(--color-error)]' : 'text-[var(--color-text-primary)]'}`}>
-      {!compact && (
-        <div className="mb-1 flex min-h-7 items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-dim">
-            <span className="h-1.5 w-1.5 rounded-full bg-accent/80" />
-            Pi
-          </div>
-          <MessageActions copied={copied} onCopy={onCopy} />
-        </div>
-      )}
-      {compact && <MessageActions copied={copied} onCopy={onCopy} />}
       <div>
         {message.thinking && <CollapsibleEvent icon={<Sparkles size={14} />} title="Thinking" body={message.thinking} />}
         {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
         <ToolCallSummary message={message} />
       </div>
+      <MessageActions
+        copied={copied}
+        canFork={Boolean(!compact && forkTarget && onRequestFork)}
+        forkPending={forkPending}
+        onCopy={onCopy}
+        onFork={() => forkTarget && onRequestFork?.(forkTarget)}
+      />
     </article>
   );
 }
@@ -2060,12 +2160,12 @@ function MessageActions({
   onFork?: () => void;
 }) {
   return (
-    <div className={`mb-1 flex h-7 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${align === 'right' ? 'justify-end' : ''}`}>
+    <div className={`mt-1.5 flex h-7 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${align === 'right' ? 'justify-end' : ''}`}>
       <button type="button" onClick={onCopy} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Copy message" aria-label="Copy message">
         {copied ? <Check size={14} /> : <Clipboard size={14} />}
       </button>
       {canFork && (
-        <button type="button" onClick={onFork} disabled={forkPending} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-dim hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-50" title="Edit in fork" aria-label="Edit in fork">
+        <button type="button" onClick={onFork} disabled={forkPending} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-dim hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-50" title="Fork from here" aria-label="Fork from here">
           {forkPending ? <Loader2 size={14} className="animate-spin" /> : <GitBranchPlus size={14} />}
         </button>
       )}
@@ -2280,6 +2380,25 @@ function messageCopyText(message: PiConversationMessage): string {
   return [message.thinking, message.text].filter(Boolean).join('\n\n').trim();
 }
 
+function messageForkTarget(message: PiConversationMessage, messages: PiConversationMessage[]): ForkDialogTarget | null {
+  if (message.role !== 'assistant' || !message.text?.trim()) return null;
+  const index = messages.findIndex((candidate) => candidate.id === message.id);
+  if (index < 0) return { kind: 'current' };
+  const nextUser = messages.slice(index + 1).find((candidate) => candidate.role === 'user' && candidate.entryId);
+  if (nextUser?.entryId) return { kind: 'message', entryId: nextUser.entryId };
+  return { kind: 'current' };
+}
+
+function defaultForkTitle(title?: string): string {
+  return cleanForkTitle(undefined, title);
+}
+
+function cleanForkTitle(title?: string, fallback?: string): string {
+  const trimmed = title?.trim();
+  if (trimmed) return trimmed;
+  return `${fallback?.trim() || 'Conversation'} fork`;
+}
+
 function lastAssistantText(snapshot: PiConversationSnapshot | null): string {
   if (!snapshot) return '';
   for (let index = snapshot.messages.length - 1; index >= 0; index -= 1) {
@@ -2351,6 +2470,16 @@ function fileSuggestion(entry: V2FileEntry): ComposerSuggestion {
   };
 }
 
+function appendWorkspaceReference(draft: string, path: string): string {
+  const cleanPath = path.trim();
+  if (!cleanPath) return draft;
+  const reference = `@${cleanPath}`;
+  const withoutTrailingSpace = draft.replace(/\s+$/, '');
+  if (!withoutTrailingSpace) return `${reference} `;
+  const needsLeadingSpace = !/\s$/.test(withoutTrailingSpace);
+  return `${withoutTrailingSpace}${needsLeadingSpace ? ' ' : ''}${reference} `;
+}
+
 function suggestionIcon(icon: ComposerSuggestion['icon']) {
   if (icon === 'command') return <Command size={13} className="text-accent" />;
   if (icon === 'folder') return <FolderTree size={13} className="text-amber-500" />;
@@ -2370,10 +2499,6 @@ function nextEnabledSuggestionIndex(suggestions: ComposerSuggestion[], current: 
     if (!suggestions[next].disabled) return next;
   }
   return current;
-}
-
-function forkDraftStorageKey(conversationId: string): string {
-  return `codeburg:v2-fork-draft:${conversationId}`;
 }
 
 async function fileToComposerAttachment(file: File): Promise<ComposerAttachment> {

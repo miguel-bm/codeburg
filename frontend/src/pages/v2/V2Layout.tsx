@@ -41,6 +41,7 @@ import { preferencesApi, projectsApi } from '../../api';
 import type { Conversation, PiConversationSnapshot, Project, V2SidebarData, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { CreateProjectModal } from '../../components/common/CreateProjectModal';
+import { openCommandPalette } from '../../components/common/CommandPalette';
 import { CodeburgIcon, CodeburgWordmark } from '../../components/ui/CodeburgIcon';
 import { useMobile } from '../../hooks/useMobile';
 import { isDesktopShell } from '../../platform/runtimeConfig';
@@ -323,10 +324,16 @@ export function V2Layout() {
   const sidebarBody = (
     <>
       <div className="px-3 pb-3">
-        <div className="flex h-10 items-center gap-2 rounded-lg bg-[var(--color-card)] px-3 text-sm text-dim md:h-8 md:px-2.5 md:text-xs">
+        <button
+          type="button"
+          onClick={() => openCommandPalette()}
+          className="flex h-10 w-full items-center gap-2 rounded-lg bg-[var(--color-card)] px-3 text-left text-sm text-dim transition-colors hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 md:h-8 md:px-2.5 md:text-xs"
+          aria-label="Search Codeburg"
+        >
           <Search size={14} />
-          <span className="truncate">Search soon: projects, threads, files</span>
-        </div>
+          <span className="min-w-0 flex-1 truncate">Search projects, chats, workspaces</span>
+          <kbd className="hidden rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[10px] font-medium text-dim md:inline-flex">⌘K</kbd>
+        </button>
       </div>
 
       <nav className="space-y-1 px-2">

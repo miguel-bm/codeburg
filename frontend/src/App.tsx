@@ -66,7 +66,7 @@ function MainAppShell() {
   useSidebarRealtimeUpdates();
   useNotifications();
   useSessionFocusPresence();
-  const { open: paletteOpen, setOpen: setPaletteOpen } = useCommandPalette();
+  const { open: paletteOpen, initialSearch: paletteInitialSearch, setOpen: setPaletteOpen } = useCommandPalette();
 
   return (
     <>
@@ -97,7 +97,7 @@ function MainAppShell() {
         <Route path="/v2/*" element={<V2PathRedirect />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
+      {paletteOpen && <CommandPalette initialSearch={paletteInitialSearch} onClose={() => setPaletteOpen(false)} />}
     </>
   );
 }

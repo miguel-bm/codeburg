@@ -1,14 +1,15 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, BookOpen, ExternalLink, Globe2, Hammer, PackagePlus, Plus, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, BookOpen, Check, ChevronDown, ExternalLink, Globe2, Hammer, PackagePlus, Plus, Search, Trash2 } from 'lucide-react';
 import { projectsApi } from '../../api';
-import type { SkillCatalogEntry, SkillCatalogSource } from '../../api/types';
+import type { Project, SkillCatalogEntry, SkillCatalogSource } from '../../api/types';
 import { v2Api } from '../../api/v2';
-import { Button, V2Input, V2Screen, V2Select } from './v2-ui';
+import { Button, V2Input, V2Screen } from './v2-ui';
 import {
   CatalogSkillList,
   InstallFromPathForm,
+  SkillChoiceGroup,
   SkillSection,
   type InstallMode,
   type InstallScope,
@@ -21,7 +22,8 @@ export function V2SkillsDiscoverPage() {
   const projectId = searchParams.get('project') || undefined;
   const requestedScope = searchParams.get('scope') === 'global' ? 'global' : 'project';
   const [sourcePath, setSourcePath] = useState('');
-  const [installScope, setInstallScope] = useState<InstallScope>(projectId ? requestedScope : 'global');
+  const [installScope, setInstallScope] = useState<InstallScope>(requestedScope);
+  const [selectedProjectId, setSelectedProjectId] = useState(projectId ?? '');
   const [target, setTarget] = useState<SkillTarget>('agents');
   const [mode, setMode] = useState<InstallMode>('symlink');
   const [catalogSearch, setCatalogSearch] = useState('');
@@ -29,11 +31,12 @@ export function V2SkillsDiscoverPage() {
   const [sourceUrl, setSourceUrl] = useState('');
   const [sourceRef, setSourceRef] = useState('main');
   const [sourcePrefixes, setSourcePrefixes] = useState('skills/');
+  const [catalogInstallingKey, setCatalogInstallingKey] = useState<string | null>(null);
   const deferredCatalogSearch = useDeferredValue(catalogSearch);
 
   useEffect(() => {
-    if (!projectId && installScope === 'project') setInstallScope('global');
-  }, [installScope, projectId]);
+    if (projectId) setSelectedProjectId(projectId);
+  }, [projectId]);
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -41,9 +44,25 @@ export function V2SkillsDiscoverPage() {
     enabled: !!projectId,
   });
 
+  const { data: projects } = useQuery({
+    queryKey: ['projects'],
+    queryFn: projectsApi.list,
+  });
+
   const { data: catalog } = useQuery({
     queryKey: ['v2-skill-catalog'],
     queryFn: () => v2Api.listSkillCatalog(),
+  });
+
+  const { data: globalSkills } = useQuery({
+    queryKey: ['v2-global-skills'],
+    queryFn: () => v2Api.listSkills(),
+  });
+
+  const { data: selectedProjectSkills } = useQuery({
+    queryKey: ['v2-project-skills', selectedProjectId],
+    queryFn: () => v2Api.listProjectSkills(selectedProjectId),
+    enabled: !!selectedProjectId,
   });
 
   const { data: catalogSources } = useQuery({
@@ -51,9 +70,22 @@ export function V2SkillsDiscoverPage() {
     queryFn: () => v2Api.listSkillCatalogSources(),
   });
 
+  const safeProjects = useMemo(() => (Array.isArray(projects) ? projects.filter((item) => !item.hidden) : []), [projects]);
+  const selectedProject = useMemo(
+    () => safeProjects.find((item) => item.id === selectedProjectId) ?? project,
+    [project, safeProjects, selectedProjectId],
+  );
   const catalogEntries = useMemo(() => Array.isArray(catalog) ? catalog : [], [catalog]);
   const sources = useMemo(() => Array.isArray(catalogSources) ? catalogSources : [], [catalogSources]);
   const filteredCatalog = useMemo(() => filterCatalog(catalogEntries, deferredCatalogSearch), [catalogEntries, deferredCatalogSearch]);
+  const globalInstalled = useMemo(() => Array.isArray(globalSkills) ? globalSkills : [], [globalSkills]);
+  const projectInstalled = useMemo(() => Array.isArray(selectedProjectSkills?.installed) ? selectedProjectSkills.installed : [], [selectedProjectSkills]);
+  const destinationInstalled = installScope === 'project' ? projectInstalled : globalInstalled;
+  const installedKeys = useMemo(() => new Set(destinationInstalled.map((skill) => skillKey(skill.name, skill.target))), [destinationInstalled]);
+  const destinationReady = installScope === 'global' || !!selectedProjectId;
+  const destinationLabel = installScope === 'project'
+    ? selectedProject?.name ? selectedProject.name : 'Choose project'
+    : 'Global library';
   const backTo = projectId ? `/projects/${projectId}/skills` : '/skills';
 
   const invalidateSkills = async () => {
@@ -62,14 +94,14 @@ export function V2SkillsDiscoverPage() {
       queryClient.invalidateQueries({ queryKey: ['v2-skill-catalog'] }),
       queryClient.invalidateQueries({ queryKey: ['v2-skill-catalog-sources'] }),
     ];
-    invalidations.push(queryClient.invalidateQueries({ queryKey: projectId ? ['v2-project-skills', projectId] : ['v2-project-skills'] }));
+    invalidations.push(queryClient.invalidateQueries({ queryKey: selectedProjectId ? ['v2-project-skills', selectedProjectId] : ['v2-project-skills'] }));
     await Promise.all(invalidations);
   };
 
   const installFromPath = useMutation({
-    mutationFn: (input: { sourcePath: string; target: SkillTarget; mode: InstallMode; scope: InstallScope; name?: string }) => {
+    mutationFn: (input: { sourcePath: string; target: SkillTarget; mode: InstallMode; scope: InstallScope; projectId?: string; name?: string }) => {
       const payload = { sourcePath: input.sourcePath, target: input.target, mode: input.mode, name: input.name };
-      if (input.scope === 'project' && projectId) return v2Api.installProjectSkill(projectId, payload);
+      if (input.scope === 'project' && input.projectId) return v2Api.installProjectSkill(input.projectId, payload);
       return v2Api.installGlobalSkill(payload);
     },
     onSuccess: async () => {
@@ -79,12 +111,16 @@ export function V2SkillsDiscoverPage() {
   });
 
   const installCatalogSkill = useMutation({
-    mutationFn: ({ entry, scope }: { entry: SkillCatalogEntry; scope: InstallScope }) => {
-      const input = { sourceId: entry.sourceId, skillPath: entry.skillPath, target, name: entry.name };
-      if (scope === 'project' && projectId) return v2Api.installCatalogSkill(projectId, input);
+    mutationFn: ({ entry, scope, projectId: installProjectId, target: installTarget }: { entry: SkillCatalogEntry; scope: InstallScope; projectId?: string; target: SkillTarget }) => {
+      const input = { sourceId: entry.sourceId, skillPath: entry.skillPath, target: installTarget, name: entry.name };
+      if (scope === 'project' && installProjectId) return v2Api.installCatalogSkill(installProjectId, input);
       return v2Api.installGlobalCatalogSkill(input);
     },
+    onMutate: (input) => {
+      setCatalogInstallingKey(catalogInstallKey(input.entry, input.scope, input.projectId, input.target));
+    },
     onSuccess: invalidateSkills,
+    onSettled: () => setCatalogInstallingKey(null),
   });
 
   const addCatalogSource = useMutation({
@@ -109,6 +145,7 @@ export function V2SkillsDiscoverPage() {
   });
 
   const error = installFromPath.error || installCatalogSkill.error || addCatalogSource.error || deleteCatalogSource.error;
+  const canInstallToProject = safeProjects.length > 0 || !!selectedProjectId;
 
   return (
     <V2Screen>
@@ -121,7 +158,7 @@ export function V2SkillsDiscoverPage() {
             <div className="min-w-0">
               <div className="text-[11px] font-medium uppercase text-dim">Discover skills</div>
               <h1 className="mt-1 truncate text-lg font-semibold">{project ? `${project.name} skill catalog` : 'Skill catalog'}</h1>
-              <div className="mt-1 text-xs text-dim">{filteredCatalog.length} matches from {sources.length} sources</div>
+              <div className="mt-1 text-xs text-dim">{filteredCatalog.length} matches from {sources.length} sources · installing to {destinationLabel}</div>
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -144,7 +181,7 @@ export function V2SkillsDiscoverPage() {
             <SkillSection
               icon={<Search size={15} />}
               title="Catalog"
-              meta={<span className="text-xs text-dim">Install a copy into a project or the global library</span>}
+              meta={<span className="text-xs text-dim">Rows install to the selected destination: {destinationLabel}</span>}
               actions={
                 <div className="flex items-center gap-2">
                   <V2Input
@@ -153,30 +190,70 @@ export function V2SkillsDiscoverPage() {
                     placeholder="Search catalog"
                     className="w-52"
                   />
-                  <V2Select
+                  <SkillChoiceGroup
+                    label=""
                     value={target}
-                    onChange={(event) => setTarget(event.target.value as SkillTarget)}
-                    className="text-xs"
-                  >
-                    <option value="agents">agents</option>
-                    <option value="codex">codex</option>
-                    <option value="claude">claude</option>
-                  </V2Select>
+                    onChange={setTarget}
+                    options={[
+                      { value: 'agents', label: 'Universal' },
+                      { value: 'codex', label: 'Codex' },
+                      { value: 'claude', label: 'Claude' },
+                    ]}
+                  />
                 </div>
               }
             >
               <CatalogSkillList
                 entries={filteredCatalog}
                 target={target}
-                installing={installCatalogSkill.isPending}
                 emptyTitle="No catalog skills matched"
-                onInstallProject={projectId ? (entry) => installCatalogSkill.mutate({ entry, scope: 'project' }) : undefined}
-                onInstallGlobal={(entry) => installCatalogSkill.mutate({ entry, scope: 'global' })}
+                installLabel={installScope === 'project' ? 'Install to project' : 'Install globally'}
+                installIcon={installScope === 'project' ? <Hammer size={13} /> : <Globe2 size={13} />}
+                getInstallState={(entry) => {
+                  const key = catalogInstallKey(entry, installScope, selectedProjectId, target);
+                  const installed = installedKeys.has(skillKey(entry.name, target));
+                  return {
+                    installed,
+                    installing: catalogInstallingKey === key,
+                    disabled: !destinationReady || installCatalogSkill.isPending,
+                    label: installed ? 'Installed' : !destinationReady ? 'Choose project' : undefined,
+                  };
+                }}
+                onInstall={(entry) => {
+                  if (!destinationReady) return;
+                  installCatalogSkill.mutate({ entry, scope: installScope, projectId: selectedProjectId, target });
+                }}
               />
             </SkillSection>
           </div>
 
           <aside className="space-y-8">
+            <SkillSection
+              icon={installScope === 'project' ? <Hammer size={15} /> : <Globe2 size={15} />}
+              title="Destination"
+              meta={<span className="text-xs text-dim">Applies to catalog and path installs</span>}
+            >
+              <SkillChoiceGroup
+                label="Install to"
+                value={installScope}
+                onChange={setInstallScope}
+                options={[
+                  { value: 'project', label: 'Project', hint: selectedProject?.name ?? 'Choose', disabled: !canInstallToProject },
+                  { value: 'global', label: 'Global', hint: 'All projects' },
+                ]}
+              />
+              {installScope === 'project' && (
+                <div className="mt-3">
+                  <ProjectPicker
+                    projects={safeProjects}
+                    selectedProject={selectedProject}
+                    selectedProjectId={selectedProjectId}
+                    onSelect={setSelectedProjectId}
+                  />
+                </div>
+              )}
+            </SkillSection>
+
             <SkillSection
               icon={<PackagePlus size={15} />}
               title="Install from path"
@@ -191,11 +268,11 @@ export function V2SkillsDiscoverPage() {
                 onModeChange={setMode}
                 scope={installScope}
                 onScopeChange={setInstallScope}
-                scopeOptions={projectId ? ['project', 'global'] : ['global']}
+                scopeOptions={[]}
                 pending={installFromPath.isPending}
-                disabled={!sourcePath.trim()}
+                disabled={!sourcePath.trim() || !destinationReady}
                 error={error}
-                onSubmit={() => installFromPath.mutate({ sourcePath: sourcePath.trim(), target, mode, scope: installScope })}
+                onSubmit={() => installFromPath.mutate({ sourcePath: sourcePath.trim(), target, mode, scope: installScope, projectId: selectedProjectId })}
               />
             </SkillSection>
 
@@ -249,16 +326,6 @@ export function V2SkillsDiscoverPage() {
               </div>
             </SkillSection>
 
-            <SkillSection
-              icon={projectId ? <Hammer size={15} /> : <Globe2 size={15} />}
-              title="Destination"
-              meta={<span className="text-xs text-dim">Where installs land</span>}
-            >
-              <div className="space-y-2 text-xs leading-5 text-dim">
-                {projectId && <DestinationRow label="Project" value={project?.name ?? 'Selected project'} active={installScope === 'project'} />}
-                <DestinationRow label="Global" value="Shared user skill roots" active={installScope === 'global'} />
-              </div>
-            </SkillSection>
           </aside>
         </div>
       </main>
@@ -282,14 +349,68 @@ function parsePrefixes(value: string) {
   return prefixes.length > 0 ? prefixes : ['skills/'];
 }
 
-function DestinationRow({ label, value, active }: { label: string; value: string; active: boolean }) {
+function ProjectPicker({
+  projects,
+  selectedProject,
+  selectedProjectId,
+  onSelect,
+}: {
+  projects: Project[];
+  selectedProject?: Project;
+  selectedProjectId: string;
+  onSelect: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg px-2.5 py-2 hover:bg-[var(--color-card-hover)]">
-      <div className="min-w-0">
-        <div className="text-[11px] font-medium uppercase text-dim">{label}</div>
-        <div className="mt-0.5 truncate text-[var(--color-text-secondary)]">{value}</div>
-      </div>
-      <span className={`h-2 w-2 rounded-full ${active ? 'bg-accent' : 'bg-[var(--color-inset)]'}`} />
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-between gap-3 rounded-lg bg-[var(--color-inset)] px-3 py-2 text-left text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-card-hover)]"
+      >
+        <span className="min-w-0">
+          <span className="block text-[11px] font-medium uppercase text-dim">Project</span>
+          <span className="mt-0.5 block truncate">{selectedProject?.name ?? 'Choose project'}</span>
+        </span>
+        <ChevronDown size={14} className={`shrink-0 text-dim transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 max-h-64 overflow-auto rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
+          {projects.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-dim">No active projects available.</div>
+          ) : (
+            projects.map((project) => {
+              const active = project.id === selectedProjectId;
+              return (
+                <button
+                  key={project.id}
+                  type="button"
+                  onClick={() => {
+                    onSelect(project.id);
+                    setOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm ${
+                    active
+                      ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
+                      : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]'
+                  }`}
+                >
+                  <span className="min-w-0 truncate">{project.name}</span>
+                  {active && <Check size={13} className="shrink-0 text-accent" />}
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
     </div>
   );
+}
+
+function skillKey(name: string, target: string) {
+  return `${target}:${name}`;
+}
+
+function catalogInstallKey(entry: SkillCatalogEntry, scope: InstallScope, projectId: string | undefined, target: SkillTarget) {
+  return `${scope}:${projectId ?? 'global'}:${target}:${entry.sourceId}:${entry.skillPath}`;
 }

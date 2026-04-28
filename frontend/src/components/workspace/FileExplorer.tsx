@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Tree, type MoveHandler, type NodeApi, type TreeApi } from 'react-arborist';
 import {
+  AtSign,
   ChevronRight,
   Copy,
   Download,
@@ -74,7 +75,7 @@ export function FileExplorer() {
     downloadFile,
     isLoading,
   } = useWorkspaceFiles(undefined, 20);
-  const { api, scopeType, scopeId } = useWorkspace();
+  const { api, scopeType, scopeId, conversationDraft } = useWorkspace();
   const { openFile } = useWorkspaceNav();
   const activeEditorPath = useWorkspaceStore((state) => {
     const activeTab = state.tabs[state.activeTabIndex];
@@ -241,6 +242,11 @@ export function FileExplorer() {
   const handleCopyPath = useCallback((path: string) => {
     navigator.clipboard.writeText(path);
   }, []);
+  const canMentionInConversation = conversationDraft?.enabled === true;
+  const handleMentionReference = useCallback((node: FileTreeNodeData) => {
+    const referencePath = node.type === 'dir' ? `${node.path}/` : node.path;
+    conversationDraft?.insertReference(referencePath);
+  }, [conversationDraft]);
 
   // Drag-and-drop: move files/folders between directories
   const handleMove = useCallback<MoveHandler<FileTreeNodeData>>(
@@ -317,6 +323,12 @@ export function FileExplorer() {
             icon: Clipboard,
             onClick: () => handleCopyPath(node.path),
           },
+          ...(canMentionInConversation ? [{
+            label: 'Mention in Chat',
+            description: `@${node.path}/`,
+            icon: AtSign,
+            onClick: () => handleMentionReference(node),
+          }] : []),
           { label: '', onClick: () => {}, divider: true },
           {
             label: 'Delete',
@@ -357,6 +369,12 @@ export function FileExplorer() {
           icon: Clipboard,
           onClick: () => handleCopyPath(node.path),
         },
+        ...(canMentionInConversation ? [{
+          label: 'Mention in Chat',
+          description: `@${node.path}`,
+          icon: AtSign,
+          onClick: () => handleMentionReference(node),
+        }] : []),
         { label: '', onClick: () => {}, divider: true },
         {
           label: 'Delete',
@@ -366,7 +384,7 @@ export function FileExplorer() {
         },
       ];
     },
-    [openFile, handleDelete, duplicateEntry, downloadFile, handleCopyPath, startCreating],
+    [canMentionInConversation, openFile, handleDelete, duplicateEntry, downloadFile, handleCopyPath, handleMentionReference, startCreating],
   );
 
   const createMenuItems = useMemo<ContextMenuItem[]>(

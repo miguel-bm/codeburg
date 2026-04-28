@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -714,7 +717,42 @@ func (m *piConversationManager) Reload(conversation *db.Conversation, workDir st
 	return runtime.snapshot, nil
 }
 
-func (m *piConversationManager) ForkFromEntry(source *db.Conversation, forked *db.Conversation, sourceWorkDir, targetWorkDir, entryID string) (string, piConversationSnapshot, error) {
+func (m *piConversationManager) ForkCurrent(source *db.Conversation, forked *db.Conversation, sourceWorkDir, targetWorkDir string) (piConversationSnapshot, bool, error) {
+	sourceSession, err := m.sourceSessionFile(source, sourceWorkDir)
+	if err != nil {
+		return piConversationSnapshot{}, false, err
+	}
+	if sourceSession == "" {
+		return piConversationSnapshot{}, false, nil
+	}
+
+	sessionFile, err := clonePiSessionFile(sourceSession, targetWorkDir)
+	if err != nil {
+		return piConversationSnapshot{}, false, err
+	}
+	if _, err := m.db.UpdateConversation(forked.ID, db.UpdateConversationInput{
+		ProviderSessionID: stringPtr(sessionFile),
+	}); err != nil {
+		return piConversationSnapshot{}, false, err
+	}
+	forked.ProviderSessionID = stringPtr(sessionFile)
+
+	runtime, err := m.ensureRuntime(forked, targetWorkDir)
+	if err != nil {
+		return piConversationSnapshot{}, false, err
+	}
+	if err := runtime.refreshState(forked); err != nil {
+		return piConversationSnapshot{}, false, err
+	}
+	if err := runtime.refreshMessages(); err != nil {
+		return piConversationSnapshot{}, false, err
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return runtime.snapshot, true, nil
+}
+
+func (m *piConversationManager) sourceSessionFile(source *db.Conversation, sourceWorkDir string) (string, error) {
 	sourceSession := ""
 	if source.ProviderSessionID != nil {
 		sourceSession = strings.TrimSpace(*source.ProviderSessionID)
@@ -722,16 +760,24 @@ func (m *piConversationManager) ForkFromEntry(source *db.Conversation, forked *d
 	if sourceSession == "" {
 		sourceRuntime, err := m.ensureRuntime(source, sourceWorkDir)
 		if err != nil {
-			return "", piConversationSnapshot{}, err
+			return "", err
 		}
 		if err := sourceRuntime.refreshState(source); err != nil {
-			return "", piConversationSnapshot{}, err
+			return "", err
 		}
 		sourceRuntime.mu.Lock()
 		if sourceRuntime.snapshot.SessionFile != nil {
 			sourceSession = strings.TrimSpace(*sourceRuntime.snapshot.SessionFile)
 		}
 		sourceRuntime.mu.Unlock()
+	}
+	return sourceSession, nil
+}
+
+func (m *piConversationManager) ForkFromEntry(source *db.Conversation, forked *db.Conversation, sourceWorkDir, targetWorkDir, entryID string) (string, piConversationSnapshot, error) {
+	sourceSession, err := m.sourceSessionFile(source, sourceWorkDir)
+	if err != nil {
+		return "", piConversationSnapshot{}, err
 	}
 	if sourceSession == "" {
 		return "", piConversationSnapshot{}, fmt.Errorf("conversation has no pi session to fork")
@@ -1077,6 +1123,83 @@ func assignForkEntryIDs(messages []piConversationMessage, forkMessages []piForkM
 			}
 		}
 	}
+}
+
+func clonePiSessionFile(sourceSession string, targetWorkDir string) (string, error) {
+	raw, err := os.ReadFile(sourceSession)
+	if err != nil {
+		return "", fmt.Errorf("read source pi session: %w", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
+		return "", fmt.Errorf("source pi session is empty")
+	}
+
+	now := time.Now().UTC()
+	timestamp := now.Format("2006-01-02T15:04:05.000Z")
+	sessionID, err := randomSessionID()
+	if err != nil {
+		return "", err
+	}
+	sessionDir := filepath.Join(piAgentDir(), "sessions", piSessionDirName(targetWorkDir))
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		return "", fmt.Errorf("create pi session dir: %w", err)
+	}
+	sessionFile := filepath.Join(sessionDir, strings.NewReplacer(":", "-", ".", "-").Replace(timestamp)+"_"+sessionID+".jsonl")
+
+	header := map[string]any{
+		"type":          "session",
+		"version":       3,
+		"id":            sessionID,
+		"timestamp":     timestamp,
+		"cwd":           targetWorkDir,
+		"parentSession": sourceSession,
+	}
+	headerRaw, err := json.Marshal(header)
+	if err != nil {
+		return "", err
+	}
+
+	out := make([]string, 0, len(lines))
+	out = append(out, string(headerRaw))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(trimmed), &entry); err == nil && stringFromMap(entry, "type") == "session" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	if err := os.WriteFile(sessionFile, []byte(strings.Join(out, "\n")+"\n"), 0644); err != nil {
+		return "", fmt.Errorf("write forked pi session: %w", err)
+	}
+	return sessionFile, nil
+}
+
+func piSessionDirName(cwd string) string {
+	safe := strings.TrimPrefix(cwd, "/")
+	safe = strings.TrimPrefix(safe, "\\")
+	safe = strings.NewReplacer("/", "-", "\\", "-", ":", "-").Replace(safe)
+	return "--" + safe + "--"
+}
+
+func randomSessionID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("generate pi session id: %w", err)
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		b[0:4],
+		b[4:6],
+		b[6:8],
+		b[8:10],
+		b[10:16],
+	), nil
 }
 
 func (rt *piConversationRuntime) handleEvent(event map[string]any) {

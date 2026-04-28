@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  AtSign,
   Plus,
   Minus,
   Undo2,
@@ -21,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useWorkspaceGit } from '../../hooks/useWorkspaceGit';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
+import { useWorkspace } from './WorkspaceContext';
 import { parseDiffFiles } from '../git/diffFiles';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { ContextMenu } from '../ui/ContextMenu';
@@ -98,6 +100,7 @@ interface ConfirmAction {
 
 export function GitPanel() {
   const git = useWorkspaceGit();
+  const { conversationDraft } = useWorkspace();
   const { openDiff } = useWorkspaceNav();
   const activeDiffTab = useWorkspaceStore((state) => {
     const activeTab = state.tabs[state.activeTabIndex];
@@ -118,6 +121,7 @@ export function GitPanel() {
   });
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const [referenceMenu, setReferenceMenu] = useState<{ position: { x: number; y: number }; path: string } | null>(null);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
 
   const {
@@ -128,6 +132,14 @@ export function GitPanel() {
 
   const toggleSection = (key: string) =>
     setExpandedSections((s) => ({ ...s, [key]: !s[key] }));
+  const canMentionInConversation = conversationDraft?.enabled === true;
+
+  const openReferenceMenu = useCallback((event: React.MouseEvent, path: string) => {
+    if (!canMentionInConversation) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setReferenceMenu({ position: { x: event.clientX, y: event.clientY }, path });
+  }, [canMentionInConversation]);
 
   const handleCommit = async () => {
     if (!commitMsg.trim()) return;
@@ -280,6 +292,14 @@ export function GitPanel() {
       disabled: isStashing,
     },
   ];
+  const referenceMenuItems: ContextMenuItem[] = referenceMenu ? [
+    {
+      label: 'Mention in Chat',
+      description: `@${referenceMenu.path}`,
+      icon: AtSign,
+      onClick: () => conversationDraft?.insertReference(referenceMenu.path),
+    },
+  ] : [];
 
   return (
     <WorkbenchFrame>
@@ -395,6 +415,7 @@ export function GitPanel() {
                 deletions={f.deletions}
                 active={isBaseDiffTab && activeDiffFile === f.path}
                 onClick={() => selectDiff({ file: f.path, base: true })}
+                onContextMenu={canMentionInConversation ? (event) => openReferenceMenu(event, f.path) : undefined}
               />
             ))
           ) : (
@@ -431,6 +452,7 @@ export function GitPanel() {
                 onUnstage={() => unstage([f.path])}
                 onClick={() => selectDiff({ file: f.path, staged: true })}
                 active={isStagedDiffTab && activeDiffFile === f.path}
+                onContextMenu={canMentionInConversation ? (event) => openReferenceMenu(event, f.path) : undefined}
               />
             ))}
           </WorkbenchSection>
@@ -478,6 +500,7 @@ export function GitPanel() {
                 onRevert={() => confirmRevert([f.path], [], f.path)}
                 onClick={() => selectDiff({ file: f.path, staged: false })}
                 active={isUnstagedDiffTab && activeDiffFile === f.path}
+                onContextMenu={canMentionInConversation ? (event) => openReferenceMenu(event, f.path) : undefined}
               />
             ))}
           </WorkbenchSection>
@@ -525,6 +548,7 @@ export function GitPanel() {
                 onRevert={() => confirmRevert([], [path], path)}
                 onClick={() => selectDiff({ file: path, staged: false })}
                 active={isUnstagedDiffTab && activeDiffFile === path}
+                onContextMenu={canMentionInConversation ? (event) => openReferenceMenu(event, path) : undefined}
               />
             ))}
           </WorkbenchSection>
@@ -559,6 +583,13 @@ export function GitPanel() {
           onClose={() => setMenuPos(null)}
         />
       )}
+      {referenceMenu && (
+        <ContextMenu
+          items={referenceMenuItems}
+          position={referenceMenu.position}
+          onClose={() => setReferenceMenu(null)}
+        />
+      )}
 
       {/* Confirm modal for destructive actions */}
       <Modal
@@ -591,15 +622,17 @@ function BranchFileEntry({
   deletions,
   active,
   onClick,
+  onContextMenu,
 }: {
   path: string;
   additions: number;
   deletions: number;
   active?: boolean;
   onClick: () => void;
+  onContextMenu?: (event: React.MouseEvent) => void;
 }) {
   return (
-    <WorkbenchRow active={active} onClick={onClick} className="group">
+    <WorkbenchRow active={active} onClick={onClick} onContextMenu={onContextMenu} className="group">
       <span className="w-5 shrink-0 text-center font-mono text-[11px] text-dim">&Delta;</span>
       <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{path}</span>
       {additions > 0 && <span className="shrink-0 font-mono text-[11px] text-[var(--color-success)]">+{additions}</span>}
@@ -748,6 +781,7 @@ function FileEntry({
   onUnstage,
   onRevert,
   onClick,
+  onContextMenu,
   active,
 }: {
   file: GitFileStatus;
@@ -756,10 +790,11 @@ function FileEntry({
   onUnstage?: () => void;
   onRevert?: () => void;
   onClick: () => void;
+  onContextMenu?: (event: React.MouseEvent) => void;
   active?: boolean;
 }) {
   return (
-    <WorkbenchRow active={active} onClick={onClick} className="group text-[13px]">
+    <WorkbenchRow active={active} onClick={onClick} onContextMenu={onContextMenu} className="group text-[13px]">
       <span className={`w-5 shrink-0 text-center font-mono text-[11px] ${statusColor(file.status)}`}>
         {statusLabel(file.status)}
       </span>

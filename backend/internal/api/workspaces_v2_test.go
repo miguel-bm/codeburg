@@ -614,6 +614,49 @@ func TestWorkspaceGitOperations(t *testing.T) {
 	}
 }
 
+func TestWorkspaceBaseDiffShowsFeatureWorkspaceChanges(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+	repoPath := createTestGitRepoWithMain(t)
+	project, _ := createProjectAndWorkspace(t, env, repoPath)
+
+	createResp := env.post("/api/projects/"+project.ID+"/workspaces", map[string]any{
+		"name": "Feature diff workspace",
+	})
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("create workspace: %d %s", createResp.Code, createResp.Body.String())
+	}
+	var workspaceBody workspaceMutationResponse
+	decodeResponse(t, createResp, &workspaceBody)
+	worktreePath := *workspaceBody.Workspace.WorktreePath
+
+	if err := os.WriteFile(filepath.Join(worktreePath, "feature.txt"), []byte("feature workspace diff\n"), 0644); err != nil {
+		t.Fatalf("write feature file: %v", err)
+	}
+	gitExecHelper(t, worktreePath, "add", "feature.txt")
+	gitExecHelper(t, worktreePath, "commit", "-m", "feature diff")
+
+	diffResp := env.get("/api/workspaces/" + workspaceBody.Workspace.ID + "/git/diff?base=true")
+	if diffResp.Code != http.StatusOK {
+		t.Fatalf("git diff base: %d %s", diffResp.Code, diffResp.Body.String())
+	}
+	var diff GitDiffResponse
+	decodeResponse(t, diffResp, &diff)
+	if !strings.Contains(diff.Diff, "feature.txt") || !strings.Contains(diff.Diff, "feature workspace diff") {
+		t.Fatalf("expected feature workspace base diff to include committed branch changes, got %q", diff.Diff)
+	}
+
+	diffContentResp := env.get("/api/workspaces/" + workspaceBody.Workspace.ID + "/git/diff-content?file=feature.txt&base=true")
+	if diffContentResp.Code != http.StatusOK {
+		t.Fatalf("git diff content: %d %s", diffContentResp.Code, diffContentResp.Body.String())
+	}
+	var diffContent GitDiffContentResponse
+	decodeResponse(t, diffContentResp, &diffContent)
+	if diffContent.Original != "" || diffContent.Modified != "feature workspace diff\n" {
+		t.Fatalf("expected feature diff content from base to workspace file, got original=%q modified=%q", diffContent.Original, diffContent.Modified)
+	}
+}
+
 func TestWorkspaceEndStateCleanup(t *testing.T) {
 	env := setupTestEnv(t)
 	env.setup("testpass123")

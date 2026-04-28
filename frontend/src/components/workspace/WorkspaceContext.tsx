@@ -29,9 +29,15 @@ export interface WorkspaceContextValue {
     tunnels: ReturnType<typeof createTunnelsApi>;
     recipes: ReturnType<typeof createRecipesApi>;
   };
+  conversationDraft: WorkspaceConversationDraft | null;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
+
+export interface WorkspaceConversationDraft {
+  enabled: boolean;
+  insertReference: (path: string) => void;
+}
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function useWorkspace(): WorkspaceContextValue {
@@ -44,10 +50,11 @@ export function useWorkspace(): WorkspaceContextValue {
 
 interface WorkspaceProviderProps {
   scope: WorkspaceScope;
+  conversationDraft?: WorkspaceConversationDraft | null;
   children: React.ReactNode;
 }
 
-export function WorkspaceProvider({ scope, children }: WorkspaceProviderProps) {
+export function WorkspaceProvider({ scope, conversationDraft = null, children }: WorkspaceProviderProps) {
   const scopeType: WorkspaceScopeType =
     scope.type === 'project' ? 'project' : scope.type === 'task' ? 'task' : 'workspace';
   const scopeId =
@@ -81,8 +88,9 @@ export function WorkspaceProvider({ scope, children }: WorkspaceProviderProps) {
       scopeType,
       scopeId,
       api,
+      conversationDraft,
     };
-  }, [api, project, projectId, scopeId, scopeType, stableScope, task, taskId]);
+  }, [api, conversationDraft, project, projectId, scopeId, scopeType, stableScope, task, taskId]);
 
   return (
     <WorkspaceContext.Provider value={value}>

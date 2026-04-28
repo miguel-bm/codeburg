@@ -24,12 +24,11 @@ export function V2WorkspaceToolTabs({
 }) {
   const isMobile = useMobile();
   const compact = isMobile && placement === 'inline';
-  const panel = placement === 'panel';
   return (
     <div className="flex shrink-0 items-center gap-0.5">
-      <HelperButton panel={panel} compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'files'} icon={<Files size={14} />} onClick={() => onToggleHelperTab('files')}>Files</HelperButton>
-      <HelperButton panel={panel} compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'search'} icon={<Search size={14} />} onClick={() => onToggleHelperTab('search')}>Search</HelperButton>
-      <HelperButton panel={panel} compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'git'} icon={<GitBranch size={14} />} onClick={() => onToggleHelperTab('git')}>Changes</HelperButton>
+      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'files'} icon={<Files size={14} />} onClick={() => onToggleHelperTab('files')}>Files</HelperButton>
+      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'search'} icon={<Search size={14} />} onClick={() => onToggleHelperTab('search')}>Search</HelperButton>
+      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'git'} icon={<GitBranch size={14} />} onClick={() => onToggleHelperTab('git')}>Changes</HelperButton>
     </div>
   );
 }
@@ -110,19 +109,18 @@ export function V2WorkspaceToolsSurface({
           key="workspace-tools"
           className="flex min-h-0 shrink-0 overflow-hidden bg-canvas"
           style={{ width: width + 6 }}
-          initial={{ x: 16, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          exit={{ x: 16, opacity: 0 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
           transition={{
-            opacity: { duration: 0.12 },
-            x: { duration: resizing ? 0 : 0.18, ease: [0.22, 1, 0.36, 1] },
+            opacity: { duration: resizing ? 0 : 0.12, ease: [0.22, 1, 0.36, 1] },
           }}
         >
           <div className="group flex w-1.5 shrink-0 cursor-col-resize items-stretch justify-center bg-canvas" onMouseDown={onResizeStart}>
             <div className="my-2 w-px rounded-full bg-transparent transition-colors group-hover:bg-accent/35" />
           </div>
           <aside className="flex min-h-0 shrink-0 flex-col bg-canvas shadow-[inset_1px_0_0_var(--color-card-border)]" style={{ width }}>
-            <div className="flex h-10 shrink-0 items-center px-2">
+            <div className="flex h-9 shrink-0 items-center px-2">
               <V2WorkspaceToolTabs
                 helperTab={helperTab}
                 toolsOpen={open}
@@ -144,7 +142,6 @@ export function V2WorkspaceToolsSurface({
 function HelperButton({
   active,
   compact,
-  panel,
   disabled,
   icon,
   onClick,
@@ -152,7 +149,6 @@ function HelperButton({
 }: {
   active: boolean;
   compact?: boolean;
-  panel?: boolean;
   disabled?: boolean;
   icon: ReactNode;
   onClick: () => void;
@@ -173,32 +169,6 @@ function HelperButton({
         aria-label={typeof children === 'string' ? children : undefined}
       >
         {icon}
-      </button>
-    );
-  }
-  if (panel) {
-    return (
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={onClick}
-        className={`relative inline-flex h-8 shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-md px-2 text-xs font-medium transition-colors disabled:opacity-50 ${
-          active
-            ? 'text-[var(--color-text-primary)]'
-            : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
-        }`}
-      >
-        {active && (
-          <motion.span
-            layoutId="v2-workspace-tool-tab-active"
-            className="absolute inset-0 rounded-md bg-[var(--color-card-hover)]"
-            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-          />
-        )}
-        <span className="relative z-10 inline-flex items-center gap-1.5">
-          {icon}
-          {children}
-        </span>
       </button>
     );
   }
