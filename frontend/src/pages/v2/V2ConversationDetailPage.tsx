@@ -93,6 +93,7 @@ type EditingMessageState = {
 const MAX_SUGGESTIONS = 8;
 const FILE_INDEX_DEPTH = 12;
 const THINKING_LEVELS: PiThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
+const EMPTY_FILE_ENTRIES: V2FileEntry[] = [];
 
 export function V2ConversationDetailPage() {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -879,7 +880,7 @@ function ConversationSurface({
   );
   const tokenKey = activeToken ? `${activeToken.start}:${activeToken.end}:${activeToken.token}` : null;
 
-  const { data: fileEntries = [], isFetching: filesLoading } = useQuery({
+  const { data: fileEntries = EMPTY_FILE_ENTRIES, isFetching: filesLoading } = useQuery({
     queryKey: ['v2-workspace-file-index', activeWorkspaceId],
     queryFn: async () => {
       const response = await v2Api.listFiles(activeWorkspaceId!, { depth: FILE_INDEX_DEPTH });
@@ -1077,6 +1078,14 @@ function ConversationSurface({
     () => (tokenKey && dismissedTokenKey !== tokenKey ? suggestions : []),
     [dismissedTokenKey, suggestions, tokenKey],
   );
+  const suggestionSignature = useMemo(
+    () => visibleSuggestions.map((suggestion) => `${suggestion.key}:${suggestion.disabled ? 'disabled' : 'enabled'}`).join('|'),
+    [visibleSuggestions],
+  );
+  const firstEnabledSuggestionIndex = useMemo(
+    () => findFirstEnabledSuggestionIndex(visibleSuggestions),
+    [visibleSuggestions],
+  );
 
   useEffect(() => {
     if (activeToken?.prefix === '@') {
@@ -1085,8 +1094,9 @@ function ConversationSurface({
   }, [activeToken?.prefix]);
 
   useEffect(() => {
-    setSelectedSuggestionIndex(findFirstEnabledSuggestionIndex(visibleSuggestions));
-  }, [tokenKey, visibleSuggestions]);
+    suggestionRefs.current = [];
+    setSelectedSuggestionIndex(firstEnabledSuggestionIndex);
+  }, [firstEnabledSuggestionIndex, suggestionSignature, tokenKey]);
 
   useEffect(() => {
     const node = suggestionRefs.current[selectedSuggestionIndex];
