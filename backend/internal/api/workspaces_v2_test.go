@@ -579,6 +579,11 @@ func TestWorkspaceGitOperations(t *testing.T) {
 	if diffResp.Code != http.StatusOK {
 		t.Fatalf("git diff base: %d %s", diffResp.Code, diffResp.Body.String())
 	}
+	var diff GitDiffResponse
+	decodeResponse(t, diffResp, &diff)
+	if strings.TrimSpace(diff.Diff) != "" {
+		t.Fatalf("expected default-branch base diff to be empty, got %q", diff.Diff)
+	}
 
 	logResp := env.get("/api/workspaces/" + workspace.ID + "/git/log")
 	if logResp.Code != http.StatusOK {
@@ -596,8 +601,8 @@ func TestWorkspaceGitOperations(t *testing.T) {
 	}
 	var diffContent GitDiffContentResponse
 	decodeResponse(t, diffContentResp, &diffContent)
-	if !strings.Contains(diffContent.Original, "# Test") || !strings.Contains(diffContent.Modified, "workspace diff") {
-		t.Fatalf("expected default-branch base diff content to compare previous HEAD with current HEAD, got original=%q modified=%q", diffContent.Original, diffContent.Modified)
+	if diffContent.Original != diffContent.Modified || !strings.Contains(diffContent.Modified, "workspace diff") {
+		t.Fatalf("expected default-branch base diff content to compare HEAD with the working tree, got original=%q modified=%q", diffContent.Original, diffContent.Modified)
 	}
 
 	// Canonical workspace should still point at the project root.

@@ -461,13 +461,25 @@ export function V2Layout() {
     );
   }
 
+  const sidebarHeaderClass = [
+    'flex items-center',
+    desktopShell ? 'desktop-drag-region' : '',
+    sidebarExpanded
+      ? `h-12 justify-between ${desktopShell ? 'pl-[72px] pr-3' : 'px-3'}`
+      : `${desktopShell ? 'h-[4.75rem] items-end pb-2' : 'h-12'} justify-center px-1`,
+  ].filter(Boolean).join(' ');
+  const sidebarHomeLinkClass = [
+    'flex min-w-0 items-center rounded-md hover:bg-[var(--color-card)]',
+    sidebarExpanded ? 'px-2 py-1.5' : 'p-1.5',
+  ].join(' ');
+
   return (
     <div className="relative flex h-screen overflow-hidden bg-canvas text-[var(--color-text-primary)]">
       <aside
         className={`flex shrink-0 flex-col border-r border-[var(--color-card-border)] bg-canvas transition-[width] duration-200 ${sidebarExpanded ? 'w-[19.5rem]' : 'w-[3.25rem]'}`}
       >
-        <div className={`flex h-12 items-center ${desktopShell ? 'desktop-drag-region' : ''} ${sidebarExpanded ? 'justify-between px-3' : 'justify-center px-1'}`}>
-          <Link to="/" className={`flex min-w-0 items-center rounded-md hover:bg-[var(--color-card)] ${sidebarExpanded ? 'px-2 py-1.5' : 'p-1.5'}`}>
+        <div className={sidebarHeaderClass}>
+          <Link to="/" className={sidebarHomeLinkClass}>
             {sidebarExpanded ? <CodeburgWordmark className="text-[var(--color-text-primary)]" /> : <CodeburgIcon size={22} />}
           </Link>
           {sidebarExpanded && (
