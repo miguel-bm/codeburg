@@ -1,71 +1,73 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bolt, CheckCircle2, CircleSlash, FileKey2, Hammer, PackagePlus, PlugZap, RefreshCcw, Save, Trash2, Wrench } from 'lucide-react';
-import { preferencesApi, projectsApi } from '../../api';
-import type { PiConfigDocument, PiPackageEntry, ProjectSecretFile } from '../../api/types';
-import { v2Api } from '../../api/v2';
+import {
+  ArrowRight,
+  Bolt,
+  FileKey2,
+  Hammer,
+  PackagePlus,
+  PlugZap,
+  RefreshCcw,
+  Save,
+  Settings2,
+  Trash2,
+  Wrench,
+} from 'lucide-react';
+import { projectsApi } from '../../api';
+import type { ProjectSecretFile } from '../../api/types';
+import type { ProjectSecretFileStatus } from '../../api/projects';
 import { Button, V2Input, V2Screen, V2Select, V2Textarea } from './v2-ui';
-
-interface QuickRunAction {
-  id: string;
-  name: string;
-  command: string;
-}
 
 export function V2ProjectSettingsPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
-  const quickActionKey = useMemo(() => `v2.quick_actions.${id ?? 'unknown'}`, [id]);
 
   const { data: project } = useQuery({
     queryKey: ['project', id],
     queryFn: () => projectsApi.get(id!),
     enabled: !!id,
   });
-  const { data: quickActions = [] } = useQuery({
-    queryKey: ['v2-quick-actions', id],
-    queryFn: () => preferencesApi.get<QuickRunAction[]>(quickActionKey).catch(() => []),
-    enabled: !!id,
-  });
-  const { data: piConfig } = useQuery({
-    queryKey: ['v2-project-pi-config', id],
-    queryFn: () => v2Api.getProjectPiConfig(id!),
+
+  const { data: secretStatus } = useQuery({
+    queryKey: ['project-secrets', id],
+    queryFn: () => projectsApi.getSecrets(id!),
     enabled: !!id,
   });
 
   const [setupScript, setSetupScript] = useState('');
   const [teardownScript, setTeardownScript] = useState('');
-  const [secrets, setSecrets] = useState<ProjectSecretFile[]>([]);
-  const [secretPath, setSecretPath] = useState('');
-  const [secretMode, setSecretMode] = useState<'copy' | 'symlink'>('copy');
-  const [secretSource, setSecretSource] = useState('');
-  const [actionName, setActionName] = useState('');
-  const [actionCommand, setActionCommand] = useState('');
-  const [projectPiSettingsDraft, setProjectPiSettingsDraft] = useState('');
-  const [piPackageSource, setPiPackageSource] = useState('');
-  const [piExtensionPath, setPiExtensionPath] = useState('');
-  const deferredPiPackageSource = useDeferredValue(piPackageSource.trim());
-  const deferredPiExtensionPath = useDeferredValue(piExtensionPath.trim());
-  const safeQuickActions = Array.isArray(quickActions) ? quickActions : [];
+  const [bootstrapFiles, setBootstrapFiles] = useState<ProjectSecretFile[]>([]);
+  const [bootstrapPath, setBootstrapPath] = useState('');
+  const [bootstrapMode, setBootstrapMode] = useState<'copy' | 'symlink'>('copy');
+  const [bootstrapSource, setBootstrapSource] = useState('');
+  const [resolvedNotice, setResolvedNotice] = useState<string | null>(null);
 
   useEffect(() => {
     setSetupScript(project?.setupScript ?? '');
     setTeardownScript(project?.teardownScript ?? '');
-    setSecrets(project?.secretFiles ?? []);
+    setBootstrapFiles(project?.secretFiles ?? []);
   }, [project]);
 
-  useEffect(() => {
-    if (!piConfig?.projectSettings) return;
-    setProjectPiSettingsDraft(piConfig.projectSettings.content);
-  }, [piConfig]);
+  const setupDirty = setupScript !== (project?.setupScript ?? '') || teardownScript !== (project?.teardownScript ?? '');
+  const bootstrapDirty = useMemo(
+    () => JSON.stringify(normalizeBootstrapFiles(bootstrapFiles)) !== JSON.stringify(normalizeBootstrapFiles(project?.secretFiles ?? [])),
+    [bootstrapFiles, project?.secretFiles],
+  );
 
-  const saveLifecycle = useMutation({
+  const statusByPath = useMemo(() => {
+    const map = new Map<string, ProjectSecretFileStatus>();
+    for (const entry of secretStatus?.secretFiles ?? []) {
+      map.set(entry.path, entry);
+    }
+    return map;
+  }, [secretStatus]);
+
+  const saveSetup = useMutation({
     mutationFn: () => projectsApi.update(id!, {
       setupScript: setupScript.trim() || undefined,
       teardownScript: teardownScript.trim() || undefined,
-      secretFiles: secrets,
     }),
     onSuccess: async () => {
       await Promise.all([
@@ -75,214 +77,200 @@ export function V2ProjectSettingsPage() {
     },
   });
 
-  const saveQuickActions = useMutation({
-    mutationFn: (actions: QuickRunAction[]) => preferencesApi.set(quickActionKey, actions),
+  const saveBootstrapFiles = useMutation({
+    mutationFn: () => projectsApi.updateSecrets(id!, normalizeBootstrapFiles(bootstrapFiles)),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['v2-quick-actions', id] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['project', id] }),
+        queryClient.invalidateQueries({ queryKey: ['project-secrets', id] }),
+        queryClient.invalidateQueries({ queryKey: ['v2-projects'] }),
+      ]);
     },
   });
 
-  const refreshProjectPiConfig = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['v2-project-pi-config', id] }),
-      queryClient.invalidateQueries({ queryKey: ['v2-pi-config'] }),
-      queryClient.invalidateQueries({ queryKey: ['pi-status'] }),
-    ]);
-  };
-
-  const saveProjectPiSettings = useMutation({
-    mutationFn: () => v2Api.updateProjectPiSettings(id!, projectPiSettingsDraft),
-    onSuccess: refreshProjectPiConfig,
-  });
-  const installProjectPiPackage = useMutation({
-    mutationFn: (source: string) => v2Api.installProjectPiPackage(id!, source),
-    onSuccess: async () => {
-      setPiPackageSource('');
-      await refreshProjectPiConfig();
+  const resolveBootstrapFiles = useMutation({
+    mutationFn: () => projectsApi.resolveSecrets(id!),
+    onSuccess: async (data) => {
+      const resolved = data.results.filter((result) => result.enabled && result.resolvedSource).length;
+      const missing = data.results.filter((result) => result.enabled && !result.resolvedSource).length;
+      setResolvedNotice(missing > 0 ? `${resolved} ready, ${missing} missing` : `${resolved} ready`);
+      window.setTimeout(() => setResolvedNotice(null), 3600);
+      await queryClient.invalidateQueries({ queryKey: ['project-secrets', id] });
     },
   });
-  const removeProjectPiPackage = useMutation({
-    mutationFn: (source: string) => v2Api.removeProjectPiPackage(id!, source),
-    onSuccess: refreshProjectPiConfig,
-  });
-  const updateProjectPiPackages = useMutation({
-    mutationFn: () => v2Api.updateProjectPiPackages(id!),
-    onSuccess: refreshProjectPiConfig,
-  });
-  const addProjectPiExtension = useMutation({
-    mutationFn: (path: string) => v2Api.addProjectPiExtension(id!, path),
-    onSuccess: async () => {
-      setPiExtensionPath('');
-      await refreshProjectPiConfig();
-    },
-  });
-  const removeProjectPiExtension = useMutation({
-    mutationFn: (path: string) => v2Api.removeProjectPiExtension(id!, path),
-    onSuccess: refreshProjectPiConfig,
-  });
 
-  const addSecret = () => {
-    const path = secretPath.trim();
-    if (!path) return;
-    setSecrets((current) => [...current, {
+  const addBootstrapFile = () => {
+    const path = bootstrapPath.trim();
+    if (!path || bootstrapFiles.some((file) => file.path === path)) return;
+    setBootstrapFiles((current) => [...current, {
       path,
-      mode: secretMode,
-      sourcePath: secretSource.trim() || undefined,
+      mode: bootstrapMode,
+      sourcePath: bootstrapSource.trim() || undefined,
       enabled: true,
     }]);
-    setSecretPath('');
-    setSecretSource('');
-    setSecretMode('copy');
-  };
-
-  const addQuickAction = () => {
-    const name = actionName.trim();
-    const command = actionCommand.trim();
-    if (!name || !command) return;
-    saveQuickActions.mutate([...safeQuickActions, { id: crypto.randomUUID(), name, command }]);
-    setActionName('');
-    setActionCommand('');
+    setBootstrapPath('');
+    setBootstrapSource('');
+    setBootstrapMode('copy');
   };
 
   return (
     <V2Screen>
-      <div className="flex h-12 shrink-0 items-center justify-between bg-canvas px-6">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold">{project?.name ?? 'Project'} settings</div>
-          <div className="text-xs text-dim">Project behavior, workspace bootstrapping, skills, and pi.</div>
+      <header className="shrink-0 bg-canvas px-6 py-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div className="min-w-0">
+            <div className="text-[11px] font-medium uppercase text-dim">Project settings</div>
+            <h1 className="mt-1 truncate text-lg font-semibold">{project?.name ?? 'Project'}</h1>
+            <div className="mt-1 truncate font-mono text-xs text-dim">{project?.path ?? 'Loading project path'}</div>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <Link to={id ? `/projects/${id}` : '/'}>
+              <Button size="sm" variant="secondary">Open project</Button>
+            </Link>
+          </div>
         </div>
-        <Button size="sm" variant="primary" icon={<Save size={14} />} loading={saveLifecycle.isPending} onClick={() => saveLifecycle.mutate()}>
-          Save project
-        </Button>
-      </div>
+      </header>
 
-      <main className="min-h-0 flex-1 overflow-auto px-6 py-6">
-        <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_20rem]">
-          <div className="space-y-10">
-            <SettingsSection icon={<Wrench size={15} />} title="Workspace lifecycle" description="Commands run from the workspace directory during create/delete flows. Keep scripts in the repo and call them here.">
-              <div className="grid gap-5 lg:grid-cols-2">
-                <label className="block">
-                  <div className="mb-2 text-xs font-medium uppercase tracking-wide text-dim">Create command</div>
-                  <V2Textarea value={setupScript} onChange={(event) => setSetupScript(event.target.value)} className="min-h-44 w-full resize-y font-mono text-xs" placeholder={'pnpm install\ncp .env.example .env'} />
-                </label>
-                <label className="block">
-                  <div className="mb-2 text-xs font-medium uppercase tracking-wide text-dim">Delete command</div>
-                  <V2Textarea value={teardownScript} onChange={(event) => setTeardownScript(event.target.value)} className="min-h-44 w-full resize-y font-mono text-xs" placeholder="docker compose down --remove-orphans" />
-                </label>
+      <main className="min-h-0 flex-1 overflow-auto px-4 pb-8 pt-2 md:px-6">
+        <div className="mx-auto grid w-full max-w-6xl gap-8 xl:grid-cols-[minmax(0,1fr)_20rem]">
+          <div className="min-w-0 space-y-8">
+            <SettingsBlock
+              icon={<Wrench size={15} />}
+              title="Workspace setup"
+              meta={<SaveState dirty={setupDirty} pending={saveSetup.isPending} error={saveSetup.error} />}
+              action={
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon={<Save size={14} />}
+                  loading={saveSetup.isPending}
+                  disabled={!setupDirty}
+                  onClick={() => saveSetup.mutate()}
+                >
+                  Save setup
+                </Button>
+              }
+            >
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Field label="Create command">
+                  <V2Textarea
+                    value={setupScript}
+                    onChange={(event) => setSetupScript(event.target.value)}
+                    className="min-h-40 w-full resize-y font-mono text-xs leading-5"
+                    placeholder={'pnpm install\ncp .env.example .env'}
+                  />
+                </Field>
+                <Field label="Cleanup command">
+                  <V2Textarea
+                    value={teardownScript}
+                    onChange={(event) => setTeardownScript(event.target.value)}
+                    className="min-h-40 w-full resize-y font-mono text-xs leading-5"
+                    placeholder="docker compose down --remove-orphans"
+                  />
+                </Field>
               </div>
-            </SettingsSection>
+            </SettingsBlock>
 
-            <SettingsSection icon={<FileKey2 size={15} />} title="Secret files" description="Copied or symlinked into worktrees before setup commands run.">
-              <div className="space-y-2">
-                {secrets.map((secret, index) => (
-                  <div key={`${secret.path}-${index}`} className="grid grid-cols-[minmax(0,1fr)_5rem_2rem] items-center gap-3 py-2">
-                    <div className="min-w-0">
-                      <div className="truncate font-mono text-sm">{secret.path}</div>
-                      <div className="truncate text-xs text-dim">{secret.sourcePath || 'same relative path'} · {secret.enabled ? 'enabled' : 'disabled'}</div>
-                    </div>
-                    <div className="text-xs text-dim">{secret.mode}</div>
-                    <button type="button" onClick={() => setSecrets((current) => current.filter((_, i) => i !== index))} className="rounded-md p-1 text-dim hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)]">
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
+            <SettingsBlock
+              icon={<FileKey2 size={15} />}
+              title="Bootstrap files"
+              meta={<SaveState dirty={bootstrapDirty} pending={saveBootstrapFiles.isPending} error={saveBootstrapFiles.error} />}
+              action={
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon={<RefreshCcw size={14} />}
+                    loading={resolveBootstrapFiles.isPending}
+                    disabled={bootstrapFiles.length === 0}
+                    onClick={() => resolveBootstrapFiles.mutate()}
+                  >
+                    Check
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    icon={<Save size={14} />}
+                    loading={saveBootstrapFiles.isPending}
+                    disabled={!bootstrapDirty}
+                    onClick={() => saveBootstrapFiles.mutate()}
+                  >
+                    Save files
+                  </Button>
+                </div>
+              }
+            >
+              <div className="space-y-1.5">
+                {bootstrapFiles.map((file, index) => (
+                  <BootstrapFileRow
+                    key={`${file.path}-${index}`}
+                    file={file}
+                    status={statusByPath.get(file.path)}
+                    onToggle={() => setBootstrapFiles((current) => current.map((candidate, i) => (
+                      i === index ? { ...candidate, enabled: !candidate.enabled } : candidate
+                    )))}
+                    onRemove={() => setBootstrapFiles((current) => current.filter((_, i) => i !== index))}
+                  />
                 ))}
-                {secrets.length === 0 && <div className="py-3 text-sm text-dim">No secret files configured.</div>}
+                {bootstrapFiles.length === 0 && (
+                  <div className="rounded-lg bg-[var(--color-card)]/45 px-3 py-4 text-sm text-dim">
+                    Add local files that should exist before workspace setup runs.
+                  </div>
+                )}
               </div>
+
               <div className="mt-4 grid gap-2 md:grid-cols-[minmax(0,1fr)_8rem_minmax(0,1fr)_auto]">
-                <V2Input value={secretPath} onChange={(event) => setSecretPath(event.target.value)} placeholder=".env" />
-                <V2Select value={secretMode} onChange={(event) => setSecretMode(event.target.value as 'copy' | 'symlink')}>
+                <V2Input value={bootstrapPath} onChange={(event) => setBootstrapPath(event.target.value)} placeholder=".env" />
+                <V2Select value={bootstrapMode} onChange={(event) => setBootstrapMode(event.target.value as 'copy' | 'symlink')}>
                   <option value="copy">copy</option>
                   <option value="symlink">symlink</option>
                 </V2Select>
-                <V2Input value={secretSource} onChange={(event) => setSecretSource(event.target.value)} placeholder="Optional source path" />
-                <Button size="sm" variant="secondary" icon={<FileKey2 size={14} />} disabled={!secretPath.trim()} onClick={addSecret}>Add</Button>
+                <V2Input value={bootstrapSource} onChange={(event) => setBootstrapSource(event.target.value)} placeholder="Optional source path" />
+                <Button size="sm" variant="secondary" icon={<FileKey2 size={14} />} disabled={!bootstrapPath.trim()} onClick={addBootstrapFile}>Add</Button>
               </div>
-            </SettingsSection>
 
-            <SettingsSection icon={<Bolt size={15} />} title="Quick run actions" description="Configured per project, executed inside the selected workspace through the Run menu.">
-              <div className="space-y-2">
-                {safeQuickActions.map((action) => (
-                  <div key={action.id} className="grid grid-cols-[minmax(0,1fr)_2rem] items-center gap-3 py-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">{action.name}</div>
-                      <div className="truncate font-mono text-xs text-dim">{action.command}</div>
-                    </div>
-                    <button type="button" onClick={() => saveQuickActions.mutate(safeQuickActions.filter((candidate) => candidate.id !== action.id))} className="rounded-md p-1 text-dim hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)]">
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                ))}
-                {safeQuickActions.length === 0 && <div className="py-3 text-sm text-dim">No quick actions yet.</div>}
+              <div className="mt-3 min-h-5 text-xs">
+                {resolvedNotice && <span className="text-[var(--color-success)]">{resolvedNotice}</span>}
+                {resolveBootstrapFiles.error instanceof Error && (
+                  <span className="text-[var(--color-error)]">{resolveBootstrapFiles.error.message}</span>
+                )}
               </div>
-              <div className="mt-4 grid gap-2 md:grid-cols-[14rem_minmax(0,1fr)_auto]">
-                <V2Input value={actionName} onChange={(event) => setActionName(event.target.value)} placeholder="Test backend" />
-                <V2Input value={actionCommand} onChange={(event) => setActionCommand(event.target.value)} placeholder="GOTOOLCHAIN=auto go test ./internal/api" />
-                <Button size="sm" variant="secondary" icon={<Bolt size={14} />} loading={saveQuickActions.isPending} disabled={!actionName.trim() || !actionCommand.trim()} onClick={addQuickAction}>Add action</Button>
-              </div>
-            </SettingsSection>
-
-            <PiConfigEditorSection
-              title="Project Pi override"
-              subtitle={piConfig?.projectSettings?.path ?? `${project?.path ?? '.'}/.pi/settings.json`}
-              document={piConfig?.projectSettings}
-              draft={projectPiSettingsDraft}
-              onChange={setProjectPiSettingsDraft}
-              onSave={() => saveProjectPiSettings.mutate()}
-              pending={saveProjectPiSettings.isPending}
-              error={saveProjectPiSettings.error}
-            />
+            </SettingsBlock>
           </div>
 
-          <aside className="space-y-6 text-sm">
-            <SettingsSection icon={<Hammer size={15} />} title="Skills" description="Project skills live on disk and are managed from the standards-based skills view.">
-              <Link to={`/projects/${id}/skills`}>
-                <Button size="sm" variant="secondary" icon={<Hammer size={14} />}>Manage skills</Button>
-              </Link>
-            </SettingsSection>
-            <SettingsSection icon={<PlugZap size={15} />} title="Harness" description="Global runtime updates and login state live outside this project.">
-              <Link to="/harness">
-                <Button size="sm" variant="secondary" icon={<PlugZap size={14} />}>Global harness</Button>
-              </Link>
-            </SettingsSection>
-            <PiResourceManager
-              title="Project Pi packages"
-              description="Installed only for this project."
-              value={piPackageSource}
-              placeholder="npm:@scope/pkg · ./relative/path"
-              onChange={setPiPackageSource}
-              onSubmit={() => installProjectPiPackage.mutate(deferredPiPackageSource)}
-              submitDisabled={!deferredPiPackageSource}
-              submitPending={installProjectPiPackage.isPending}
-              submitIcon={<PackagePlus size={14} />}
-              submitLabel="Install"
-              onRefresh={() => updateProjectPiPackages.mutate()}
-              refreshPending={updateProjectPiPackages.isPending}
-              items={(piConfig?.projectPackages ?? []).map((pkg) => ({
-                key: pkg.source,
-                title: pkg.source,
-                detail: describePiPackage(pkg),
-                onRemove: () => removeProjectPiPackage.mutate(pkg.source),
-                removePending: removeProjectPiPackage.isPending,
-              }))}
+          <aside className="space-y-3">
+            <SettingsLink
+              to={id ? `/projects/${id}/pi` : '/'}
+              icon={<PlugZap size={15} />}
+              title="Project Pi"
+              detail="Model defaults, packages, extensions, JSON"
+              stat={project?.path ? '.pi/settings.json' : undefined}
             />
-            <PiResourceManager
-              title="Project Pi extensions"
-              description="Extension paths scoped to this repo."
-              value={piExtensionPath}
-              placeholder=".pi/extensions/my-extension.ts"
-              onChange={setPiExtensionPath}
-              onSubmit={() => addProjectPiExtension.mutate(deferredPiExtensionPath)}
-              submitDisabled={!deferredPiExtensionPath}
-              submitPending={addProjectPiExtension.isPending}
-              submitIcon={<PlugZap size={14} />}
-              submitLabel="Add"
-              items={(piConfig?.projectExtensions ?? []).map((extension) => ({
-                key: extension.path,
-                title: extension.path,
-                detail: 'Project-local extension path',
-                onRemove: () => removeProjectPiExtension.mutate(extension.path),
-                removePending: removeProjectPiExtension.isPending,
-              }))}
+            <SettingsLink
+              to={id ? `/projects/${id}/skills` : '/skills'}
+              icon={<Hammer size={15} />}
+              title="Skills"
+              detail="Project skills and global links"
+              stat=".agents/skills"
+            />
+            <SettingsLink
+              to={id ? `/projects/${id}/actions` : '/'}
+              icon={<Bolt size={15} />}
+              title="Quick actions"
+              detail="Commands shown in the workspace Run menu"
+              stat="Run"
+            />
+            <SettingsLink
+              to="/harness"
+              icon={<PackagePlus size={15} />}
+              title="Harness"
+              detail="Global runtimes, auth, and Pi packages"
+              stat="Global"
+            />
+            <SettingsLink
+              to="/settings"
+              icon={<Settings2 size={15} />}
+              title="App settings"
+              detail="Theme, account, and general preferences"
             />
           </aside>
         </div>
@@ -291,137 +279,168 @@ export function V2ProjectSettingsPage() {
   );
 }
 
-function PiConfigEditorSection({
+function SettingsBlock({
+  icon,
   title,
-  subtitle,
-  document,
-  draft,
-  onChange,
-  onSave,
-  pending,
-  error,
+  meta,
+  action,
+  children,
 }: {
+  icon: ReactNode;
   title: string;
-  subtitle: string;
-  document?: PiConfigDocument;
-  draft: string;
-  onChange: (value: string) => void;
-  onSave: () => void;
-  pending: boolean;
-  error: unknown;
+  meta?: ReactNode;
+  action?: ReactNode;
+  children: ReactNode;
 }) {
   return (
-    <SettingsSection
-      icon={<Wrench size={15} />}
-      title={title}
-      description={subtitle}
-      action={
-        <div className="flex items-center gap-2">
-          <StatusPill ok={document?.valid ?? true} label={(document?.valid ?? true) ? 'Valid JSON' : 'Invalid JSON'} />
-          <Button size="xs" variant="primary" icon={<Save size={13} />} loading={pending} disabled={!draft.trim()} onClick={onSave}>Save</Button>
-        </div>
-      }
-    >
-      {document?.parseError && <div className="mb-3 text-xs text-[var(--color-warning)]">{document.parseError}</div>}
-      <V2Textarea value={draft} onChange={(event) => onChange(event.target.value)} spellCheck={false} className="min-h-[15rem] w-full font-mono text-[13px] leading-6" />
-      <div className="mt-2 flex items-center justify-between gap-3 text-xs text-dim">
-        <span>{document?.exists ? 'Existing file' : 'Will be created on save'}</span>
-        {error instanceof Error && <span className="text-[var(--color-error)]">{error.message}</span>}
-      </div>
-    </SettingsSection>
-  );
-}
-
-function PiResourceManager({
-  title,
-  description,
-  value,
-  placeholder,
-  onChange,
-  onSubmit,
-  submitDisabled,
-  submitPending,
-  submitIcon,
-  submitLabel,
-  onRefresh,
-  refreshPending,
-  items,
-}: {
-  title: string;
-  description: string;
-  value: string;
-  placeholder: string;
-  onChange: (value: string) => void;
-  onSubmit: () => void;
-  submitDisabled: boolean;
-  submitPending: boolean;
-  submitIcon: ReactNode;
-  submitLabel: string;
-  onRefresh?: () => void;
-  refreshPending?: boolean;
-  items: Array<{ key: string; title: string; detail: string; onRemove: () => void; removePending: boolean }>;
-}) {
-  return (
-    <SettingsSection
-      icon={<PackagePlus size={15} />}
-      title={title}
-      description={description}
-      action={onRefresh && <Button size="xs" variant="secondary" icon={<RefreshCcw size={13} />} loading={refreshPending} onClick={onRefresh}>Update</Button>}
-    >
-      <div className="flex gap-2">
-        <V2Input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="min-w-0 flex-1" />
-        <Button size="sm" variant="primary" icon={submitIcon} loading={submitPending} disabled={submitDisabled} onClick={onSubmit}>
-          {submitLabel}
-        </Button>
-      </div>
-      <div className="mt-4 space-y-2">
-        {items.map((item) => (
-          <div key={item.key} className="flex items-start justify-between gap-3 py-2">
-            <div className="min-w-0">
-              <div className="truncate font-mono text-xs">{item.title}</div>
-              <div className="mt-1 text-xs text-dim">{item.detail}</div>
-            </div>
-            <button type="button" disabled={item.removePending} onClick={item.onRemove} className="rounded-md p-1 text-dim hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)] disabled:opacity-50">
-              <Trash2 size={13} />
-            </button>
-          </div>
-        ))}
-        {items.length === 0 && <div className="py-3 text-sm text-dim">None configured.</div>}
-      </div>
-    </SettingsSection>
-  );
-}
-
-function SettingsSection({ icon, title, description, action, children }: { icon: ReactNode; title: string; description: string; action?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="border-t border-[var(--color-card-border)] pt-5 first:border-t-0 first:pt-0">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className="mt-0.5 text-dim">{icon}</div>
+    <section className="rounded-xl bg-card px-4 py-4 shadow-[var(--shadow-card)] md:px-5">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="text-dim">{icon}</div>
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold">{title}</h2>
-            <p className="mt-1 max-w-2xl text-xs leading-5 text-dim">{description}</p>
+            <h2 className="truncate text-sm font-semibold">{title}</h2>
+            {meta && <div className="mt-1">{meta}</div>}
           </div>
         </div>
-        {action}
+        {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
       </div>
       {children}
     </section>
   );
 }
 
-function StatusPill({ ok, label }: { ok: boolean; label: string }) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium ${ok ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-400'}`}>
-      {ok ? <CheckCircle2 size={13} /> : <CircleSlash size={13} />}
-      {label}
-    </span>
+    <label className="block">
+      <div className="mb-2 text-[11px] font-medium uppercase text-dim">{label}</div>
+      {children}
+    </label>
   );
 }
 
-function describePiPackage(pkg: PiPackageEntry) {
-  const traits = [pkg.scope, pkg.sourceType];
-  if (pkg.pinned) traits.push('pinned');
-  if (pkg.filtered) traits.push('filtered');
-  return traits.join(' · ');
+function SaveState({ dirty, pending, error }: { dirty: boolean; pending: boolean; error: unknown }) {
+  if (pending) return <span className="text-xs text-dim">Saving</span>;
+  if (error instanceof Error) return <span className="text-xs text-[var(--color-error)]">{error.message}</span>;
+  if (dirty) return <span className="text-xs text-[var(--color-warning)]">Unsaved changes</span>;
+  return <span className="text-xs text-dim">Saved</span>;
+}
+
+function BootstrapFileRow({
+  file,
+  status,
+  onToggle,
+  onRemove,
+}: {
+  file: ProjectSecretFile;
+  status?: ProjectSecretFileStatus;
+  onToggle: () => void;
+  onRemove: () => void;
+}) {
+  const resolved = Boolean(status?.resolvedSource);
+  const state = !file.enabled ? 'disabled' : resolved ? sourceKindLabel(status?.resolvedKind) : 'missing';
+  return (
+    <div className="grid gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-[var(--color-card-hover)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
+          <StatusDot enabled={file.enabled} resolved={resolved} />
+          <span className="truncate font-mono text-sm">{file.path}</span>
+          <span className="rounded-md bg-[var(--color-inset)] px-1.5 py-0.5 text-[10px] text-dim">{file.mode}</span>
+        </div>
+        <div className="mt-1 truncate text-xs text-dim">
+          {file.sourcePath ? file.sourcePath : 'default source'} · {state}
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <SwitchControl checked={file.enabled} onChange={onToggle} label={`${file.enabled ? 'Disable' : 'Enable'} ${file.path}`} />
+        <button type="button" onClick={onRemove} className="rounded-md p-1.5 text-dim transition-colors hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)]" title="Remove">
+          <Trash2 size={13} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StatusDot({ enabled, resolved }: { enabled: boolean; resolved: boolean }) {
+  const className = !enabled
+    ? 'bg-[var(--color-text-dim)]/50'
+    : resolved
+      ? 'bg-[var(--color-success)]'
+      : 'bg-[var(--color-warning)]';
+  return <span className={`h-2 w-2 shrink-0 rounded-full ${className}`} />;
+}
+
+function SwitchControl({ checked, onChange, label }: { checked: boolean; onChange: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={onChange}
+      className={`relative h-5 w-9 rounded-full transition-colors duration-150 ease-out ${
+        checked ? 'bg-[var(--color-accent)]' : 'bg-[var(--color-inset)]'
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 h-4 w-4 rounded-full bg-card shadow-sm transition-transform duration-150 ease-out ${
+          checked ? 'translate-x-[18px]' : 'translate-x-0.5'
+        }`}
+      />
+    </button>
+  );
+}
+
+function SettingsLink({
+  to,
+  icon,
+  title,
+  detail,
+  stat,
+}: {
+  to: string;
+  icon: ReactNode;
+  title: string;
+  detail: string;
+  stat?: string;
+}) {
+  return (
+    <Link
+      to={to}
+      className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-xl bg-card px-3 py-3 shadow-[var(--shadow-card)] transition-colors hover:bg-[var(--color-card-hover)]"
+    >
+      <div className="text-dim transition-colors group-hover:text-[var(--color-text-primary)]">{icon}</div>
+      <div className="min-w-0">
+        <div className="truncate text-sm font-medium">{title}</div>
+        <div className="mt-0.5 truncate text-xs text-dim">{detail}</div>
+      </div>
+      <div className="flex items-center gap-2 text-xs text-dim">
+        {stat && <span className="hidden sm:inline">{stat}</span>}
+        <ArrowRight size={14} />
+      </div>
+    </Link>
+  );
+}
+
+function normalizeBootstrapFiles(files: ProjectSecretFile[]) {
+  return files.map((file) => ({
+    path: file.path.trim(),
+    mode: file.mode || 'copy',
+    sourcePath: file.sourcePath?.trim() || undefined,
+    enabled: file.enabled !== false,
+  }));
+}
+
+function sourceKindLabel(kind?: string) {
+  switch (kind) {
+    case 'managed':
+      return 'managed file';
+    case 'sourcePath':
+      return 'source path';
+    case 'projectPath':
+      return 'project file';
+    case 'heuristic':
+      return 'matched source';
+    default:
+      return 'ready';
+  }
 }

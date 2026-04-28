@@ -89,6 +89,7 @@ export function useWorkspaceFiles(path?: string, depth?: number) {
     search: searchMutation.mutateAsync,
     searchResults: searchMutation.data?.results,
     isSearching: searchMutation.isPending,
+    searchError: searchMutation.error,
     invalidateFiles,
   };
 }

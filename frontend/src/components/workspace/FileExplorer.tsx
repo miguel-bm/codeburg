@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Tree, type MoveHandler, type NodeApi, type TreeApi } from 'react-arborist';
 import {
@@ -15,19 +15,26 @@ import {
   FolderInput,
   FileInput,
   Clipboard,
+  Plus,
+  FolderSearch,
 } from 'lucide-react';
 import { useWorkspaceFiles } from '../../hooks/useWorkspaceFiles';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
-import { useHoverTooltip } from '../../hooks/useHoverTooltip';
 import { useMobile } from '../../hooks/useMobile';
 import type { GitStatus } from '../../api/git';
 import { buildFileTree, filterFileTree } from './fileTreeUtils';
 import { getFileIcon } from './fileIcons';
 import { ContextMenu, type ContextMenuItem } from '../ui/ContextMenu';
-import { HoverInfoTooltip } from '../ui/HoverInfoTooltip';
 import type { FileTreeNodeData } from './editorUtils';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { useWorkspace } from './WorkspaceContext';
+import {
+  WorkbenchEmpty,
+  WorkbenchFrame,
+  WorkbenchIconButton,
+  WorkbenchSearchInput,
+  WorkbenchToolbar,
+} from './WorkspaceWorkbench';
 
 interface ContextMenuState {
   position: { x: number; y: number };
@@ -85,6 +92,7 @@ export function FileExplorer() {
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [createMenuPosition, setCreateMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const treeContainerRef = useRef<HTMLDivElement>(null);
@@ -261,6 +269,11 @@ export function FileExplorer() {
     [],
   );
 
+  const openCreateMenu = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setCreateMenuPosition({ x: rect.right, y: rect.bottom + 6 });
+  }, []);
+
   const getContextMenuItems = useCallback(
     (node: FileTreeNodeData | null): ContextMenuItem[] => {
       // Empty space context menu
@@ -356,6 +369,22 @@ export function FileExplorer() {
     [openFile, handleDelete, duplicateEntry, downloadFile, handleCopyPath, startCreating],
   );
 
+  const createMenuItems = useMemo<ContextMenuItem[]>(
+    () => [
+      {
+        label: 'New File',
+        icon: FilePlus2,
+        onClick: () => startCreating('file'),
+      },
+      {
+        label: 'New Folder',
+        icon: FolderPlus,
+        onClick: () => startCreating('dir'),
+      },
+    ],
+    [startCreating],
+  );
+
   // Close context menu on route changes
   useEffect(() => {
     const timer = setTimeout(() => setContextMenu(null), 0);
@@ -383,41 +412,35 @@ export function FileExplorer() {
   }, [activeEditorPath, treeData]);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Search + actions */}
-      <div className="flex items-center gap-1 px-2 py-2">
-        <div className="relative flex-1">
-          <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-dim" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Filter files..."
-            className="h-10 w-full rounded-md border border-subtle bg-primary pl-8 pr-2 text-sm focus:border-accent focus:outline-none md:h-auto md:py-1.5 md:pl-7 md:text-xs"
-          />
-        </div>
-        <FileTreeActionButton
-          tooltip="New file"
-          onClick={() => startCreating('file')}
-        >
-          <FilePlus2 size={14} />
-        </FileTreeActionButton>
-        <FileTreeActionButton
-          tooltip="New folder"
-          onClick={() => startCreating('dir')}
-        >
-          <FolderPlus size={14} />
-        </FileTreeActionButton>
-      </div>
+    <WorkbenchFrame>
+      <WorkbenchToolbar className="flex items-center gap-1.5" onSubmit={(event) => event.preventDefault()}>
+        <WorkbenchSearchInput
+          icon={<Search size={13} />}
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Filter files"
+        />
+        <WorkbenchIconButton label="Create file or folder" onClick={openCreateMenu}>
+          <Plus size={15} />
+        </WorkbenchIconButton>
+      </WorkbenchToolbar>
 
       {/* File tree */}
       <div
         ref={treeContainerRef}
-        className="flex-1 overflow-auto pl-1"
+        className="min-h-0 flex-1 overflow-auto px-1 pb-2"
         onContextMenu={(e) => openContextMenu(e, null)}
       >
         {isLoading ? (
-          <div className="flex items-center justify-center h-20 text-xs text-dim">Loading...</div>
+          <WorkbenchEmpty compact icon={<FolderSearch size={18} />} title="Loading files" />
+        ) : treeData.length === 0 ? (
+          <WorkbenchEmpty
+            compact
+            icon={<FolderSearch size={18} />}
+            title={searchQuery.trim() ? 'No matching files' : 'No files yet'}
+            body={searchQuery.trim() ? 'Try a different filter.' : 'Create a file or folder from the plus menu.'}
+          />
         ) : (
           <Tree<FileTreeNodeData>
             ref={treeRef}
@@ -451,7 +474,7 @@ export function FileExplorer() {
               // Inline creation node
               if (isCreatingNode) {
                 return (
-	                  <div style={style} className="flex h-full items-center gap-1 px-1.5 pr-2 text-sm md:text-xs">
+                  <div style={{ ...style, width: 'calc(100% - 8px)' }} className="mx-1 flex h-full items-center gap-1 rounded-md px-1.5 pr-2 text-sm md:text-xs">
                     {isDir ? (
                       <FolderPlus size={14} className="text-accent shrink-0 ml-3.5" />
                     ) : (
@@ -487,8 +510,8 @@ export function FileExplorer() {
                           treeContainerRef.current?.scrollTo({ left: 0 });
                         });
                       }}
-                      placeholder={creating?.type === 'dir' ? 'folder name...' : 'file name...'}
-                      className="flex-1 min-w-0 px-1 py-0 text-xs bg-primary border border-accent rounded-sm focus:outline-none"
+                      placeholder={creating?.type === 'dir' ? 'folder name' : 'file name'}
+                      className="min-w-0 flex-1 rounded-sm bg-primary px-1 py-0 text-xs shadow-[inset_0_0_0_1px_var(--color-accent)] outline-none"
                       onClick={(e) => e.stopPropagation()}
                     />
                   </div>
@@ -498,11 +521,11 @@ export function FileExplorer() {
               return (
                 <div
                   ref={dragHandle}
-                  style={style}
-	                  className={`flex h-full items-center gap-1 px-1.5 pr-2 text-sm cursor-pointer group transition-colors md:text-xs ${
+                  style={{ ...style, width: 'calc(100% - 8px)' }}
+	                  className={`group mx-1 flex h-full cursor-pointer items-center gap-1 rounded-md px-1.5 pr-2 text-sm transition-colors md:text-xs ${
                     node.isSelected
-                      ? 'bg-accent/10'
-                      : 'hover:bg-tertiary'
+                      ? 'bg-[var(--color-card-hover)]'
+                      : 'hover:bg-[var(--color-card)]'
                   }`}
                   onClick={() => (isDir ? node.toggle() : node.select())}
                   onContextMenu={(e) => openContextMenu(e, node.data)}
@@ -556,7 +579,7 @@ export function FileExplorer() {
                           treeContainerRef.current?.scrollTo({ left: 0 });
                         });
                       }}
-                      className="flex-1 min-w-0 px-1 py-0 text-xs bg-primary border border-accent rounded-sm focus:outline-none"
+                      className="min-w-0 flex-1 rounded-sm bg-primary px-1 py-0 text-xs shadow-[inset_0_0_0_1px_var(--color-accent)] outline-none"
                       onClick={(e) => e.stopPropagation()}
                     />
                   ) : (
@@ -577,7 +600,14 @@ export function FileExplorer() {
           onClose={() => setContextMenu(null)}
         />
       )}
-    </div>
+      {createMenuPosition && (
+        <ContextMenu
+          items={createMenuItems}
+          position={createMenuPosition}
+          onClose={() => setCreateMenuPosition(null)}
+        />
+      )}
+    </WorkbenchFrame>
   );
 }
 
@@ -616,48 +646,4 @@ function markPathAndAncestors(tones: Map<string, DiffTone>, path: string, tone: 
     if (parentSlash < 0) break;
     current = current.slice(0, parentSlash);
   }
-}
-
-function FileTreeActionButton({
-  tooltip,
-  children,
-  className = '',
-  onMouseEnter,
-  onMouseLeave,
-  ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { tooltip: string; children: ReactNode }) {
-  const {
-    tooltip: hoverTooltip,
-    handleMouseEnter,
-    handleMouseLeave,
-  } = useHoverTooltip({ delay: 250 });
-
-  return (
-    <>
-      <button
-        type="button"
-        title={tooltip}
-        aria-label={tooltip}
-        onMouseEnter={(event) => {
-          onMouseEnter?.(event);
-          handleMouseEnter(event);
-        }}
-        onMouseLeave={(event) => {
-          onMouseLeave?.(event);
-          handleMouseLeave();
-        }}
-        className={`inline-flex h-10 w-10 items-center justify-center rounded-md text-dim transition-colors hover:bg-tertiary hover:text-accent md:h-auto md:w-auto md:p-1 md:hover:bg-transparent ${className}`}
-        {...props}
-      >
-        {children}
-      </button>
-      {hoverTooltip && (
-        <HoverInfoTooltip
-          x={hoverTooltip.x}
-          y={hoverTooltip.y}
-          text={tooltip}
-        />
-      )}
-    </>
-  );
 }

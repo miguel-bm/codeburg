@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ChevronRight,
   Plus,
   Minus,
   Undo2,
@@ -17,6 +16,8 @@ import {
   ExternalLink,
   Rocket,
   Hammer,
+  CheckCircle2,
+  History,
 } from 'lucide-react';
 import { useWorkspaceGit } from '../../hooks/useWorkspaceGit';
 import { useWorkspaceNav } from '../../hooks/useWorkspaceNav';
@@ -27,6 +28,16 @@ import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import type { GitFileStatus, GitLogEntry } from '../../api/git';
 import type { ContextMenuItem } from '../ui/ContextMenu';
+import {
+  WorkbenchButton,
+  WorkbenchEmpty,
+  WorkbenchFrame,
+  WorkbenchIconButton,
+  WorkbenchMeta,
+  WorkbenchRow,
+  WorkbenchSearchInput,
+  WorkbenchSection,
+} from './WorkspaceWorkbench';
 
 function statusLabel(s: string): string {
   switch (s) {
@@ -103,14 +114,11 @@ export function GitPanel() {
     staged: true,
     unstaged: true,
     untracked: true,
+    history: false,
   });
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
-
-  // Draggable divider state — stored as fraction (0..1) of available height
-  const [splitFraction, setSplitFraction] = useState(0.5);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   const {
     status, stage, unstage, revert, commit, pull, push, stash,
@@ -152,30 +160,6 @@ export function GitPanel() {
       setMenuPos({ x: rect.right, y: rect.bottom + 4 });
     }
   };
-
-  // Horizontal divider drag
-  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const startY = e.clientY;
-    const container = containerRef.current;
-    if (!container) return;
-    const containerRect = container.getBoundingClientRect();
-    const startFraction = splitFraction;
-
-    const onMove = (ev: MouseEvent) => {
-      const delta = ev.clientY - startY;
-      const newFraction = startFraction + delta / containerRect.height;
-      setSplitFraction(Math.max(0.15, Math.min(0.85, newFraction)));
-    };
-
-    const onUp = () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  }, [splitFraction]);
 
   const activeDiffFile = activeDiffTab?.file;
   const isBaseDiffTab = activeDiffTab?.base === true && !activeDiffTab.commit;
@@ -223,13 +207,12 @@ export function GitPanel() {
   }, [activeDiffFile, activeDiffTab?.base, activeDiffTab?.staged, activeDiffTab?.commit, status, baseDiff?.diff]);
 
   if (!status) {
-    return <div className="flex items-center justify-center h-20 text-xs text-dim">Loading git status...</div>;
+    return <WorkbenchFrame><WorkbenchEmpty compact icon={<GitBranch size={18} />} title="Loading changes" /></WorkbenchFrame>;
   }
 
   const branchName = status.branch.trim();
   const isDetachedHead = branchName === 'HEAD' || branchName.startsWith('HEAD ');
   const showPublish = !isDetachedHead && !status.hasUpstream;
-  const showSyncCounts = status.ahead > 0 || status.behind > 0;
   const hasChanges = status.staged.length > 0 || status.unstaged.length > 0 || status.untracked.length > 0;
   const totalChanges = status.staged.length + status.unstaged.length + status.untracked.length;
   const baseDiffFiles = parseDiffFiles(baseDiff?.diff || '');
@@ -240,7 +223,7 @@ export function GitPanel() {
     ...status.untracked,
   ];
 
-  const handleYeet = async () => {
+  const handleStageCommitPush = async () => {
     if (!commitMsg.trim()) return;
     if (allUnstagedFiles.length > 0) await stage(allUnstagedFiles);
     await commit({ message: commitMsg.trim() });
@@ -248,7 +231,7 @@ export function GitPanel() {
     await push({});
   };
 
-  const handleStomp = async () => {
+  const handleAmendForcePush = async () => {
     if (allUnstagedFiles.length > 0) await stage(allUnstagedFiles);
     await commit({ message: '', amend: true });
     await push({ force: true });
@@ -256,17 +239,17 @@ export function GitPanel() {
 
   const menuItems: ContextMenuItem[] = [
     {
-      label: 'Yeet',
-      description: 'Stage all, commit with message, push',
+      label: 'Stage, commit, push',
+      description: 'Stages unstaged files first',
       icon: Rocket,
-      onClick: handleYeet,
+      onClick: handleStageCommitPush,
       disabled: isCommitting || isPushing || !commitMsg.trim(),
     },
     {
-      label: 'Stomp',
-      description: 'Stage all, amend last commit, force push',
+      label: 'Amend and force push',
+      description: 'Stages everything, amends HEAD, then force pushes',
       icon: Hammer,
-      onClick: handleStomp,
+      onClick: handleAmendForcePush,
       disabled: isCommitting || isPushing,
       danger: true,
     },
@@ -299,286 +282,260 @@ export function GitPanel() {
   ];
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Split area: changes (top) + commits (bottom) */}
-      <div ref={containerRef} className="flex-1 flex flex-col min-h-0">
-        {/* Changes pane */}
-        <div className="overflow-auto" style={{ height: `${splitFraction * 100}%` }}>
-          {/* Sticky header: commit input + error + branch */}
-          <div className="sticky top-0 z-10 bg-canvas">
-            <div className="flex items-center gap-1 px-2 py-2">
-              <div className="relative min-w-0 flex-1">
-                <GitCommit size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-dim" />
-                <input
-                  type="text"
-                  value={commitMsg}
-                  onChange={(e) => setCommitMsg(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Commit message"
-                  className="h-10 w-full rounded-md border border-subtle bg-primary pl-8 pr-2 text-sm focus:border-accent focus:outline-none md:h-auto md:py-1.5 md:pl-7 md:text-xs"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={handleCommit}
-                disabled={!commitMsg.trim() || status.staged.length === 0 || isCommitting}
-                className="inline-flex h-10 shrink-0 items-center gap-1 rounded-md bg-accent px-3 text-sm font-medium text-white transition-colors hover:bg-accent-dim disabled:opacity-40 md:h-auto md:px-2 md:py-1.5 md:text-xs"
-                title="Commit staged changes"
-              >
-                <GitCommit size={13} />
-                {isCommitting ? '...' : 'Commit'}
-              </button>
-              <button
-                ref={menuBtnRef}
-                type="button"
-                onClick={openMenu}
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-dim transition-colors hover:bg-tertiary hover:text-accent md:h-auto md:w-auto md:p-1 md:hover:bg-transparent"
-                title="More actions"
-              >
-                <MoreVertical size={15} />
-              </button>
-            </div>
-            {/* Error bar */}
-            {error && (
-              <div className="px-2 py-1.5 border-b border-subtle flex items-center gap-1.5 text-xs text-[var(--color-error)] bg-[var(--color-error)]/5">
-                <span className="flex-1 truncate">
-                  {error instanceof Error ? error.message : String(error)}
-                </span>
-                <button type="button" onClick={clearErrors} className="shrink-0 p-0.5 hover:bg-[var(--color-error)]/10 rounded">
-                  <X size={12} />
-                </button>
-              </div>
-            )}
-
-            {/* Branch + sync */}
-            <div className="flex items-center gap-2 px-2 pb-2 text-xs">
-              <GitBranch size={13} className="text-dim shrink-0" />
-              <span className="font-mono text-dim truncate">{status.branch}</span>
-              {(showSyncCounts || showPublish) && (
-                <div className="flex items-center gap-1 ml-auto">
-                  {status.behind > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => pull()}
-                      disabled={isPulling}
-                      className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-tertiary text-dim"
-                    >
-                      <ArrowDown size={10} />
-                      {isPulling ? '...' : status.behind}
-                    </button>
-                  )}
-                  {status.ahead > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => push({})}
-                      disabled={isPushing}
-                      className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-tertiary text-dim"
-                    >
-                      <ArrowUp size={10} />
-                      {isPushing ? '...' : status.ahead}
-                    </button>
-                  )}
-                  {showPublish && (
-                    <button
-                      type="button"
-                      onClick={() => push({})}
-                      disabled={isPushing}
-                      className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-secondary hover:bg-tertiary text-dim"
-                      title="Publish branch to remote"
-                    >
-                      <ArrowUp size={10} />
-                      {isPushing ? '...' : 'Publish'}
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Branch changes */}
-          <Section
-            title={`Branch Changes (${baseDiffFiles.length})`}
-            expanded={expandedSections.branch}
-            onToggle={() => toggleSection('branch')}
-            actions={
-              <button
-                onClick={() => selectDiff({ base: true })}
-                disabled={!baseDiff?.diff}
-                className={`text-[10px] disabled:opacity-40 flex items-center gap-0.5 ${
-                  isBaseDiffTab && !activeDiffFile ? 'text-accent' : 'text-dim hover:text-[var(--color-text-primary)]'
-                }`}
-                title="Open full branch diff"
-              >
-                <ExternalLink size={10} />
-                Full diff
-              </button>
-            }
+    <WorkbenchFrame>
+      <div className="shrink-0 px-2 py-2">
+        <div className="flex items-center gap-1.5">
+          <WorkbenchSearchInput
+            icon={<GitCommit size={13} />}
+            type="text"
+            value={commitMsg}
+            onChange={(e) => setCommitMsg(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Commit message"
+          />
+          <WorkbenchButton
+            variant="primary"
+            icon={<GitCommit size={13} />}
+            onClick={handleCommit}
+            disabled={!commitMsg.trim() || status.staged.length === 0 || isCommitting}
+            title={status.staged.length === 0 ? 'Stage changes before committing' : 'Commit staged changes'}
           >
-            {baseDiffFiles.length > 0 ? (
-              baseDiffFiles.map((f) => {
-                const isActive = isBaseDiffTab && activeDiffFile === f.path;
-                return (
-                  <div
-                    key={f.path}
-                    className={`flex min-h-8 items-center gap-2 px-3 py-1.5 group cursor-pointer text-[13px] ${
-                      isActive ? 'bg-accent/10 text-accent' : 'hover:bg-tertiary'
-                    }`}
-                    onClick={() => selectDiff({ file: f.path, base: true })}
-                  >
-                    <span className="w-5 text-center text-[11px] font-mono text-dim">&Delta;</span>
-                    <span className="flex-1 truncate">{f.path}</span>
-                    {f.additions > 0 && <span className="text-[11px] text-green-500">+{f.additions}</span>}
-                    {f.deletions > 0 && <span className="text-[11px] text-red-500">-{f.deletions}</span>}
-                  </div>
-                );
-              })
-            ) : (
-              <div className="px-2 py-2 text-[11px] text-dim">No branch changes</div>
-            )}
-          </Section>
-
-          {!hasChanges && (
-            <div className="flex items-center justify-center h-16 text-xs text-dim">No changes</div>
-          )}
-
-          {/* Staged */}
-          {status.staged.length > 0 && (
-            <Section
-              title={`Staged (${status.staged.length})`}
-              expanded={expandedSections.staged}
-              onToggle={() => toggleSection('staged')}
-              actions={
-                <button
-                  onClick={() => unstage(status.staged.map((f) => f.path))}
-                  className="text-[10px] text-dim hover:text-[var(--color-text-primary)] flex items-center gap-0.5"
-                  title="Unstage all"
-                >
-                  <Minus size={10} />
-                  Unstage all
-                </button>
-              }
-            >
-              {status.staged.map((f) => (
-                <FileEntry
-                  key={f.path}
-                  file={f}
-                  section="staged"
-                  onUnstage={() => unstage([f.path])}
-                  onClick={() => selectDiff({ file: f.path, staged: true })}
-                  active={isStagedDiffTab && activeDiffFile === f.path}
-                />
-              ))}
-            </Section>
-          )}
-
-          {/* Unstaged */}
-          {status.unstaged.length > 0 && (
-            <Section
-              title={`Changes (${status.unstaged.length})`}
-              expanded={expandedSections.unstaged}
-              onToggle={() => toggleSection('unstaged')}
-              actions={
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => stage(status.unstaged.map((f) => f.path))}
-                    className="text-[10px] text-dim hover:text-[var(--color-text-primary)] flex items-center gap-0.5"
-                    title="Stage all"
-                  >
-                    <Plus size={10} />
-                    Stage all
-                  </button>
-                  <button
-                    onClick={() =>
-                      confirmRevert(
-                        status.unstaged.map((f) => f.path),
-                        [],
-                        `${status.unstaged.length} file${status.unstaged.length !== 1 ? 's' : ''}`,
-                      )
-                    }
-                    className="text-[10px] text-dim hover:text-[var(--color-error)] flex items-center gap-0.5"
-                    title="Revert all"
-                  >
-                    <Undo2 size={10} />
-                    Revert all
-                  </button>
-                </div>
-              }
-            >
-              {status.unstaged.map((f) => (
-                <FileEntry
-                  key={f.path}
-                  file={f}
-                  section="unstaged"
-                  onStage={() => stage([f.path])}
-                  onRevert={() => confirmRevert([f.path], [], f.path)}
-                  onClick={() => selectDiff({ file: f.path, staged: false })}
-                  active={isUnstagedDiffTab && activeDiffFile === f.path}
-                />
-              ))}
-            </Section>
-          )}
-
-          {/* Untracked */}
-          {status.untracked.length > 0 && (
-            <Section
-              title={`Untracked (${status.untracked.length})`}
-              expanded={expandedSections.untracked}
-              onToggle={() => toggleSection('untracked')}
-              actions={
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => stage(status.untracked)}
-                    className="text-[10px] text-dim hover:text-[var(--color-text-primary)] flex items-center gap-0.5"
-                    title="Stage all"
-                  >
-                    <Plus size={10} />
-                    Stage all
-                  </button>
-                  <button
-                    onClick={() =>
-                      confirmRevert(
-                        [],
-                        status.untracked,
-                        `${status.untracked.length} untracked file${status.untracked.length !== 1 ? 's' : ''}`,
-                      )
-                    }
-                    className="text-[10px] text-dim hover:text-[var(--color-error)] flex items-center gap-0.5"
-                    title="Delete all untracked"
-                  >
-                    <Undo2 size={10} />
-                    Revert all
-                  </button>
-                </div>
-              }
-            >
-              {status.untracked.map((path) => (
-                <FileEntry
-                  key={path}
-                  file={{ path, status: 'A' }}
-                  section="untracked"
-                  onStage={() => stage([path])}
-                  onRevert={() => confirmRevert([], [path], path)}
-                  onClick={() => selectDiff({ file: path, staged: false })}
-                  active={isUnstagedDiffTab && activeDiffFile === path}
-                />
-              ))}
-            </Section>
-          )}
+            {isCommitting ? 'Committing' : 'Commit'}
+          </WorkbenchButton>
+          <button
+            ref={menuBtnRef}
+            type="button"
+            onClick={openMenu}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-dim transition-colors hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] md:h-8 md:w-8"
+            title="More git actions"
+            aria-label="More git actions"
+          >
+            <MoreVertical size={15} />
+          </button>
         </div>
 
-        {/* Draggable horizontal divider */}
-        <div
-          className="h-[3px] shrink-0 cursor-row-resize bg-[var(--color-border-subtle)] hover:bg-accent active:bg-accent transition-colors"
-          onMouseDown={handleDividerMouseDown}
-        />
-
-        {/* Commits pane */}
-        <div className="overflow-auto min-h-0" style={{ height: `${(1 - splitFraction) * 100}%` }}>
-          <div className="sticky top-0 z-10 flex items-center justify-between px-2 py-1 bg-secondary">
-            <span className="text-[11px] font-medium text-dim">
-              Commits {commits.length > 0 && <span className="text-[10px]">({commits.length})</span>}
+        {error && (
+          <div className="mt-2 flex items-center gap-1.5 rounded-md bg-[var(--color-error)]/10 px-2 py-1.5 text-xs text-[var(--color-error)]">
+            <span className="min-w-0 flex-1 truncate">
+              {error instanceof Error ? error.message : String(error)}
             </span>
+            <button type="button" onClick={clearErrors} className="shrink-0 rounded p-0.5 hover:bg-[var(--color-error)]/10" aria-label="Dismiss git error">
+              <X size={12} />
+            </button>
           </div>
+        )}
+
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 px-0.5">
+          <WorkbenchMeta>
+            <GitBranch size={11} />
+            <span className="min-w-0 max-w-40 truncate font-mono">{status.branch}</span>
+          </WorkbenchMeta>
+          <WorkbenchMeta className={hasChanges ? '' : 'text-[var(--color-success)]'}>
+            {hasChanges ? `${totalChanges} changed` : 'Clean'}
+          </WorkbenchMeta>
+          {status.operation && <WorkbenchMeta>{status.operation}</WorkbenchMeta>}
+          {status.behind > 0 && (
+            <WorkbenchButton
+              className="h-6 px-1.5 text-[10px] md:h-6 md:px-1.5"
+              icon={<ArrowDown size={10} />}
+              onClick={() => pull()}
+              disabled={isPulling}
+            >
+              {isPulling ? 'Pulling' : status.behind}
+            </WorkbenchButton>
+          )}
+          {status.ahead > 0 && (
+            <WorkbenchButton
+              className="h-6 px-1.5 text-[10px] md:h-6 md:px-1.5"
+              icon={<ArrowUp size={10} />}
+              onClick={() => push({})}
+              disabled={isPushing}
+            >
+              {isPushing ? 'Pushing' : status.ahead}
+            </WorkbenchButton>
+          )}
+          {showPublish && (
+            <WorkbenchButton
+              className="h-6 px-1.5 text-[10px] md:h-6 md:px-1.5"
+              icon={<ArrowUp size={10} />}
+              onClick={() => push({})}
+              disabled={isPushing}
+              title="Publish branch to remote"
+            >
+              {isPushing ? 'Publishing' : 'Publish'}
+            </WorkbenchButton>
+          )}
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto px-1 pb-3">
+        <WorkbenchSection
+          title="Branch changes"
+          count={baseDiffFiles.length}
+          expanded={expandedSections.branch}
+          onToggle={() => toggleSection('branch')}
+          actions={
+            <WorkbenchButton
+              className="h-6 px-1.5 text-[10px] md:h-6 md:px-1.5"
+              icon={<ExternalLink size={10} />}
+              onClick={() => selectDiff({ base: true })}
+              disabled={!baseDiff?.diff}
+              title="Open full branch diff"
+            >
+              Full diff
+            </WorkbenchButton>
+          }
+        >
+          {baseDiffFiles.length > 0 ? (
+            baseDiffFiles.map((f) => (
+              <BranchFileEntry
+                key={f.path}
+                path={f.path}
+                additions={f.additions}
+                deletions={f.deletions}
+                active={isBaseDiffTab && activeDiffFile === f.path}
+                onClick={() => selectDiff({ file: f.path, base: true })}
+              />
+            ))
+          ) : (
+            <WorkbenchEmpty compact title="No branch changes" />
+          )}
+        </WorkbenchSection>
+
+        {!hasChanges && (
+          <WorkbenchEmpty compact icon={<CheckCircle2 size={18} />} title="Working tree clean" />
+        )}
+
+        {status.staged.length > 0 && (
+          <WorkbenchSection
+            title="Staged"
+            count={status.staged.length}
+            expanded={expandedSections.staged}
+            onToggle={() => toggleSection('staged')}
+            actions={
+              <WorkbenchButton
+                className="h-6 px-1.5 text-[10px] md:h-6 md:px-1.5"
+                icon={<Minus size={10} />}
+                onClick={() => unstage(status.staged.map((f) => f.path))}
+                title="Unstage all"
+              >
+                Unstage all
+              </WorkbenchButton>
+            }
+          >
+            {status.staged.map((f) => (
+              <FileEntry
+                key={f.path}
+                file={f}
+                section="staged"
+                onUnstage={() => unstage([f.path])}
+                onClick={() => selectDiff({ file: f.path, staged: true })}
+                active={isStagedDiffTab && activeDiffFile === f.path}
+              />
+            ))}
+          </WorkbenchSection>
+        )}
+
+        {status.unstaged.length > 0 && (
+          <WorkbenchSection
+            title="Changes"
+            count={status.unstaged.length}
+            expanded={expandedSections.unstaged}
+            onToggle={() => toggleSection('unstaged')}
+            actions={
+              <>
+                <WorkbenchButton
+                  className="h-6 px-1.5 text-[10px] md:h-6 md:px-1.5"
+                  icon={<Plus size={10} />}
+                  onClick={() => stage(status.unstaged.map((f) => f.path))}
+                  title="Stage all"
+                >
+                  Stage all
+                </WorkbenchButton>
+                <WorkbenchIconButton
+                  className="h-6 w-6 md:h-6 md:w-6"
+                  danger
+                  label="Discard all unstaged changes"
+                  onClick={() =>
+                    confirmRevert(
+                      status.unstaged.map((f) => f.path),
+                      [],
+                      `${status.unstaged.length} file${status.unstaged.length !== 1 ? 's' : ''}`,
+                    )
+                  }
+                >
+                  <Undo2 size={12} />
+                </WorkbenchIconButton>
+              </>
+            }
+          >
+            {status.unstaged.map((f) => (
+              <FileEntry
+                key={f.path}
+                file={f}
+                section="unstaged"
+                onStage={() => stage([f.path])}
+                onRevert={() => confirmRevert([f.path], [], f.path)}
+                onClick={() => selectDiff({ file: f.path, staged: false })}
+                active={isUnstagedDiffTab && activeDiffFile === f.path}
+              />
+            ))}
+          </WorkbenchSection>
+        )}
+
+        {status.untracked.length > 0 && (
+          <WorkbenchSection
+            title="Untracked"
+            count={status.untracked.length}
+            expanded={expandedSections.untracked}
+            onToggle={() => toggleSection('untracked')}
+            actions={
+              <>
+                <WorkbenchButton
+                  className="h-6 px-1.5 text-[10px] md:h-6 md:px-1.5"
+                  icon={<Plus size={10} />}
+                  onClick={() => stage(status.untracked)}
+                  title="Stage all"
+                >
+                  Stage all
+                </WorkbenchButton>
+                <WorkbenchIconButton
+                  className="h-6 w-6 md:h-6 md:w-6"
+                  danger
+                  label="Delete all untracked files"
+                  onClick={() =>
+                    confirmRevert(
+                      [],
+                      status.untracked,
+                      `${status.untracked.length} untracked file${status.untracked.length !== 1 ? 's' : ''}`,
+                    )
+                  }
+                >
+                  <Undo2 size={12} />
+                </WorkbenchIconButton>
+              </>
+            }
+          >
+            {status.untracked.map((path) => (
+              <FileEntry
+                key={path}
+                file={{ path, status: 'A' }}
+                section="untracked"
+                onStage={() => stage([path])}
+                onRevert={() => confirmRevert([], [path], path)}
+                onClick={() => selectDiff({ file: path, staged: false })}
+                active={isUnstagedDiffTab && activeDiffFile === path}
+              />
+            ))}
+          </WorkbenchSection>
+        )}
+
+        <WorkbenchSection
+          title="Recent commits"
+          count={commits.length}
+          expanded={expandedSections.history}
+          onToggle={() => toggleSection('history')}
+        >
           {commits.length > 0 ? (
             commits.map((c) => (
               <CommitEntry
@@ -589,9 +546,9 @@ export function GitPanel() {
               />
             ))
           ) : (
-            <div className="px-2 py-3 text-[11px] text-dim">No commits</div>
+            <WorkbenchEmpty compact icon={<History size={18} />} title="No commits yet" />
           )}
-        </div>
+        </WorkbenchSection>
       </div>
 
       {/* Context menu for three-dot */}
@@ -613,7 +570,7 @@ export function GitPanel() {
         <div className="px-5 py-4">
           <p className="text-sm text-dim">{confirmAction?.message}</p>
         </div>
-        <div className="px-5 py-3 border-t border-subtle flex justify-end gap-2">
+        <div className="px-5 py-3 flex justify-end gap-2">
           <Button variant="secondary" size="sm" onClick={() => setConfirmAction(null)}>
             Cancel
           </Button>
@@ -622,7 +579,32 @@ export function GitPanel() {
           </Button>
         </div>
       </Modal>
-    </div>
+    </WorkbenchFrame>
+  );
+}
+
+/* ── Branch entry ────────────────────────────────────────────────── */
+
+function BranchFileEntry({
+  path,
+  additions,
+  deletions,
+  active,
+  onClick,
+}: {
+  path: string;
+  additions: number;
+  deletions: number;
+  active?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <WorkbenchRow active={active} onClick={onClick} className="group">
+      <span className="w-5 shrink-0 text-center font-mono text-[11px] text-dim">&Delta;</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{path}</span>
+      {additions > 0 && <span className="shrink-0 font-mono text-[11px] text-[var(--color-success)]">+{additions}</span>}
+      {deletions > 0 && <span className="shrink-0 font-mono text-[11px] text-[var(--color-error)]">-{deletions}</span>}
+    </WorkbenchRow>
   );
 }
 
@@ -662,8 +644,8 @@ function CommitEntry({
     <>
       <div
         ref={rowRef}
-        className={`flex items-center gap-1.5 px-2 py-1 group cursor-pointer text-xs ${
-          isActive ? 'bg-accent/10 text-accent' : 'hover:bg-tertiary'
+        className={`group mx-1.5 flex min-h-8 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors ${
+          isActive ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]' : 'hover:bg-[var(--color-card)]'
         }`}
         onMouseEnter={showTooltip}
         onMouseLeave={hideTooltip}
@@ -705,11 +687,10 @@ function CommitTooltip({ commit, position }: { commit: GitLogEntry; position: { 
   return createPortal(
     <div
       ref={ref}
-      className="fixed z-[200] w-72 bg-card rounded-lg border border-[var(--color-card-border)] shadow-[var(--shadow-card-hover)] overflow-hidden pointer-events-none"
+      className="fixed z-[200] w-72 overflow-hidden rounded-lg bg-card shadow-[var(--shadow-card-hover)] pointer-events-none"
       style={{ left: position.x, top: position.y }}
     >
-      {/* Header */}
-      <div className="px-3 py-2 border-b border-subtle bg-secondary">
+      <div className="px-3 pt-3">
         <div className="flex items-center gap-2">
           <GitCommit size={12} className="text-accent shrink-0" />
           <span className="font-mono text-xs text-accent">{commit.shortHash}</span>
@@ -717,9 +698,7 @@ function CommitTooltip({ commit, position }: { commit: GitLogEntry; position: { 
         </div>
       </div>
 
-      {/* Body */}
       <div className="px-3 py-2.5 space-y-2">
-        {/* Message */}
         <div>
           <p className="text-xs font-medium text-[var(--color-text-primary)] leading-snug">{commit.message}</p>
           {commit.body && (
@@ -727,7 +706,6 @@ function CommitTooltip({ commit, position }: { commit: GitLogEntry; position: { 
           )}
         </div>
 
-        {/* Author & date */}
         <div className="flex items-center gap-2 text-[11px]">
           <div
             className="w-5 h-5 rounded-full bg-accent/20 text-accent flex items-center justify-center text-[10px] font-medium shrink-0"
@@ -744,23 +722,17 @@ function CommitTooltip({ commit, position }: { commit: GitLogEntry; position: { 
           <span className="ml-1.5 text-[10px]">({relativeTime(commit.date)})</span>
         </div>
 
-        {/* Stats */}
         {statsLine && (
-          <div className="flex items-center gap-1.5 text-[11px] pt-1 border-t border-subtle">
+          <div className="flex items-center gap-1.5 pt-1 text-[11px]">
             {commit.additions > 0 && (
-              <span className="text-green-500 font-mono">+{commit.additions}</span>
+              <span className="font-mono text-[var(--color-success)]">+{commit.additions}</span>
             )}
             {commit.deletions > 0 && (
-              <span className="text-red-500 font-mono">-{commit.deletions}</span>
+              <span className="font-mono text-[var(--color-error)]">-{commit.deletions}</span>
             )}
             <span className="text-dim">{statsLine}</span>
           </div>
         )}
-      </div>
-
-      {/* Footer hint */}
-      <div className="px-3 py-1.5 border-t border-subtle bg-secondary text-[10px] text-dim">
-        Click to view diff
       </div>
     </div>,
     document.body,
@@ -787,71 +759,34 @@ function FileEntry({
   active?: boolean;
 }) {
   return (
-    <div
-      className={`flex min-h-8 items-center gap-2 px-3 py-1.5 group cursor-pointer text-[13px] ${
-        active ? 'bg-accent/10 text-accent' : 'hover:bg-tertiary'
-      }`}
-      onClick={onClick}
-    >
-      <span className={`w-5 text-center text-[11px] font-mono ${statusColor(file.status)}`}>
+    <WorkbenchRow active={active} onClick={onClick} className="group text-[13px]">
+      <span className={`w-5 shrink-0 text-center font-mono text-[11px] ${statusColor(file.status)}`}>
         {statusLabel(file.status)}
       </span>
-      <span className="flex-1 truncate">{file.path}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{file.path}</span>
       {file.additions !== undefined && file.additions > 0 && (
-        <span className="text-[11px] text-green-500">+{file.additions}</span>
+        <span className="shrink-0 font-mono text-[11px] text-[var(--color-success)]">+{file.additions}</span>
       )}
       {file.deletions !== undefined && file.deletions > 0 && (
-        <span className="text-[11px] text-red-500">-{file.deletions}</span>
+        <span className="shrink-0 font-mono text-[11px] text-[var(--color-error)]">-{file.deletions}</span>
       )}
-      <div className="sm:opacity-0 sm:group-hover:opacity-100 flex items-center gap-0.5">
+      <div className="flex items-center gap-0.5 sm:opacity-0 sm:group-hover:opacity-100">
         {section === 'staged' && onUnstage && (
-          <button onClick={(e) => { e.stopPropagation(); onUnstage(); }} className="p-1 text-dim hover:text-accent" title="Unstage">
+          <button onClick={(e) => { e.stopPropagation(); onUnstage(); }} className="rounded p-1 text-dim hover:bg-[var(--color-card-hover)] hover:text-accent" title="Unstage">
             <Minus size={13} />
           </button>
         )}
         {(section === 'unstaged' || section === 'untracked') && onStage && (
-          <button onClick={(e) => { e.stopPropagation(); onStage(); }} className="p-1 text-dim hover:text-accent" title="Stage">
+          <button onClick={(e) => { e.stopPropagation(); onStage(); }} className="rounded p-1 text-dim hover:bg-[var(--color-card-hover)] hover:text-accent" title="Stage">
             <Plus size={13} />
           </button>
         )}
         {(section === 'unstaged' || section === 'untracked') && onRevert && (
-          <button onClick={(e) => { e.stopPropagation(); onRevert(); }} className="p-1 text-dim hover:text-[var(--color-error)]" title="Revert">
+          <button onClick={(e) => { e.stopPropagation(); onRevert(); }} className="rounded p-1 text-dim hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)]" title="Revert">
             <Undo2 size={13} />
           </button>
         )}
       </div>
-    </div>
-  );
-}
-
-/* ── Collapsible section ─────────────────────────────────────────── */
-
-function Section({
-  title,
-  expanded,
-  onToggle,
-  actions,
-  children,
-}: {
-  title: string;
-  expanded: boolean;
-  onToggle: () => void;
-  actions?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <div className="flex min-h-8 items-center justify-between px-3 py-1.5 bg-secondary">
-        <button
-          onClick={onToggle}
-          className="flex items-center gap-1 text-xs font-medium text-dim hover:text-[var(--color-text-primary)]"
-        >
-          <ChevronRight size={13} className={`transition-transform ${expanded ? 'rotate-90' : ''}`} />
-          {title}
-        </button>
-        {actions}
-      </div>
-      {expanded && children}
-    </div>
+    </WorkbenchRow>
   );
 }

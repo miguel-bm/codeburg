@@ -24,6 +24,8 @@ import { V2ProjectConversationsPage } from './pages/v2/V2ProjectConversationsPag
 import { V2ProjectPage } from './pages/v2/V2ProjectPage';
 import { V2ProjectSkillsPage } from './pages/v2/V2ProjectSkillsPage';
 import { V2ProjectPiPage } from './pages/v2/V2ProjectPiPage';
+import { V2ProjectQuickActionsPage } from './pages/v2/V2ProjectQuickActionsPage';
+import { V2GlobalSkillsPage } from './pages/v2/V2GlobalSkillsPage';
 import { V2ProjectSettingsPage } from './pages/v2/V2ProjectSettingsPage';
 import { V2HarnessPage } from './pages/v2/V2HarnessPage';
 import { useSessionFocusPresence } from './hooks/useSessionFocusPresence';
@@ -77,7 +79,9 @@ function MainAppShell() {
           <Route path="projects/:id/conversations" element={<V2ProjectConversationsPage />} />
           <Route path="projects/:id/skills" element={<V2ProjectSkillsPage />} />
           <Route path="projects/:id/pi" element={<V2ProjectPiPage />} />
+          <Route path="projects/:id/actions" element={<V2ProjectQuickActionsPage />} />
           <Route path="projects/:id/settings" element={<V2ProjectSettingsPage />} />
+          <Route path="skills" element={<V2GlobalSkillsPage />} />
           <Route path="settings" element={<Settings />} />
         </Route>
         <Route path="/classic" element={<Layout><DashboardWithPanels /></Layout>}>

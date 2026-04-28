@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
   ArrowDownUp,
+  Bolt,
   BookPlus,
   Circle,
   CircleAlert,
@@ -42,7 +43,7 @@ import { v2Api } from '../../api/v2';
 import { CreateProjectModal } from '../../components/common/CreateProjectModal';
 import { CodeburgIcon, CodeburgWordmark } from '../../components/ui/CodeburgIcon';
 import { useMobile } from '../../hooks/useMobile';
-import { getDesktopTitleBarInsetTop, isDesktopShell } from '../../platform/runtimeConfig';
+import { isDesktopShell } from '../../platform/runtimeConfig';
 import { selectIsExpanded, useSidebarStore } from '../../stores/sidebar';
 import { useSharedWebSocket } from '../../hooks/useSharedWebSocket';
 import type { QueryClient } from '@tanstack/react-query';
@@ -284,7 +285,7 @@ export function V2Layout() {
     switchConversationWorkspace.mutate({ conversation, workspaceId });
   };
 
-  const desktopTopInset = isDesktopShell() ? getDesktopTitleBarInsetTop() : 0;
+  const desktopShell = isDesktopShell();
   const openSidebarContextMenu = (menu: SidebarContextMenu) => {
     setProjectTreeMenuOpen(false);
     setSidebarContextMenu(menu);
@@ -462,17 +463,10 @@ export function V2Layout() {
 
   return (
     <div className="relative flex h-screen overflow-hidden bg-canvas text-[var(--color-text-primary)]">
-      {desktopTopInset > 0 && (
-        <div
-          className="desktop-drag-region fixed inset-x-0 top-0 z-[90]"
-          style={{ height: `${desktopTopInset}px` }}
-        />
-      )}
       <aside
         className={`flex shrink-0 flex-col border-r border-[var(--color-card-border)] bg-canvas transition-[width] duration-200 ${sidebarExpanded ? 'w-[19.5rem]' : 'w-[3.25rem]'}`}
-        style={desktopTopInset > 0 ? { paddingTop: `${desktopTopInset}px` } : undefined}
       >
-        <div className={`flex h-12 items-center ${sidebarExpanded ? 'justify-between px-3' : 'justify-center px-1'}`}>
+        <div className={`flex h-12 items-center ${desktopShell ? 'desktop-drag-region' : ''} ${sidebarExpanded ? 'justify-between px-3' : 'justify-center px-1'}`}>
           <Link to="/" className={`flex min-w-0 items-center rounded-md hover:bg-[var(--color-card)] ${sidebarExpanded ? 'px-2 py-1.5' : 'p-1.5'}`}>
             {sidebarExpanded ? <CodeburgWordmark className="text-[var(--color-text-primary)]" /> : <CodeburgIcon size={22} />}
           </Link>
@@ -506,10 +500,7 @@ export function V2Layout() {
         )}
       </aside>
 
-      <main
-        className="min-w-0 flex-1 overflow-hidden"
-        style={desktopTopInset > 0 ? { paddingTop: `${desktopTopInset}px` } : undefined}
-      >
+      <main className="min-w-0 flex-1 overflow-hidden">
         <Outlet />
       </main>
     </div>
@@ -916,6 +907,8 @@ function ProjectTree({
               {pinned ? 'Unpin project' : 'Pin project'}
             </ProjectMenuItem>
             <ProjectMenuItem icon={<Hammer size={14} />} onClick={() => runProjectAction(() => navigate(`/projects/${project.id}/skills`))}>Skills</ProjectMenuItem>
+            <ProjectMenuItem icon={<PlugZap size={14} />} onClick={() => runProjectAction(() => navigate(`/projects/${project.id}/pi`))}>Project Pi</ProjectMenuItem>
+            <ProjectMenuItem icon={<Bolt size={14} />} onClick={() => runProjectAction(() => navigate(`/projects/${project.id}/actions`))}>Quick actions</ProjectMenuItem>
             <ProjectMenuItem icon={<Pencil size={14} />} onClick={() => runProjectAction(() => void renameProject(project, queryClient))}>Rename project</ProjectMenuItem>
             <ProjectMenuItem icon={<Settings size={14} />} onClick={() => runProjectAction(() => navigate(`/projects/${project.id}/settings`))}>Settings</ProjectMenuItem>
             <ProjectMenuDivider />

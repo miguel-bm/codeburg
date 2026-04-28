@@ -26,11 +26,11 @@ export function V2WorkspaceToolTabs({
   const compact = isMobile && placement === 'inline';
   return (
     <div className={`flex shrink-0 items-center gap-1 ${
-      placement === 'inline' && !compact ? 'border-l border-[var(--color-card-border)] pl-1.5' : ''
+      placement === 'panel' ? 'rounded-md bg-[var(--color-card)] p-0.5' : ''
     }`}>
       <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'files'} icon={<Files size={14} />} onClick={() => onToggleHelperTab('files')}>Files</HelperButton>
       <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'search'} icon={<Search size={14} />} onClick={() => onToggleHelperTab('search')}>Search</HelperButton>
-      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'git'} icon={<GitBranch size={14} />} onClick={() => onToggleHelperTab('git')}>Git</HelperButton>
+      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'git'} icon={<GitBranch size={14} />} onClick={() => onToggleHelperTab('git')}>Changes</HelperButton>
     </div>
   );
 }
@@ -78,7 +78,7 @@ export function V2WorkspaceToolsSurface({
             exit={{ y: '100%', opacity: 0.96 }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
           >
-            <div className="flex min-h-14 shrink-0 items-center justify-between gap-2 border-b border-[var(--color-card-border)] px-3 pt-[env(safe-area-inset-top)]">
+            <div className="flex min-h-14 shrink-0 items-center justify-between gap-2 px-3 pt-[env(safe-area-inset-top)]">
               <V2WorkspaceToolTabs
                 helperTab={helperTab}
                 toolsOpen={open}
@@ -110,17 +110,20 @@ export function V2WorkspaceToolsSurface({
         <motion.div
           key="workspace-tools"
           className="flex min-h-0 shrink-0 overflow-hidden bg-canvas"
-          initial={{ width: 0, opacity: 0 }}
-          animate={{ width: width + 6, opacity: 1 }}
-          exit={{ width: 0, opacity: 0 }}
+          style={{ width: width + 6 }}
+          initial={{ x: 16, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: 16, opacity: 0 }}
           transition={{
-            width: { duration: resizing ? 0 : 0.2, ease: [0.22, 1, 0.36, 1] },
             opacity: { duration: 0.12 },
+            x: { duration: resizing ? 0 : 0.18, ease: [0.22, 1, 0.36, 1] },
           }}
         >
-          <div className="w-1.5 shrink-0 cursor-col-resize bg-canvas hover:bg-accent/30" onMouseDown={onResizeStart} />
-          <aside className="flex min-h-0 shrink-0 flex-col border-l border-[var(--color-card-border)] bg-canvas" style={{ width }}>
-            <div className="flex h-9 shrink-0 items-center px-2">
+          <div className="group flex w-1.5 shrink-0 cursor-col-resize items-stretch justify-center bg-canvas" onMouseDown={onResizeStart}>
+            <div className="my-2 w-px rounded-full bg-transparent transition-colors group-hover:bg-accent/35" />
+          </div>
+          <aside className="flex min-h-0 shrink-0 flex-col bg-canvas shadow-[inset_1px_0_0_var(--color-card-border)]" style={{ width }}>
+            <div className="flex h-10 shrink-0 items-center px-2">
               <V2WorkspaceToolTabs
                 helperTab={helperTab}
                 toolsOpen={open}
