@@ -152,7 +152,7 @@ export function V2ProjectPage() {
     }),
     onSuccess: async (terminal) => {
       setMainSurface({ type: 'terminal', terminalId: terminal.id });
-      navigate(`/v2/projects/${id}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`, { replace: true });
+      navigate(`/projects/${id}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`, { replace: true });
       await invalidateTerminals();
     },
   });
@@ -167,7 +167,7 @@ export function V2ProjectPage() {
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', id] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', id, 'sidebar'] }),
       ]);
-      navigate(`/v2/conversations/${conversation.id}`);
+      navigate(`/conversations/${conversation.id}`);
     },
   });
   const renameConversation = useMutation({
@@ -220,7 +220,7 @@ export function V2ProjectPage() {
   const deleteWorkspace = useMutation({
     mutationFn: (workspaceId: string) => v2Api.deleteWorkspace(workspaceId),
     onSuccess: async () => {
-      navigate(`/v2/projects/${id}`);
+      navigate(`/projects/${id}`);
       await queryClient.invalidateQueries({ queryKey: workspacesQueryKey });
     },
   });
@@ -265,7 +265,7 @@ export function V2ProjectPage() {
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', conversation.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', conversation.projectId, 'sidebar'] }),
       ]);
-      navigate(`/v2/conversations/${conversation.id}`);
+      navigate(`/conversations/${conversation.id}`);
     },
   });
 
@@ -308,7 +308,7 @@ export function V2ProjectPage() {
     next.delete('terminal');
     if (target) next.set('workspace', target);
     else next.delete('workspace');
-    navigate(`/v2/projects/${id}${next.toString() ? `?${next.toString()}` : ''}`, { replace: true });
+    navigate(`/projects/${id}${next.toString() ? `?${next.toString()}` : ''}`, { replace: true });
     setComposerMode(null);
     setWorkspaceName('');
     setWorkspaceBaseBranch('');
@@ -413,12 +413,12 @@ export function V2ProjectPage() {
               activeTabIndex={activeTabIndex}
               onSelectTerminal={(terminal) => {
                 setMainSurface({ type: 'terminal', terminalId: terminal.id });
-                navigate(`/v2/projects/${id}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`, { replace: true });
+                navigate(`/projects/${id}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`, { replace: true });
               }}
               onCloseTerminal={(terminal) => closeTerminal.mutate(terminal.id)}
               onRenameTerminal={(terminal, title) => renameTerminal.mutate({ terminalId: terminal.id, title })}
               conversations={safeWorkspaceConversations}
-              onSelectConversation={(conversation) => navigate(`/v2/conversations/${conversation.id}`)}
+              onSelectConversation={(conversation) => navigate(`/conversations/${conversation.id}`)}
               onRenameConversation={(conversation, title) => renameConversation.mutate({ conversationId: conversation.id, title })}
               onCreateConversation={() => createConversation.mutate()}
               onSelectWorkspaceTab={(index) => {

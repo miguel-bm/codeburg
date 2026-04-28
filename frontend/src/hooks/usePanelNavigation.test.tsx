@@ -23,7 +23,7 @@ describe('usePanelNavigation.navigateToPanel', () => {
   beforeEach(() => {
     navigateMock.mockReset();
     locationMock = {
-      pathname: '/tasks/task-1',
+      pathname: '/classic/tasks/task-1',
       search: '?expanded=1&session=old-session&project=proj-1',
     };
   });
@@ -37,7 +37,7 @@ describe('usePanelNavigation.navigateToPanel', () => {
     });
 
     expect(navigateMock).toHaveBeenCalledWith(
-      '/tasks/task-1?project=proj-1&session=new-session&expanded=1',
+      '/classic/tasks/task-1?project=proj-1&session=new-session&expanded=1',
       { replace: true },
     );
   });
@@ -51,7 +51,7 @@ describe('usePanelNavigation.navigateToPanel', () => {
     });
 
     expect(navigateMock).toHaveBeenCalledWith(
-      '/tasks/task-1?project=proj-1&expanded=1',
+      '/classic/tasks/task-1?project=proj-1&expanded=1',
       { replace: true },
     );
   });

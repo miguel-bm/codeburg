@@ -226,7 +226,7 @@ export function V2ConversationDetailPage() {
     }),
     onSuccess: async (terminal) => {
       await queryClient.invalidateQueries({ queryKey: ['v2-terminals', terminal.workspaceId] });
-      navigate(`/v2/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`);
+      navigate(`/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`);
     },
   });
   const createConversation = useMutation({
@@ -240,7 +240,7 @@ export function V2ConversationDetailPage() {
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', created.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', created.projectId, 'sidebar'] }),
       ]);
-      navigate(`/v2/conversations/${created.id}`);
+      navigate(`/conversations/${created.id}`);
     },
   });
   const renameConversation = useMutation({
@@ -289,7 +289,7 @@ export function V2ConversationDetailPage() {
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.projectId, 'sidebar'] }),
       ]);
-      navigate(`/v2/conversations/${forked.id}`);
+      navigate(`/conversations/${forked.id}`);
     },
   });
   const setConversationModel = useMutation({
@@ -320,7 +320,7 @@ export function V2ConversationDetailPage() {
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.conversation.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', forked.conversation.projectId, 'sidebar'] }),
       ]);
-      navigate(`/v2/conversations/${forked.conversation.id}`);
+      navigate(`/conversations/${forked.conversation.id}`);
     },
   });
 
@@ -419,7 +419,7 @@ export function V2ConversationDetailPage() {
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', result.conversation.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', result.conversation.projectId, 'sidebar'] }),
       ]);
-      navigate(`/v2/conversations/${result.conversation.id}`);
+      navigate(`/conversations/${result.conversation.id}`);
     },
   });
 
@@ -561,7 +561,7 @@ export function V2ConversationDetailPage() {
                     key={candidate.id}
                     conversation={candidate}
                     active={candidate.id === conversationId}
-                    onSelect={() => navigate(`/v2/conversations/${candidate.id}`)}
+                    onSelect={() => navigate(`/conversations/${candidate.id}`)}
                     onRename={(title) => renameConversation.mutate({ id: candidate.id, title })}
                   />
                 ))}
@@ -570,7 +570,7 @@ export function V2ConversationDetailPage() {
                     key={terminal.id}
                     terminal={terminal}
                     active={false}
-                    onSelect={() => navigate(`/v2/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`)}
+                    onSelect={() => navigate(`/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`)}
                   />
                 ))}
               </div>
@@ -610,8 +610,8 @@ export function V2ConversationDetailPage() {
               activeConversationId={conversationId}
               terminals={sortedTerminals}
               projectId={terminalWorkspaceProjectId(project, conversation)}
-              onSelectConversation={(candidate) => navigate(`/v2/conversations/${candidate.id}`)}
-              onSelectTerminal={(terminal) => navigate(`/v2/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`)}
+              onSelectConversation={(candidate) => navigate(`/conversations/${candidate.id}`)}
+              onSelectTerminal={(terminal) => navigate(`/projects/${terminalWorkspaceProjectId(project, conversation)}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`)}
               onCreateConversation={() => createConversation.mutate()}
               onCreateTerminal={() => createTerminal.mutate()}
               createConversationPending={createConversation.isPending}
@@ -656,7 +656,7 @@ export function V2ConversationDetailPage() {
                 abort={abort}
                 submit={(streamingBehavior) => void handleSubmit(streamingBehavior)}
                 onOpenPiSettings={() => {
-                  if (conversation?.projectId) navigate(`/v2/projects/${conversation.projectId}/settings`);
+                  if (conversation?.projectId) navigate(`/projects/${conversation.projectId}/settings`);
                 }}
                 onApplySnapshot={applySnapshot}
               />
@@ -2479,13 +2479,13 @@ function nextConversationDestination(
   if (activeConversations.length > 0) {
     const archivedIndex = conversations.findIndex((candidate) => candidate.id === archivedConversationId);
     const nextIndex = archivedIndex >= 0 ? Math.min(archivedIndex, activeConversations.length - 1) : 0;
-    return `/v2/conversations/${activeConversations[nextIndex].id}`;
+    return `/conversations/${activeConversations[nextIndex].id}`;
   }
 
   const params = new URLSearchParams();
   if (workspaceId) params.set('workspace', workspaceId);
   const query = params.toString();
-  return `/v2/projects/${projectId}${query ? `?${query}` : ''}`;
+  return `/projects/${projectId}${query ? `?${query}` : ''}`;
 }
 
 function workspaceBranchLabel(workspace: Workspace): string {

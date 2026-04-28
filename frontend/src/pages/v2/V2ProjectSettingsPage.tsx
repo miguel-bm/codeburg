@@ -235,12 +235,12 @@ export function V2ProjectSettingsPage() {
 
           <aside className="space-y-6 text-sm">
             <SettingsSection icon={<Hammer size={15} />} title="Skills" description="Project skills live on disk and are managed from the standards-based skills view.">
-              <Link to={`/v2/projects/${id}/skills`}>
+              <Link to={`/projects/${id}/skills`}>
                 <Button size="sm" variant="secondary" icon={<Hammer size={14} />}>Manage skills</Button>
               </Link>
             </SettingsSection>
             <SettingsSection icon={<PlugZap size={15} />} title="Harness" description="Global runtime updates and login state live outside this project.">
-              <Link to="/v2/harness">
+              <Link to="/harness">
                 <Button size="sm" variant="secondary" icon={<PlugZap size={14} />}>Global harness</Button>
               </Link>
             </SettingsSection>

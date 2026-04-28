@@ -52,7 +52,7 @@ export function V2QuickActionsMenu({
     onSuccess: async (terminal) => {
       setOpen(false);
       await queryClient.invalidateQueries({ queryKey: ['v2-terminals', terminal.workspaceId] });
-      navigate(`/v2/projects/${projectId}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`);
+      navigate(`/projects/${projectId}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`);
     },
   });
 

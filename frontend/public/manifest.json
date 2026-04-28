@@ -3,6 +3,7 @@
   "short_name": "Codeburg",
   "description": "AI Agent Task Management",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#1f1f24",
   "theme_color": "#1f1f24",

@@ -107,7 +107,7 @@ export function V2ProjectSkillsPage() {
     <V2Screen>
       <header className="flex h-12 shrink-0 items-center justify-between gap-4 bg-canvas px-6">
         <div className="flex min-w-0 items-center gap-3">
-          <Link to={project ? `/v2/projects/${project.id}/settings` : '/v2/harness'} className="rounded-md p-1.5 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]" title="Back to project settings">
+          <Link to={project ? `/projects/${project.id}/settings` : '/harness'} className="rounded-md p-1.5 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]" title="Back to project settings">
             <ArrowLeft size={15} />
           </Link>
           <div className="min-w-0">

@@ -186,9 +186,9 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
 
   const handleProjectFilterClick = (projectId: string, isFiltered: boolean) => {
     if (isFiltered) {
-      navigate('/');
+      navigate('/classic');
     } else {
-      navigate(`/?project=${projectId}`);
+      navigate(`/classic?project=${projectId}`);
     }
     onClose?.();
   };
@@ -200,10 +200,10 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
   };
 
   const handleSettingsClick = () => {
-    if (location.pathname === '/settings') {
+    if (location.pathname === '/classic/settings') {
       navigate(-1);
     } else {
-      navigate('/settings');
+      navigate('/classic/settings');
     }
     onClose?.();
   };
@@ -283,7 +283,7 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
           </button>
           <button
             onClick={handleSettingsClick}
-            className={`p-1 hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors ${location.pathname === '/settings' ? 'text-accent' : 'text-dim'}`}
+            className={`p-1 hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors ${location.pathname === '/classic/settings' ? 'text-accent' : 'text-dim'}`}
             title="Settings"
           >
             <Settings size={15} />
@@ -473,7 +473,7 @@ export function Sidebar({ onClose, width, collapsed }: SidebarProps) {
         </button>
         <button
           onClick={handleSettingsClick}
-          className={`px-2 py-2 hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors ${location.pathname === '/settings' ? 'text-accent' : 'text-dim'}`}
+          className={`px-2 py-2 hover:text-[var(--color-text-primary)] bg-tertiary hover:bg-[var(--color-border)] rounded-md transition-colors ${location.pathname === '/classic/settings' ? 'text-accent' : 'text-dim'}`}
           title="Settings"
         >
           <Settings size={16} />

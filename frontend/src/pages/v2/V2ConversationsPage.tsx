@@ -59,7 +59,7 @@ export function V2ConversationsPage() {
       }),
     onSuccess: async (forked) => {
       await invalidateConversationLists(queryClient, forked.projectId, forked.id);
-      navigate(`/v2/conversations/${forked.id}`);
+      navigate(`/conversations/${forked.id}`);
     },
   });
 
@@ -180,7 +180,7 @@ export function V2ConversationsPage() {
               pinnedConversationIds={safePinnedConversationIds}
               actionPending={actionPending}
               mobile
-              onOpen={(conversation) => navigate(`/v2/conversations/${conversation.id}`)}
+              onOpen={(conversation) => navigate(`/conversations/${conversation.id}`)}
               onFork={(conversation) => forkConversation.mutate(conversation)}
               onArchive={(conversation) => archiveConversation.mutate(conversation)}
               onMarkRead={(conversation) => markConversationReadState.mutate({ conversation, unread: false })}
@@ -236,7 +236,7 @@ export function V2ConversationsPage() {
               snapshotById={snapshotById}
               pinnedConversationIds={safePinnedConversationIds}
               actionPending={actionPending}
-              onOpen={(conversation) => navigate(`/v2/conversations/${conversation.id}`)}
+              onOpen={(conversation) => navigate(`/conversations/${conversation.id}`)}
               onFork={(conversation) => forkConversation.mutate(conversation)}
               onArchive={(conversation) => archiveConversation.mutate(conversation)}
               onMarkRead={(conversation) => markConversationReadState.mutate({ conversation, unread: false })}

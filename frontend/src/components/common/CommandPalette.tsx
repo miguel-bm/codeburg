@@ -66,7 +66,7 @@ function TypeBadge({ type }: { type: string }) {
 export function CommandPalette({ onClose }: CommandPaletteProps) {
   const [search, setSearch] = useState('');
   const navigate = useNavigate();
-  const { navigateToPanel, closePanel } = usePanelNavigation();
+  const { navigateToPanel } = usePanelNavigation();
   const containerRef = useRef<HTMLDivElement>(null);
 
   const { data: sidebar } = useQuery({
@@ -254,17 +254,17 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
               {/* Actions */}
               <Command.Group heading="Actions" className="cmdk-group">
                 <Command.Item
-                  value="Dashboard"
-                  onSelect={() => select(() => closePanel())}
+                  value="Classic Dashboard"
+                  onSelect={() => select(() => navigate('/classic'))}
                   className="cmdk-item"
                 >
                   <LayoutDashboard className="w-4 h-4 text-dim flex-shrink-0" />
-                  <span className="text-sm flex-1">Go to Dashboard</span>
+                  <span className="text-sm flex-1">Classic dashboard</span>
                 </Command.Item>
                 <Command.Item
                   value="Create Task"
                   keywords={['new', 'add']}
-                  onSelect={() => select(() => navigate('/tasks/quick'))}
+                  onSelect={() => select(() => navigate('/classic/tasks/quick'))}
                   className="cmdk-item"
                 >
                   <Plus className="w-4 h-4 text-dim flex-shrink-0" />
@@ -275,7 +275,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
                     key={`filter-${p.id}`}
                     value={`Filter ${p.name}`}
                     keywords={[p.name, 'dashboard', 'board']}
-                    onSelect={() => select(() => navigate(`/?project=${p.id}`))}
+                    onSelect={() => select(() => navigate(`/classic?project=${p.id}`))}
                     className="cmdk-item"
                   >
                     <Filter className="w-4 h-4 text-dim flex-shrink-0" />

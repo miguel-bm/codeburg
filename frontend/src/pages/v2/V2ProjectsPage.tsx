@@ -154,7 +154,7 @@ export function V2ProjectsPage() {
 function ProjectDirectoryRow({ project, mobile = false }: { project: Project; mobile?: boolean }) {
   return (
     <Link
-      to={`/v2/projects/${project.id}`}
+      to={`/projects/${project.id}`}
       className={`group/project grid min-w-0 items-center gap-3 rounded-lg text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-card-hover)] focus-visible:bg-[var(--color-card-hover)] ${
         mobile ? 'grid-cols-[auto_1fr_auto] px-2 py-3' : 'grid-cols-[auto_minmax(0,1fr)_auto] px-3 py-2.5'
       }`}

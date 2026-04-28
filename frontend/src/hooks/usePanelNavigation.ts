@@ -13,6 +13,20 @@ function normalizeSearch(search: string): string {
 export function usePanelNavigation() {
   const location = useLocation();
   const navigate = useNavigate();
+  const isClassicSurface = location.pathname === '/classic' || location.pathname.startsWith('/classic/');
+
+  const resolvePanelPath = useCallback((targetPath: string) => {
+    if (!targetPath.startsWith('/')) {
+      return targetPath;
+    }
+    if (isClassicSurface) {
+      return `/classic${targetPath}`;
+    }
+    if (targetPath.startsWith('/tasks')) {
+      return `/classic${targetPath}`;
+    }
+    return targetPath;
+  }, [isClassicSurface]);
 
   const isExpanded = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -45,7 +59,8 @@ export function usePanelNavigation() {
 
   const navigateToPanel = useCallback((to: string, options?: { replace?: boolean }) => {
     // Parse the target URL
-    const [targetPath, targetSearch = ''] = to.split('?');
+    const [rawTargetPath, targetSearch = ''] = to.split('?');
+    const targetPath = resolvePanelPath(rawTargetPath);
 
     // "Same element" = same pathname (search params like ?session= are sub-selections
     // within the same panel, not different elements)
@@ -84,7 +99,7 @@ export function usePanelNavigation() {
       const qs = params.toString();
       navigate(targetPath + (qs ? `?${qs}` : ''), options);
     }
-  }, [location.pathname, location.search, isExpanded, navigate]);
+  }, [location.pathname, location.search, isExpanded, navigate, resolvePanelPath]);
 
   const closePanel = useCallback(() => {
     const params = new URLSearchParams();
@@ -92,8 +107,8 @@ export function usePanelNavigation() {
       if (DASHBOARD_PARAMS.has(key)) params.set(key, value);
     }
     const qs = params.toString();
-    navigate('/' + (qs ? `?${qs}` : ''));
-  }, [location.search, navigate]);
+    navigate(`${isClassicSurface ? '/classic' : '/'}${qs ? `?${qs}` : ''}`);
+  }, [isClassicSurface, location.search, navigate]);
 
   return { isExpanded, toggleExpanded, setExpanded, navigateToPanel, closePanel };
 }

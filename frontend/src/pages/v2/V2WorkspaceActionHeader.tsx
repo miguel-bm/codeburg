@@ -133,7 +133,7 @@ export function V2WorkspaceActionHeader({
     onSuccess: async (response) => {
       setBranchMode(null);
       await queryClient.invalidateQueries({ queryKey: ['v2-workspaces', project.id] });
-      navigate(`/v2/projects/${project.id}?workspace=${response.workspace.id}`);
+      navigate(`/projects/${project.id}?workspace=${response.workspace.id}`);
     },
     onError: (error) => setOperationError(error instanceof Error ? error.message : 'Workspace creation failed'),
   });

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from './stores/auth';
 import { Login } from './pages/Login';
@@ -68,7 +68,7 @@ function MainAppShell() {
   return (
     <>
       <Routes>
-        <Route path="/v2" element={<V2Layout />}>
+        <Route path="/" element={<V2Layout />}>
           <Route index element={<V2ProjectsPage />} />
           <Route path="conversations" element={<V2ConversationsPage />} />
           <Route path="conversations/:conversationId" element={<V2ConversationDetailPage />} />
@@ -78,21 +78,28 @@ function MainAppShell() {
           <Route path="projects/:id/skills" element={<V2ProjectSkillsPage />} />
           <Route path="projects/:id/pi" element={<V2ProjectPiPage />} />
           <Route path="projects/:id/settings" element={<V2ProjectSettingsPage />} />
-          <Route path="settings" element={<Navigate to="/v2/harness" replace />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
-        <Route path="/" element={<Layout><DashboardWithPanels /></Layout>}>
+        <Route path="/classic" element={<Layout><DashboardWithPanels /></Layout>}>
           <Route path="tasks/quick" element={<QuickTaskWizard />} />
           <Route path="tasks/new" element={<TaskCreate />} />
           <Route path="tasks/:id" element={<TaskDetail />} />
           <Route path="projects/:id" element={<ProjectWorkspace />} />
           <Route path="projects/:id/settings" element={<ProjectSettings />} />
         </Route>
-        <Route path="/settings" element={<Layout><Settings /></Layout>} />
+        <Route path="/classic/settings" element={<Layout><Settings /></Layout>} />
+        <Route path="/v2/*" element={<V2PathRedirect />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
     </>
   );
+}
+
+function V2PathRedirect() {
+  const location = useLocation();
+  const nextPath = location.pathname.replace(/^\/v2(?=\/|$)/, '') || '/';
+  return <Navigate to={`${nextPath}${location.search}${location.hash}`} replace />;
 }
 
 function AppShell() {

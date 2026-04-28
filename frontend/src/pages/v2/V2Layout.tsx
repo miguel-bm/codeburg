@@ -62,13 +62,14 @@ export function V2Layout() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isMobile = useMobile();
-  const isMobileHome = isMobile && location.pathname === '/v2';
+  const isMobileHome = isMobile && location.pathname === '/';
   const projectTreeScrollRef = useRef<HTMLDivElement>(null);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [projectTreeMenuOpen, setProjectTreeMenuOpen] = useState(false);
   const [projectTreeMode, setProjectTreeMode] = useState<ProjectTreeMode>('project');
   const [projectTreeSort, setProjectTreeSort] = useState<ProjectTreeSort>('updated');
   const [projectTreeShow, setProjectTreeShow] = useState<ProjectTreeShow>('relevant');
+  const [projectTreeCollapsed, setProjectTreeCollapsed] = useState(false);
   const [projectExpansionCommand, setProjectExpansionCommand] = useState<ProjectExpansionCommand | null>(null);
   const [sidebarContextMenu, setSidebarContextMenu] = useState<SidebarContextMenu | null>(null);
   const sidebarExpanded = useSidebarStore(selectIsExpanded);
@@ -137,7 +138,7 @@ export function V2Layout() {
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', conversation.projectId, 'sidebar'] }),
         queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
-      navigate(`/v2/conversations/${conversation.id}`);
+      navigate(`/conversations/${conversation.id}`);
     },
   });
   const archiveOrDeleteConversation = useMutation({
@@ -164,11 +165,11 @@ export function V2Layout() {
         queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', projectId, 'sidebar'] }),
         queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
       ]);
-      if (location.pathname === `/v2/conversations/${conversationId}`) {
+      if (location.pathname === `/conversations/${conversationId}`) {
         const params = new URLSearchParams();
         if (workspaceId) params.set('workspace', workspaceId);
         const query = params.toString();
-        navigate(`/v2/projects/${projectId}${query ? `?${query}` : ''}`, { replace: true });
+        navigate(`/projects/${projectId}${query ? `?${query}` : ''}`, { replace: true });
       }
     },
   });
@@ -216,7 +217,7 @@ export function V2Layout() {
     onSuccess: async (terminal, { project }) => {
       await queryClient.invalidateQueries({ queryKey: ['v2-terminals', terminal.workspaceId] });
       await queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] });
-      navigate(`/v2/projects/${project.id}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`);
+      navigate(`/projects/${project.id}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`);
     },
   });
   const syncWorkspace = useMutation({
@@ -232,7 +233,7 @@ export function V2Layout() {
     onSuccess: async (response) => {
       await queryClient.invalidateQueries({ queryKey: ['v2-workspaces', response.workspace.projectId] });
       await queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] });
-      navigate(`/v2/projects/${response.workspace.projectId}?workspace=${response.workspace.id}`);
+      navigate(`/projects/${response.workspace.projectId}?workspace=${response.workspace.id}`);
     },
   });
   const mutateWorkspaceStatus = useMutation({
@@ -251,10 +252,10 @@ export function V2Layout() {
       ]);
       if (
         action !== 'activate' &&
-        location.pathname === `/v2/projects/${updated.projectId}` &&
+        location.pathname === `/projects/${updated.projectId}` &&
         new URLSearchParams(location.search).get('workspace') === updated.id
       ) {
-        navigate(`/v2/projects/${updated.projectId}`);
+        navigate(`/projects/${updated.projectId}`);
       }
     },
   });
@@ -286,6 +287,11 @@ export function V2Layout() {
   const openSidebarContextMenu = (menu: SidebarContextMenu) => {
     setProjectTreeMenuOpen(false);
     setSidebarContextMenu(menu);
+  };
+  const toggleProjectTreeExpansion = () => {
+    const nextCollapsed = !projectTreeCollapsed;
+    setProjectTreeCollapsed(nextCollapsed);
+    setProjectExpansionCommand({ id: Date.now(), expanded: !nextCollapsed });
   };
 
   useEffect(() => {
@@ -322,19 +328,18 @@ export function V2Layout() {
       </div>
 
       <nav className="space-y-1 px-2">
-        <SidebarAction icon={<PlugZap size={15} />} label="Harness" onClick={() => navigate('/v2/harness')} />
-        <SidebarAction icon={<MessageSquareText size={15} />} label="All conversations" onClick={() => navigate('/v2/conversations')} />
+        <SidebarAction icon={<PlugZap size={15} />} label="Harness" onClick={() => navigate('/harness')} />
+        <SidebarAction icon={<MessageSquareText size={15} />} label="All conversations" onClick={() => navigate('/conversations')} />
       </nav>
 
       <ProjectsTreeHeader
-        count={visibleProjects.length}
+        collapsed={projectTreeCollapsed}
         menuOpen={projectTreeMenuOpen}
         mode={projectTreeMode}
         sort={projectTreeSort}
         show={projectTreeShow}
         mobile={isMobile}
-        onExpandAll={() => setProjectExpansionCommand({ id: Date.now(), expanded: true })}
-        onCollapseAll={() => setProjectExpansionCommand({ id: Date.now(), expanded: false })}
+        onToggleExpansion={toggleProjectTreeExpansion}
         onToggleMenu={() => setProjectTreeMenuOpen((value) => !value)}
         onCloseMenu={() => setProjectTreeMenuOpen(false)}
         onModeChange={setProjectTreeMode}
@@ -397,11 +402,15 @@ export function V2Layout() {
 
       <div className="border-t border-[var(--color-card-border)] p-2">
         <Link
-          to="/v2/harness"
-          className="flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] md:min-h-0 md:py-2"
+          to="/settings"
+          className={`flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] md:min-h-0 md:py-2 ${
+            location.pathname.startsWith('/settings')
+              ? 'bg-[var(--color-card)] text-[var(--color-text-primary)]'
+              : 'text-[var(--color-text-secondary)]'
+          }`}
         >
-          <PlugZap size={15} />
-          Harness
+          <Settings size={15} />
+          Settings
         </Link>
       </div>
 
@@ -424,7 +433,7 @@ export function V2Layout() {
           {isMobileHome ? (
             <section className="flex h-full min-h-0 flex-col bg-canvas">
               <header className="flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.8rem)]">
-                <Link to="/v2" className="flex min-w-0 items-center overflow-visible py-0.5">
+                <Link to="/" className="flex min-w-0 items-center overflow-visible py-0.5">
                   <CodeburgWordmark height={30} className="overflow-visible" />
                 </Link>
                 <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-full bg-[var(--color-card)] px-2.5 text-sm font-semibold text-dim">
@@ -442,9 +451,9 @@ export function V2Layout() {
 
         <V2MobileBottomNav
           pathname={location.pathname}
-          onHome={() => navigate('/v2')}
-          onConversations={() => navigate('/v2/conversations')}
-          onSettings={() => navigate('/v2/harness')}
+          onHome={() => navigate('/')}
+          onConversations={() => navigate('/conversations')}
+          onSettings={() => navigate('/settings')}
         />
       </div>
     );
@@ -457,7 +466,7 @@ export function V2Layout() {
         style={desktopTopInset > 0 ? { paddingTop: `${desktopTopInset}px` } : undefined}
       >
         <div className={`flex h-12 items-center ${sidebarExpanded ? 'justify-between px-3' : 'justify-center px-1'}`}>
-          <Link to="/v2" className={`flex min-w-0 items-center rounded-md hover:bg-[var(--color-card)] ${sidebarExpanded ? 'px-2 py-1.5' : 'p-1.5'}`}>
+          <Link to="/" className={`flex min-w-0 items-center rounded-md hover:bg-[var(--color-card)] ${sidebarExpanded ? 'px-2 py-1.5' : 'p-1.5'}`}>
             {sidebarExpanded ? <CodeburgWordmark className="text-[var(--color-text-primary)]" /> : <CodeburgIcon size={22} />}
           </Link>
           {sidebarExpanded && (
@@ -508,16 +517,17 @@ function V2MobileBottomNav({
   onConversations: () => void;
   onSettings: () => void;
 }) {
-  const conversationsActive = pathname.startsWith('/v2/conversations');
-  const settingsActive = pathname.startsWith('/v2/settings') || pathname.startsWith('/v2/harness');
-  const homeActive = !conversationsActive && !settingsActive;
+  const conversationsActive = pathname.startsWith('/conversations');
+  const settingsActive = pathname.startsWith('/settings');
+  const harnessActive = pathname.startsWith('/harness');
+  const homeActive = !conversationsActive && !settingsActive && !harnessActive;
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-[70] border-t border-[var(--color-card-border)] bg-canvas/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-14px_32px_rgba(15,23,42,0.08)] backdrop-blur-xl">
       <div className="grid h-[64px] grid-cols-3">
         <V2MobileNavButton active={homeActive} icon={<Folder size={18} />} label="Home" onClick={onHome} />
         <V2MobileNavButton active={conversationsActive} icon={<MessageSquareText size={18} />} label="Chat" onClick={onConversations} />
-        <V2MobileNavButton active={settingsActive} icon={<PlugZap size={18} />} label="Harness" onClick={onSettings} />
+        <V2MobileNavButton active={settingsActive} icon={<Settings size={18} />} label="Settings" onClick={onSettings} />
       </div>
     </nav>
   );
@@ -552,14 +562,13 @@ function V2MobileNavButton({
 }
 
 function ProjectsTreeHeader({
-  count,
+  collapsed,
   menuOpen,
   mode,
   sort,
   show,
   mobile,
-  onExpandAll,
-  onCollapseAll,
+  onToggleExpansion,
   onToggleMenu,
   onCloseMenu,
   onModeChange,
@@ -567,14 +576,13 @@ function ProjectsTreeHeader({
   onShowChange,
   onNewProject,
 }: {
-  count: number;
+  collapsed: boolean;
   menuOpen: boolean;
   mode: ProjectTreeMode;
   sort: ProjectTreeSort;
   show: ProjectTreeShow;
   mobile: boolean;
-  onExpandAll: () => void;
-  onCollapseAll: () => void;
+  onToggleExpansion: () => void;
   onToggleMenu: () => void;
   onCloseMenu: () => void;
   onModeChange: (mode: ProjectTreeMode) => void;
@@ -587,9 +595,11 @@ function ProjectsTreeHeader({
       <div className="flex items-center justify-between px-4 text-[11px] font-medium uppercase text-dim">
         <span>Projects</span>
         <div className="flex items-center gap-1">
-          <span className="mr-1">{count}</span>
-          <HeaderIconButton icon={<Maximize2 size={13} />} label="Expand all projects" onClick={onExpandAll} />
-          <HeaderIconButton icon={<Minimize2 size={13} />} label="Collapse all projects" onClick={onCollapseAll} />
+          <HeaderIconButton
+            icon={collapsed ? <Maximize2 size={13} /> : <Minimize2 size={13} />}
+            label={collapsed ? 'Expand all projects' : 'Collapse all projects'}
+            onClick={onToggleExpansion}
+          />
           <HeaderIconButton icon={<ArrowDownUp size={13} />} label="Organize projects" onClick={onToggleMenu} active={menuOpen} />
           <HeaderIconButton icon={<BookPlus size={13} />} label="New project" onClick={onNewProject} />
         </div>
@@ -741,9 +751,9 @@ function ProjectTree({
   const queryClient = useQueryClient();
   const longPressTimer = useRef<number | null>(null);
   const longPressTriggered = useRef(false);
-  const projectRouteActive = pathname === `/v2/projects/${project.id}`;
-  const projectDescendantActive = pathname.startsWith(`/v2/projects/${project.id}/`);
-  const activeConversationId = pathname.match(/^\/v2\/conversations\/([^/]+)/)?.[1];
+  const projectRouteActive = pathname === `/projects/${project.id}`;
+  const projectDescendantActive = pathname.startsWith(`/projects/${project.id}/`);
+  const activeConversationId = pathname.match(/^\/conversations\/([^/]+)/)?.[1];
   const conversationActive = conversations.some((conversation) => conversation.id === activeConversationId);
   const projectInPath = projectRouteActive || projectDescendantActive || conversationActive;
   const [expanded, setExpanded] = useState(mobile || projectInPath);
@@ -813,7 +823,7 @@ function ProjectTree({
             return;
           }
           onCloseContextMenu();
-          navigate(`/v2/projects/${project.id}`);
+          navigate(`/projects/${project.id}`);
         }}
         onContextMenu={(event) => {
           event.preventDefault();
@@ -853,7 +863,7 @@ function ProjectTree({
             event.preventDefault();
             event.stopPropagation();
             onCloseContextMenu();
-            navigate(`/v2/projects/${project.id}?newWorkspace=1`);
+            navigate(`/projects/${project.id}?newWorkspace=1`);
           }}
         >
           <FolderPlus size={13} />
@@ -879,7 +889,7 @@ function ProjectTree({
             : 'absolute right-1 top-8 z-50 w-52 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'}
             data-sidebar-context-menu-root
           >
-            <ProjectMenuItem icon={<FolderOpen size={14} />} onClick={() => runProjectAction(() => navigate(`/v2/projects/${project.id}`))}>Open project</ProjectMenuItem>
+            <ProjectMenuItem icon={<FolderOpen size={14} />} onClick={() => runProjectAction(() => navigate(`/projects/${project.id}`))}>Open project</ProjectMenuItem>
             <ProjectMenuItem
               icon={treeOpen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
               onClick={() => runProjectAction(() => {
@@ -889,13 +899,13 @@ function ProjectTree({
             >
               {treeOpen ? 'Collapse project' : 'Expand project'}
             </ProjectMenuItem>
-            <ProjectMenuItem icon={<FolderPlus size={14} />} onClick={() => runProjectAction(() => navigate(`/v2/projects/${project.id}?newWorkspace=1`))}>New workspace</ProjectMenuItem>
+            <ProjectMenuItem icon={<FolderPlus size={14} />} onClick={() => runProjectAction(() => navigate(`/projects/${project.id}?newWorkspace=1`))}>New workspace</ProjectMenuItem>
             <ProjectMenuItem icon={pinned ? <PinOff size={14} /> : <Pin size={14} />} onClick={() => runProjectAction(() => void togglePinnedProject(project.id, queryClient))}>
               {pinned ? 'Unpin project' : 'Pin project'}
             </ProjectMenuItem>
-            <ProjectMenuItem icon={<Hammer size={14} />} onClick={() => runProjectAction(() => navigate(`/v2/projects/${project.id}/skills`))}>Skills</ProjectMenuItem>
+            <ProjectMenuItem icon={<Hammer size={14} />} onClick={() => runProjectAction(() => navigate(`/projects/${project.id}/skills`))}>Skills</ProjectMenuItem>
             <ProjectMenuItem icon={<Pencil size={14} />} onClick={() => runProjectAction(() => void renameProject(project, queryClient))}>Rename project</ProjectMenuItem>
-            <ProjectMenuItem icon={<Settings size={14} />} onClick={() => runProjectAction(() => navigate(`/v2/projects/${project.id}/settings`))}>Settings</ProjectMenuItem>
+            <ProjectMenuItem icon={<Settings size={14} />} onClick={() => runProjectAction(() => navigate(`/projects/${project.id}/settings`))}>Settings</ProjectMenuItem>
             <ProjectMenuDivider />
             <ProjectMenuItem icon={<Copy size={14} />} onClick={() => runProjectAction(onCopyProjectPath)}>Copy repo path</ProjectMenuItem>
             <ProjectMenuItem icon={<Copy size={14} />} disabled={!project.gitOrigin} onClick={() => runProjectAction(onCopyProjectRemote)}>Copy repo remote</ProjectMenuItem>
@@ -942,7 +952,7 @@ function ProjectTree({
                       return;
                     }
                     onCloseContextMenu();
-                    navigate(`/v2/projects/${project.id}?workspace=${workspace.id}`);
+                    navigate(`/projects/${project.id}?workspace=${workspace.id}`);
                   }}
                   onContextMenu={(event) => {
                     event.preventDefault();
@@ -1000,7 +1010,7 @@ function ProjectTree({
                     >
                       <ProjectMenuItem
                         icon={<SquareStack size={14} />}
-                        onClick={() => runWorkspaceAction(() => navigate(`/v2/projects/${project.id}?workspace=${workspace.id}`))}
+                        onClick={() => runWorkspaceAction(() => navigate(`/projects/${project.id}?workspace=${workspace.id}`))}
                       >
                         Open workspace
                       </ProjectMenuItem>
@@ -1245,7 +1255,7 @@ function ConversationSidebarRow({
         }
         if (!editing) {
           closeMenu();
-          navigate(`/v2/conversations/${conversation.id}`);
+          navigate(`/conversations/${conversation.id}`);
         }
       }}
       onPointerDown={startLongPress}
@@ -1261,7 +1271,7 @@ function ConversationSidebarRow({
             event.preventDefault();
             event.stopPropagation();
             closeMenu();
-            navigate(`/v2/conversations/${conversation.id}`);
+            navigate(`/conversations/${conversation.id}`);
           }}
           title="Open conversation"
         >
@@ -1322,7 +1332,7 @@ function ConversationSidebarRow({
             : 'absolute right-1 top-7 z-50 w-48 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'}
             data-sidebar-context-menu-root
           >
-            <ProjectMenuItem icon={<MessageSquareText size={14} />} onClick={() => runAction(() => navigate(`/v2/conversations/${conversation.id}`))}>
+            <ProjectMenuItem icon={<MessageSquareText size={14} />} onClick={() => runAction(() => navigate(`/conversations/${conversation.id}`))}>
               Open conversation
             </ProjectMenuItem>
             <ProjectMenuItem
@@ -1573,5 +1583,5 @@ async function archiveProject(project: Project, queryClient: QueryClient, naviga
   await projectsApi.update(project.id, { hidden: true });
   await queryClient.invalidateQueries({ queryKey: ['v2-projects'] });
   await queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] });
-  navigate('/v2');
+  navigate('/');
 }

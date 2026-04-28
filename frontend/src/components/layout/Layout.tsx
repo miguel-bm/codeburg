@@ -77,7 +77,7 @@ export function Layout({ children }: LayoutProps) {
   // Mobile tab bar handlers
   const handleHome = useCallback(() => {
     setSidebarOpen(false);
-    if (location.pathname !== '/') navigate('/');
+    if (location.pathname !== '/classic') navigate('/classic');
   }, [location.pathname, navigate]);
 
   const handleProjects = useCallback(() => {
@@ -86,13 +86,13 @@ export function Layout({ children }: LayoutProps) {
 
   const handleSettings = useCallback(() => {
     setSidebarOpen(false);
-    if (location.pathname !== '/settings') navigate('/settings');
+    if (location.pathname !== '/classic/settings') navigate('/classic/settings');
   }, [location.pathname, navigate]);
 
   // Determine active tab
   const activeTab = sidebarOpen
     ? 'projects' as const
-    : location.pathname === '/settings'
+    : location.pathname === '/classic/settings'
       ? 'settings' as const
       : 'home' as const;
 

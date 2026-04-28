@@ -53,7 +53,7 @@ export function V2ProjectConversationsPage() {
     onSuccess: async (forked) => {
       await queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', id] });
       await queryClient.invalidateQueries({ queryKey: ['v2-conversations'] });
-      navigate(`/v2/conversations/${forked.id}`);
+      navigate(`/conversations/${forked.id}`);
     },
   });
 
@@ -66,13 +66,13 @@ export function V2ProjectConversationsPage() {
   return (
     <V2Screen>
       <V2Header
-        backTo={project ? `/v2/projects/${project.id}` : '/v2'}
+        backTo={project ? `/projects/${project.id}` : '/'}
         backLabel="Back to workspace"
         eyebrow="Project conversations"
         title={project?.name ?? 'Project'}
         subtitle="Use conversations for durable planning and agent work. A thread can be project-scoped, attached to a workspace, moved later, or forked when the work branches."
         actions={project && (
-          <Link to="/v2/harness">
+          <Link to="/harness">
             <Button size="xs" variant="secondary" icon={<Settings2 size={13} />}>Harness</Button>
           </Link>
         )}
@@ -167,7 +167,7 @@ function ConversationRow({
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
             <MessageSquareText size={15} className="shrink-0 text-dim" />
-            <Link to={`/v2/conversations/${conversation.id}`} className="truncate text-sm font-medium hover:text-accent">
+            <Link to={`/conversations/${conversation.id}`} className="truncate text-sm font-medium hover:text-accent">
               {conversation.title}
             </Link>
             <Badge variant="label" color={conversation.status === 'active' ? 'blue' : conversation.status === 'completed' ? 'green' : 'gray'}>
@@ -183,7 +183,7 @@ function ConversationRow({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Button size="xs" variant="secondary" icon={<GitBranchPlus size={13} />} disabled={forkPending} onClick={onFork}>Fork</Button>
-          <Link to={`/v2/conversations/${conversation.id}`}>
+          <Link to={`/conversations/${conversation.id}`}>
             <Button size="xs" variant="primary" iconRight={<ArrowRight size={13} />}>Open</Button>
           </Link>
         </div>

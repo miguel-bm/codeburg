@@ -7,5 +7,5 @@ export function QuickTaskWizard() {
   next.set('status', TASK_STATUS.IN_PROGRESS);
 
   const query = next.toString();
-  return <Navigate to={`/tasks/new${query ? `?${query}` : ''}`} replace />;
+  return <Navigate to={`/classic/tasks/new${query ? `?${query}` : ''}`} replace />;
 }
