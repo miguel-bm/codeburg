@@ -26,7 +26,8 @@ import {
 } from './v2-ui';
 import { V2WorkspaceActionHeader } from './V2WorkspaceActionHeader';
 import { V2WorkspaceToolTabs, V2WorkspaceTools, V2WorkspaceToolsSurface, type V2HelperTab } from './V2WorkspaceTools';
-import { WorkspaceConversationTab, WorkspacePreviewTab, WorkspaceTerminalTab, workspacePreviewTabKey, workspacePreviewTabLabel } from './V2WorkspaceTabs';
+import { WorkspaceConversationTab, WorkspacePreviewTab, WorkspaceTerminalTab } from './V2WorkspaceTabs';
+import { workspacePreviewTabKey, workspacePreviewTabLabel } from './V2WorkspaceTabHelpers';
 
 type MainSurface = { type: 'terminal'; terminalId: string } | { type: 'workspaceTab'; index: number } | null;
 
