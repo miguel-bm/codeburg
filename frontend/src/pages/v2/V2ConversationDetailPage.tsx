@@ -837,6 +837,8 @@ function ConversationSurface({
   const modelOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const messageScrollerRef = useRef<HTMLDivElement>(null);
   const stickToLatestRef = useRef(true);
+  const branchSwitchScrollRef = useRef<{ top: number; height: number } | null>(null);
+  const branchSwitchTimerRef = useRef<number | null>(null);
   const suggestionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const queryClient = useQueryClient();
   const [selection, setSelection] = useState<InputSelection>({ start: 0, end: 0 });
@@ -856,6 +858,7 @@ function ConversationSurface({
   const [forkDialogError, setForkDialogError] = useState<string | null>(null);
   const [editingMessage, setEditingMessage] = useState<EditingMessageState | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
+  const [branchSwitching, setBranchSwitching] = useState(false);
   const imageDragDepth = useRef(0);
   const composerStyle = isMobile && keyboardVisible
     ? { paddingBottom: keyboardHeight + 12 }
@@ -926,13 +929,35 @@ function ConversationSurface({
   });
   const selectTreeLeaf = useMutation({
     mutationFn: (leafId: string) => v2Api.selectConversationTreeLeaf(conversationId, { leafId }),
+    onMutate: () => {
+      if (branchSwitchTimerRef.current) {
+        window.clearTimeout(branchSwitchTimerRef.current);
+        branchSwitchTimerRef.current = null;
+      }
+      const node = messageScrollerRef.current;
+      branchSwitchScrollRef.current = node ? { top: node.scrollTop, height: node.scrollHeight } : null;
+      setBranchSwitching(true);
+    },
     onSuccess: (nextSnapshot) => {
       onApplySnapshot(nextSnapshot);
-      stickToLatestRef.current = true;
-      setIsAtLatest(true);
-      scrollToLatest('smooth');
+      requestAnimationFrame(() => {
+        const node = messageScrollerRef.current;
+        const previous = branchSwitchScrollRef.current;
+        if (node && previous) {
+          const delta = node.scrollHeight - previous.height;
+          node.scrollTop = Math.max(0, previous.top + delta);
+          updateStickToLatest();
+        }
+        branchSwitchScrollRef.current = null;
+      });
       void queryClient.invalidateQueries({ queryKey: ['v2-conversation-tree', conversationId] });
       void queryClient.invalidateQueries({ queryKey: ['v2-conversation-state', conversationId] });
+    },
+    onSettled: () => {
+      branchSwitchTimerRef.current = window.setTimeout(() => {
+        setBranchSwitching(false);
+        branchSwitchTimerRef.current = null;
+      }, 180);
     },
   });
   const editTreeMessage = useMutation({
@@ -1103,6 +1128,12 @@ function ConversationSurface({
     setEditingMessage(null);
     setEditError(null);
   }, [conversationId, scrollToLatest]);
+
+  useEffect(() => () => {
+    if (branchSwitchTimerRef.current) {
+      window.clearTimeout(branchSwitchTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (stickToLatestRef.current) scrollToLatest();
@@ -1281,7 +1312,7 @@ function ConversationSurface({
     <div className="flex h-full min-h-0 flex-col">
       <div ref={messageScrollerRef} onScroll={updateStickToLatest} className="relative min-h-0 flex-1 overflow-auto px-3 py-4 md:px-6 md:py-5">
         {messages.length ? (
-          <div className="mx-auto max-w-4xl space-y-4 md:space-y-5">
+          <div className={`mx-auto max-w-4xl space-y-4 transition-opacity duration-150 ease-out-quart md:space-y-5 ${selectTreeLeaf.isPending ? 'opacity-85' : 'opacity-100'}`}>
             {messageItems.map((item, index) => item.type === 'message' ? (
               <MessageRow
                 key={item.message.id || `${item.message.role}-${index}`}
@@ -1296,6 +1327,7 @@ function ConversationSurface({
                 onSelectVersion={(leafId) => selectTreeLeaf.mutate(leafId)}
                 onEdit={() => beginEditingMessage(item.message)}
                 editDisabled={Boolean(isStreaming || sending || editTreeMessage.isPending)}
+                animate={!branchSwitching}
               />
             ) : (
               <CollapsedTurnEvents
@@ -1303,6 +1335,7 @@ function ConversationSurface({
                 messages={item.messages}
                 copiedMessageId={copiedMessageId}
                 onCopy={(message) => void copyMessage(message)}
+                animate={!branchSwitching}
               />
             ))}
             {pendingVisible && <PendingAssistant snapshot={snapshot} />}
@@ -2163,6 +2196,7 @@ function MessageRow({
   onSelectVersion,
   onEdit,
   editDisabled = false,
+  animate = true,
 }: {
   message: PiConversationMessage;
   copied: boolean;
@@ -2176,6 +2210,7 @@ function MessageRow({
   onSelectVersion?: (leafId: string) => void;
   onEdit?: () => void;
   editDisabled?: boolean;
+  animate?: boolean;
 }) {
   const isUser = message.role === 'user';
   if (isToolMessage(message)) {
@@ -2184,7 +2219,7 @@ function MessageRow({
 
   if (isUser) {
     return (
-      <div className="group flex justify-end animate-message-enter">
+      <div className={`group flex justify-end ${animate ? 'animate-message-enter' : ''}`}>
         <div className="max-w-[90%] md:max-w-[min(74%,46rem)]">
           <div className="rounded-2xl rounded-br-md bg-[var(--color-accent)]/8 px-2.5 py-2 text-sm leading-6 text-[var(--color-text-primary)] md:px-3">
             {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
@@ -2207,7 +2242,7 @@ function MessageRow({
     );
   }
   return (
-    <article className={`group w-full max-w-[74ch] animate-message-enter text-sm leading-6 ${message.isError ? 'text-[var(--color-error)]' : 'text-[var(--color-text-primary)]'}`}>
+    <article className={`group w-full max-w-[74ch] text-sm leading-6 ${animate ? 'animate-message-enter' : ''} ${message.isError ? 'text-[var(--color-error)]' : 'text-[var(--color-text-primary)]'}`}>
       <div>
         {message.thinking && <CollapsibleEvent icon={<Sparkles size={14} />} title="Thinking" body={message.thinking} />}
         {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
@@ -2282,10 +2317,12 @@ function CollapsedTurnEvents({
   messages,
   copiedMessageId,
   onCopy,
+  animate = true,
 }: {
   messages: PiConversationMessage[];
   copiedMessageId: string | null;
   onCopy: (message: PiConversationMessage) => void;
+  animate?: boolean;
 }) {
   const toolCount = messages.filter((message) => isToolMessage(message) || (message.toolCalls?.length ?? 0) > 0).length;
   const thinkingCount = messages.filter((message) => Boolean(message.thinking)).length;
@@ -2308,6 +2345,7 @@ function CollapsedTurnEvents({
             compact
             copied={copiedMessageId === message.id}
             onCopy={() => onCopy(message)}
+            animate={animate}
           />
         ))}
       </div>
