@@ -174,19 +174,32 @@ export function DiffTab({ file, staged, base, commit, onClose }: DiffTabProps) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-canvas">
-      <div className="flex shrink-0 items-center justify-between gap-3 px-3 py-2 text-[11px] font-medium text-dim shadow-[inset_0_-1px_0_var(--color-card-border)]">
-        <span>{allFiles.length} changed file{allFiles.length !== 1 ? 's' : ''} expanded</span>
-        {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 text-dim hover:bg-tertiary hover:text-[var(--color-text-primary)]"
-            title="Close diff"
-            aria-label="Close diff"
-          >
-            <X size={13} />
-          </button>
-        )}
+      <div className="flex shrink-0 items-center justify-between gap-3 bg-[var(--color-card)] px-3 py-2 text-[11px] font-medium text-dim shadow-[inset_0_-1px_0_var(--color-card-border)]">
+        <span>
+          {visibleFiles.length} of {allFiles.length} changed file{allFiles.length !== 1 ? 's' : ''}
+        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {remainingFiles > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowAllFiles(true)}
+              className="rounded-md px-2 py-1 text-[11px] font-medium text-dim transition-colors hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]"
+            >
+              Show all
+            </button>
+          )}
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded p-1 text-dim hover:bg-tertiary hover:text-[var(--color-text-primary)]"
+              title="Close diff"
+              aria-label="Close diff"
+            >
+              <X size={13} />
+            </button>
+          )}
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
         {visibleFiles.map((f) => (
@@ -240,11 +253,10 @@ function ExpandedDiffFile({
   const lineCount = countLines(diffContent?.original ?? '') + countLines(diffContent?.modified ?? '');
   const isLargeDiff = lineCount > LARGE_DIFF_LINE_LIMIT;
   const shouldRenderDiff = diffContent && diffContent.original !== diffContent.modified && (!isLargeDiff || showLargeDiff);
-  const diffHeight = Math.min(520, Math.max(180, lineCount * 18 + 36));
 
   return (
-    <section className="shadow-[inset_0_-1px_0_var(--color-card-border)]">
-      <div className="flex items-center justify-between gap-3 px-3 py-2">
+    <section className="bg-canvas shadow-[inset_0_-1px_0_var(--color-card-border)]">
+      <div className="flex items-center justify-between gap-3 bg-[var(--color-card)] px-3 py-2 shadow-[inset_0_-1px_0_var(--color-card-border)]">
         <button
           type="button"
           onClick={onOpenFocusedDiff}
@@ -263,19 +275,20 @@ function ExpandedDiffFile({
         <button
           type="button"
           onClick={onOpenFile}
-          className="shrink-0 rounded-md px-1.5 py-1 text-[10px] font-medium text-dim transition-colors hover:bg-[var(--color-card)] hover:text-accent"
+          className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium text-dim transition-colors hover:bg-[var(--color-card-hover)] hover:text-accent"
         >
+          <FilePenLine size={11} />
           Open
         </button>
       </div>
       {isLoading ? (
-        <div className="px-4 pb-4 text-xs text-dim">loading diff...</div>
+        <div className="px-4 py-5 text-xs text-dim">loading diff...</div>
       ) : error ? (
-        <div className="px-4 pb-4 text-xs text-[var(--color-error)]">{(error as Error).message}</div>
+        <div className="px-4 py-5 text-xs text-[var(--color-error)]">{(error as Error).message}</div>
       ) : !diffContent || diffContent.original === diffContent.modified ? (
-        <div className="px-4 pb-4 text-xs text-dim">no changes</div>
+        <div className="px-4 py-5 text-xs text-dim">no changes</div>
       ) : isLargeDiff && !showLargeDiff ? (
-        <div className="flex items-center justify-between gap-3 px-4 pb-4 text-xs text-dim">
+        <div className="flex items-center justify-between gap-3 px-4 py-5 text-xs text-dim">
           <span>{lineCount.toLocaleString()} lines. Large files stay collapsed until opened.</span>
           <button
             type="button"
@@ -286,10 +299,8 @@ function ExpandedDiffFile({
           </button>
         </div>
       ) : shouldRenderDiff ? (
-        <div className="px-3 pb-3" style={{ height: diffHeight }}>
-          <div className="h-full overflow-hidden rounded-md bg-[var(--color-inset)]">
-            <DiffContent original={diffContent.original} modified={diffContent.modified} path={file.path} />
-          </div>
+        <div className="bg-[var(--color-inset)]">
+          <DiffContent autoHeight layoutMode="unified" original={diffContent.original} modified={diffContent.modified} path={file.path} />
         </div>
       ) : null}
     </section>

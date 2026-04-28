@@ -6,7 +6,7 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import { getLanguageExtension, darkEditorTheme, lightEditorTheme } from './editorUtils';
 import { getResolvedTheme, subscribeToThemeChange } from '../../lib/theme';
 import { useMobile } from '../../hooks/useMobile';
-import { getDiffLayoutMode } from './diffLayout';
+import { getDiffLayoutMode, type DiffLayoutMode } from './diffLayout';
 
 // GitHub-style diff colors — background highlights instead of underlines
 const githubDiffDark = EditorView.theme({
@@ -76,13 +76,27 @@ const githubDiffLight = EditorView.theme({
   },
 }, { dark: false });
 
+const autoHeightDiffTheme = EditorView.theme({
+  '&': {
+    height: 'auto',
+  },
+  '.cm-scroller': {
+    overflow: 'visible',
+  },
+  '.cm-gutters': {
+    minHeight: 'auto',
+  },
+});
+
 interface DiffContentProps {
   original: string;
   modified: string;
   path: string;
+  autoHeight?: boolean;
+  layoutMode?: DiffLayoutMode;
 }
 
-export function DiffContent({ original, modified, path }: DiffContentProps) {
+export function DiffContent({ original, modified, path, autoHeight = false, layoutMode: layoutModeOverride }: DiffContentProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<{ destroy: () => void } | null>(null);
   const isMobile = useMobile();
@@ -104,11 +118,12 @@ export function DiffContent({ original, modified, path }: DiffContentProps) {
       ...(theme === 'dark' ? [oneDark] : []),
       themeExt,
       diffTheme,
+      ...(autoHeight ? [autoHeightDiffTheme] : []),
       EditorView.lineWrapping,
       EditorState.readOnly.of(true),
       EditorView.editable.of(false),
     ];
-  }, [path, theme]);
+  }, [autoHeight, path, theme]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -126,8 +141,8 @@ export function DiffContent({ original, modified, path }: DiffContentProps) {
   }, []);
 
   const layoutMode = useMemo(
-    () => getDiffLayoutMode({ isMobile, containerWidth, original, modified }),
-    [isMobile, containerWidth, original, modified],
+    () => layoutModeOverride ?? getDiffLayoutMode({ isMobile, containerWidth, original, modified }),
+    [containerWidth, isMobile, layoutModeOverride, modified, original],
   );
 
   useEffect(() => {
@@ -186,7 +201,7 @@ export function DiffContent({ original, modified, path }: DiffContentProps) {
   return (
     <div
       ref={containerRef}
-      className="h-full overflow-auto"
+      className={autoHeight ? 'overflow-visible' : 'h-full overflow-auto'}
       style={{ backgroundColor: 'var(--color-inset)' }}
     />
   );

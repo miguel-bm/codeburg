@@ -35,7 +35,7 @@ import {
   X,
 } from 'lucide-react';
 import { projectsApi } from '../../api';
-import type { Conversation, PiAvailableModel, PiConversationImageAttachment, PiConversationMessage, PiConversationSessionStats, PiConversationSnapshot, PiThinkingLevel, PiToolExecution, TerminalSession, V2SidebarData, Workspace } from '../../api/types';
+import type { Conversation, PiAvailableModel, PiConversationForkPosition, PiConversationImageAttachment, PiConversationMessage, PiConversationSessionStats, PiConversationSnapshot, PiThinkingLevel, PiToolExecution, TerminalSession, V2SidebarData, Workspace } from '../../api/types';
 import { v2Api, type V2FileEntry } from '../../api/v2';
 import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
 import { Modal } from '../../components/ui/Modal';
@@ -79,10 +79,10 @@ type ConversationRenderItem =
 
 type ForkDialogState =
   | { kind: 'current'; title: string }
-  | { kind: 'message'; entryId: string; title: string };
+  | { kind: 'message'; entryId: string; position: PiConversationForkPosition; title: string };
 type ForkDialogTarget =
   | { kind: 'current' }
-  | { kind: 'message'; entryId: string };
+  | { kind: 'message'; entryId: string; position: PiConversationForkPosition };
 
 const MAX_SUGGESTIONS = 8;
 const FILE_INDEX_DEPTH = 12;
@@ -317,9 +317,10 @@ export function V2ConversationDetailPage() {
     },
   });
   const forkConversationFromMessage = useMutation({
-    mutationFn: ({ entryId, title }: { entryId: string; title?: string }) =>
+    mutationFn: ({ entryId, position, title }: { entryId: string; position: PiConversationForkPosition; title?: string }) =>
       v2Api.forkConversationFromMessage(conversationId!, {
         entryId,
+        position,
         title: cleanForkTitle(title, conversation?.title),
         currentWorkspaceId: activeWorkspaceId ?? conversation?.currentWorkspaceId,
       }),
@@ -671,7 +672,7 @@ export function V2ConversationDetailPage() {
                 modelSwitching={setConversationModel.isPending}
                 forkPending={forkConversationFromMessage.isPending}
                 onSetModel={(provider, modelId) => setConversationModel.mutate({ provider, modelId })}
-                onForkFromMessage={async (entryId, title) => { await forkConversationFromMessage.mutateAsync({ entryId, title }); }}
+                onForkFromMessage={async (entryId, position, title) => { await forkConversationFromMessage.mutateAsync({ entryId, position, title }); }}
                 workspaces={safeWorkspaces}
                 activeWorkspace={attachedWorkspace ?? null}
                 movePending={updateWorkspace.isPending}
@@ -793,7 +794,7 @@ function ConversationSurface({
   modelSwitching: boolean;
   forkPending: boolean;
   onSetModel: (provider: string, modelId: string) => void;
-  onForkFromMessage: (entryId: string, title?: string) => Promise<void>;
+  onForkFromMessage: (entryId: string, position: PiConversationForkPosition, title?: string) => Promise<void>;
   workspaces: Workspace[];
   activeWorkspace: Workspace | null;
   movePending: boolean;
@@ -1117,7 +1118,7 @@ function ConversationSurface({
     setForkDialogError(null);
     try {
       if (forkDialog.kind === 'message') {
-        await onForkFromMessage(forkDialog.entryId, title);
+        await onForkFromMessage(forkDialog.entryId, forkDialog.position, title);
       } else {
         await onForkConversation(title);
       }
@@ -2382,10 +2383,11 @@ function messageCopyText(message: PiConversationMessage): string {
 
 function messageForkTarget(message: PiConversationMessage, messages: PiConversationMessage[]): ForkDialogTarget | null {
   if (message.role !== 'assistant' || !message.text?.trim()) return null;
+  if (message.entryId) return { kind: 'message', entryId: message.entryId, position: 'at' };
   const index = messages.findIndex((candidate) => candidate.id === message.id);
   if (index < 0) return { kind: 'current' };
   const nextUser = messages.slice(index + 1).find((candidate) => candidate.role === 'user' && candidate.entryId);
-  if (nextUser?.entryId) return { kind: 'message', entryId: nextUser.entryId };
+  if (nextUser?.entryId) return { kind: 'message', entryId: nextUser.entryId, position: 'before' };
   return { kind: 'current' };
 }
 

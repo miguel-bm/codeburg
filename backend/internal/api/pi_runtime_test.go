@@ -1,6 +1,9 @@
 package api
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -115,6 +118,68 @@ func TestPiConversationPassiveReadsDoNotStartRuntime(t *testing.T) {
 	}
 }
 
+func TestPiSessionBranchMessagesAndForksUseActiveBranch(t *testing.T) {
+	sourceSession := writeTestPiSession(t, t.TempDir(), []map[string]any{
+		{"type": "session", "version": 3, "id": "session-1", "timestamp": "2026-01-01T00:00:00Z", "cwd": "/source"},
+		{"type": "message", "id": "u1", "parentId": nil, "timestamp": "2026-01-01T00:00:01Z", "message": map[string]any{"role": "user", "content": "start"}},
+		{"type": "message", "id": "a1", "parentId": "u1", "timestamp": "2026-01-01T00:00:02Z", "message": map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "answer"}}}},
+		{"type": "message", "id": "u2", "parentId": "a1", "timestamp": "2026-01-01T00:00:03Z", "message": map[string]any{"role": "user", "content": "abandoned"}},
+		{"type": "message", "id": "a2", "parentId": "u2", "timestamp": "2026-01-01T00:00:04Z", "message": map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "old branch"}}}},
+		{"type": "message", "id": "u3", "parentId": "a1", "timestamp": "2026-01-01T00:00:05Z", "message": map[string]any{"role": "user", "content": "branch"}},
+		{"type": "message", "id": "a3", "parentId": "u3", "timestamp": "2026-01-01T00:00:06Z", "message": map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "new branch"}}}},
+	})
+
+	messages, err := piSessionMessages(sourceSession)
+	if err != nil {
+		t.Fatalf("piSessionMessages: %v", err)
+	}
+	if got := messageEntryIDs(messages); got != "u1,a1,u3,a3" {
+		t.Fatalf("expected active branch message IDs, got %s", got)
+	}
+
+	cloned, err := clonePiSessionFile(sourceSession, "/target")
+	if err != nil {
+		t.Fatalf("clonePiSessionFile: %v", err)
+	}
+	clonedMessages, err := piSessionMessages(cloned)
+	if err != nil {
+		t.Fatalf("cloned piSessionMessages: %v", err)
+	}
+	if got := messageEntryIDs(clonedMessages); got != "u1,a1,u3,a3" {
+		t.Fatalf("expected cloned active branch IDs, got %s", got)
+	}
+
+	selected, assistantFork, err := forkPiSessionFileFromEntry(sourceSession, "/target", "a1", "at")
+	if err != nil {
+		t.Fatalf("fork assistant entry: %v", err)
+	}
+	if selected != "" {
+		t.Fatalf("assistant fork should not return editor text, got %q", selected)
+	}
+	assistantForkMessages, err := piSessionMessages(assistantFork)
+	if err != nil {
+		t.Fatalf("assistant fork messages: %v", err)
+	}
+	if got := messageEntryIDs(assistantForkMessages); got != "u1,a1" {
+		t.Fatalf("expected assistant fork through selected assistant, got %s", got)
+	}
+
+	selected, userFork, err := forkPiSessionFileFromEntry(sourceSession, "/target", "u3", "before")
+	if err != nil {
+		t.Fatalf("fork user entry: %v", err)
+	}
+	if selected != "branch" {
+		t.Fatalf("expected selected user text, got %q", selected)
+	}
+	userForkMessages, err := piSessionMessages(userFork)
+	if err != nil {
+		t.Fatalf("user fork messages: %v", err)
+	}
+	if got := messageEntryIDs(userForkMessages); got != "u1,a1" {
+		t.Fatalf("expected user fork before selected message, got %s", got)
+	}
+}
+
 func testPiRuntime(manager *piConversationManager, conversationID string, workDir string) *piConversationRuntime {
 	return &piConversationRuntime{
 		manager:         manager,
@@ -131,4 +196,33 @@ func testPiRuntime(manager *piConversationManager, conversationID string, workDi
 			UpdatedAt:      time.Now().UTC().Format(time.RFC3339),
 		},
 	}
+}
+
+func writeTestPiSession(t *testing.T, dir string, entries []map[string]any) string {
+	t.Helper()
+	path := filepath.Join(dir, "session.jsonl")
+	lines := make([]byte, 0)
+	for _, entry := range entries {
+		raw, err := json.Marshal(entry)
+		if err != nil {
+			t.Fatalf("marshal session entry: %v", err)
+		}
+		lines = append(lines, raw...)
+		lines = append(lines, '\n')
+	}
+	if err := os.WriteFile(path, lines, 0644); err != nil {
+		t.Fatalf("write session: %v", err)
+	}
+	return path
+}
+
+func messageEntryIDs(messages []piConversationMessage) string {
+	result := ""
+	for _, message := range messages {
+		if result != "" {
+			result += ","
+		}
+		result += message.EntryID
+	}
+	return result
 }

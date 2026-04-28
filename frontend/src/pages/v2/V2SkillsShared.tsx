@@ -7,6 +7,12 @@ export type SkillTarget = 'agents' | 'codex' | 'claude';
 export type InstallScope = 'project' | 'global';
 export type InstallMode = 'symlink' | 'copy';
 
+type CatalogSkillGroup = {
+  key: string;
+  name: string;
+  entries: SkillCatalogEntry[];
+};
+
 type ChoiceOption<T extends string> = {
   value: T;
   label: string;
@@ -141,79 +147,119 @@ export function CatalogSkillList({
   if (entries.length === 0) {
     return <V2Empty title={emptyTitle} />;
   }
+  const groups = groupCatalogEntriesByName(entries);
   return (
     <div className="space-y-0.5">
-      {entries.map((entry) => {
-        const state = getInstallState?.(entry) ?? {};
-        return (
-          <CatalogSkillRow
-            key={`${entry.sourceId}:${entry.skillPath}`}
-            entry={entry}
-            target={target}
-            installLabel={state.label ?? (state.installed ? 'Installed' : installLabel)}
-            installIcon={state.installed ? <Check size={13} /> : installIcon}
-            installed={state.installed}
-            installing={state.installing}
-            disabled={state.disabled || state.installed || !onInstall}
-            onInstall={() => onInstall?.(entry)}
-          />
-        );
-      })}
+      {groups.map((group) => (
+        <CatalogSkillRow
+          key={group.key}
+          group={group}
+          target={target}
+          installLabel={installLabel}
+          installIcon={installIcon}
+          getInstallState={getInstallState}
+          onInstall={onInstall}
+        />
+      ))}
     </div>
   );
 }
 
 function CatalogSkillRow({
-  entry,
+  group,
   target,
   installLabel,
   installIcon,
-  installed,
-  installing,
-  disabled,
+  getInstallState,
   onInstall,
 }: {
-  entry: SkillCatalogEntry;
+  group: CatalogSkillGroup;
   target: SkillTarget;
   installLabel: string;
   installIcon?: ReactNode;
-  installed?: boolean;
-  installing?: boolean;
-  disabled?: boolean;
-  onInstall: () => void;
+  getInstallState?: (entry: SkillCatalogEntry) => {
+    installed?: boolean;
+    installing?: boolean;
+    disabled?: boolean;
+    label?: string;
+  };
+  onInstall?: (entry: SkillCatalogEntry) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const entryUrl = catalogEntryUrl(entry);
+  const [selectedKey, setSelectedKey] = useState(() => catalogEntryKey(group.entries[0]));
+  const selectedEntry = group.entries.find((entry) => catalogEntryKey(entry) === selectedKey) ?? group.entries[0];
+  const state = getInstallState?.(selectedEntry) ?? {};
+  const installed = state.installed;
+  const installing = state.installing;
+  const disabled = state.disabled || state.installed || !onInstall;
+  const rowInstallLabel = state.label ?? (state.installed ? 'Installed' : installLabel);
+  const entryUrl = catalogEntryUrl(selectedEntry);
+  const hasVariants = group.entries.length > 1;
   return (
     <div className={`rounded-lg px-2.5 py-2 transition-colors hover:bg-[var(--color-card-hover)] ${installed ? 'opacity-65' : ''}`}>
       <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
-            <div className="truncate text-sm font-medium">{entry.title}</div>
+            <div className="truncate text-sm font-medium">{selectedEntry.title}</div>
             <TargetPill target={target} />
+            {hasVariants && <span className="rounded-md bg-[var(--color-inset)] px-1.5 py-0.5 text-[10px] text-dim">{group.entries.length} sources</span>}
             {installed && <span className="rounded-md bg-[var(--color-inset)] px-1.5 py-0.5 text-[10px] text-dim">already installed</span>}
           </div>
           <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] text-dim">
-            <span className="shrink-0">{entry.sourceName}</span>
-            <span className="min-w-0 truncate font-mono">{entry.skillPath}</span>
-            {entry.description && <span className="min-w-0 max-w-[30rem] truncate">{entry.description}</span>}
+            <span className="shrink-0">{selectedEntry.sourceName}</span>
+            <span className="min-w-0 truncate font-mono">{selectedEntry.skillPath}</span>
+            {selectedEntry.description && <span className="min-w-0 max-w-[30rem] truncate">{selectedEntry.description}</span>}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button size="xs" variant="ghost" icon={<Info size={13} />} onClick={() => setExpanded((value) => !value)}>
-            Details
+            {hasVariants ? 'Sources' : 'Details'}
           </Button>
-          <Button size="xs" variant={installed ? 'ghost' : 'secondary'} icon={installIcon} loading={installing} disabled={disabled} onClick={onInstall}>
-            {installLabel}
+          <Button size="xs" variant={installed ? 'ghost' : 'secondary'} icon={installed ? <Check size={13} /> : installIcon} loading={installing} disabled={disabled} onClick={() => onInstall?.(selectedEntry)}>
+            {rowInstallLabel}
           </Button>
         </div>
       </div>
       {expanded && (
         <div className="mt-3 space-y-2 rounded-lg bg-[var(--color-inset)] px-3 py-2 text-xs leading-5 text-[var(--color-text-secondary)]">
-          {entry.description && <div>{entry.description}</div>}
-          <DetailLine label="Catalog" value={entry.sourceName} />
-          <DetailLine label="Skill path" value={entry.skillPath} />
-          <DetailLine label="Ref" value={entry.repoRef || 'main'} />
+          {selectedEntry.description && <div>{selectedEntry.description}</div>}
+          {hasVariants && (
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-medium uppercase text-dim">Sources</div>
+              {group.entries.map((entry) => {
+                const key = catalogEntryKey(entry);
+                const selected = key === catalogEntryKey(selectedEntry);
+                const sourceUrl = catalogEntryUrl(entry);
+                return (
+                  <div key={key} className={`grid gap-2 rounded-md px-2 py-1.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center ${selected ? 'bg-[var(--color-card)]' : ''}`}>
+                    <button type="button" className="min-w-0 text-left" onClick={() => setSelectedKey(key)}>
+                      <div className="truncate text-xs font-medium text-[var(--color-text-primary)]">{entry.sourceName}</div>
+                      <div className="truncate font-mono text-[11px] text-dim">{entry.skillPath}</div>
+                    </button>
+                    <div className="flex items-center gap-1">
+                      {sourceUrl && (
+                        <a
+                          href={sourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]"
+                        >
+                          <ExternalLink size={12} />
+                          Open
+                        </a>
+                      )}
+                      <Button size="xs" variant={selected ? 'secondary' : 'ghost'} disabled={selected} onClick={() => setSelectedKey(key)}>
+                        {selected ? 'Selected' : 'Use'}
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <DetailLine label="Catalog" value={selectedEntry.sourceName} />
+          <DetailLine label="Skill path" value={selectedEntry.skillPath} />
+          <DetailLine label="Ref" value={selectedEntry.repoRef || 'main'} />
           {entryUrl && (
             <a
               href={entryUrl}
@@ -229,6 +275,31 @@ function CatalogSkillRow({
       )}
     </div>
   );
+}
+
+function groupCatalogEntriesByName(entries: SkillCatalogEntry[]): CatalogSkillGroup[] {
+  const groups = new Map<string, CatalogSkillGroup>();
+  for (const entry of entries) {
+    const key = entry.name.trim().toLowerCase();
+    const group = groups.get(key);
+    if (group) {
+      group.entries.push(entry);
+    } else {
+      groups.set(key, { key, name: entry.name, entries: [entry] });
+    }
+  }
+  return Array.from(groups.values()).map((group) => ({
+    ...group,
+    entries: [...group.entries].sort((a, b) => {
+      const sourceCompare = a.sourceName.localeCompare(b.sourceName);
+      if (sourceCompare !== 0) return sourceCompare;
+      return a.skillPath.localeCompare(b.skillPath);
+    }),
+  }));
+}
+
+function catalogEntryKey(entry: SkillCatalogEntry) {
+  return `${entry.sourceId}:${entry.skillPath}`;
 }
 
 export function InstallFromPathForm({

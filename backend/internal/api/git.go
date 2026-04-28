@@ -1225,8 +1225,9 @@ func gitDiffContent(workDir string, file string, staged bool, base bool, baseBra
 
 	if base {
 		// Diff against merge-base with default branch
-		mergeBaseRef := baseBranch
-		mbOut, err := runGit(workDir, "merge-base", baseBranch, "HEAD")
+		compareTarget := resolveBaseDiffRef(workDir, baseBranch)
+		mergeBaseRef := compareTarget
+		mbOut, err := runGit(workDir, "merge-base", compareTarget, "HEAD")
 		if err == nil {
 			mergeBaseRef = strings.TrimSpace(mbOut)
 		}
@@ -1300,6 +1301,24 @@ func gitDiffContent(workDir string, file string, staged bool, base bool, baseBra
 	}
 
 	return resp, nil
+}
+
+func resolveBaseDiffRef(workDir, baseBranch string) string {
+	baseBranch = strings.TrimSpace(baseBranch)
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
+	if strings.HasPrefix(baseBranch, "origin/") || strings.HasPrefix(baseBranch, "refs/") {
+		if gitRefExists(workDir, baseBranch) {
+			return baseBranch
+		}
+		return baseBranch
+	}
+	remoteBase := "origin/" + baseBranch
+	if gitRefExists(workDir, remoteBase) {
+		return remoteBase
+	}
+	return baseBranch
 }
 
 func (s *Server) handleGitDiffContent(w http.ResponseWriter, r *http.Request) {

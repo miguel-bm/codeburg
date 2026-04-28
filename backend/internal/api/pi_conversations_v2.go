@@ -42,6 +42,7 @@ type conversationExportRequest struct {
 
 type conversationForkMessageRequest struct {
 	EntryID            string  `json:"entryId"`
+	Position           string  `json:"position,omitempty"`
 	Title              *string `json:"title,omitempty"`
 	CurrentWorkspaceID *string `json:"currentWorkspaceId,omitempty"`
 }
@@ -404,7 +405,7 @@ func (s *Server) handleForkConversationFromMessage(w http.ResponseWriter, r *htt
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	selectedText, snapshot, err := s.pi.ForkFromEntry(current, forked, sourceWorkDir, targetWorkDir, entryID)
+	selectedText, snapshot, err := s.pi.ForkFromEntry(current, forked, sourceWorkDir, targetWorkDir, entryID, req.Position)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

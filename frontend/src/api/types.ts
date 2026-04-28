@@ -464,6 +464,8 @@ export interface PiConversationMessage {
   timestamp?: string;
 }
 
+export type PiConversationForkPosition = 'before' | 'at';
+
 export interface PiStreamingAssistant {
   text?: string;
   thinking?: string;

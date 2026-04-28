@@ -85,6 +85,21 @@ type piForkMessage struct {
 	Text    string `json:"text"`
 }
 
+type piSessionEntry struct {
+	Type      string
+	ID        string
+	ParentID  string
+	Timestamp time.Time
+	Raw       map[string]any
+}
+
+type piSessionFile struct {
+	Header  map[string]any
+	Entries []piSessionEntry
+	ByID    map[string]piSessionEntry
+	LeafID  string
+}
+
 type piConversationSnapshot struct {
 	ConversationID        string                  `json:"conversationId"`
 	RuntimeActive         bool                    `json:"runtimeActive"`
@@ -774,7 +789,7 @@ func (m *piConversationManager) sourceSessionFile(source *db.Conversation, sourc
 	return sourceSession, nil
 }
 
-func (m *piConversationManager) ForkFromEntry(source *db.Conversation, forked *db.Conversation, sourceWorkDir, targetWorkDir, entryID string) (string, piConversationSnapshot, error) {
+func (m *piConversationManager) ForkFromEntry(source *db.Conversation, forked *db.Conversation, sourceWorkDir, targetWorkDir, entryID, position string) (string, piConversationSnapshot, error) {
 	sourceSession, err := m.sourceSessionFile(source, sourceWorkDir)
 	if err != nil {
 		return "", piConversationSnapshot{}, err
@@ -783,28 +798,21 @@ func (m *piConversationManager) ForkFromEntry(source *db.Conversation, forked *d
 		return "", piConversationSnapshot{}, fmt.Errorf("conversation has no pi session to fork")
 	}
 
+	selectedText, sessionFile, err := forkPiSessionFileFromEntry(sourceSession, targetWorkDir, entryID, position)
+	if err != nil {
+		return "", piConversationSnapshot{}, err
+	}
+	if _, err := m.db.UpdateConversation(forked.ID, db.UpdateConversationInput{
+		ProviderSessionID: stringPtr(sessionFile),
+	}); err != nil {
+		return "", piConversationSnapshot{}, err
+	}
+	forked.ProviderSessionID = stringPtr(sessionFile)
+
 	runtime, err := m.ensureRuntime(forked, targetWorkDir)
 	if err != nil {
 		return "", piConversationSnapshot{}, err
 	}
-	if _, err := runtime.sendCommand(map[string]any{
-		"type":        "switch_session",
-		"sessionPath": sourceSession,
-	}); err != nil {
-		return "", piConversationSnapshot{}, err
-	}
-	response, err := runtime.sendCommand(map[string]any{
-		"type":    "fork",
-		"entryId": entryID,
-	})
-	if err != nil {
-		return "", piConversationSnapshot{}, err
-	}
-	data, _ := response["data"].(map[string]any)
-	if boolFromMap(data, "cancelled") {
-		return "", piConversationSnapshot{}, fmt.Errorf("fork cancelled")
-	}
-	selectedText := stringFromMap(data, "text")
 	if strings.TrimSpace(forked.Title) != "" {
 		if _, err := runtime.sendCommand(map[string]any{
 			"type": "set_session_name",
@@ -855,6 +863,10 @@ func staticPiConversationSnapshot(conversation *db.Conversation, workDir string)
 	}
 	if conversation.ProviderSessionID != nil && strings.TrimSpace(*conversation.ProviderSessionID) != "" {
 		snapshot.SessionFile = conversation.ProviderSessionID
+		if messages, err := piSessionMessages(strings.TrimSpace(*conversation.ProviderSessionID)); err == nil {
+			snapshot.Messages = messages
+			snapshot.MessageCount = len(messages)
+		}
 	}
 	if strings.TrimSpace(conversation.Title) != "" {
 		snapshot.SessionName = stringPtr(conversation.Title)
@@ -1069,7 +1081,18 @@ func (rt *piConversationRuntime) refreshMessages() error {
 		}
 		messages = append(messages, normalizePiMessage(rawMap, index))
 	}
-	if forkMessages, err := rt.forkMessages(); err == nil {
+	rt.mu.Lock()
+	streaming := rt.snapshot.Streaming
+	sessionFile := ""
+	if rt.snapshot.SessionFile != nil {
+		sessionFile = strings.TrimSpace(*rt.snapshot.SessionFile)
+	}
+	rt.mu.Unlock()
+	if !streaming && sessionFile != "" {
+		if sessionMessages, err := piSessionMessages(sessionFile); err == nil && len(sessionMessages) >= len(messages) {
+			messages = sessionMessages
+		}
+	} else if forkMessages, err := rt.forkMessages(); err == nil {
 		assignForkEntryIDs(messages, forkMessages)
 	}
 
@@ -1126,15 +1149,49 @@ func assignForkEntryIDs(messages []piConversationMessage, forkMessages []piForkM
 }
 
 func clonePiSessionFile(sourceSession string, targetWorkDir string) (string, error) {
-	raw, err := os.ReadFile(sourceSession)
+	session, err := loadPiSessionFile(sourceSession)
 	if err != nil {
-		return "", fmt.Errorf("read source pi session: %w", err)
+		return "", err
 	}
-	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
-		return "", fmt.Errorf("source pi session is empty")
+	return writePiBranchSessionFile(session, sourceSession, targetWorkDir, session.LeafID)
+}
+
+func forkPiSessionFileFromEntry(sourceSession, targetWorkDir, entryID, position string) (string, string, error) {
+	session, err := loadPiSessionFile(sourceSession)
+	if err != nil {
+		return "", "", err
+	}
+	entry, ok := session.ByID[entryID]
+	if !ok {
+		return "", "", fmt.Errorf("entry %s not found", entryID)
 	}
 
+	selectedText := ""
+	targetLeafID := entry.ID
+	if strings.TrimSpace(position) != "at" {
+		if entry.Type != "message" {
+			return "", "", fmt.Errorf("entry %s cannot be forked before", entryID)
+		}
+		message, _ := entry.Raw["message"].(map[string]any)
+		if stringFromMap(message, "role") != "user" {
+			return "", "", fmt.Errorf("entry %s cannot be forked before", entryID)
+		}
+		selectedText, _ = userContent(message["content"])
+		targetLeafID = entry.ParentID
+	}
+
+	sessionFile, err := writePiBranchSessionFile(session, sourceSession, targetWorkDir, targetLeafID)
+	if err != nil {
+		return "", "", err
+	}
+	return selectedText, sessionFile, nil
+}
+
+func writePiBranchSessionFile(source *piSessionFile, sourceSession string, targetWorkDir string, targetLeafID string) (string, error) {
+	entries, err := source.branchEntries(targetLeafID)
+	if err != nil {
+		return "", err
+	}
 	now := time.Now().UTC()
 	timestamp := now.Format("2006-01-02T15:04:05.000Z")
 	sessionID, err := randomSessionID()
@@ -1147,9 +1204,13 @@ func clonePiSessionFile(sourceSession string, targetWorkDir string) (string, err
 	}
 	sessionFile := filepath.Join(sessionDir, strings.NewReplacer(":", "-", ".", "-").Replace(timestamp)+"_"+sessionID+".jsonl")
 
+	version := any(float64(3))
+	if source.Header != nil && source.Header["version"] != nil {
+		version = source.Header["version"]
+	}
 	header := map[string]any{
 		"type":          "session",
-		"version":       3,
+		"version":       version,
 		"id":            sessionID,
 		"timestamp":     timestamp,
 		"cwd":           targetWorkDir,
@@ -1160,23 +1221,148 @@ func clonePiSessionFile(sourceSession string, targetWorkDir string) (string, err
 		return "", err
 	}
 
-	out := make([]string, 0, len(lines))
+	out := make([]string, 0, len(entries)+1)
 	out = append(out, string(headerRaw))
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
+	for _, entry := range entries {
+		raw, err := json.Marshal(entry.Raw)
+		if err != nil {
+			return "", fmt.Errorf("marshal pi session entry: %w", err)
 		}
-		var entry map[string]any
-		if err := json.Unmarshal([]byte(trimmed), &entry); err == nil && stringFromMap(entry, "type") == "session" {
-			continue
-		}
-		out = append(out, trimmed)
+		out = append(out, string(raw))
 	}
 	if err := os.WriteFile(sessionFile, []byte(strings.Join(out, "\n")+"\n"), 0644); err != nil {
 		return "", fmt.Errorf("write forked pi session: %w", err)
 	}
 	return sessionFile, nil
+}
+
+func loadPiSessionFile(path string) (*piSessionFile, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("read source pi session: %w", err)
+	}
+	defer file.Close()
+
+	session := &piSessionFile{
+		Entries: []piSessionEntry{},
+		ByID:    make(map[string]piSessionEntry),
+	}
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var raw map[string]any
+		if err := json.Unmarshal([]byte(line), &raw); err != nil {
+			return nil, fmt.Errorf("parse pi session: %w", err)
+		}
+		entryType := stringFromMap(raw, "type")
+		if entryType == "session" {
+			session.Header = raw
+			continue
+		}
+		id := stringFromMap(raw, "id")
+		if id == "" {
+			continue
+		}
+		entry := piSessionEntry{
+			Type:      entryType,
+			ID:        id,
+			ParentID:  stringFromMap(raw, "parentId"),
+			Timestamp: timestampFromValue(raw["timestamp"]),
+			Raw:       raw,
+		}
+		session.Entries = append(session.Entries, entry)
+		session.ByID[id] = entry
+		session.LeafID = id
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read source pi session: %w", err)
+	}
+	if session.Header == nil {
+		return nil, fmt.Errorf("source pi session has no header")
+	}
+	return session, nil
+}
+
+func (session *piSessionFile) branchEntries(leafID string) ([]piSessionEntry, error) {
+	if strings.TrimSpace(leafID) == "" {
+		return []piSessionEntry{}, nil
+	}
+
+	entries := make([]piSessionEntry, 0)
+	seen := make(map[string]bool)
+	currentID := leafID
+	for currentID != "" {
+		if seen[currentID] {
+			return nil, fmt.Errorf("pi session branch contains a cycle at %s", currentID)
+		}
+		seen[currentID] = true
+		entry, ok := session.ByID[currentID]
+		if !ok {
+			return nil, fmt.Errorf("pi session entry %s not found", currentID)
+		}
+		entries = append(entries, entry)
+		currentID = entry.ParentID
+	}
+	for left, right := 0, len(entries)-1; left < right; left, right = left+1, right-1 {
+		entries[left], entries[right] = entries[right], entries[left]
+	}
+	return entries, nil
+}
+
+func piSessionMessages(sessionFile string) ([]piConversationMessage, error) {
+	session, err := loadPiSessionFile(sessionFile)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := session.branchEntries(session.LeafID)
+	if err != nil {
+		return nil, err
+	}
+	messages := make([]piConversationMessage, 0, len(entries))
+	for _, entry := range entries {
+		message, ok := piMessageFromSessionEntry(entry, len(messages))
+		if ok {
+			messages = append(messages, message)
+		}
+	}
+	return messages, nil
+}
+
+func piMessageFromSessionEntry(entry piSessionEntry, index int) (piConversationMessage, bool) {
+	var message piConversationMessage
+	switch entry.Type {
+	case "message":
+		messageMap, _ := entry.Raw["message"].(map[string]any)
+		if messageMap == nil {
+			return piConversationMessage{}, false
+		}
+		message = normalizePiMessage(messageMap, index)
+	case "custom_message":
+		message = piConversationMessage{
+			Role: "custom",
+		}
+		message.Text, message.Images = userContent(entry.Raw["content"])
+	case "branch_summary":
+		message = piConversationMessage{
+			Role: "branchSummary",
+			Text: stringFromMap(entry.Raw, "summary"),
+		}
+	case "compaction":
+		message = piConversationMessage{
+			Role: "compactionSummary",
+			Text: stringFromMap(entry.Raw, "summary"),
+		}
+	default:
+		return piConversationMessage{}, false
+	}
+	message.ID = entry.ID
+	message.EntryID = entry.ID
+	message.Timestamp = entry.Timestamp.UTC().Format(time.RFC3339)
+	return message, true
 }
 
 func piSessionDirName(cwd string) string {

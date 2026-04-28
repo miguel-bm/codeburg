@@ -7,6 +7,7 @@ import type {
   Conversation,
   PiConversationSnapshot,
   PiConversationImageAttachment,
+  PiConversationForkPosition,
   PiAvailableModel,
   PiSlashCommand,
   PiThinkingLevel,
@@ -218,7 +219,7 @@ export const v2Api = {
 
   forkConversationFromMessage: (
     conversationId: string,
-    input: { entryId: string; title?: string; currentWorkspaceId?: string }
+    input: { entryId: string; position?: PiConversationForkPosition; title?: string; currentWorkspaceId?: string }
   ) => api.post<ForkConversationFromMessageResponse>(`/conversations/${conversationId}/fork-message`, input),
 
   pauseConversation: (conversationId: string) =>

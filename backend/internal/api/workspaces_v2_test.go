@@ -657,6 +657,63 @@ func TestWorkspaceBaseDiffShowsFeatureWorkspaceChanges(t *testing.T) {
 	}
 }
 
+func TestWorkspaceBaseDiffIgnoresFetchedBaseCommits(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+	repoPath, remotePath := createTestGitRepoWithOrigin(t)
+
+	clonePath := filepath.Join(t.TempDir(), "clone")
+	gitExecHelper(t, filepath.Dir(clonePath), "clone", remotePath, clonePath)
+	gitExecHelper(t, clonePath, "config", "user.email", "test@test.com")
+	gitExecHelper(t, clonePath, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(clonePath, "upstream.txt"), []byte("already on base\n"), 0644); err != nil {
+		t.Fatalf("write upstream file: %v", err)
+	}
+	gitExecHelper(t, clonePath, "add", "upstream.txt")
+	gitExecHelper(t, clonePath, "commit", "-m", "upstream base commit")
+	gitExecHelper(t, clonePath, "push", "origin", "main")
+
+	project, _ := createProjectAndWorkspace(t, env, repoPath)
+	createResp := env.post("/api/projects/"+project.ID+"/workspaces", map[string]any{
+		"name": "Clean fetched base workspace",
+	})
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("create workspace: %d %s", createResp.Code, createResp.Body.String())
+	}
+	var workspaceBody workspaceMutationResponse
+	decodeResponse(t, createResp, &workspaceBody)
+	worktreePath := *workspaceBody.Workspace.WorktreePath
+
+	if _, err := os.Stat(filepath.Join(worktreePath, "upstream.txt")); err != nil {
+		t.Fatalf("expected workspace to be created from fetched base commit: %v", err)
+	}
+
+	diffResp := env.get("/api/workspaces/" + workspaceBody.Workspace.ID + "/git/diff?base=true")
+	if diffResp.Code != http.StatusOK {
+		t.Fatalf("git diff base: %d %s", diffResp.Code, diffResp.Body.String())
+	}
+	var diff GitDiffResponse
+	decodeResponse(t, diffResp, &diff)
+	if strings.TrimSpace(diff.Diff) != "" {
+		t.Fatalf("expected clean workspace base diff to be empty, got %q", diff.Diff)
+	}
+
+	if err := os.WriteFile(filepath.Join(worktreePath, "feature.txt"), []byte("feature only\n"), 0644); err != nil {
+		t.Fatalf("write feature file: %v", err)
+	}
+	gitExecHelper(t, worktreePath, "add", "feature.txt")
+	gitExecHelper(t, worktreePath, "commit", "-m", "feature only")
+
+	diffResp = env.get("/api/workspaces/" + workspaceBody.Workspace.ID + "/git/diff?base=true")
+	if diffResp.Code != http.StatusOK {
+		t.Fatalf("git diff base after feature: %d %s", diffResp.Code, diffResp.Body.String())
+	}
+	decodeResponse(t, diffResp, &diff)
+	if !strings.Contains(diff.Diff, "feature.txt") || strings.Contains(diff.Diff, "upstream.txt") {
+		t.Fatalf("expected base diff to include only feature changes, got %q", diff.Diff)
+	}
+}
+
 func TestWorkspaceEndStateCleanup(t *testing.T) {
 	env := setupTestEnv(t)
 	env.setup("testpass123")

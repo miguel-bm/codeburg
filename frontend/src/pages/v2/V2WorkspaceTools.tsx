@@ -1,5 +1,5 @@
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Files, GitBranch, Search, X } from 'lucide-react';
 import { FileExplorer } from '../../components/workspace/FileExplorer';
 import { FileSearchPanel } from '../../components/workspace/FileSearchPanel';
@@ -63,6 +63,7 @@ export function V2WorkspaceToolsSurface({
   children: ReactNode;
 }) {
   const isMobile = useMobile();
+  const reducedMotion = useReducedMotion();
 
   if (isMobile) {
     return (
@@ -107,13 +108,14 @@ export function V2WorkspaceToolsSurface({
       {open && (
         <motion.div
           key="workspace-tools"
-          className="flex min-h-0 shrink-0 overflow-hidden bg-canvas"
+          className="flex min-h-0 shrink-0 overflow-hidden bg-canvas will-change-transform"
           style={{ width: width + 6 }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+          initial={reducedMotion ? { opacity: 0 } : { x: -18, opacity: 0 }}
+          animate={reducedMotion ? { opacity: 1 } : { x: 0, opacity: 1 }}
+          exit={reducedMotion ? { opacity: 0 } : { x: -14, opacity: 0 }}
           transition={{
-            opacity: { duration: resizing ? 0 : 0.12, ease: [0.22, 1, 0.36, 1] },
+            duration: resizing || reducedMotion ? 0 : 0.2,
+            ease: [0.22, 1, 0.36, 1],
           }}
         >
           <div className="group flex w-1.5 shrink-0 cursor-col-resize items-stretch justify-center bg-canvas" onMouseDown={onResizeStart}>

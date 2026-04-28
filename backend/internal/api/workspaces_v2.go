@@ -1526,7 +1526,7 @@ func (s *Server) handleWorkspaceGitStatus(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleWorkspaceGitDiff(w http.ResponseWriter, r *http.Request) {
 	workspaceID := urlParam(r, "id")
-	_, project, root, ok := s.resolveWorkspaceResources(w, workspaceID)
+	workspace, project, root, ok := s.resolveWorkspaceResources(w, workspaceID)
 	if !ok {
 		return
 	}
@@ -1534,8 +1534,12 @@ func (s *Server) handleWorkspaceGitDiff(w http.ResponseWriter, r *http.Request) 
 	staged := r.URL.Query().Get("staged") == "true"
 	base := r.URL.Query().Get("base") == "true"
 	commitHash := r.URL.Query().Get("commit")
+	baseBranch := workspaceBaseBranch(project, workspace)
+	if base && workspace.Kind == db.WorkspaceKindMain {
+		base = false
+	}
 
-	out, err := workspaceGitDiff(root, file, staged, base, commitHash, project.DefaultBranch)
+	out, err := workspaceGitDiff(root, file, staged, base, commitHash, baseBranch)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1545,7 +1549,7 @@ func (s *Server) handleWorkspaceGitDiff(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleWorkspaceGitDiffContent(w http.ResponseWriter, r *http.Request) {
 	workspaceID := urlParam(r, "id")
-	_, project, root, ok := s.resolveWorkspaceResources(w, workspaceID)
+	workspace, project, root, ok := s.resolveWorkspaceResources(w, workspaceID)
 	if !ok {
 		return
 	}
@@ -1557,7 +1561,11 @@ func (s *Server) handleWorkspaceGitDiffContent(w http.ResponseWriter, r *http.Re
 	staged := r.URL.Query().Get("staged") == "true"
 	base := r.URL.Query().Get("base") == "true"
 	commitHash := r.URL.Query().Get("commit")
-	resp, err := gitDiffContent(root, file, staged, base, project.DefaultBranch, commitHash)
+	baseBranch := workspaceBaseBranch(project, workspace)
+	if base && workspace.Kind == db.WorkspaceKindMain {
+		base = false
+	}
+	resp, err := gitDiffContent(root, file, staged, base, baseBranch, commitHash)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2113,7 +2121,7 @@ func workspaceGitDiff(workDir, file string, staged, base bool, commitHash, baseB
 		if strings.TrimSpace(baseBranch) == "" {
 			baseBranch = "main"
 		}
-		compareTarget := baseBranch
+		compareTarget := resolveBaseDiffRef(workDir, baseBranch)
 		mbOut, err := runGit(workDir, "merge-base", compareTarget, "HEAD")
 		if err != nil {
 			args = []string{"diff", compareTarget + "...HEAD"}
