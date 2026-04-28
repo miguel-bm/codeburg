@@ -920,7 +920,8 @@ func (m *piConversationManager) EditFromEntry(conversation *db.Conversation, wor
 	if stringFromMap(messageMap, "role") != "user" {
 		return piConversationSnapshot{}, fmt.Errorf("only user messages can be edited")
 	}
-	if strings.TrimSpace(entry.ParentID) == "" {
+	targetLeafID := session.logicalConversationParentID(entry.ParentID)
+	if strings.TrimSpace(targetLeafID) == "" {
 		return piConversationSnapshot{}, fmt.Errorf("editing the first message in a pi tree is not available yet")
 	}
 	if runtime := m.existingRuntime(conversation.ID, workDir); runtime != nil {
@@ -933,7 +934,7 @@ func (m *piConversationManager) EditFromEntry(conversation *db.Conversation, wor
 		runtime.stop()
 		m.removeRuntime(conversation.ID, runtime)
 	}
-	if err := selectPiSessionLeaf(sessionFile, entry.ParentID); err != nil {
+	if err := selectPiSessionLeaf(sessionFile, targetLeafID); err != nil {
 		return piConversationSnapshot{}, err
 	}
 	return m.Prompt(conversation, workDir, message, images, "")
@@ -1433,9 +1434,14 @@ func piSessionTreeFromSession(session *piSessionFile) (piConversationTree, error
 	if err != nil {
 		return piConversationTree{}, err
 	}
-	childrenByParent := make(map[string][]piSessionEntry)
+	userSiblingsByParent := make(map[string][]piSessionEntry)
 	for _, entry := range session.Entries {
-		childrenByParent[entry.ParentID] = append(childrenByParent[entry.ParentID], entry)
+		messageMap, _ := entry.Raw["message"].(map[string]any)
+		if entry.Type != "message" || stringFromMap(messageMap, "role") != "user" {
+			continue
+		}
+		parentID := session.logicalConversationParentID(entry.ParentID)
+		userSiblingsByParent[parentID] = append(userSiblingsByParent[parentID], entry)
 	}
 	infos := make([]piConversationMessageVersionInfo, 0)
 	for _, entry := range branch {
@@ -1443,18 +1449,13 @@ func piSessionTreeFromSession(session *piSessionFile) (piConversationTree, error
 		if entry.Type != "message" || !ok || stringFromMap(messageMap, "role") != "user" {
 			continue
 		}
-		userSiblings := make([]piSessionEntry, 0)
-		for _, sibling := range childrenByParent[entry.ParentID] {
-			siblingMessage, _ := sibling.Raw["message"].(map[string]any)
-			if sibling.Type == "message" && stringFromMap(siblingMessage, "role") == "user" {
-				userSiblings = append(userSiblings, sibling)
-			}
-		}
+		logicalParentID := session.logicalConversationParentID(entry.ParentID)
+		userSiblings := userSiblingsByParent[logicalParentID]
 		info := piConversationMessageVersionInfo{
 			EntryID:      entry.ID,
 			VersionIndex: 1,
 			VersionCount: max(1, len(userSiblings)),
-			CanEdit:      strings.TrimSpace(entry.ParentID) != "",
+			CanEdit:      strings.TrimSpace(logicalParentID) != "",
 		}
 		if len(userSiblings) > 1 {
 			activeIndex := 0
@@ -1490,6 +1491,35 @@ func piSessionVersionInfoByEntryID(session *piSessionFile) map[string]piConversa
 		byEntryID[info.EntryID] = info
 	}
 	return byEntryID
+}
+
+func (session *piSessionFile) logicalConversationParentID(parentID string) string {
+	currentID := strings.TrimSpace(parentID)
+	seen := make(map[string]bool)
+	for currentID != "" {
+		if seen[currentID] {
+			return ""
+		}
+		seen[currentID] = true
+		entry, ok := session.ByID[currentID]
+		if !ok {
+			return currentID
+		}
+		if !isTransparentPiTreeEntry(entry) {
+			return currentID
+		}
+		currentID = strings.TrimSpace(entry.ParentID)
+	}
+	return ""
+}
+
+func isTransparentPiTreeEntry(entry piSessionEntry) bool {
+	switch entry.Type {
+	case "session_info", "model_change", "thinking_level_change", "label":
+		return true
+	default:
+		return false
+	}
 }
 
 func (session *piSessionFile) latestLeafForAncestor(ancestorID string) string {

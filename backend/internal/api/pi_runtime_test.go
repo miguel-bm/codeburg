@@ -206,6 +206,39 @@ func TestPiSessionBranchMessagesAndForksUseActiveBranch(t *testing.T) {
 	}
 }
 
+func TestPiSessionTreeGroupsUserVersionsAcrossSessionInfoEntries(t *testing.T) {
+	sourceSession := writeTestPiSession(t, t.TempDir(), []map[string]any{
+		{"type": "session", "version": 3, "id": "session-1", "timestamp": "2026-01-01T00:00:00Z", "cwd": "/source"},
+		{"type": "message", "id": "u1", "parentId": nil, "timestamp": "2026-01-01T00:00:01Z", "message": map[string]any{"role": "user", "content": "start"}},
+		{"type": "message", "id": "a1", "parentId": "u1", "timestamp": "2026-01-01T00:00:02Z", "message": map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "answer"}}}},
+		{"type": "message", "id": "u2", "parentId": "a1", "timestamp": "2026-01-01T00:00:03Z", "message": map[string]any{"role": "user", "content": "first version"}},
+		{"type": "message", "id": "a2", "parentId": "u2", "timestamp": "2026-01-01T00:00:04Z", "message": map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "old"}}}},
+		{"type": "session_info", "id": "info1", "parentId": "a1", "timestamp": "2026-01-01T00:00:05Z"},
+		{"type": "message", "id": "u3", "parentId": "info1", "timestamp": "2026-01-01T00:00:06Z", "message": map[string]any{"role": "user", "content": "edited version"}},
+		{"type": "message", "id": "a3", "parentId": "u3", "timestamp": "2026-01-01T00:00:07Z", "message": map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "new"}}}},
+	})
+
+	tree, err := piSessionTree(sourceSession)
+	if err != nil {
+		t.Fatalf("piSessionTree: %v", err)
+	}
+	info := treeInfoByEntryID(tree, "u3")
+	if info == nil {
+		t.Fatal("expected tree info for edited user message")
+	}
+	if info.VersionIndex != 2 || info.VersionCount != 2 || info.PreviousLeafID != "a2" || info.NextLeafID != "" || !info.CanEdit {
+		t.Fatalf("unexpected u3 tree info: %+v", *info)
+	}
+
+	session, err := loadPiSessionFile(sourceSession)
+	if err != nil {
+		t.Fatalf("loadPiSessionFile: %v", err)
+	}
+	if got := session.logicalConversationParentID("info1"); got != "a1" {
+		t.Fatalf("expected logical parent a1, got %s", got)
+	}
+}
+
 func testPiRuntime(manager *piConversationManager, conversationID string, workDir string) *piConversationRuntime {
 	return &piConversationRuntime{
 		manager:         manager,
