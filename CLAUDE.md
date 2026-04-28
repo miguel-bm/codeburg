@@ -92,16 +92,16 @@ just migrate   # Run migrations
 ### Desktop (macOS)
 
 ```bash
-# Build desktop runtime assets (icon + frontend)
+# Build desktop runtime assets (icon)
 just build-macos
 
-# Start desktop app using saved/default backend target
+# Start desktop app using saved/default hosted frontend target
 just start-macos
 
-# Start desktop app against production server
+# Start desktop app against production hosted frontend
 just start-macos-prod
 
-# Build and run desktop app against production server
+# Build and run desktop app against production hosted frontend
 just run-macos-prod
 
 # Build packaged desktop artifacts (.dmg/.zip/.app in desktop/macos/dist)
@@ -110,10 +110,10 @@ just dist-macos
 
 Desktop notes:
 
-- `start-*` commands launch the app; they do not build frontend/assets.
+- `start-*` commands launch the app; they do not build frontend assets.
 - `build-macos` builds required local runtime assets before launch.
+- The macOS shell loads the configured hosted frontend directly, so frontend deploys update the desktop app on reload/restart.
 - Passkeys currently do not work in desktop shell due to WebAuthn RP ID/origin mismatch.
-- Desktop shell uses `http://localhost:<port>` (not `127.0.0.1`) to satisfy current CORS rules.
 - macOS icon is generated from `frontend/public/codeburg-logo.svg` via `desktop/macos/scripts/build-icon.sh`.
 - Installing `Codeburg.app` into `/Applications` makes it appear in Launchpad. Signed/notarized distribution is still pending.
 

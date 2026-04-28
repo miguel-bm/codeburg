@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ClipboardEvent, Dispatch, DragEvent, ReactNode, SetStateAction } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import {
   Archive,
   ArrowUp,
@@ -34,7 +35,7 @@ import {
   X,
 } from 'lucide-react';
 import { projectsApi } from '../../api';
-import type { Conversation, PiAvailableModel, PiConversationImageAttachment, PiConversationMessage, PiConversationSessionStats, PiConversationSnapshot, PiThinkingLevel, PiToolExecution, TerminalSession, Workspace } from '../../api/types';
+import type { Conversation, PiAvailableModel, PiConversationImageAttachment, PiConversationMessage, PiConversationSessionStats, PiConversationSnapshot, PiThinkingLevel, PiToolExecution, TerminalSession, V2SidebarData, Workspace } from '../../api/types';
 import { v2Api, type V2FileEntry } from '../../api/v2';
 import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
 import { Modal } from '../../components/ui/Modal';
@@ -333,11 +334,7 @@ export function V2ConversationDetailPage() {
     },
     onSuccess: async (updated, nextState) => {
       if (nextState === 'archive') {
-        if (activeWorkspaceId) {
-          queryClient.setQueryData<Conversation[]>(['v2-workspace-conversations', activeWorkspaceId], (current = []) => (
-            current.filter((candidate) => candidate.id !== updated.id)
-          ));
-        }
+        removeConversationFromV2Caches(queryClient, updated.id);
         navigate(nextConversationDestination(updated.id, updated.projectId, activeWorkspaceId, safeWorkspaceConversations), { replace: true });
       }
       await Promise.all([
@@ -2486,6 +2483,30 @@ function nextConversationDestination(
   if (workspaceId) params.set('workspace', workspaceId);
   const query = params.toString();
   return `/projects/${projectId}${query ? `?${query}` : ''}`;
+}
+
+function removeConversationFromV2Caches(queryClient: QueryClient, conversationId: string) {
+  const removeFromList = (current: Conversation[] | undefined) => (
+    current ? current.filter((conversation) => conversation.id !== conversationId) : current
+  );
+
+  queryClient.setQueriesData<Conversation[]>({ queryKey: ['v2-conversations'] }, removeFromList);
+  queryClient.setQueriesData<Conversation[]>({ queryKey: ['v2-workspace-conversations'] }, removeFromList);
+  queryClient.setQueriesData<Conversation[]>({ queryKey: ['v2-project-conversations'] }, removeFromList);
+  queryClient.setQueryData<Conversation>(['v2-conversation', conversationId], (current) => (
+    current ? { ...current, status: 'archived' } : current
+  ));
+  queryClient.setQueryData<V2SidebarData>(['v2-sidebar-summary'], (current) => {
+    if (!current) return current;
+    return {
+      ...current,
+      projects: current.projects.map((entry) => ({
+        ...entry,
+        conversations: entry.conversations.filter((conversation) => conversation.id !== conversationId),
+        states: entry.states.filter((state) => state.conversationId !== conversationId),
+      })),
+    };
+  });
 }
 
 function workspaceBranchLabel(workspace: Workspace): string {

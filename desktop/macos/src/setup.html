@@ -89,17 +89,17 @@
   <body>
     <main class="card">
       <h1>Connect Codeburg Desktop</h1>
-      <p>Set the server origin for API and terminal websocket traffic.</p>
+      <p>Set the hosted Codeburg server this desktop shell should open.</p>
       <form id="setup-form">
         <label for="origin-input">Codeburg Server Origin</label>
         <input
           id="origin-input"
           type="text"
           required
-          placeholder="https://codeburg.example.com"
+          placeholder="https://codeburg.miscellanics.com"
           autocomplete="off"
         />
-        <div class="hint">Use origin only (no trailing <code>/api</code> path).</div>
+        <div class="hint">Use origin only, no trailing <code>/api</code> path.</div>
         <div id="error" class="error" role="alert"></div>
         <div class="actions">
           <button id="save-button" type="submit">Save and Continue</button>
@@ -119,10 +119,10 @@
         }
         try {
           const config = await window.codeburgDesktop.getConnectionConfig();
-          originInput.value = config.serverOrigin || 'http://127.0.0.1:8080';
+          originInput.value = config.serverOrigin || 'https://codeburg.miscellanics.com';
         } catch (error) {
           errorBox.textContent = error instanceof Error ? error.message : 'Unable to load connection settings';
-          originInput.value = 'http://127.0.0.1:8080';
+          originInput.value = 'https://codeburg.miscellanics.com';
         }
       }
 

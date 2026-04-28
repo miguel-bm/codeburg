@@ -25,14 +25,9 @@ dev-be:
 # Build everything (frontend + backend)
 build: build-fe build-be
 
-# Build frontend assets for macOS desktop shell
-build-macos-fe:
-    pnpm --dir desktop/macos build:frontend
-
-# Build local macOS shell assets (icon + frontend dist)
+# Build local macOS shell assets
 build-macos:
     pnpm --dir desktop/macos build:icon
-    pnpm --dir desktop/macos build:frontend
 
 # Build frontend to dist/
 build-fe:
@@ -59,15 +54,15 @@ test-fe:
 test-fe-watch:
     pnpm --dir frontend test:watch
 
-# Run macOS shell against built frontend assets (optional `origin` override)
+# Run macOS shell against the configured or default hosted frontend (optional `origin` override)
 start-macos origin="":
     if [ -n "{{origin}}" ]; then CODEBURG_SERVER_ORIGIN="{{origin}}" pnpm --dir desktop/macos start; else pnpm --dir desktop/macos start; fi
 
-# Run macOS shell against the production server
+# Run macOS shell against the production hosted frontend
 start-macos-prod:
     CODEBURG_SERVER_ORIGIN="https://codeburg.miscellanics.com" pnpm --dir desktop/macos start
 
-# Build and run macOS shell against the production server
+# Build shell assets and run against the production hosted frontend
 run-macos-prod:
     just build-macos
     CODEBURG_SERVER_ORIGIN="https://codeburg.miscellanics.com" pnpm --dir desktop/macos start
@@ -75,6 +70,12 @@ run-macos-prod:
 # Build distributable macOS desktop artifacts
 dist-macos:
     pnpm --dir desktop/macos dist
+
+# Build and install Codeburg.app into /Applications for Launchpad/Raycast
+install-macos:
+    pnpm --dir desktop/macos dist:dir
+    rm -rf /Applications/Codeburg.app
+    cp -R desktop/macos/dist/mac-arm64/Codeburg.app /Applications/Codeburg.app
 
 # --- Database ---
 

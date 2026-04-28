@@ -1,44 +1,25 @@
 const fs = require('node:fs');
-const http = require('node:http');
 const path = require('node:path');
 const { app, BrowserWindow, Menu, ipcMain, safeStorage, shell } = require('electron');
 
-const ROOT_DIR = path.resolve(__dirname, '../../..');
 const FRONTEND_DEV_URL = process.env.ELECTRON_RENDERER_URL ?? 'http://localhost:3000';
 const CONFIG_FILENAME = 'desktop-config.json';
 const AUTH_TOKEN_FILENAME = 'auth-token.json';
-const DEFAULT_SERVER_ORIGIN = 'http://127.0.0.1:8080';
-
-const MIME_TYPES = {
-  '.css': 'text/css; charset=utf-8',
-  '.html': 'text/html; charset=utf-8',
-  '.ico': 'image/x-icon',
-  '.jpeg': 'image/jpeg',
-  '.jpg': 'image/jpeg',
-  '.js': 'text/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png',
-  '.svg': 'image/svg+xml',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
-};
+const DEFAULT_SERVER_ORIGIN = 'https://codeburg.miscellanics.com';
+const APP_ICON_PATH = path.join(__dirname, '..', 'assets', 'codeburg.icns');
 
 const isDevMode = process.env.CODEBURG_ELECTRON_DEV === '1';
 
 let mainWindow = null;
-let distServer = null;
 
 app.setName('Codeburg');
 
-function getConfigPath() {
-  return path.join(app.getPath('userData'), CONFIG_FILENAME);
+if (process.platform === 'darwin' && fs.existsSync(APP_ICON_PATH)) {
+  app.dock?.setIcon(APP_ICON_PATH);
 }
 
-function getFrontendDistDir() {
-  if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'frontend-dist');
-  }
-  return path.join(ROOT_DIR, 'frontend', 'dist');
+function getConfigPath() {
+  return path.join(app.getPath('userData'), CONFIG_FILENAME);
 }
 
 function readConnectionConfig() {
@@ -232,81 +213,21 @@ function resolveRuntimeConfig() {
   };
 }
 
+function resolveRendererOrigin() {
+  if (isDevMode && !hasConfiguredConnectionTarget()) {
+    return new URL(FRONTEND_DEV_URL).origin;
+  }
+
+  const config = readConnectionConfig();
+  return (
+    normalizeServerOrigin(process.env.CODEBURG_SERVER_ORIGIN) ||
+    normalizeServerOrigin(config.serverOrigin) ||
+    DEFAULT_SERVER_ORIGIN
+  );
+}
+
 function getSetupPagePath() {
   return path.join(__dirname, 'setup.html');
-}
-
-function getMimeType(filePath) {
-  return MIME_TYPES[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream';
-}
-
-function resolveRequestedPath(distDir, requestUrl) {
-  const pathname = new URL(requestUrl, 'http://127.0.0.1').pathname;
-  const decoded = decodeURIComponent(pathname);
-  const requested = decoded === '/' ? '/index.html' : decoded;
-  const normalized = path.normalize(path.join(distDir, requested));
-  const relative = path.relative(distDir, normalized);
-
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    return null;
-  }
-  return normalized;
-}
-
-function createDistServer() {
-  return new Promise((resolve, reject) => {
-    const distDir = getFrontendDistDir();
-    const distIndex = path.join(distDir, 'index.html');
-
-    if (!fs.existsSync(distIndex)) {
-      reject(new Error(`Frontend build not found at ${distIndex}`));
-      return;
-    }
-
-    const server = http.createServer((req, res) => {
-      const target = resolveRequestedPath(distDir, req.url ?? '/');
-      let filePath = target;
-      if (!filePath || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-        filePath = distIndex;
-      }
-
-      fs.readFile(filePath, (error, content) => {
-        if (error) {
-          res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-          res.end('Failed to load frontend assets.');
-          return;
-        }
-
-        res.writeHead(200, {
-          'Content-Type': getMimeType(filePath),
-          'Cache-Control': 'no-cache',
-        });
-        res.end(content);
-      });
-    });
-
-    server.on('error', reject);
-    server.listen(0, 'localhost', () => {
-      const address = server.address();
-      if (!address || typeof address === 'string') {
-        reject(new Error('Unable to determine local frontend server address'));
-        return;
-      }
-
-      resolve({
-        server,
-        url: `http://localhost:${address.port}`,
-      });
-    });
-  });
-}
-
-async function ensureDistServer() {
-  if (distServer) {
-    return distServer;
-  }
-  distServer = await createDistServer();
-  return distServer;
 }
 
 async function loadRenderer(windowRef) {
@@ -315,8 +236,7 @@ async function loadRenderer(windowRef) {
     return;
   }
 
-  const localServer = await ensureDistServer();
-  await windowRef.loadURL(localServer.url);
+  await windowRef.loadURL(resolveRendererOrigin());
 }
 
 function isAllowedNavigation(targetUrl) {
@@ -334,10 +254,7 @@ function isAllowedNavigation(targetUrl) {
       const devOrigin = new URL(FRONTEND_DEV_URL).origin;
       return parsed.origin === devOrigin;
     }
-    if (distServer) {
-      const distOrigin = new URL(distServer.url).origin;
-      return parsed.origin === distOrigin;
-    }
+    return parsed.origin === resolveRendererOrigin();
   } catch {
     return false;
   }
@@ -370,6 +287,7 @@ async function createWindow() {
     minWidth: 1120,
     minHeight: 720,
     title: 'Codeburg',
+    icon: APP_ICON_PATH,
     backgroundColor: '#f4f7fb',
     titleBarStyle: 'hiddenInset',
     webPreferences: {
@@ -565,10 +483,6 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  if (distServer) {
-    distServer.server.close();
-    distServer = null;
-  }
   if (process.platform !== 'darwin') {
     app.quit();
   }

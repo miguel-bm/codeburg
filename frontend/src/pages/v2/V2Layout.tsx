@@ -37,7 +37,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { preferencesApi, projectsApi } from '../../api';
-import type { Conversation, PiConversationSnapshot, Project, Workspace } from '../../api/types';
+import type { Conversation, PiConversationSnapshot, Project, V2SidebarData, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { CreateProjectModal } from '../../components/common/CreateProjectModal';
 import { CodeburgIcon, CodeburgWordmark } from '../../components/ui/CodeburgIcon';
@@ -245,6 +245,7 @@ export function V2Layout() {
       return v2Api.cleanupWorkspace(workspace.id);
     },
     onSuccess: async (updated, { action }) => {
+      updateWorkspaceInSidebarCache(queryClient, updated);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['v2-workspaces', updated.projectId] }),
         queryClient.invalidateQueries({ queryKey: ['v2-terminals', updated.id] }),
@@ -760,7 +761,9 @@ function ProjectTree({
   const [userToggled, setUserToggled] = useState(false);
   const treeOpen = expanded;
   const selectedWorkspaceId = new URLSearchParams(search).get('workspace');
-  const safeWorkspaces = Array.isArray(workspaces) ? workspaces : [];
+  const safeWorkspaces = Array.isArray(workspaces)
+    ? workspaces.filter((workspace) => workspace.status !== 'archived')
+    : [];
   const safeConversations = Array.isArray(conversations) ? conversations : [];
   const orderedWorkspaces = [...safeWorkspaces].sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === 'main' ? -1 : 1;
@@ -1584,4 +1587,20 @@ async function archiveProject(project: Project, queryClient: QueryClient, naviga
   await queryClient.invalidateQueries({ queryKey: ['v2-projects'] });
   await queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] });
   navigate('/');
+}
+
+function updateWorkspaceInSidebarCache(queryClient: QueryClient, updated: Workspace) {
+  queryClient.setQueryData<V2SidebarData>(['v2-sidebar-summary'], (current) => {
+    if (!current) return current;
+    return {
+      ...current,
+      projects: current.projects.map((entry) => {
+        if (entry.project.id !== updated.projectId) return entry;
+        const workspaces = entry.workspaces.some((workspace) => workspace.id === updated.id)
+          ? entry.workspaces.map((workspace) => (workspace.id === updated.id ? updated : workspace))
+          : [...entry.workspaces, updated];
+        return { ...entry, workspaces };
+      }),
+    };
+  });
 }

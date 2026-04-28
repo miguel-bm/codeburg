@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { QueryClient } from '@tanstack/react-query';
+import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import {
   Archive,
   Circle,
@@ -17,7 +17,7 @@ import {
   SquareStack,
 } from 'lucide-react';
 import { preferencesApi, projectsApi } from '../../api';
-import type { Conversation, PiConversationSnapshot, Project, Workspace } from '../../api/types';
+import type { Conversation, PiConversationSnapshot, Project, V2SidebarData, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { Badge } from '../../components/ui/Badge';
 import { useMobile } from '../../hooks/useMobile';
@@ -65,8 +65,17 @@ export function V2ConversationsPage() {
 
   const archiveConversation = useMutation({
     mutationFn: (conversation: Conversation) => v2Api.archiveConversation(conversation.id),
-    onSuccess: async (updated) => {
-      await invalidateConversationLists(queryClient, updated.projectId, updated.id);
+    onMutate: async (conversation) => {
+      await cancelConversationListQueries(queryClient, conversation);
+      const snapshot = snapshotConversationListCaches(queryClient, conversation);
+      removeConversationFromListCaches(queryClient, conversation.id);
+      return snapshot;
+    },
+    onError: (_error, _conversation, snapshot) => {
+      if (snapshot) restoreConversationListCaches(queryClient, snapshot);
+    },
+    onSettled: async (updated, _error, conversation) => {
+      await invalidateConversationLists(queryClient, updated?.projectId ?? conversation.projectId, updated?.id ?? conversation.id);
     },
   });
 
@@ -150,15 +159,12 @@ export function V2ConversationsPage() {
   if (isMobile) {
     return (
       <V2Screen>
-        <header className="shrink-0 border-b border-[var(--color-card-border)] px-4 py-3 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
+        <header className="shrink-0 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
           <div className="flex items-center justify-between gap-3">
             <h1 className="truncate text-lg font-semibold text-[var(--color-text-primary)]">Inbox</h1>
             <Badge variant="count">{attentionCount || sortedConversations.length}</Badge>
           </div>
-        </header>
-
-        <div className="shrink-0 border-b border-[var(--color-card-border)] px-4 py-3">
-          <label className="relative block">
+          <label className="relative mt-3 block">
             <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-dim" />
             <V2Input
               value={search}
@@ -168,7 +174,7 @@ export function V2ConversationsPage() {
             />
           </label>
           <InboxSummary pinnedCount={pinnedCount} attentionCount={attentionCount} runningCount={runningCount} totalCount={sortedConversations.length} mobile />
-        </div>
+        </header>
 
         <main className="min-h-0 flex-1 overflow-auto">
           {sections.map((section) => (
@@ -194,6 +200,7 @@ export function V2ConversationsPage() {
             <V2Empty
               icon={<MessageSquareText size={28} />}
               title={deferredSearch ? 'No conversations match' : 'No conversations yet'}
+              body={deferredSearch ? 'Try a broader query.' : 'Create a conversation from a project to begin.'}
             />
           )}
         </main>
@@ -275,11 +282,11 @@ function InboxSummary({
   mobile?: boolean;
 }) {
   return (
-    <div className={`grid grid-cols-4 gap-px overflow-hidden rounded-lg bg-[var(--color-card-border)] ${mobile ? 'mt-3' : 'mx-4 mb-3'}`}>
+    <div className={`flex min-w-0 flex-wrap gap-1.5 ${mobile ? 'mt-3' : 'mx-4 mb-3'}`}>
       <InboxSummaryItem label="Pinned" value={pinnedCount} tone={pinnedCount > 0 ? 'accent' : 'muted'} />
       <InboxSummaryItem label="Attention" value={attentionCount} tone={attentionCount > 0 ? 'accent' : 'muted'} />
       <InboxSummaryItem label="Running" value={runningCount} tone={runningCount > 0 ? 'yellow' : 'muted'} />
-      <InboxSummaryItem label="Total" value={totalCount} tone="muted" />
+      <InboxSummaryItem label="Total" value={totalCount} tone={totalCount > 0 ? 'default' : 'muted'} />
     </div>
   );
 }
@@ -291,7 +298,7 @@ function InboxSummaryItem({
 }: {
   label: string;
   value: number;
-  tone: 'accent' | 'yellow' | 'muted';
+  tone: 'accent' | 'yellow' | 'default' | 'muted';
 }) {
   const valueClass = tone === 'accent'
     ? 'text-accent'
@@ -300,10 +307,10 @@ function InboxSummaryItem({
       : 'text-[var(--color-text-primary)]';
 
   return (
-    <div className="bg-[var(--color-card)] px-3 py-2">
-      <div className={`text-base font-semibold ${valueClass}`}>{value}</div>
-      <div className="text-[11px] font-medium uppercase text-dim">{label}</div>
-    </div>
+    <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-secondary px-2.5 text-xs text-dim transition-colors hover:bg-[var(--color-card-hover)]">
+      <span className={`font-semibold ${valueClass}`}>{value}</span>
+      <span>{label}</span>
+    </span>
   );
 }
 
@@ -339,17 +346,17 @@ function ConversationSection({
   if (section.conversations.length === 0) return null;
 
   return (
-    <section>
-      <div className="border-y border-[var(--color-card-border)] bg-[var(--color-card)]/45 px-4 py-2 first:border-t-0">
+    <section className="pt-2 first:pt-0">
+      <div className="px-4 py-2">
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-[11px] font-semibold uppercase text-dim">{section.title}</div>
             {!mobile && <div className="mt-0.5 text-xs text-dim">{section.subtitle}</div>}
           </div>
-          <span className="text-xs font-medium text-dim">{section.conversations.length}</span>
+          <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-dim">{section.conversations.length}</span>
         </div>
       </div>
-      <div className="divide-y divide-[var(--color-card-border)]">
+      <div className="grid gap-1 px-2">
         {section.conversations.map((conversation) => (
           <ConversationListItem
             key={conversation.id}
@@ -434,7 +441,7 @@ function ConversationListItem({
 
   return (
     <div
-      className={`group/conversation relative transition-colors ${menuOpen ? 'bg-[var(--color-card)]' : 'hover:bg-[var(--color-card-hover)]'}`}
+      className={`group/conversation relative rounded-lg transition-[background-color,opacity,transform] duration-150 ease-out-quart animate-message-enter ${menuOpen ? 'bg-[var(--color-card)]' : 'hover:bg-[var(--color-card-hover)]'}`}
       onContextMenu={(event) => {
         event.preventDefault();
         openMenu();
@@ -481,6 +488,7 @@ function ConversationListItem({
             <span>{conversation.currentWorkspaceId ? 'workspace attached' : 'project default'}</span>
             {conversation.parentConversationId && <span>forked</span>}
             <span>{formatRelativeDate(conversation.lastActivityAt)}</span>
+            <ConversationActivityLabel conversation={conversation} snapshot={snapshot} />
           </div>
           {snapshot?.lastError && (
             <p className="mt-2 line-clamp-2 text-sm leading-5 text-[var(--color-error)]">{snapshot.lastError}</p>
@@ -581,6 +589,22 @@ function ConversationRuntimeIcon({ conversation, snapshot }: { conversation: Con
       <MessageSquareText size={15} />
     </span>
   );
+}
+
+function ConversationActivityLabel({ conversation, snapshot }: { conversation: Conversation; snapshot?: PiConversationSnapshot }) {
+  if (snapshot?.lastError) {
+    return <span className="text-[var(--color-error)]">failed</span>;
+  }
+  if (snapshot?.streaming) {
+    return <span className="text-accent">streaming</span>;
+  }
+  if (snapshot?.runtimeActive) {
+    return <span className="text-[var(--color-status-in-review)]">runtime active</span>;
+  }
+  if (conversation.unreadAt) {
+    return <span className="text-accent">unread</span>;
+  }
+  return null;
 }
 
 function InboxMenuItem({
@@ -752,8 +776,75 @@ async function invalidateConversationLists(
 ) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ['v2-conversations'] }),
+    queryClient.invalidateQueries({ queryKey: ['v2-workspace-conversations'] }),
     queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', projectId] }),
     queryClient.invalidateQueries({ queryKey: ['v2-project-conversations', projectId, 'sidebar'] }),
+    queryClient.invalidateQueries({ queryKey: ['v2-sidebar-summary'] }),
     ...(conversationId ? [queryClient.invalidateQueries({ queryKey: ['v2-conversation', conversationId] })] : []),
   ]);
+}
+
+type ConversationListCacheSnapshot = {
+  conversationLists: Array<[QueryKey, Conversation[] | undefined]>;
+  workspaceLists: Array<[QueryKey, Conversation[] | undefined]>;
+  projectLists: Array<[QueryKey, Conversation[] | undefined]>;
+  sidebar?: V2SidebarData;
+  conversation?: Conversation;
+};
+
+async function cancelConversationListQueries(queryClient: QueryClient, conversation: Conversation) {
+  await Promise.all([
+    queryClient.cancelQueries({ queryKey: ['v2-conversations'] }),
+    queryClient.cancelQueries({ queryKey: ['v2-workspace-conversations'] }),
+    queryClient.cancelQueries({ queryKey: ['v2-project-conversations', conversation.projectId] }),
+    queryClient.cancelQueries({ queryKey: ['v2-sidebar-summary'] }),
+    queryClient.cancelQueries({ queryKey: ['v2-conversation', conversation.id] }),
+  ]);
+}
+
+function snapshotConversationListCaches(
+  queryClient: QueryClient,
+  conversation: Conversation,
+): ConversationListCacheSnapshot {
+  return {
+    conversationLists: queryClient.getQueriesData<Conversation[]>({ queryKey: ['v2-conversations'] }),
+    workspaceLists: queryClient.getQueriesData<Conversation[]>({ queryKey: ['v2-workspace-conversations'] }),
+    projectLists: queryClient.getQueriesData<Conversation[]>({ queryKey: ['v2-project-conversations', conversation.projectId] }),
+    sidebar: queryClient.getQueryData<V2SidebarData>(['v2-sidebar-summary']),
+    conversation: queryClient.getQueryData<Conversation>(['v2-conversation', conversation.id]),
+  };
+}
+
+function restoreConversationListCaches(queryClient: QueryClient, snapshot: ConversationListCacheSnapshot) {
+  for (const [queryKey, data] of snapshot.conversationLists) queryClient.setQueryData(queryKey, data);
+  for (const [queryKey, data] of snapshot.workspaceLists) queryClient.setQueryData(queryKey, data);
+  for (const [queryKey, data] of snapshot.projectLists) queryClient.setQueryData(queryKey, data);
+  queryClient.setQueryData(['v2-sidebar-summary'], snapshot.sidebar);
+  if (snapshot.conversation) {
+    queryClient.setQueryData(['v2-conversation', snapshot.conversation.id], snapshot.conversation);
+  }
+}
+
+function removeConversationFromListCaches(queryClient: QueryClient, conversationId: string) {
+  const removeFromList = (current: Conversation[] | undefined) => (
+    current ? current.filter((conversation) => conversation.id !== conversationId) : current
+  );
+
+  queryClient.setQueriesData<Conversation[]>({ queryKey: ['v2-conversations'] }, removeFromList);
+  queryClient.setQueriesData<Conversation[]>({ queryKey: ['v2-workspace-conversations'] }, removeFromList);
+  queryClient.setQueriesData<Conversation[]>({ queryKey: ['v2-project-conversations'] }, removeFromList);
+  queryClient.setQueryData<Conversation>(['v2-conversation', conversationId], (current) => (
+    current ? { ...current, status: 'archived' } : current
+  ));
+  queryClient.setQueryData<V2SidebarData>(['v2-sidebar-summary'], (current) => {
+    if (!current) return current;
+    return {
+      ...current,
+      projects: current.projects.map((entry) => ({
+        ...entry,
+        conversations: entry.conversations.filter((conversation) => conversation.id !== conversationId),
+        states: entry.states.filter((state) => state.conversationId !== conversationId),
+      })),
+    };
+  });
 }

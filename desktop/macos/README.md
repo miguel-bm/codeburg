@@ -1,6 +1,6 @@
 # Codeburg macOS Shell (Electron)
 
-This directory contains a macOS desktop shell that hosts the shared frontend from `frontend/`.
+This directory contains a thin macOS desktop shell that opens the hosted Codeburg frontend.
 
 Quick start from repo root with `just`:
 
@@ -27,13 +27,7 @@ In dev mode, the shell loads `http://localhost:3000` and uses Vite proxy default
 
 ## Production-like local run
 
-1. Build frontend assets:
-
-```bash
-pnpm --dir desktop/macos build:frontend
-```
-
-2. Start Electron against the built assets:
+Start Electron against the configured or default hosted server:
 
 ```bash
 pnpm --dir desktop/macos start
@@ -68,5 +62,5 @@ pnpm --dir desktop/macos dist:dir
 pnpm --dir desktop/macos dist
 ```
 
-Packaging commands automatically sync `frontend/dist` into `desktop/macos/frontend-dist` for inclusion as app resources.
-They also generate a macOS app icon at `desktop/macos/assets/codeburg.icns`.
+Packaging commands generate a macOS app icon at `desktop/macos/assets/codeburg.icns` and build the Electron shell.
+The app UI is loaded from the configured hosted server, so frontend updates ship through normal web deploys.
