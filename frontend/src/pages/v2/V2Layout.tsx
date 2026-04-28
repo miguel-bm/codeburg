@@ -153,6 +153,15 @@ export function V2Layout() {
       const archived = await v2Api.archiveConversation(conversation.id);
       return { conversationId: archived.id, projectId: archived.projectId, workspaceId: archived.currentWorkspaceId ?? null };
     },
+    onMutate: async (conversation) => {
+      await cancelConversationListQueries(queryClient, conversation);
+      const snapshot = snapshotConversationListCaches(queryClient, conversation);
+      removeConversationFromListCaches(queryClient, conversation.id);
+      return snapshot;
+    },
+    onError: (_error, _conversation, snapshot) => {
+      if (snapshot) restoreConversationListCaches(queryClient, snapshot);
+    },
     onSuccess: async ({ conversationId, projectId, workspaceId }) => {
       if (workspaceId) {
         queryClient.setQueryData<Conversation[]>(['v2-workspace-conversations', workspaceId], (current = []) => (
@@ -1493,6 +1502,71 @@ function SidebarAction({ icon, label, onClick }: { icon: ReactNode; label: strin
       <span>{label}</span>
     </button>
   );
+}
+
+type ConversationListCacheSnapshot = {
+  conversationLists: [readonly unknown[], Conversation[] | undefined][];
+  workspaceLists: [readonly unknown[], Conversation[] | undefined][];
+  projectLists: [readonly unknown[], Conversation[] | undefined][];
+  sidebar: V2SidebarData | undefined;
+  conversation: Conversation | undefined;
+};
+
+async function cancelConversationListQueries(queryClient: QueryClient, conversation: Conversation) {
+  await Promise.all([
+    queryClient.cancelQueries({ queryKey: ['v2-conversations'] }),
+    queryClient.cancelQueries({ queryKey: ['v2-workspace-conversations'] }),
+    queryClient.cancelQueries({ queryKey: ['v2-project-conversations', conversation.projectId] }),
+    queryClient.cancelQueries({ queryKey: ['v2-sidebar-summary'] }),
+    queryClient.cancelQueries({ queryKey: ['v2-conversation', conversation.id] }),
+  ]);
+}
+
+function snapshotConversationListCaches(
+  queryClient: QueryClient,
+  conversation: Conversation,
+): ConversationListCacheSnapshot {
+  return {
+    conversationLists: queryClient.getQueriesData<Conversation[]>({ queryKey: ['v2-conversations'] }),
+    workspaceLists: queryClient.getQueriesData<Conversation[]>({ queryKey: ['v2-workspace-conversations'] }),
+    projectLists: queryClient.getQueriesData<Conversation[]>({ queryKey: ['v2-project-conversations', conversation.projectId] }),
+    sidebar: queryClient.getQueryData<V2SidebarData>(['v2-sidebar-summary']),
+    conversation: queryClient.getQueryData<Conversation>(['v2-conversation', conversation.id]),
+  };
+}
+
+function restoreConversationListCaches(queryClient: QueryClient, snapshot: ConversationListCacheSnapshot) {
+  for (const [queryKey, data] of snapshot.conversationLists) queryClient.setQueryData(queryKey, data);
+  for (const [queryKey, data] of snapshot.workspaceLists) queryClient.setQueryData(queryKey, data);
+  for (const [queryKey, data] of snapshot.projectLists) queryClient.setQueryData(queryKey, data);
+  queryClient.setQueryData(['v2-sidebar-summary'], snapshot.sidebar);
+  if (snapshot.conversation) {
+    queryClient.setQueryData(['v2-conversation', snapshot.conversation.id], snapshot.conversation);
+  }
+}
+
+function removeConversationFromListCaches(queryClient: QueryClient, conversationId: string) {
+  const removeFromList = (current: Conversation[] | undefined) => (
+    current ? current.filter((conversation) => conversation.id !== conversationId) : current
+  );
+
+  queryClient.setQueriesData<Conversation[]>({ queryKey: ['v2-conversations'] }, removeFromList);
+  queryClient.setQueriesData<Conversation[]>({ queryKey: ['v2-workspace-conversations'] }, removeFromList);
+  queryClient.setQueriesData<Conversation[]>({ queryKey: ['v2-project-conversations'] }, removeFromList);
+  queryClient.setQueryData<Conversation>(['v2-conversation', conversationId], (current) => (
+    current ? { ...current, status: 'archived' } : current
+  ));
+  queryClient.setQueryData<V2SidebarData>(['v2-sidebar-summary'], (current) => {
+    if (!current) return current;
+    return {
+      ...current,
+      projects: current.projects.map((entry) => ({
+        ...entry,
+        conversations: entry.conversations.filter((conversation) => conversation.id !== conversationId),
+        states: entry.states.filter((state) => state.conversationId !== conversationId),
+      })),
+    };
+  });
 }
 
 function defaultWorkspaceForkName(workspace: Workspace) {

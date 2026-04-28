@@ -108,33 +108,45 @@ export function V2WorkspaceToolsSurface({
       {open && (
         <motion.div
           key="workspace-tools"
-          className="flex min-h-0 shrink-0 overflow-hidden bg-canvas will-change-transform"
+          className="flex min-h-0 shrink-0 overflow-hidden bg-canvas"
           style={{ width: width + 6 }}
-          initial={reducedMotion ? { opacity: 0 } : { x: -18, opacity: 0 }}
-          animate={reducedMotion ? { opacity: 1 } : { x: 0, opacity: 1 }}
-          exit={reducedMotion ? { opacity: 0 } : { x: -14, opacity: 0 }}
+          initial={false}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: reducedMotion ? 0 : 1 }}
           transition={{
-            duration: resizing || reducedMotion ? 0 : 0.2,
+            duration: resizing || reducedMotion ? 0 : 0.16,
             ease: [0.22, 1, 0.36, 1],
           }}
         >
-          <div className="group flex w-1.5 shrink-0 cursor-col-resize items-stretch justify-center bg-canvas" onMouseDown={onResizeStart}>
-            <div className="my-2 w-px rounded-full bg-transparent transition-colors group-hover:bg-accent/35" />
-          </div>
-          <aside className="flex min-h-0 shrink-0 flex-col bg-canvas shadow-[inset_1px_0_0_var(--color-card-border)]" style={{ width }}>
-            <div className="flex h-9 shrink-0 items-center px-2">
-              <V2WorkspaceToolTabs
-                helperTab={helperTab}
-                toolsOpen={open}
-                disabled={disabled}
-                placement="panel"
-                onToggleHelperTab={onToggleHelperTab}
-              />
+          <motion.div
+            className="flex min-h-0 shrink-0 will-change-transform"
+            style={{ width: width + 6 }}
+            initial={reducedMotion ? { opacity: 0 } : { x: width + 6, opacity: 0.98 }}
+            animate={reducedMotion ? { opacity: 1 } : { x: 0, opacity: 1 }}
+            exit={reducedMotion ? { opacity: 0 } : { x: width + 6, opacity: 0.98 }}
+            transition={{
+              duration: resizing || reducedMotion ? 0 : 0.22,
+              ease: [0.22, 1, 0.36, 1],
+            }}
+          >
+            <div className="group flex w-1.5 shrink-0 cursor-col-resize items-stretch justify-center bg-canvas" onMouseDown={onResizeStart}>
+              <div className="my-2 w-px rounded-full bg-transparent transition-colors group-hover:bg-accent/35" />
             </div>
-            <div className="min-h-0 flex-1 overflow-hidden">
-              {children}
-            </div>
-          </aside>
+            <aside className="flex min-h-0 shrink-0 flex-col bg-canvas shadow-[inset_1px_0_0_var(--color-card-border)]" style={{ width }}>
+              <div className="flex h-9 shrink-0 items-center px-2">
+                <V2WorkspaceToolTabs
+                  helperTab={helperTab}
+                  toolsOpen={open}
+                  disabled={disabled}
+                  placement="panel"
+                  onToggleHelperTab={onToggleHelperTab}
+                />
+              </div>
+              <div className="min-h-0 flex-1 overflow-hidden">
+                {children}
+              </div>
+            </aside>
+          </motion.div>
         </motion.div>
       )}
     </AnimatePresence>

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/miguel-bm/codeburg/internal/db"
 )
@@ -45,6 +46,9 @@ type curatedSkillCatalogSource struct {
 	RepoRef       string   `json:"repoRef"`
 	SkillPrefixes []string `json:"skillPrefixes"`
 	BuiltIn       bool     `json:"builtIn"`
+	CachePath     *string  `json:"cachePath,omitempty"`
+	CachedAt      *string  `json:"cachedAt,omitempty"`
+	Commit        *string  `json:"commit,omitempty"`
 }
 
 type curatedSkillCatalogEntry struct {
@@ -220,7 +224,7 @@ func (s *Server) handleListSkillCatalog(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "failed to load skill catalog sources")
 		return
 	}
-	entries, err := discoverCuratedSkillCatalog(sources)
+	entries, err := discoverCuratedSkillCatalog(sources, false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to discover remote skill catalog")
 		return
@@ -230,6 +234,24 @@ func (s *Server) handleListSkillCatalog(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleListSkillCatalogSources(w http.ResponseWriter, r *http.Request) {
 	sources, err := s.skillCatalogSources()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load skill catalog sources")
+		return
+	}
+	writeJSON(w, http.StatusOK, sources)
+}
+
+func (s *Server) handleRefreshSkillCatalog(w http.ResponseWriter, r *http.Request) {
+	sources, err := s.skillCatalogSources()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load skill catalog sources")
+		return
+	}
+	if _, err := discoverCuratedSkillCatalog(sources, true); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to refresh skill catalog")
+		return
+	}
+	sources, err = s.skillCatalogSources()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load skill catalog sources")
 		return
@@ -261,13 +283,13 @@ func (s *Server) handleCreateSkillCatalogSource(w http.ResponseWriter, r *http.R
 	}
 	source.ID = uniqueSkillCatalogSourceID(source.Name, source.RepoURL, sources)
 
-	checkedOutDir, err := checkoutCatalogRepo(source)
+	checkedOutDir, cleanup, err := checkoutCatalogRepo(source, true)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "failed to fetch catalog source")
 		return
 	}
 	entries, scanErr := scanCuratedSkillCatalogRepo(checkedOutDir, source)
-	_ = os.RemoveAll(checkedOutDir)
+	cleanup()
 	if scanErr != nil || len(entries) == 0 {
 		writeError(w, http.StatusBadRequest, "catalog source did not expose any skills")
 		return
@@ -514,12 +536,12 @@ func (s *Server) handleInstallCatalogSkill(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	checkedOutDir, err := checkoutCatalogRepo(source)
+	checkedOutDir, cleanup, err := checkoutCatalogRepo(source, false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to fetch skill catalog source")
 		return
 	}
-	defer os.RemoveAll(checkedOutDir)
+	defer cleanup()
 
 	relativeSkillPath := strings.TrimSpace(req.SkillPath)
 	if relativeSkillPath == "" {
@@ -587,12 +609,12 @@ func (s *Server) handleInstallGlobalCatalogSkill(w http.ResponseWriter, r *http.
 		return
 	}
 
-	checkedOutDir, err := checkoutCatalogRepo(source)
+	checkedOutDir, cleanup, err := checkoutCatalogRepo(source, false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to fetch skill catalog source")
 		return
 	}
-	defer os.RemoveAll(checkedOutDir)
+	defer cleanup()
 
 	relativeSkillPath := strings.TrimSpace(req.SkillPath)
 	if relativeSkillPath == "" {
@@ -647,16 +669,16 @@ func discoverGlobalSkills() ([]managedSkill, error) {
 	return discoverSkillsForRoots(globalSkillRoots(), "global")
 }
 
-func discoverCuratedSkillCatalog(sources []curatedSkillCatalogSource) ([]curatedSkillCatalogEntry, error) {
+func discoverCuratedSkillCatalog(sources []curatedSkillCatalogSource, refresh bool) ([]curatedSkillCatalogEntry, error) {
 	entries := make([]curatedSkillCatalogEntry, 0)
 	for _, source := range sources {
-		checkedOutDir, err := checkoutCatalogRepo(source)
+		checkedOutDir, cleanup, err := checkoutCatalogRepo(source, refresh)
 		if err != nil {
 			return nil, err
 		}
 
 		sourceEntries, err := scanCuratedSkillCatalogRepo(checkedOutDir, source)
-		_ = os.RemoveAll(checkedOutDir)
+		cleanup()
 		if err != nil {
 			return nil, err
 		}
@@ -809,10 +831,12 @@ func (s *Server) skillCatalogSources() ([]curatedSkillCatalogSource, error) {
 	sources := make([]curatedSkillCatalogSource, 0, len(curatedSkillCatalogSources)+len(customSources))
 	for _, source := range curatedSkillCatalogSources {
 		source.BuiltIn = true
+		source = enrichSkillCatalogSourceCache(source)
 		sources = append(sources, source)
 	}
 	for _, source := range customSources {
 		source.BuiltIn = false
+		source = enrichSkillCatalogSourceCache(source)
 		sources = append(sources, source)
 	}
 	return sources, nil
@@ -959,31 +983,61 @@ func shortSkillCatalogSourceSuffix(value string) string {
 	return fmt.Sprintf("%08x", hash)[:6]
 }
 
-func checkoutCatalogRepo(source curatedSkillCatalogSource) (string, error) {
-	tmpDir, err := os.MkdirTemp("", "codeburg-skill-catalog-*")
-	if err != nil {
-		return "", err
-	}
-
+func checkoutCatalogRepo(source curatedSkillCatalogSource, refresh bool) (string, func(), error) {
 	if isLocalCatalogSource(source.RepoURL) {
-		if err := copyDir(source.RepoURL, tmpDir); err != nil {
-			_ = os.RemoveAll(tmpDir)
-			return "", fmt.Errorf("copy %s: %w", source.Name, err)
-		}
-		return tmpDir, nil
+		return source.RepoURL, func() {}, nil
 	}
 
+	cacheDir, err := skillCatalogCacheDir(source)
+	if err != nil {
+		return "", func() {}, err
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, ".git")); err == nil {
+		if refresh {
+			if err := updateCachedCatalogRepo(cacheDir, source); err != nil {
+				return "", func() {}, err
+			}
+			_ = touchSkillCatalogCache(cacheDir)
+		}
+		return cacheDir, func() {}, nil
+	} else if err != nil && !os.IsNotExist(err) {
+		return "", func() {}, err
+	}
+
+	if err := os.RemoveAll(cacheDir); err != nil {
+		return "", func() {}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(cacheDir), 0755); err != nil {
+		return "", func() {}, err
+	}
 	args := []string{"clone", "--depth", "1"}
 	if strings.TrimSpace(source.RepoRef) != "" {
 		args = append(args, "--branch", source.RepoRef)
 	}
-	args = append(args, source.RepoURL, tmpDir)
+	args = append(args, source.RepoURL, cacheDir)
 	cmd := exec.Command("git", args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		_ = os.RemoveAll(tmpDir)
-		return "", fmt.Errorf("clone %s: %s", source.Name, strings.TrimSpace(string(output)))
+		_ = os.RemoveAll(cacheDir)
+		return "", func() {}, fmt.Errorf("clone %s: %s", source.Name, strings.TrimSpace(string(output)))
 	}
-	return tmpDir, nil
+	_ = touchSkillCatalogCache(cacheDir)
+	return cacheDir, func() {}, nil
+}
+
+func updateCachedCatalogRepo(cacheDir string, source curatedSkillCatalogSource) error {
+	ref := strings.TrimSpace(source.RepoRef)
+	if ref == "" {
+		ref = "main"
+	}
+	cmd := exec.Command("git", "-C", cacheDir, "fetch", "--depth", "1", "origin", ref)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("fetch %s: %s", source.Name, strings.TrimSpace(string(output)))
+	}
+	cmd = exec.Command("git", "-C", cacheDir, "checkout", "--detach", "FETCH_HEAD")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("checkout %s: %s", source.Name, strings.TrimSpace(string(output)))
+	}
+	return nil
 }
 
 func isLocalCatalogSource(value string) bool {
@@ -993,6 +1047,61 @@ func isLocalCatalogSource(value string) bool {
 		}
 	}
 	return false
+}
+
+func enrichSkillCatalogSourceCache(source curatedSkillCatalogSource) curatedSkillCatalogSource {
+	if isLocalCatalogSource(source.RepoURL) {
+		return source
+	}
+	cacheDir, err := skillCatalogCacheDir(source)
+	if err != nil {
+		return source
+	}
+	source.CachePath = stringPtr(cacheDir)
+	if info, err := os.Stat(filepath.Join(cacheDir, ".codeburg-cache-updated")); err == nil {
+		cachedAt := info.ModTime().UTC().Format(time.RFC3339)
+		source.CachedAt = &cachedAt
+	}
+	if commit, err := gitCommit(cacheDir); err == nil && commit != "" {
+		source.Commit = &commit
+	}
+	return source
+}
+
+func skillCatalogCacheDir(source curatedSkillCatalogSource) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	suffix := shortSkillCatalogSourceSuffix(source.RepoURL + "@" + source.RepoRef)
+	id := strings.TrimSpace(source.ID)
+	if id == "" {
+		id = slugifySkillCatalogSourceID(source.Name)
+	}
+	if id == "" {
+		id = "catalog"
+	}
+	return filepath.Join(home, ".codeburg", "skill-catalogs", id+"-"+suffix), nil
+}
+
+func touchSkillCatalogCache(cacheDir string) error {
+	path := filepath.Join(cacheDir, ".codeburg-cache-updated")
+	now := time.Now()
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if err := os.WriteFile(path, []byte(now.UTC().Format(time.RFC3339)), 0644); err != nil {
+			return err
+		}
+	}
+	return os.Chtimes(path, now, now)
+}
+
+func gitCommit(dir string) (string, error) {
+	cmd := exec.Command("git", "-C", dir, "rev-parse", "HEAD")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 func scanCuratedSkillCatalogRepo(root string, source curatedSkillCatalogSource) ([]curatedSkillCatalogEntry, error) {

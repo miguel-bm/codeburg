@@ -178,6 +178,32 @@ func TestPiSessionBranchMessagesAndForksUseActiveBranch(t *testing.T) {
 	if got := messageEntryIDs(userForkMessages); got != "u1,a1" {
 		t.Fatalf("expected user fork before selected message, got %s", got)
 	}
+
+	tree, err := piSessionTree(sourceSession)
+	if err != nil {
+		t.Fatalf("piSessionTree: %v", err)
+	}
+	if tree.ActiveLeafID != "a3" {
+		t.Fatalf("expected active leaf a3, got %s", tree.ActiveLeafID)
+	}
+	info := treeInfoByEntryID(tree, "u3")
+	if info == nil {
+		t.Fatal("expected tree info for active user message")
+	}
+	if info.VersionIndex != 2 || info.VersionCount != 2 || info.PreviousLeafID != "a2" || info.NextLeafID != "" || !info.CanEdit {
+		t.Fatalf("unexpected u3 tree info: %+v", *info)
+	}
+
+	if err := selectPiSessionLeaf(sourceSession, "a2"); err != nil {
+		t.Fatalf("selectPiSessionLeaf: %v", err)
+	}
+	selectedMessages, err := piSessionMessages(sourceSession)
+	if err != nil {
+		t.Fatalf("selected piSessionMessages: %v", err)
+	}
+	if got := messageEntryIDs(selectedMessages); got != "u1,a1,u2,a2" {
+		t.Fatalf("expected selected previous branch, got %s", got)
+	}
 }
 
 func testPiRuntime(manager *piConversationManager, conversationID string, workDir string) *piConversationRuntime {
@@ -225,4 +251,13 @@ func messageEntryIDs(messages []piConversationMessage) string {
 		result += message.EntryID
 	}
 	return result
+}
+
+func treeInfoByEntryID(tree piConversationTree, entryID string) *piConversationMessageVersionInfo {
+	for i := range tree.Messages {
+		if tree.Messages[i].EntryID == entryID {
+			return &tree.Messages[i]
+		}
+	}
+	return nil
 }

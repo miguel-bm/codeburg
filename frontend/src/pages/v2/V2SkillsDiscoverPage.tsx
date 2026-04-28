@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, BookOpen, Check, ChevronDown, ExternalLink, Globe2, Hammer, PackagePlus, Plus, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, BookOpen, Check, ChevronDown, ExternalLink, Globe2, Hammer, PackagePlus, Plus, RefreshCcw, Search, Trash2 } from 'lucide-react';
 import { projectsApi } from '../../api';
 import type { Project, SkillCatalogEntry, SkillCatalogSource } from '../../api/types';
 import { v2Api } from '../../api/v2';
@@ -144,7 +144,12 @@ export function V2SkillsDiscoverPage() {
     onSuccess: invalidateSkills,
   });
 
-  const error = installFromPath.error || installCatalogSkill.error || addCatalogSource.error || deleteCatalogSource.error;
+  const refreshCatalog = useMutation({
+    mutationFn: () => v2Api.refreshSkillCatalog(),
+    onSuccess: invalidateSkills,
+  });
+
+  const error = installFromPath.error || installCatalogSkill.error || addCatalogSource.error || deleteCatalogSource.error || refreshCatalog.error;
   const canInstallToProject = safeProjects.length > 0 || !!selectedProjectId;
 
   return (
@@ -280,6 +285,17 @@ export function V2SkillsDiscoverPage() {
               icon={<BookOpen size={15} />}
               title="Catalog sources"
               meta={<span className="text-xs text-dim">{sources.length} configured</span>}
+              actions={
+                <Button
+                  size="xs"
+                  variant="secondary"
+                  icon={<RefreshCcw size={13} />}
+                  loading={refreshCatalog.isPending}
+                  onClick={() => refreshCatalog.mutate()}
+                >
+                  Refresh
+                </Button>
+              }
             >
               <div className="space-y-1">
                 {sources.map((source) => (
@@ -290,6 +306,10 @@ export function V2SkillsDiscoverPage() {
                         {source.builtIn && <span className="rounded-md bg-[var(--color-inset)] px-1.5 py-0.5 text-[10px] text-dim">built-in</span>}
                       </div>
                       <div className="mt-1 truncate font-mono text-[11px] text-dim">{source.repoUrl}</div>
+                      <div className="mt-1 flex min-w-0 items-center gap-2 text-[10px] text-dim">
+                        {source.cachedAt ? <span>{formatCatalogCacheTime(source.cachedAt)}</span> : <span>{source.cachePath ? 'Not cached yet' : 'Local source'}</span>}
+                        {source.commit && <span className="min-w-0 truncate font-mono">{source.commit.slice(0, 7)}</span>}
+                      </div>
                     </div>
                     {!source.builtIn && (
                       <Button
@@ -413,4 +433,10 @@ function skillKey(name: string, target: string) {
 
 function catalogInstallKey(entry: SkillCatalogEntry, scope: InstallScope, projectId: string | undefined, target: SkillTarget) {
   return `${scope}:${projectId ?? 'global'}:${target}:${entry.sourceId}:${entry.skillPath}`;
+}
+
+function formatCatalogCacheTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Cached';
+  return `Updated ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
 }

@@ -100,6 +100,20 @@ type piSessionFile struct {
 	LeafID  string
 }
 
+type piConversationTree struct {
+	ActiveLeafID string                             `json:"activeLeafId,omitempty"`
+	Messages     []piConversationMessageVersionInfo `json:"messages"`
+}
+
+type piConversationMessageVersionInfo struct {
+	EntryID        string `json:"entryId"`
+	VersionIndex   int    `json:"versionIndex"`
+	VersionCount   int    `json:"versionCount"`
+	PreviousLeafID string `json:"previousLeafId,omitempty"`
+	NextLeafID     string `json:"nextLeafId,omitempty"`
+	CanEdit        bool   `json:"canEdit"`
+}
+
 type piConversationSnapshot struct {
 	ConversationID        string                  `json:"conversationId"`
 	RuntimeActive         bool                    `json:"runtimeActive"`
@@ -832,6 +846,98 @@ func (m *piConversationManager) ForkFromEntry(source *db.Conversation, forked *d
 	return selectedText, runtime.snapshot, nil
 }
 
+func (m *piConversationManager) ConversationTree(conversation *db.Conversation) (piConversationTree, error) {
+	sessionFile := ""
+	if conversation.ProviderSessionID != nil {
+		sessionFile = strings.TrimSpace(*conversation.ProviderSessionID)
+	}
+	if sessionFile == "" {
+		return piConversationTree{Messages: []piConversationMessageVersionInfo{}}, nil
+	}
+	return piSessionTree(sessionFile)
+}
+
+func (m *piConversationManager) SelectTreeLeaf(conversation *db.Conversation, workDir, leafID string) (piConversationSnapshot, error) {
+	leafID = strings.TrimSpace(leafID)
+	if leafID == "" {
+		return piConversationSnapshot{}, fmt.Errorf("leafId is required")
+	}
+	sessionFile := ""
+	if conversation.ProviderSessionID != nil {
+		sessionFile = strings.TrimSpace(*conversation.ProviderSessionID)
+	}
+	if sessionFile == "" {
+		return piConversationSnapshot{}, fmt.Errorf("conversation has no pi session tree")
+	}
+	if runtime := m.existingRuntime(conversation.ID, workDir); runtime != nil {
+		runtime.mu.Lock()
+		streaming := runtime.snapshot.Streaming
+		runtime.mu.Unlock()
+		if streaming {
+			return piConversationSnapshot{}, fmt.Errorf("cannot switch branches while pi is streaming")
+		}
+		runtime.stop()
+		m.removeRuntime(conversation.ID, runtime)
+	}
+	if err := selectPiSessionLeaf(sessionFile, leafID); err != nil {
+		return piConversationSnapshot{}, err
+	}
+	return staticPiConversationSnapshot(conversation, workDir), nil
+}
+
+func (m *piConversationManager) EditFromEntry(conversation *db.Conversation, workDir, entryID, message string, images []piConversationImageRef) (piConversationSnapshot, error) {
+	entryID = strings.TrimSpace(entryID)
+	message = strings.TrimSpace(message)
+	if entryID == "" {
+		return piConversationSnapshot{}, fmt.Errorf("entryId is required")
+	}
+	if message == "" && len(images) == 0 {
+		return piConversationSnapshot{}, fmt.Errorf("message or image is required")
+	}
+	if conversation.Status != db.ConversationStatusActive {
+		return piConversationSnapshot{}, fmt.Errorf("conversation is not active")
+	}
+	sessionFile := ""
+	if conversation.ProviderSessionID != nil {
+		sessionFile = strings.TrimSpace(*conversation.ProviderSessionID)
+	}
+	if sessionFile == "" {
+		return piConversationSnapshot{}, fmt.Errorf("conversation has no pi session tree")
+	}
+	session, err := loadPiSessionFile(sessionFile)
+	if err != nil {
+		return piConversationSnapshot{}, err
+	}
+	entry, ok := session.ByID[entryID]
+	if !ok {
+		return piConversationSnapshot{}, fmt.Errorf("entry %s not found", entryID)
+	}
+	if entry.Type != "message" {
+		return piConversationSnapshot{}, fmt.Errorf("entry %s cannot be edited", entryID)
+	}
+	messageMap, _ := entry.Raw["message"].(map[string]any)
+	if stringFromMap(messageMap, "role") != "user" {
+		return piConversationSnapshot{}, fmt.Errorf("only user messages can be edited")
+	}
+	if strings.TrimSpace(entry.ParentID) == "" {
+		return piConversationSnapshot{}, fmt.Errorf("editing the first message in a pi tree is not available yet")
+	}
+	if runtime := m.existingRuntime(conversation.ID, workDir); runtime != nil {
+		runtime.mu.Lock()
+		streaming := runtime.snapshot.Streaming
+		runtime.mu.Unlock()
+		if streaming {
+			return piConversationSnapshot{}, fmt.Errorf("cannot edit while pi is streaming")
+		}
+		runtime.stop()
+		m.removeRuntime(conversation.ID, runtime)
+	}
+	if err := selectPiSessionLeaf(sessionFile, entry.ParentID); err != nil {
+		return piConversationSnapshot{}, err
+	}
+	return m.Prompt(conversation, workDir, message, images, "")
+}
+
 func (m *piConversationManager) Abort(conversation *db.Conversation, workDir string) error {
 	if conversation.Status != db.ConversationStatusActive {
 		return fmt.Errorf("conversation is not active")
@@ -1311,6 +1417,159 @@ func (session *piSessionFile) branchEntries(leafID string) ([]piSessionEntry, er
 		entries[left], entries[right] = entries[right], entries[left]
 	}
 	return entries, nil
+}
+
+func piSessionTree(sessionFile string) (piConversationTree, error) {
+	session, err := loadPiSessionFile(sessionFile)
+	if err != nil {
+		return piConversationTree{}, err
+	}
+	branch, err := session.branchEntries(session.LeafID)
+	if err != nil {
+		return piConversationTree{}, err
+	}
+	childrenByParent := make(map[string][]piSessionEntry)
+	for _, entry := range session.Entries {
+		childrenByParent[entry.ParentID] = append(childrenByParent[entry.ParentID], entry)
+	}
+	infos := make([]piConversationMessageVersionInfo, 0)
+	for _, entry := range branch {
+		messageMap, ok := entry.Raw["message"].(map[string]any)
+		if entry.Type != "message" || !ok || stringFromMap(messageMap, "role") != "user" {
+			continue
+		}
+		userSiblings := make([]piSessionEntry, 0)
+		for _, sibling := range childrenByParent[entry.ParentID] {
+			siblingMessage, _ := sibling.Raw["message"].(map[string]any)
+			if sibling.Type == "message" && stringFromMap(siblingMessage, "role") == "user" {
+				userSiblings = append(userSiblings, sibling)
+			}
+		}
+		info := piConversationMessageVersionInfo{
+			EntryID:      entry.ID,
+			VersionIndex: 1,
+			VersionCount: max(1, len(userSiblings)),
+			CanEdit:      strings.TrimSpace(entry.ParentID) != "",
+		}
+		if len(userSiblings) > 1 {
+			activeIndex := 0
+			for index, sibling := range userSiblings {
+				if sibling.ID == entry.ID {
+					activeIndex = index
+					break
+				}
+			}
+			info.VersionIndex = activeIndex + 1
+			if activeIndex > 0 {
+				info.PreviousLeafID = session.latestLeafForAncestor(userSiblings[activeIndex-1].ID)
+			}
+			if activeIndex < len(userSiblings)-1 {
+				info.NextLeafID = session.latestLeafForAncestor(userSiblings[activeIndex+1].ID)
+			}
+		}
+		infos = append(infos, info)
+	}
+	return piConversationTree{
+		ActiveLeafID: session.LeafID,
+		Messages:     infos,
+	}, nil
+}
+
+func (session *piSessionFile) latestLeafForAncestor(ancestorID string) string {
+	ancestorID = strings.TrimSpace(ancestorID)
+	if ancestorID == "" {
+		return ""
+	}
+	latest := ""
+	var latestTimestamp time.Time
+	hasChild := make(map[string]bool)
+	for _, entry := range session.Entries {
+		if strings.TrimSpace(entry.ParentID) != "" {
+			hasChild[entry.ParentID] = true
+		}
+	}
+	for _, entry := range session.Entries {
+		if session.entryHasAncestor(entry.ID, ancestorID) {
+			if hasChild[entry.ID] && entry.ID != ancestorID {
+				continue
+			}
+			if latest == "" || entry.Timestamp.After(latestTimestamp) || (entry.Timestamp.IsZero() && latestTimestamp.IsZero()) {
+				latest = entry.ID
+				latestTimestamp = entry.Timestamp
+			}
+		}
+	}
+	if latest == "" {
+		return ancestorID
+	}
+	return latest
+}
+
+func (session *piSessionFile) entryHasAncestor(entryID, ancestorID string) bool {
+	seen := make(map[string]bool)
+	currentID := entryID
+	for currentID != "" {
+		if currentID == ancestorID {
+			return true
+		}
+		if seen[currentID] {
+			return false
+		}
+		seen[currentID] = true
+		entry, ok := session.ByID[currentID]
+		if !ok {
+			return false
+		}
+		currentID = entry.ParentID
+	}
+	return false
+}
+
+func selectPiSessionLeaf(sessionFile string, leafID string) error {
+	leafID = strings.TrimSpace(leafID)
+	if leafID == "" {
+		return fmt.Errorf("leafId is required")
+	}
+	session, err := loadPiSessionFile(sessionFile)
+	if err != nil {
+		return err
+	}
+	selected, ok := session.ByID[leafID]
+	if !ok {
+		return fmt.Errorf("pi session leaf %s not found", leafID)
+	}
+	entries := make([]piSessionEntry, 0, len(session.Entries))
+	for _, entry := range session.Entries {
+		if entry.ID == leafID {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	entries = append(entries, selected)
+	return writePiSessionFile(sessionFile, session.Header, entries)
+}
+
+func writePiSessionFile(path string, header map[string]any, entries []piSessionEntry) error {
+	if header == nil {
+		return fmt.Errorf("pi session has no header")
+	}
+	out := make([]string, 0, len(entries)+1)
+	headerRaw, err := json.Marshal(header)
+	if err != nil {
+		return fmt.Errorf("marshal pi session header: %w", err)
+	}
+	out = append(out, string(headerRaw))
+	for _, entry := range entries {
+		raw, err := json.Marshal(entry.Raw)
+		if err != nil {
+			return fmt.Errorf("marshal pi session entry: %w", err)
+		}
+		out = append(out, string(raw))
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(out, "\n")+"\n"), 0644); err != nil {
+		return fmt.Errorf("write pi session: %w", err)
+	}
+	return nil
 }
 
 func piSessionMessages(sessionFile string) ([]piConversationMessage, error) {

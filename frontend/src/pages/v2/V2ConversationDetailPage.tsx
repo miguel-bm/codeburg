@@ -10,6 +10,8 @@ import {
   Brain,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Clipboard,
   Command,
   Download,
@@ -24,6 +26,7 @@ import {
   MessageSquareText,
   MoreHorizontal,
   Paperclip,
+  Pencil,
   PlusCircle,
   RefreshCw,
   Search,
@@ -35,7 +38,7 @@ import {
   X,
 } from 'lucide-react';
 import { projectsApi } from '../../api';
-import type { Conversation, PiAvailableModel, PiConversationForkPosition, PiConversationImageAttachment, PiConversationMessage, PiConversationSessionStats, PiConversationSnapshot, PiThinkingLevel, PiToolExecution, TerminalSession, V2SidebarData, Workspace } from '../../api/types';
+import type { Conversation, PiAvailableModel, PiConversationForkPosition, PiConversationImageAttachment, PiConversationMessage, PiConversationMessageVersionInfo, PiConversationSessionStats, PiConversationSnapshot, PiThinkingLevel, PiToolExecution, TerminalSession, V2SidebarData, Workspace } from '../../api/types';
 import { v2Api, type V2FileEntry } from '../../api/v2';
 import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
 import { Modal } from '../../components/ui/Modal';
@@ -83,6 +86,9 @@ type ForkDialogState =
 type ForkDialogTarget =
   | { kind: 'current' }
   | { kind: 'message'; entryId: string; position: PiConversationForkPosition };
+type EditingMessageState = {
+  entryId: string;
+};
 
 const MAX_SUGGESTIONS = 8;
 const FILE_INDEX_DEPTH = 12;
@@ -834,13 +840,15 @@ function ConversationSurface({
   const [isAtLatest, setIsAtLatest] = useState(true);
   const [forkDialog, setForkDialog] = useState<ForkDialogState | null>(null);
   const [forkDialogError, setForkDialogError] = useState<string | null>(null);
+  const [editingMessage, setEditingMessage] = useState<EditingMessageState | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const imageDragDepth = useRef(0);
   const composerStyle = isMobile && keyboardVisible
     ? { paddingBottom: keyboardHeight + 12 }
     : undefined;
   const messages = useMemo(() => snapshot?.messages ?? [], [snapshot?.messages]);
   const isStreaming = Boolean(snapshot?.streaming);
-  const composerDisabled = !isActiveConversation || sending;
+  const baseComposerDisabled = !isActiveConversation || sending;
   const pendingVisible = hasPendingAssistant(snapshot);
   const messageItems = useMemo(() => buildConversationItems(messages), [messages]);
   const messageActivityKey = `${messages.length}:${snapshot?.updatedAt ?? ''}:${snapshot?.pending?.text?.length ?? 0}:${snapshot?.pending?.thinking?.length ?? 0}:${snapshot?.tools?.map((tool) => `${tool.toolCallId}:${tool.status}:${tool.output?.length ?? 0}`).join('|') ?? ''}`;
@@ -873,6 +881,12 @@ function ConversationSurface({
     enabled: Boolean(conversationId && isActiveConversation && snapshot?.runtimeActive),
     staleTime: 60_000,
   });
+  const { data: tree } = useQuery({
+    queryKey: ['v2-conversation-tree', conversationId, snapshot?.sessionFile, snapshot?.updatedAt],
+    queryFn: () => v2Api.getConversationTree(conversationId),
+    enabled: Boolean(conversationId && isActiveConversation && snapshot?.sessionFile && !isStreaming),
+    staleTime: 10_000,
+  });
 
   const slashCommands = useMemo(() => commandResponse?.commands ?? [], [commandResponse?.commands]);
   const scrollToLatest = useCallback((behavior: ScrollBehavior = 'auto') => {
@@ -896,12 +910,48 @@ function ConversationSurface({
       void queryClient.invalidateQueries({ queryKey: ['v2-conversation-session', conversationId] });
     },
   });
+  const selectTreeLeaf = useMutation({
+    mutationFn: (leafId: string) => v2Api.selectConversationTreeLeaf(conversationId, { leafId }),
+    onSuccess: (nextSnapshot) => {
+      onApplySnapshot(nextSnapshot);
+      stickToLatestRef.current = true;
+      setIsAtLatest(true);
+      scrollToLatest('smooth');
+      void queryClient.invalidateQueries({ queryKey: ['v2-conversation-tree', conversationId] });
+      void queryClient.invalidateQueries({ queryKey: ['v2-conversation-state', conversationId] });
+    },
+  });
+  const editTreeMessage = useMutation({
+    mutationFn: (input: { entryId: string; message: string; images: PiConversationImageAttachment[] }) =>
+      v2Api.editConversationTreeMessage(conversationId, input),
+    onSuccess: (nextSnapshot) => {
+      onApplySnapshot(nextSnapshot);
+      setDraft('');
+      setAttachments([]);
+      setEditingMessage(null);
+      setEditError(null);
+      void queryClient.invalidateQueries({ queryKey: ['v2-conversation-tree', conversationId] });
+      void queryClient.invalidateQueries({ queryKey: ['v2-conversation-state', conversationId] });
+      scrollToLatest('smooth');
+    },
+    onError: (err) => {
+      setEditError(err instanceof Error ? err.message : 'Could not edit message');
+    },
+  });
+  const composerDisabled = baseComposerDisabled || editTreeMessage.isPending;
   const models = useMemo(() => {
     const all = modelResponse?.models ?? [];
     if (!snapshot?.model) return all;
     if (all.some((model) => model.provider === snapshot.model?.provider && model.id === snapshot.model?.id)) return all;
     return [{ provider: snapshot.model.provider, id: snapshot.model.id }, ...all];
   }, [modelResponse?.models, snapshot]);
+  const versionsByEntryId = useMemo(() => {
+    const map = new Map<string, PiConversationMessageVersionInfo>();
+    for (const info of tree?.messages ?? []) {
+      map.set(info.entryId, info);
+    }
+    return map;
+  }, [tree?.messages]);
   const filteredModels = useMemo(() => {
     const query = modelSearch.trim().toLowerCase();
     if (!query) return models;
@@ -1036,6 +1086,8 @@ function ConversationSurface({
     stickToLatestRef.current = true;
     setIsAtLatest(true);
     scrollToLatest();
+    setEditingMessage(null);
+    setEditError(null);
   }, [conversationId, scrollToLatest]);
 
   useEffect(() => {
@@ -1097,6 +1149,42 @@ function ConversationSurface({
     } finally {
       setAbortPending(false);
     }
+  };
+
+  const beginEditingMessage = (message: PiConversationMessage) => {
+    if (isStreaming || sending || editTreeMessage.isPending || !message.entryId) return;
+    const text = message.text ?? '';
+    if (!text.trim()) return;
+    setAttachments([]);
+    setDraftWithSelection(text, { start: text.length, end: text.length });
+    setEditingMessage({ entryId: message.entryId });
+    setEditError(null);
+    requestAnimationFrame(() => {
+      const node = textareaRef.current;
+      if (!node) return;
+      node.focus();
+      node.setSelectionRange(text.length, text.length);
+    });
+  };
+
+  const cancelEditingMessage = () => {
+    setEditingMessage(null);
+    setEditError(null);
+  };
+
+  const submitComposer = (streamingBehavior?: 'steer' | 'followUp') => {
+    if (editingMessage) {
+      const trimmed = draft.trim();
+      if ((!trimmed && attachments.length === 0) || isStreaming || composerDisabled) return;
+      setEditError(null);
+      editTreeMessage.mutate({
+        entryId: editingMessage.entryId,
+        message: trimmed,
+        images: attachments.map(({ image }) => image),
+      });
+      return;
+    }
+    submit(streamingBehavior);
   };
 
   const copyMessage = async (message: PiConversationMessage) => {
@@ -1189,6 +1277,11 @@ function ConversationSurface({
                 onCopy={() => void copyMessage(item.message)}
                 forkTarget={messageForkTarget(item.message, messages)}
                 onRequestFork={requestForkConversation}
+                version={item.message.entryId ? versionsByEntryId.get(item.message.entryId) : undefined}
+                versionPending={selectTreeLeaf.isPending}
+                onSelectVersion={(leafId) => selectTreeLeaf.mutate(leafId)}
+                onEdit={() => beginEditingMessage(item.message)}
+                editDisabled={Boolean(isStreaming || sending || editTreeMessage.isPending)}
               />
             ) : (
               <CollapsedTurnEvents
@@ -1276,9 +1369,17 @@ function ConversationSurface({
               ))}
             </div>
           )}
-          {sendError && (
+          {editingMessage && (
+            <div className="mx-3 mt-2 flex items-center justify-between gap-3 rounded-xl bg-accent/8 px-3 py-2 text-xs text-[var(--color-text-secondary)] md:mx-4">
+              <span className="min-w-0 truncate">Editing an earlier message. Send to continue from that point.</span>
+              <button type="button" onClick={cancelEditingMessage} disabled={editTreeMessage.isPending} className="shrink-0 rounded-md px-2 py-1 font-medium text-dim hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-50">
+                Cancel
+              </button>
+            </div>
+          )}
+          {(sendError || editError) && (
             <div className="mx-3 mt-2 rounded-xl bg-[var(--color-error)]/10 px-3 py-2 text-xs text-[var(--color-error)] md:mx-4">
-              {sendError}
+              {sendError || editError}
             </div>
           )}
           {visibleSuggestions.length > 0 && (
@@ -1320,6 +1421,7 @@ function ConversationSurface({
             ref={textareaRef}
             value={draft}
             onChange={(event) => {
+              if (editingMessage && editError) setEditError(null);
               setDraftWithSelection(event.target.value, {
                 start: event.target.selectionStart,
                 end: event.target.selectionEnd,
@@ -1364,14 +1466,14 @@ function ConversationSurface({
               }
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
-                if (!composerDisabled) submit(isStreaming ? streamingMode : undefined);
+                if (!composerDisabled) submitComposer(isStreaming ? streamingMode : undefined);
                 return;
               }
               if (event.key === 'Escape') {
                 textareaRef.current?.blur();
               }
             }}
-            placeholder={isStreaming ? (streamingMode === 'steer' ? 'Steer the current turn...' : 'Queue a follow-up...') : isActiveConversation ? 'Send a prompt to Pi...' : 'Resume the conversation before sending a prompt'}
+            placeholder={editingMessage ? 'Edit this message and send to continue...' : isStreaming ? (streamingMode === 'steer' ? 'Steer the current turn...' : 'Queue a follow-up...') : isActiveConversation ? 'Send a prompt to Pi...' : 'Resume the conversation before sending a prompt'}
             disabled={composerDisabled}
             className="block w-full resize-none rounded-t-[1.35rem] bg-transparent px-3 pt-3 text-sm leading-6 text-[var(--color-text-primary)] outline-none placeholder:text-dim disabled:opacity-60 md:px-4 md:pt-3"
           />
@@ -1543,13 +1645,13 @@ function ConversationSurface({
               </button>
               <button
                 type="button"
-                onClick={() => submit(isStreaming ? streamingMode : undefined)}
+                onClick={() => submitComposer(isStreaming ? streamingMode : undefined)}
                 disabled={(!draft.trim() && attachments.length === 0) || composerDisabled}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-text-primary)] text-[var(--color-card)] shadow-[0_7px_16px_rgba(15,23,42,0.16)] transition-transform duration-150 ease-out-quart hover:scale-[1.03] active:scale-95 disabled:scale-100 disabled:opacity-35"
                 title={isStreaming ? (streamingMode === 'steer' ? 'Steer current turn' : 'Queue follow-up') : 'Send'}
                 aria-label={isStreaming ? (streamingMode === 'steer' ? 'Steer current turn' : 'Queue follow-up') : 'Send'}
               >
-                {sending ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={20} strokeWidth={2.2} />}
+                {sending || editTreeMessage.isPending ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={20} strokeWidth={2.2} />}
               </button>
             </div>
           </div>
@@ -2042,6 +2144,11 @@ function MessageRow({
   onCopy,
   forkTarget,
   onRequestFork,
+  version,
+  versionPending = false,
+  onSelectVersion,
+  onEdit,
+  editDisabled = false,
 }: {
   message: PiConversationMessage;
   copied: boolean;
@@ -2050,6 +2157,11 @@ function MessageRow({
   onCopy: () => void;
   forkTarget?: ForkDialogTarget | null;
   onRequestFork?: (target: ForkDialogTarget) => void;
+  version?: PiConversationMessageVersionInfo;
+  versionPending?: boolean;
+  onSelectVersion?: (leafId: string) => void;
+  onEdit?: () => void;
+  editDisabled?: boolean;
 }) {
   const isUser = message.role === 'user';
   if (isToolMessage(message)) {
@@ -2060,7 +2172,14 @@ function MessageRow({
     return (
       <div className="group flex justify-end animate-message-enter">
         <div className="max-w-[90%] md:max-w-[min(74%,46rem)]">
-          <div className="rounded-2xl rounded-br-md bg-[var(--color-accent)]/10 px-3 py-2.5 text-sm leading-6 text-[var(--color-text-primary)]">
+          <div className="relative rounded-2xl rounded-br-md bg-[var(--color-accent)]/8 px-2.5 py-2 text-sm leading-6 text-[var(--color-text-primary)] md:px-3">
+            {version && version.versionCount > 1 && (
+              <MessageVersionBadge
+                version={version}
+                pending={versionPending}
+                onSelectVersion={onSelectVersion}
+              />
+            )}
             {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
             <MessageImages images={message.images ?? []} />
             <ToolCallSummary message={message} />
@@ -2068,7 +2187,10 @@ function MessageRow({
           <MessageActions
             copied={copied}
             align="right"
+            canEdit={Boolean(!compact && onEdit && version?.canEdit)}
+            editDisabled={editDisabled}
             onCopy={onCopy}
+            onEdit={onEdit}
           />
         </div>
       </div>
@@ -2089,6 +2211,44 @@ function MessageRow({
         onFork={() => forkTarget && onRequestFork?.(forkTarget)}
       />
     </article>
+  );
+}
+
+function MessageVersionBadge({
+  version,
+  pending,
+  onSelectVersion,
+}: {
+  version: PiConversationMessageVersionInfo;
+  pending: boolean;
+  onSelectVersion?: (leafId: string) => void;
+}) {
+  const previousDisabled = pending || !version.previousLeafId || !onSelectVersion;
+  const nextDisabled = pending || !version.nextLeafId || !onSelectVersion;
+  return (
+    <div className="absolute -top-3 right-1 inline-flex h-6 items-center gap-0.5 rounded-full bg-card px-1 text-[11px] font-medium text-dim shadow-[0_5px_18px_rgba(15,23,42,0.12)]">
+      <button
+        type="button"
+        disabled={previousDisabled}
+        onClick={() => version.previousLeafId && onSelectVersion?.(version.previousLeafId)}
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-25 disabled:hover:bg-transparent"
+        title="Previous version"
+        aria-label="Previous message version"
+      >
+        <ChevronLeft size={13} />
+      </button>
+      <span className="min-w-7 text-center tabular-nums">{version.versionIndex}/{version.versionCount}</span>
+      <button
+        type="button"
+        disabled={nextDisabled}
+        onClick={() => version.nextLeafId && onSelectVersion?.(version.nextLeafId)}
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-25 disabled:hover:bg-transparent"
+        title="Next version"
+        aria-label="Next message version"
+      >
+        <ChevronRight size={13} />
+      </button>
+    </div>
   );
 }
 
@@ -2150,21 +2310,32 @@ function MessageActions({
   align = 'left',
   canFork = false,
   forkPending = false,
+  canEdit = false,
+  editDisabled = false,
   onCopy,
   onFork,
+  onEdit,
 }: {
   copied: boolean;
   align?: 'left' | 'right';
   canFork?: boolean;
   forkPending?: boolean;
+  canEdit?: boolean;
+  editDisabled?: boolean;
   onCopy: () => void;
   onFork?: () => void;
+  onEdit?: () => void;
 }) {
   return (
     <div className={`mt-1.5 flex h-7 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${align === 'right' ? 'justify-end' : ''}`}>
       <button type="button" onClick={onCopy} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Copy message" aria-label="Copy message">
         {copied ? <Check size={14} /> : <Clipboard size={14} />}
       </button>
+      {canEdit && (
+        <button type="button" onClick={onEdit} disabled={editDisabled} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-dim hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-40" title="Edit and continue from here" aria-label="Edit and continue from here">
+          <Pencil size={14} />
+        </button>
+      )}
       {canFork && (
         <button type="button" onClick={onFork} disabled={forkPending} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-dim hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-50" title="Fork from here" aria-label="Fork from here">
           {forkPending ? <Loader2 size={14} className="animate-spin" /> : <GitBranchPlus size={14} />}

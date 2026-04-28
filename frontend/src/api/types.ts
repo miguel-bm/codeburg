@@ -327,6 +327,9 @@ export interface SkillCatalogSource {
   repoRef: string;
   skillPrefixes: string[];
   builtIn: boolean;
+  cachePath?: string;
+  cachedAt?: string;
+  commit?: string;
 }
 
 export interface ProjectSkillsResponse {
@@ -465,6 +468,20 @@ export interface PiConversationMessage {
 }
 
 export type PiConversationForkPosition = 'before' | 'at';
+
+export interface PiConversationMessageVersionInfo {
+  entryId: string;
+  versionIndex: number;
+  versionCount: number;
+  previousLeafId?: string;
+  nextLeafId?: string;
+  canEdit: boolean;
+}
+
+export interface PiConversationTree {
+  activeLeafId?: string;
+  messages: PiConversationMessageVersionInfo[];
+}
 
 export interface PiStreamingAssistant {
   text?: string;

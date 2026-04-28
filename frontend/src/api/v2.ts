@@ -8,6 +8,7 @@ import type {
   PiConversationSnapshot,
   PiConversationImageAttachment,
   PiConversationForkPosition,
+  PiConversationTree,
   PiAvailableModel,
   PiSlashCommand,
   PiThinkingLevel,
@@ -222,6 +223,17 @@ export const v2Api = {
     input: { entryId: string; position?: PiConversationForkPosition; title?: string; currentWorkspaceId?: string }
   ) => api.post<ForkConversationFromMessageResponse>(`/conversations/${conversationId}/fork-message`, input),
 
+  getConversationTree: (conversationId: string) =>
+    api.get<PiConversationTree>(`/conversations/${conversationId}/tree`),
+
+  selectConversationTreeLeaf: (conversationId: string, input: { leafId: string }) =>
+    api.post<PiConversationSnapshot>(`/conversations/${conversationId}/tree/select`, input),
+
+  editConversationTreeMessage: (
+    conversationId: string,
+    input: { entryId: string; message: string; images?: PiConversationImageAttachment[] }
+  ) => api.post<PiConversationSnapshot>(`/conversations/${conversationId}/tree/edit`, input),
+
   pauseConversation: (conversationId: string) =>
     api.post<Conversation>(`/conversations/${conversationId}/pause`, {}),
 
@@ -351,6 +363,9 @@ export const v2Api = {
 
   listSkillCatalogSources: () =>
     api.get<SkillCatalogSource[]>('/skills/catalog/sources'),
+
+  refreshSkillCatalog: () =>
+    api.post<SkillCatalogSource[]>('/skills/catalog/refresh', {}),
 
   createSkillCatalogSource: (input: { name: string; repoUrl: string; repoRef?: string; skillPrefixes?: string[] }) =>
     api.post<SkillCatalogSource>('/skills/catalog/sources', input),

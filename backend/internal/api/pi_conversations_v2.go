@@ -47,6 +47,16 @@ type conversationForkMessageRequest struct {
 	CurrentWorkspaceID *string `json:"currentWorkspaceId,omitempty"`
 }
 
+type conversationTreeSelectRequest struct {
+	LeafID string `json:"leafId"`
+}
+
+type conversationTreeEditRequest struct {
+	EntryID string                   `json:"entryId"`
+	Message string                   `json:"message"`
+	Images  []piConversationImageRef `json:"images,omitempty"`
+}
+
 type conversationForkMessageResponse struct {
 	Conversation db.Conversation         `json:"conversation"`
 	SelectedText string                  `json:"selectedText"`
@@ -415,6 +425,73 @@ func (s *Server) handleForkConversationFromMessage(w http.ResponseWriter, r *htt
 		SelectedText: selectedText,
 		Snapshot:     &snapshot,
 	})
+}
+
+func (s *Server) handleGetConversationTree(w http.ResponseWriter, r *http.Request) {
+	conversationID := urlParam(r, "id")
+	conversation, _, err := s.conversationContext(conversationID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeDBError(w, err, "conversation")
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	tree, err := s.pi.ConversationTree(conversation)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, tree)
+}
+
+func (s *Server) handleSelectConversationTreeLeaf(w http.ResponseWriter, r *http.Request) {
+	conversationID := urlParam(r, "id")
+	conversation, workDir, err := s.conversationContext(conversationID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeDBError(w, err, "conversation")
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var req conversationTreeSelectRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	snapshot, err := s.pi.SelectTreeLeaf(conversation, workDir, req.LeafID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshot)
+}
+
+func (s *Server) handleEditConversationTreeMessage(w http.ResponseWriter, r *http.Request) {
+	conversationID := urlParam(r, "id")
+	conversation, workDir, err := s.conversationContext(conversationID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeDBError(w, err, "conversation")
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var req conversationTreeEditRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	snapshot, err := s.pi.EditFromEntry(conversation, workDir, req.EntryID, req.Message, req.Images)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshot)
 }
 
 func (s *Server) handleAbortConversation(w http.ResponseWriter, r *http.Request) {
