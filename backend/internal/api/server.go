@@ -242,6 +242,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/projects/{id}/workspaces", s.handleCreateWorkspace)
 		r.Get("/api/projects/{id}/conversations", s.handleListProjectConversations)
 		r.Post("/api/projects/{id}/conversations", s.handleCreateProjectConversation)
+		r.Get("/api/projects/{id}/task-links", s.handleListProjectTaskLinks)
 		r.Get("/api/projects/{id}/skills", s.handleListProjectSkills)
 		r.Post("/api/projects/{id}/skills", s.handleInstallProjectSkill)
 		r.Post("/api/projects/{id}/skills/catalog", s.handleInstallCatalogSkill)
@@ -298,8 +299,12 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/projects/{projectId}/tasks", s.handleCreateTask)
 		r.Get("/api/tasks/{id}", s.handleGetTask)
 		r.Patch("/api/tasks/{id}", s.handleUpdateTask)
+		r.Patch("/api/tasks/{id}/tracking", s.handleUpdateTaskTracking)
 		r.Delete("/api/tasks/{id}", s.handleDeleteTask)
 		r.Post("/api/tasks/{id}/create-pr", s.handleCreatePR)
+		r.Get("/api/tasks/{id}/links", s.handleListTaskLinks)
+		r.Post("/api/tasks/{id}/links", s.handleCreateTaskLink)
+		r.Delete("/api/tasks/{id}/links/{linkId}", s.handleDeleteTaskLink)
 
 		// Worktrees
 		r.Post("/api/tasks/{id}/worktree", s.handleCreateWorktree)

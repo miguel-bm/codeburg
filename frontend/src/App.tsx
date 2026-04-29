@@ -21,6 +21,7 @@ import { V2ConversationsPage } from './pages/v2/V2ConversationsPage';
 import { V2ConversationDetailPage } from './pages/v2/V2ConversationDetailPage';
 import { V2ProjectsPage } from './pages/v2/V2ProjectsPage';
 import { V2ProjectConversationsPage } from './pages/v2/V2ProjectConversationsPage';
+import { V2ProjectTasksPage } from './pages/v2/V2ProjectTasksPage';
 import { V2ProjectPage } from './pages/v2/V2ProjectPage';
 import { V2ProjectSkillsPage } from './pages/v2/V2ProjectSkillsPage';
 import { V2ProjectPiPage } from './pages/v2/V2ProjectPiPage';
@@ -78,6 +79,7 @@ function MainAppShell() {
           <Route path="harness" element={<V2HarnessPage />} />
           <Route path="projects/:id" element={<V2ProjectPage />} />
           <Route path="projects/:id/conversations" element={<V2ProjectConversationsPage />} />
+          <Route path="projects/:id/tasks" element={<V2ProjectTasksPage />} />
           <Route path="projects/:id/skills" element={<V2ProjectSkillsPage />} />
           <Route path="projects/:id/pi" element={<V2ProjectPiPage />} />
           <Route path="projects/:id/actions" element={<V2ProjectQuickActionsPage />} />

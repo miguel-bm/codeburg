@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  ClipboardList,
   Files,
   MessageSquarePlus,
   PlusCircle,
@@ -410,6 +411,17 @@ export function V2ProjectPage() {
         <V2WorkspaceActionHeader
           project={project}
           workspace={activeWorkspace}
+          detail={(
+            <button
+              type="button"
+              onClick={() => navigate(`/projects/${project.id}/tasks`)}
+              className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]"
+              title="Project tasks"
+            >
+              <ClipboardList size={12} />
+              Tasks
+            </button>
+          )}
           pending={workspacePending}
           onUpdateFromBase={() => syncWorkspace.mutate(activeWorkspace.id)}
           onMerge={(mergeInput) => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'merge', mergeInput })}

@@ -131,6 +131,18 @@ export interface Task {
   archivedAt?: string;
 }
 
+export type TaskLinkTargetType = 'workspace' | 'conversation';
+
+export interface TaskLink {
+  id: string;
+  taskId: string;
+  projectId: string;
+  targetType: TaskLinkTargetType;
+  targetId: string;
+  relationType: string;
+  createdAt: string;
+}
+
 export interface CreateTaskInput {
   title: string;
   description?: string;

@@ -6,6 +6,7 @@ import {
   ArrowDownUp,
   Bolt,
   BookPlus,
+  ClipboardList,
   Circle,
   CircleAlert,
   CircleDot,
@@ -945,6 +946,7 @@ function ProjectTree({
               {treeOpen ? 'Collapse project' : 'Expand project'}
             </ProjectMenuItem>
             <ProjectMenuItem icon={<FolderPlus size={14} />} onClick={() => runProjectAction(() => navigate(`/projects/${project.id}?newWorkspace=1`))}>New workspace</ProjectMenuItem>
+            <ProjectMenuItem icon={<ClipboardList size={14} />} onClick={() => runProjectAction(() => navigate(`/projects/${project.id}/tasks`))}>Tasks</ProjectMenuItem>
             <ProjectMenuItem icon={pinned ? <PinOff size={14} /> : <Pin size={14} />} onClick={() => runProjectAction(() => void togglePinnedProject(project.id, queryClient))}>
               {pinned ? 'Unpin project' : 'Pin project'}
             </ProjectMenuItem>

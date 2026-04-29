@@ -27,6 +27,9 @@ export const tasksApi = {
   update: (id: string, input: UpdateTaskInput) =>
     api.patch<UpdateTaskResponse>(`/tasks/${id}`, input),
 
+  updateTracking: (id: string, input: UpdateTaskInput) =>
+    api.patch<Task>(`/tasks/${id}/tracking`, input),
+
   delete: (id: string) => api.delete(`/tasks/${id}`),
 
   // Worktree operations

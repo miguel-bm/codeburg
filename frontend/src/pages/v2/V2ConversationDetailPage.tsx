@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ClipboardEvent, Dispatch, DragEvent, ReactNode, SetStateAction } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -26,6 +26,7 @@ import {
   MessageSquareText,
   MoreHorizontal,
   Paperclip,
+  PenLine,
   Pencil,
   PlusCircle,
   RefreshCw,
@@ -55,6 +56,13 @@ import { Button, V2Empty, V2Screen } from './v2-ui';
 import { V2WorkspaceActionHeader } from './V2WorkspaceActionHeader';
 import { WorkspaceConversationTab, WorkspaceTerminalTab } from './V2WorkspaceTabs';
 import { V2WorkspaceToolTabs, V2WorkspaceTools, V2WorkspaceToolsSurface, type V2HelperTab } from './V2WorkspaceTools';
+import type { DiagramAttachmentResult, ExcalidrawDiagramSource } from '../../components/chat/ExcalidrawDiagramDialog';
+
+const ExcalidrawDiagramDialog = lazy(() =>
+  import('../../components/chat/ExcalidrawDiagramDialog').then((module) => ({
+    default: module.ExcalidrawDiagramDialog,
+  })),
+);
 
 type MainSurface = 'conversation' | { type: 'workspaceTab'; index: number };
 
@@ -74,7 +82,12 @@ interface ComposerAttachment {
   name: string;
   previewUrl: string;
   image: PiConversationImageAttachment;
+  source?: ExcalidrawDiagramSource;
 }
+
+type DiagramEditorState =
+  | { mode: 'new' }
+  | { mode: 'edit'; attachmentId: string; source: ExcalidrawDiagramSource };
 
 type ConversationRenderItem =
   | { type: 'message'; message: PiConversationMessage }
@@ -860,6 +873,7 @@ function ConversationSurface({
   const [forkDialog, setForkDialog] = useState<ForkDialogState | null>(null);
   const [forkDialogError, setForkDialogError] = useState<string | null>(null);
   const [editingMessage, setEditingMessage] = useState<EditingMessageState | null>(null);
+  const [diagramEditor, setDiagramEditor] = useState<DiagramEditorState | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [branchSwitching, setBranchSwitching] = useState(false);
   const imageDragDepth = useRef(0);
@@ -1298,6 +1312,43 @@ function ConversationSurface({
     setAttachments((current) => [...current, ...nextAttachments]);
   }, [setAttachments]);
 
+  const openDiagramEditor = () => {
+    if (composerDisabled) return;
+    setDiagramEditor({ mode: 'new' });
+  };
+
+  const editDiagramAttachment = (attachment: ComposerAttachment) => {
+    if (!attachment.source || composerDisabled) return;
+    setDiagramEditor({
+      mode: 'edit',
+      attachmentId: attachment.id,
+      source: attachment.source,
+    });
+  };
+
+  const attachDiagram = useCallback((result: DiagramAttachmentResult) => {
+    const editingAttachmentId = diagramEditor?.mode === 'edit' ? diagramEditor.attachmentId : null;
+    const nextAttachment: ComposerAttachment = {
+      id: editingAttachmentId ?? `diagram-${crypto.randomUUID()}`,
+      name: result.name,
+      previewUrl: result.previewUrl,
+      image: result.image,
+      source: result.source,
+    };
+
+    setAttachments((current) => {
+      if (!editingAttachmentId) return [...current, nextAttachment];
+      let replaced = false;
+      const next = current.map((attachment) => {
+        if (attachment.id !== editingAttachmentId) return attachment;
+        replaced = true;
+        return nextAttachment;
+      });
+      return replaced ? next : [...current, nextAttachment];
+    });
+    setDiagramEditor(null);
+  }, [diagramEditor, setAttachments]);
+
   const removeAttachment = (id: string) => {
     setAttachments((current) => current.filter((attachment) => attachment.id !== id));
   };
@@ -1391,6 +1442,10 @@ function ConversationSurface({
                   <Paperclip size={13} />
                   Attach
                 </button>
+                <button type="button" onClick={openDiagramEditor} className="inline-flex h-8 items-center gap-2 rounded-full bg-card px-3 text-xs text-[var(--color-text-secondary)] shadow-[var(--shadow-card)] transition-colors hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]">
+                  <PenLine size={13} />
+                  Sketch
+                </button>
               </div>
             )}
           />
@@ -1435,6 +1490,17 @@ function ConversationSurface({
                 <div key={attachment.id} className="group inline-flex h-8 max-w-full items-center gap-2 rounded-full border border-subtle bg-primary px-2.5 pr-1.5 text-sm text-[var(--color-text-primary)] shadow-sm">
                   <img src={attachment.previewUrl} alt="" className="h-5 w-5 shrink-0 rounded-md object-cover" />
                   <span className="max-w-52 truncate">{attachment.name}</span>
+                  {attachment.source && (
+                    <button
+                      type="button"
+                      onClick={() => editDiagramAttachment(attachment)}
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]"
+                      title="Edit diagram"
+                      aria-label="Edit diagram"
+                    >
+                      <Pencil size={11} />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => removeAttachment(attachment.id)}
@@ -1572,6 +1638,9 @@ function ConversationSurface({
               />
               <button type="button" onClick={() => fileInputRef.current?.click()} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Attach screenshot" aria-label="Attach screenshot">
                 <Paperclip size={16} />
+              </button>
+              <button type="button" onClick={openDiagramEditor} disabled={composerDisabled} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-45" title="Sketch diagram" aria-label="Sketch diagram">
+                <PenLine size={16} />
               </button>
               <button type="button" onClick={() => insertTrigger('/')} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Insert command" aria-label="Insert command">
                 <Slash size={15} />
@@ -1769,6 +1838,26 @@ function ConversationSurface({
         }}
         onConfirm={() => void confirmForkConversation()}
       />
+      <Suspense fallback={diagramEditor ? <DiagramEditorLoading /> : null}>
+        {diagramEditor && (
+          <ExcalidrawDiagramDialog
+            initialSource={diagramEditor.mode === 'edit' ? diagramEditor.source : undefined}
+            onAttach={attachDiagram}
+            onClose={() => setDiagramEditor(null)}
+          />
+        )}
+      </Suspense>
+    </div>
+  );
+}
+
+function DiagramEditorLoading() {
+  return (
+    <div className="fixed inset-0 z-[80] grid place-items-center bg-primary text-sm text-dim">
+      <span className="inline-flex items-center gap-2 rounded-xl border border-subtle bg-card px-4 py-3 shadow-card">
+        <Loader2 size={15} className="animate-spin text-accent" />
+        Loading sketch editor
+      </span>
     </div>
   );
 }

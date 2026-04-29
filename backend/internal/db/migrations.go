@@ -525,4 +525,24 @@ var migrations = []migration{
 			CREATE INDEX IF NOT EXISTS idx_conversations_unread ON conversations(unread_at DESC);
 		`,
 	},
+	{
+		version: 25,
+		sql: `
+			-- Optional, lateral task relationships for V2 project tracking.
+			-- Tasks can annotate workspaces and conversations without owning their lifecycle.
+			CREATE TABLE IF NOT EXISTS task_links (
+				id TEXT PRIMARY KEY,
+				task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+				project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+				target_type TEXT NOT NULL CHECK (target_type IN ('workspace', 'conversation')),
+				target_id TEXT NOT NULL,
+				relation_type TEXT NOT NULL DEFAULT 'related',
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE(task_id, target_type, target_id)
+			);
+			CREATE INDEX IF NOT EXISTS idx_task_links_project ON task_links(project_id, created_at DESC);
+			CREATE INDEX IF NOT EXISTS idx_task_links_task ON task_links(task_id);
+			CREATE INDEX IF NOT EXISTS idx_task_links_target ON task_links(target_type, target_id);
+		`,
+	},
 }

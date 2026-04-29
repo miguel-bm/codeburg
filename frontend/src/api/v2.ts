@@ -25,6 +25,11 @@ import type {
   HarnessStatus,
   HarnessToolId,
   V2SidebarData,
+  Task,
+  TaskLink,
+  TaskLinkTargetType,
+  CreateTaskInput,
+  UpdateTaskInput,
 } from './types';
 import type { GitStatus, GitDiff, GitDiffContent } from './git';
 
@@ -125,6 +130,12 @@ export interface InstallProjectSkillInput {
   name?: string;
 }
 
+export interface CreateTaskLinkInput {
+  targetType: TaskLinkTargetType;
+  targetId: string;
+  relationType?: string;
+}
+
 export const v2Api = {
   getSidebar: () =>
     api.get<V2SidebarData>('/sidebar/v2'),
@@ -202,6 +213,35 @@ export const v2Api = {
 
   createConversation: (projectId: string, input: CreateConversationInput) =>
     api.post<Conversation>(`/projects/${projectId}/conversations`, input),
+
+  listProjectTasks: (projectId: string) =>
+    api.get<Task[]>(`/tasks?project=${encodeURIComponent(projectId)}`),
+
+  createProjectTask: (projectId: string, input: CreateTaskInput) =>
+    api.post<Task>(`/projects/${projectId}/tasks`, input),
+
+  updateTaskTracking: (taskId: string, input: UpdateTaskInput) =>
+    api.patch<Task>(`/tasks/${taskId}/tracking`, input),
+
+  deleteProjectTask: (taskId: string) =>
+    api.delete(`/tasks/${taskId}`),
+
+  listProjectTaskLinks: (projectId: string, input?: { targetType?: TaskLinkTargetType; targetId?: string }) => {
+    const search = new URLSearchParams();
+    if (input?.targetType) search.set('targetType', input.targetType);
+    if (input?.targetId) search.set('targetId', input.targetId);
+    const query = search.toString();
+    return api.get<TaskLink[]>(`/projects/${projectId}/task-links${query ? `?${query}` : ''}`);
+  },
+
+  listTaskLinks: (taskId: string) =>
+    api.get<TaskLink[]>(`/tasks/${taskId}/links`),
+
+  createTaskLink: (taskId: string, input: CreateTaskLinkInput) =>
+    api.post<TaskLink>(`/tasks/${taskId}/links`, input),
+
+  deleteTaskLink: (taskId: string, linkId: string) =>
+    api.delete(`/tasks/${taskId}/links/${linkId}`),
 
   getConversation: (conversationId: string) =>
     api.get<Conversation>(`/conversations/${conversationId}`),
