@@ -17,6 +17,15 @@ import { tunnelsApi } from '../../api';
 const mockedApi = vi.mocked(tunnelsApi);
 
 const mockWriteText = vi.fn().mockResolvedValue(undefined);
+const tunnel = (id: string, port: number, url: string) => ({
+  id,
+  workspaceId: 'task-1',
+  projectId: 'project-1',
+  port,
+  url,
+  status: 'active' as const,
+  createdAt: '2026-01-01T00:00:00Z',
+});
 
 describe('TunnelPanel', () => {
   beforeEach(() => {
@@ -57,18 +66,8 @@ describe('TunnelPanel', () => {
 
   it('renders tunnel list with URLs', async () => {
     mockedApi.list.mockResolvedValue([
-      {
-        id: 'tunnel-1',
-        taskId: 'task-1',
-        port: 3000,
-        url: 'https://abc123.trycloudflare.com',
-      },
-      {
-        id: 'tunnel-2',
-        taskId: 'task-1',
-        port: 8080,
-        url: 'https://def456.trycloudflare.com',
-      },
+      tunnel('tunnel-1', 3000, 'https://abc123.trycloudflare.com'),
+      tunnel('tunnel-2', 8080, 'https://def456.trycloudflare.com'),
     ]);
 
     render(
@@ -110,12 +109,7 @@ describe('TunnelPanel', () => {
   it('creates a tunnel with port', async () => {
     const user = userEvent.setup();
     mockedApi.list.mockResolvedValue([]);
-    mockedApi.create.mockResolvedValue({
-      id: 'new-tunnel',
-      taskId: 'task-1',
-      port: 3000,
-      url: 'https://new.trycloudflare.com',
-    });
+    mockedApi.create.mockResolvedValue(tunnel('new-tunnel', 3000, 'https://new.trycloudflare.com'));
 
     render(
       <TestWrapper>
@@ -160,12 +154,7 @@ describe('TunnelPanel', () => {
   it('stops a tunnel', async () => {
     const user = userEvent.setup();
     mockedApi.list.mockResolvedValue([
-      {
-        id: 'tunnel-1',
-        taskId: 'task-1',
-        port: 3000,
-        url: 'https://test.trycloudflare.com',
-      },
+      tunnel('tunnel-1', 3000, 'https://test.trycloudflare.com'),
     ]);
     mockedApi.stop.mockResolvedValue(undefined);
 
@@ -181,7 +170,7 @@ describe('TunnelPanel', () => {
 
     await user.click(screen.getByText('Stop'));
 
-    expect(mockedApi.stop).toHaveBeenCalledWith('tunnel-1');
+    expect(mockedApi.stop).toHaveBeenCalledWith('task-1', 'tunnel-1');
   });
 
   it('copies URL to clipboard', async () => {
@@ -193,12 +182,7 @@ describe('TunnelPanel', () => {
     });
 
     mockedApi.list.mockResolvedValue([
-      {
-        id: 'tunnel-1',
-        taskId: 'task-1',
-        port: 3000,
-        url: 'https://test.trycloudflare.com',
-      },
+      tunnel('tunnel-1', 3000, 'https://test.trycloudflare.com'),
     ]);
 
     render(

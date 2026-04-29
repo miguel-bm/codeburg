@@ -7,19 +7,33 @@ import (
 	"os/exec"
 	"regexp"
 	"sync"
+	"time"
+)
+
+const startupTimeout = 20 * time.Second
+
+type Status string
+
+const (
+	StatusStarting Status = "starting"
+	StatusActive   Status = "active"
+	StatusStopping Status = "stopping"
+	StatusFailed   Status = "failed"
 )
 
 // Tunnel represents an active cloudflared tunnel
 type Tunnel struct {
-	ID        string
-	TaskID    string
-	ProjectID string
-	Port      int
-	URL       string
-	Cmd       *exec.Cmd
-	Cancel    context.CancelFunc
-	mu        sync.Mutex
-	stopped   bool
+	ID          string
+	WorkspaceID string
+	ProjectID   string
+	Port        int
+	URL         string
+	Status      Status
+	CreatedAt   time.Time
+	Cmd         *exec.Cmd
+	Cancel      context.CancelFunc
+	mu          sync.Mutex
+	stopped     bool
 }
 
 // Manager manages cloudflared tunnels
@@ -53,17 +67,17 @@ func (m *Manager) Available() bool {
 	return cmd.Run() == nil
 }
 
-// Create starts a new cloudflared tunnel
-func (m *Manager) Create(id, taskID string, port int, projectID ...string) (*Tunnel, error) {
+// Create starts a new cloudflared tunnel for a workspace.
+func (m *Manager) Create(id, workspaceID, projectID string, port int) (*Tunnel, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
-	// Check if tunnel already exists for this ID
 	if existing, ok := m.tunnels[id]; ok {
+		m.mu.Unlock()
 		return existing, nil
 	}
 	if existingID, ok := m.ports[port]; ok {
 		if existingTunnel, exists := m.tunnels[existingID]; exists {
+			m.mu.Unlock()
 			return nil, &PortConflictError{
 				Port:     port,
 				Existing: existingTunnel.Info(),
@@ -73,35 +87,37 @@ func (m *Manager) Create(id, taskID string, port int, projectID ...string) (*Tun
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-
-	// Start cloudflared tunnel
-	cmd := exec.CommandContext(ctx, "cloudflared", "tunnel", "--url", fmt.Sprintf("http://localhost:%d", port))
+	tunnel := &Tunnel{
+		ID:          id,
+		WorkspaceID: workspaceID,
+		ProjectID:   projectID,
+		Port:        port,
+		Status:      StatusStarting,
+		CreatedAt:   time.Now().UTC(),
+		Cancel:      cancel,
+	}
+	m.tunnels[id] = tunnel
+	m.ports[port] = id
+	m.mu.Unlock()
 
 	// Get stderr to capture the URL
+	cmd := exec.CommandContext(ctx, "cloudflared", "tunnel", "--url", fmt.Sprintf("http://localhost:%d", port))
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		cancel()
+		m.remove(id)
 		return nil, fmt.Errorf("create stderr pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
 		cancel()
+		m.remove(id)
 		return nil, fmt.Errorf("start cloudflared: %w", err)
 	}
 
-	projID := ""
-	if len(projectID) > 0 {
-		projID = projectID[0]
-	}
-
-	tunnel := &Tunnel{
-		ID:        id,
-		TaskID:    taskID,
-		ProjectID: projID,
-		Port:      port,
-		Cmd:       cmd,
-		Cancel:    cancel,
-	}
+	tunnel.mu.Lock()
+	tunnel.Cmd = cmd
+	tunnel.mu.Unlock()
 
 	// Parse URL from cloudflared output
 	// URL appears in format: "INF | https://something.trycloudflare.com"
@@ -121,36 +137,59 @@ func (m *Manager) Create(id, taskID string, port int, projectID ...string) (*Tun
 		}
 		if err := scanner.Err(); err != nil {
 			errChan <- err
+			return
 		}
+		errChan <- fmt.Errorf("cloudflared exited before announcing tunnel URL")
 	}()
 
-	// Wait for URL with timeout
+	timer := time.NewTimer(startupTimeout)
+	defer timer.Stop()
+
 	select {
 	case url := <-urlChan:
+		tunnel.mu.Lock()
 		tunnel.URL = url
+		tunnel.Status = StatusActive
+		tunnel.mu.Unlock()
 	case err := <-errChan:
-		cmd.Process.Kill()
+		_ = cmd.Process.Kill()
 		cancel()
+		m.remove(id)
 		return nil, fmt.Errorf("read cloudflared output: %w", err)
 	case <-ctx.Done():
-		cmd.Process.Kill()
+		_ = cmd.Process.Kill()
 		cancel()
+		m.remove(id)
 		return nil, fmt.Errorf("context cancelled")
+	case <-timer.C:
+		_ = cmd.Process.Kill()
+		cancel()
+		m.remove(id)
+		return nil, fmt.Errorf("timed out waiting for cloudflared URL")
 	}
-
-	m.tunnels[id] = tunnel
-	m.ports[port] = id
 
 	// Monitor tunnel and clean up on exit
 	go func() {
-		cmd.Wait()
+		_ = cmd.Wait()
 		m.mu.Lock()
-		delete(m.ports, port)
-		delete(m.tunnels, id)
+		if current, ok := m.tunnels[id]; ok && current == tunnel {
+			delete(m.ports, port)
+			delete(m.tunnels, id)
+		}
 		m.mu.Unlock()
 	}()
 
 	return tunnel, nil
+}
+
+func (m *Manager) remove(id string) {
+	m.mu.Lock()
+	tunnel, ok := m.tunnels[id]
+	if ok {
+		delete(m.ports, tunnel.Port)
+		delete(m.tunnels, id)
+	}
+	m.mu.Unlock()
 }
 
 // Get returns a tunnel by ID
@@ -172,14 +211,14 @@ func (m *Manager) List() []*Tunnel {
 	return tunnels
 }
 
-// ListForTask returns all tunnels for a specific task
-func (m *Manager) ListForTask(taskID string) []*Tunnel {
+// ListForWorkspace returns all tunnels for a specific workspace.
+func (m *Manager) ListForWorkspace(workspaceID string) []*Tunnel {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	var tunnels []*Tunnel
 	for _, t := range m.tunnels {
-		if t.TaskID == taskID {
+		if t.WorkspaceID == workspaceID {
 			tunnels = append(tunnels, t)
 		}
 	}
@@ -205,13 +244,30 @@ func (m *Manager) Stop(id string) error {
 		return nil
 	}
 	tunnel.stopped = true
+	tunnel.Status = StatusStopping
 
 	tunnel.Cancel()
-	if tunnel.Cmd.Process != nil {
-		tunnel.Cmd.Process.Kill()
+	if tunnel.Cmd != nil && tunnel.Cmd.Process != nil {
+		_ = tunnel.Cmd.Process.Kill()
 	}
 
 	return nil
+}
+
+// StopForWorkspace stops all active tunnels owned by a workspace.
+func (m *Manager) StopForWorkspace(workspaceID string) {
+	m.mu.RLock()
+	var ids []string
+	for _, t := range m.tunnels {
+		if t.WorkspaceID == workspaceID {
+			ids = append(ids, t.ID)
+		}
+	}
+	m.mu.RUnlock()
+
+	for _, id := range ids {
+		_ = m.Stop(id)
+	}
 }
 
 // StopAll stops all tunnels
@@ -229,9 +285,10 @@ func (m *Manager) StopAll() {
 		t.mu.Lock()
 		if !t.stopped {
 			t.stopped = true
+			t.Status = StatusStopping
 			t.Cancel()
-			if t.Cmd.Process != nil {
-				t.Cmd.Process.Kill()
+			if t.Cmd != nil && t.Cmd.Process != nil {
+				_ = t.Cmd.Process.Kill()
 			}
 		}
 		t.mu.Unlock()
@@ -255,36 +312,29 @@ func (m *Manager) FindByPort(port int) *TunnelInfo {
 	return &info
 }
 
-// ListForProject returns all tunnels for a specific project (no task)
-func (m *Manager) ListForProject(projectID string) []*Tunnel {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var tunnels []*Tunnel
-	for _, t := range m.tunnels {
-		if t.ProjectID == projectID && t.TaskID == "" {
-			tunnels = append(tunnels, t)
-		}
-	}
-	return tunnels
-}
-
 // TunnelInfo is a serializable representation of a tunnel
 type TunnelInfo struct {
-	ID        string `json:"id"`
-	TaskID    string `json:"taskId,omitempty"`
-	ProjectID string `json:"projectId,omitempty"`
-	Port      int    `json:"port"`
-	URL       string `json:"url"`
+	ID          string    `json:"id"`
+	WorkspaceID string    `json:"workspaceId"`
+	ProjectID   string    `json:"projectId"`
+	Port        int       `json:"port"`
+	URL         string    `json:"url"`
+	Status      Status    `json:"status"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 // Info returns the serializable info for a tunnel
 func (t *Tunnel) Info() TunnelInfo {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	return TunnelInfo{
-		ID:        t.ID,
-		TaskID:    t.TaskID,
-		ProjectID: t.ProjectID,
-		Port:      t.Port,
-		URL:       t.URL,
+		ID:          t.ID,
+		WorkspaceID: t.WorkspaceID,
+		ProjectID:   t.ProjectID,
+		Port:        t.Port,
+		URL:         t.URL,
+		Status:      t.Status,
+		CreatedAt:   t.CreatedAt,
 	}
 }

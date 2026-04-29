@@ -14,20 +14,22 @@ import (
 type portSuggestionStatus string
 
 const (
-	portSuggestionStatusSuggested            portSuggestionStatus = "suggested"
-	portSuggestionStatusAlreadyTunneledTask  portSuggestionStatus = "already_tunneled_this_task"
-	portSuggestionStatusAlreadyTunneledOther portSuggestionStatus = "already_tunneled_other_task"
+	portSuggestionStatusSuggested                portSuggestionStatus = "suggested"
+	portSuggestionStatusAlreadyTunneledWorkspace portSuggestionStatus = "already_tunneled_this_workspace"
+	portSuggestionStatusAlreadyTunneledOther     portSuggestionStatus = "already_tunneled_other_workspace"
 )
 
 type tunnelRef struct {
-	ID        string `json:"id"`
-	TaskID    string `json:"taskId"`
-	TaskTitle string `json:"taskTitle,omitempty"`
-	Port      int    `json:"port"`
-	URL       string `json:"url"`
+	ID            string `json:"id"`
+	WorkspaceID   string `json:"workspaceId"`
+	WorkspaceName string `json:"workspaceName,omitempty"`
+	ProjectID     string `json:"projectId"`
+	Port          int    `json:"port"`
+	URL           string `json:"url"`
+	Status        string `json:"status"`
 }
 
-type taskPortSuggestion struct {
+type workspacePortSuggestion struct {
 	Port           int                  `json:"port"`
 	Sources        []string             `json:"sources"`
 	FirstSeenAt    time.Time            `json:"firstSeenAt"`
@@ -36,20 +38,17 @@ type taskPortSuggestion struct {
 	ExistingTunnel *tunnelRef           `json:"existingTunnel,omitempty"`
 }
 
-// handleListTaskPortSuggestions lists detected/suggested ports for a task.
-func (s *Server) handleListTaskPortSuggestions(w http.ResponseWriter, r *http.Request) {
-	taskID := chi.URLParam(r, "id")
-
-	_, err := s.db.GetTask(taskID)
-	if err != nil {
-		writeDBError(w, err, "task")
+func (s *Server) handleListWorkspacePortSuggestions(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "id")
+	if _, err := s.db.GetWorkspace(workspaceID); err != nil {
+		writeDBError(w, err, "workspace")
 		return
 	}
 
-	raw := s.portSuggest.ListTask(taskID)
-	out := make([]taskPortSuggestion, 0, len(raw))
+	raw := s.portSuggest.ListWorkspace(workspaceID)
+	out := make([]workspacePortSuggestion, 0, len(raw))
 	for _, suggestion := range raw {
-		row := taskPortSuggestion{
+		row := workspacePortSuggestion{
 			Port:        suggestion.Port,
 			Sources:     suggestion.Sources,
 			FirstSeenAt: suggestion.FirstSeenAt,
@@ -59,8 +58,8 @@ func (s *Server) handleListTaskPortSuggestions(w http.ResponseWriter, r *http.Re
 
 		if existing := s.tunnels.FindByPort(suggestion.Port); existing != nil {
 			row.ExistingTunnel = mapTunnelRef(*existing, s)
-			if existing.TaskID == taskID {
-				row.Status = portSuggestionStatusAlreadyTunneledTask
+			if existing.WorkspaceID == workspaceID {
+				row.Status = portSuggestionStatusAlreadyTunneledWorkspace
 			} else {
 				row.Status = portSuggestionStatusAlreadyTunneledOther
 			}
@@ -74,20 +73,17 @@ func (s *Server) handleListTaskPortSuggestions(w http.ResponseWriter, r *http.Re
 	})
 }
 
-// handleScanTaskPorts triggers an on-demand listener scan.
-func (s *Server) handleScanTaskPorts(w http.ResponseWriter, r *http.Request) {
-	taskID := chi.URLParam(r, "id")
-
-	_, err := s.db.GetTask(taskID)
-	if err != nil {
-		writeDBError(w, err, "task")
+func (s *Server) handleScanWorkspacePorts(w http.ResponseWriter, r *http.Request) {
+	workspaceID := chi.URLParam(r, "id")
+	if _, err := s.db.GetWorkspace(workspaceID); err != nil {
+		writeDBError(w, err, "workspace")
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	result, err := s.portSuggest.ScanTask(ctx, taskID)
+	result, err := s.portSuggest.ScanWorkspace(ctx, workspaceID)
 	if err != nil {
 		if errors.Is(err, portsuggest.ErrRateLimited) {
 			writeError(w, http.StatusTooManyRequests, "scan rate limited")
@@ -102,14 +98,16 @@ func (s *Server) handleScanTaskPorts(w http.ResponseWriter, r *http.Request) {
 
 func mapTunnelRef(info tunnel.TunnelInfo, s *Server) *tunnelRef {
 	ref := &tunnelRef{
-		ID:     info.ID,
-		TaskID: info.TaskID,
-		Port:   info.Port,
-		URL:    info.URL,
+		ID:          info.ID,
+		WorkspaceID: info.WorkspaceID,
+		ProjectID:   info.ProjectID,
+		Port:        info.Port,
+		URL:         info.URL,
+		Status:      string(info.Status),
 	}
 
-	if task, err := s.db.GetTask(info.TaskID); err == nil {
-		ref.TaskTitle = task.Title
+	if workspace, err := s.db.GetWorkspace(info.WorkspaceID); err == nil {
+		ref.WorkspaceName = workspace.Name
 	}
 	return ref
 }

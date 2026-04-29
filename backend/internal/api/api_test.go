@@ -1019,13 +1019,12 @@ func TestListTunnels_Empty(t *testing.T) {
 	var project db.Project
 	decodeResponse(t, projResp, &project)
 
-	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
-		"title": "Tunnel Task",
-	})
-	var task db.Task
-	decodeResponse(t, taskResp, &task)
+	wsResp := env.get("/api/projects/" + project.ID + "/workspaces")
+	var workspaces []db.Workspace
+	decodeResponse(t, wsResp, &workspaces)
+	workspace := workspaces[0]
 
-	resp := env.get("/api/tasks/" + task.ID + "/tunnels")
+	resp := env.get("/api/workspaces/" + workspace.ID + "/tunnels")
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.Code)
 	}
@@ -1037,7 +1036,7 @@ func TestListTunnels_Empty(t *testing.T) {
 	}
 }
 
-func TestListTaskPortSuggestions_Empty(t *testing.T) {
+func TestListWorkspacePortSuggestions_Empty(t *testing.T) {
 	env := setupTestEnv(t)
 	env.setup("testpass123")
 
@@ -1048,13 +1047,12 @@ func TestListTaskPortSuggestions_Empty(t *testing.T) {
 	var project db.Project
 	decodeResponse(t, projResp, &project)
 
-	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
-		"title": "Ports Task",
-	})
-	var task db.Task
-	decodeResponse(t, taskResp, &task)
+	wsResp := env.get("/api/projects/" + project.ID + "/workspaces")
+	var workspaces []db.Workspace
+	decodeResponse(t, wsResp, &workspaces)
+	workspace := workspaces[0]
 
-	resp := env.get("/api/tasks/" + task.ID + "/port-suggestions")
+	resp := env.get("/api/workspaces/" + workspace.ID + "/port-suggestions")
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.Code)
 	}
@@ -1068,7 +1066,7 @@ func TestListTaskPortSuggestions_Empty(t *testing.T) {
 	}
 }
 
-func TestScanTaskPorts_WithFakeScanner(t *testing.T) {
+func TestScanWorkspacePorts_WithFakeScanner(t *testing.T) {
 	env := setupTestEnv(t)
 	env.setup("testpass123")
 	env.server.portSuggest = portsuggest.NewManager(&fakePortScanner{ports: []int{5173, 5432}})
@@ -1080,18 +1078,17 @@ func TestScanTaskPorts_WithFakeScanner(t *testing.T) {
 	var project db.Project
 	decodeResponse(t, projResp, &project)
 
-	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
-		"title": "Ports Task",
-	})
-	var task db.Task
-	decodeResponse(t, taskResp, &task)
+	wsResp := env.get("/api/projects/" + project.ID + "/workspaces")
+	var workspaces []db.Workspace
+	decodeResponse(t, wsResp, &workspaces)
+	workspace := workspaces[0]
 
-	scanResp := env.post("/api/tasks/"+task.ID+"/ports/scan", map[string]interface{}{})
+	scanResp := env.post("/api/workspaces/"+workspace.ID+"/ports/scan", map[string]interface{}{})
 	if scanResp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", scanResp.Code, scanResp.Body.String())
 	}
 
-	resp := env.get("/api/tasks/" + task.ID + "/port-suggestions")
+	resp := env.get("/api/workspaces/" + workspace.ID + "/port-suggestions")
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.Code)
 	}
@@ -1129,20 +1126,19 @@ func TestCreateTunnel_InvalidPort(t *testing.T) {
 	var project db.Project
 	decodeResponse(t, projResp, &project)
 
-	taskResp := env.post("/api/projects/"+project.ID+"/tasks", map[string]string{
-		"title": "Tunnel Task",
-	})
-	var task db.Task
-	decodeResponse(t, taskResp, &task)
+	wsResp := env.get("/api/projects/" + project.ID + "/workspaces")
+	var workspaces []db.Workspace
+	decodeResponse(t, wsResp, &workspaces)
+	workspace := workspaces[0]
 
-	resp := env.post("/api/tasks/"+task.ID+"/tunnels", map[string]int{
+	resp := env.post("/api/workspaces/"+workspace.ID+"/tunnels", map[string]int{
 		"port": -1,
 	})
 	if resp.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for invalid port, got %d", resp.Code)
 	}
 
-	resp = env.post("/api/tasks/"+task.ID+"/tunnels", map[string]int{
+	resp = env.post("/api/workspaces/"+workspace.ID+"/tunnels", map[string]int{
 		"port": 99999,
 	})
 	if resp.Code != http.StatusBadRequest {

@@ -722,14 +722,7 @@ func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 		s.portSuggest.ForgetSession(sess.ID)
 	}
 
-	// 4. Stop all tunnels for the task
-	for _, t := range s.tunnels.ListForTask(id) {
-		if err := s.tunnels.Stop(t.ID); err != nil {
-			slog.Warn("failed to stop tunnel during task deletion", "task_id", id, "tunnel_id", t.ID, "error", err)
-		}
-	}
-
-	// 5. Delete worktree if present
+	// 4. Delete worktree if present
 	if task.WorktreePath != nil && *task.WorktreePath != "" {
 		if err := s.worktree.Delete(worktree.DeleteOptions{
 			ProjectPath:    project.Path,

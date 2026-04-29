@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { ClipboardEvent, Dispatch, DragEvent, ReactNode, SetStateAction } from 'react';
+import type { Dispatch, DragEvent, ReactNode, SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -56,7 +56,8 @@ import { useVirtualKeyboard } from '../../hooks/useVirtualKeyboard';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { isDesktopShell } from '../../platform/runtimeConfig';
 import { applySuggestionToText, findActiveToken, fuzzyScore, type InputSelection } from '../../components/chat/chatAutocomplete';
-import { parseCodeburgReferences, type CodeburgReference } from '../../components/chat/referenceTokens';
+import { findCodeburgReferenceRanges, type CodeburgReference, type CodeburgReferenceRange } from '../../components/chat/referenceTokens';
+import { TokenAwareComposer, type TokenAwareComposerHandle } from '../../components/chat/TokenAwareComposer';
 import { Button, V2Empty, V2Screen } from './v2-ui';
 import { V2WorkspaceActionHeader } from './V2WorkspaceActionHeader';
 import { WorkspaceConversationTab, WorkspaceTerminalTab } from './V2WorkspaceTabs';
@@ -195,6 +196,10 @@ export function V2ConversationDetailPage() {
     setDraft((current) => appendWorkspaceReference(current, path));
     setMainSurface('conversation');
   }, []);
+  const insertWorkspaceText = useCallback((text: string) => {
+    setDraft((current) => appendDraftText(current, text));
+    setMainSurface('conversation');
+  }, []);
   const openWorkspaceFileReference = useCallback((path: string, line?: number, isDirectory?: boolean) => {
     if (!project || !activeWorkspace) return;
     if (isDirectory) {
@@ -212,8 +217,9 @@ export function V2ConversationDetailPage() {
     () => ({
       enabled: isActiveConversation && mainSurface === 'conversation',
       insertReference: insertWorkspaceReference,
+      insertText: insertWorkspaceText,
     }),
-    [insertWorkspaceReference, isActiveConversation, mainSurface],
+    [insertWorkspaceReference, insertWorkspaceText, isActiveConversation, mainSurface],
   );
 
   useEffect(() => {
@@ -537,8 +543,8 @@ export function V2ConversationDetailPage() {
     wasStreaming.current = streaming;
   }, [conversationId, snapshot?.streaming, markConversationReadState]);
 
-  const handleSubmit = async (streamingBehavior?: 'steer' | 'followUp') => {
-    const trimmed = draft.trim();
+  const handleSubmit = async (streamingBehavior?: 'steer' | 'followUp', draftOverride?: string) => {
+    const trimmed = (draftOverride ?? draft).trim();
     if ((!trimmed && attachments.length === 0) || !conversationId) return;
     if (!isActiveConversation) return;
     if (snapshot?.streaming && !streamingBehavior) return;
@@ -867,14 +873,14 @@ function ConversationSurface({
   onForkConversation: (title?: string) => Promise<void>;
   onArchiveConversation: () => void;
   abort: () => Promise<void>;
-  submit: (streamingBehavior?: 'steer' | 'followUp') => void;
+  submit: (streamingBehavior?: 'steer' | 'followUp', draftOverride?: string) => void;
   onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void;
   onOpenPiSettings: () => void;
   onApplySnapshot: (snapshot: PiConversationSnapshot) => void;
 }) {
   const isMobile = useMobile();
   const { keyboardVisible, keyboardHeight } = useVirtualKeyboard();
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<TokenAwareComposerHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const modelOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -924,6 +930,10 @@ function ConversationSurface({
     [draft, selection],
   );
   const tokenKey = activeToken ? `${activeToken.start}:${activeToken.end}:${activeToken.token}` : null;
+  const activeTokenRange = useMemo(
+    () => activeToken ? { from: activeToken.start, to: activeToken.end } : null,
+    [activeToken],
+  );
 
   const { data: fileEntries = EMPTY_FILE_ENTRIES, isFetching: filesLoading } = useQuery({
     queryKey: ['v2-workspace-file-index', activeWorkspaceId],
@@ -1131,13 +1141,17 @@ function ConversationSurface({
     () => (inputFocused && tokenKey && dismissedTokenKey !== tokenKey ? suggestions : []),
     [dismissedTokenKey, inputFocused, suggestions, tokenKey],
   );
-  const parsedComposerReferences = useMemo(
-    () => parseCodeburgReferences(draft),
+  const parsedComposerReferenceRanges = useMemo(
+    () => findCodeburgReferenceRanges(draft),
     [draft],
   );
+  const composerReferenceRanges = useMemo(
+    () => enrichComposerReferenceRangeTypes(parsedComposerReferenceRanges, fileEntries),
+    [fileEntries, parsedComposerReferenceRanges],
+  );
   const composerReferences = useMemo(
-    () => uniqueComposerReferences(enrichComposerReferenceTypes(parsedComposerReferences, fileEntries)),
-    [fileEntries, parsedComposerReferences],
+    () => uniqueComposerReferences(composerReferenceRanges.map((range) => range.reference)),
+    [composerReferenceRanges],
   );
   const suggestionSignature = useMemo(
     () => visibleSuggestions.map((suggestion) => `${suggestion.key}:${suggestion.disabled ? 'disabled' : 'enabled'}`).join('|'),
@@ -1155,10 +1169,10 @@ function ConversationSurface({
   }, [activeToken?.prefix]);
 
   useEffect(() => {
-    if (parsedComposerReferences.some((reference) => reference.kind === 'file')) {
+    if (composerReferences.some((reference) => reference.kind === 'file')) {
       setFileIndexRequested(true);
     }
-  }, [parsedComposerReferences]);
+  }, [composerReferences]);
 
   useEffect(() => {
     suggestionRefs.current = [];
@@ -1238,14 +1252,8 @@ function ConversationSurface({
     if (stickToLatestRef.current) scrollToLatest();
   }, [messageActivityKey, scrollToLatest]);
 
-  useEffect(() => {
-    const node = textareaRef.current;
-    if (!node) return;
-    const minHeight = isMobile ? 70 : 82;
-    const maxHeight = isMobile ? 150 : 210;
-    node.style.height = '0px';
-    node.style.height = `${Math.min(maxHeight, Math.max(minHeight, node.scrollHeight))}px`;
-  }, [attachments.length, draft, isMobile]);
+  const composerMinHeight = isMobile ? 70 : 82;
+  const composerMaxHeight = isMobile ? 150 : 210;
 
   const setDraftWithSelection = (nextDraft: string, nextSelection?: InputSelection) => {
     setDraft(nextDraft);
@@ -1253,22 +1261,19 @@ function ConversationSurface({
     setDismissedTokenKey(null);
   };
 
-  const applyComposerSuggestion = (suggestion: ComposerSuggestion) => {
+  const applyComposerSuggestion = (suggestion: ComposerSuggestion, targetSelection = selection) => {
     if (suggestion.disabled) return;
-    const next = applySuggestionToText(draft, selection, suggestion.value, ['/', '@'], suggestion.addSpace);
+    const next = applySuggestionToText(draft, targetSelection, suggestion.value, ['/', '@'], suggestion.addSpace);
     setDraftWithSelection(next.text, { start: next.cursor, end: next.cursor });
     requestAnimationFrame(() => {
-      const node = textareaRef.current;
-      if (!node) return;
-      node.focus();
-      node.setSelectionRange(next.cursor, next.cursor);
+      composerRef.current?.setSelection({ start: next.cursor, end: next.cursor });
     });
   };
 
   const insertTrigger = (trigger: '/' | '@') => {
-    const node = textareaRef.current;
-    const start = node?.selectionStart ?? selection.start;
-    const end = node?.selectionEnd ?? selection.end;
+    const currentSelection = composerRef.current?.getSelection() ?? selection;
+    const start = currentSelection.start;
+    const end = currentSelection.end;
     const previous = start > 0 ? draft[start - 1] : '';
     const insertValue = `${previous && !/\s/.test(previous) ? ' ' : ''}${trigger}`;
     const nextDraft = `${draft.slice(0, start)}${insertValue}${draft.slice(end)}`;
@@ -1276,10 +1281,7 @@ function ConversationSurface({
     if (trigger === '@') setFileIndexRequested(true);
     setDraftWithSelection(nextDraft, { start: cursor, end: cursor });
     requestAnimationFrame(() => {
-      const el = textareaRef.current;
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(cursor, cursor);
+      composerRef.current?.setSelection({ start: cursor, end: cursor });
     });
   };
 
@@ -1310,10 +1312,7 @@ function ConversationSurface({
     setEditingMessage({ entryId: message.entryId });
     setEditError(null);
     requestAnimationFrame(() => {
-      const node = textareaRef.current;
-      if (!node) return;
-      node.focus();
-      node.setSelectionRange(text.length, text.length);
+      composerRef.current?.setSelection({ start: text.length, end: text.length });
     });
     if (nextAttachments.length > 0) {
       void hydrateEmbeddedExcalidrawSources(nextAttachments).then((hydratedAttachments) => {
@@ -1348,7 +1347,7 @@ function ConversationSurface({
 
   const submitComposer = (streamingBehavior?: 'steer' | 'followUp') => {
     if (editingMessage) {
-      const trimmed = draft.trim();
+      const trimmed = normalizeComposerPromptText(draft, composerReferenceRanges).trim();
       if ((!trimmed && attachments.length === 0) || isStreaming || composerDisabled) return;
       setEditError(null);
       editTreeMessage.mutate({
@@ -1358,7 +1357,7 @@ function ConversationSurface({
       });
       return;
     }
-    submit(streamingBehavior);
+    submit(streamingBehavior, normalizeComposerPromptText(draft, composerReferenceRanges));
   };
 
   const copyMessage = async (message: PiConversationMessage) => {
@@ -1450,11 +1449,50 @@ function ConversationSurface({
     setAttachments((current) => current.filter((attachment) => attachment.id !== id));
   };
 
-  const handleComposerPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = imageFilesFromClipboard(event.clipboardData);
-    if (files.length === 0) return;
-    event.preventDefault();
+  const handleComposerPaste = (clipboardData: DataTransfer): boolean => {
+    const files = imageFilesFromClipboard(clipboardData);
+    if (files.length === 0) return false;
     void attachImageFiles(files);
+    return true;
+  };
+
+  const handleComposerKeyCommand = (event: KeyboardEvent, currentSelection: InputSelection): boolean => {
+    setSelection(currentSelection);
+    if (visibleSuggestions.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setSelectedSuggestionIndex((current) => nextEnabledSuggestionIndex(visibleSuggestions, current, 1));
+        return true;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setSelectedSuggestionIndex((current) => nextEnabledSuggestionIndex(visibleSuggestions, current, -1));
+        return true;
+      }
+      if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
+        const suggestion = visibleSuggestions[selectedSuggestionIndex] ?? visibleSuggestions.find((item) => !item.disabled);
+        if (suggestion && !suggestion.disabled) {
+          event.preventDefault();
+          applyComposerSuggestion(suggestion, currentSelection);
+          return true;
+        }
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setDismissedTokenKey(tokenKey);
+        return true;
+      }
+    }
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      if (!composerDisabled) submitComposer(isStreaming ? streamingMode : undefined);
+      return true;
+    }
+    if (event.key === 'Escape') {
+      composerRef.current?.blur();
+      return true;
+    }
+    return false;
   };
 
   const handleComposerDragEnter = (event: DragEvent<HTMLDivElement>) => {
@@ -1664,72 +1702,26 @@ function ConversationSurface({
             </div>
           )}
 
-          <textarea
-            ref={textareaRef}
+          <TokenAwareComposer
+            ref={composerRef}
             value={draft}
-            onChange={(event) => {
-              if (editingMessage && editError) setEditError(null);
-              setDraftWithSelection(event.target.value, {
-                start: event.target.selectionStart,
-                end: event.target.selectionEnd,
-              });
-            }}
-            onPaste={handleComposerPaste}
-            onFocus={() => setInputFocused(true)}
-            onBlur={() => setInputFocused(false)}
-            onClick={(event) => {
-              const target = event.target as HTMLTextAreaElement;
-              setSelection({ start: target.selectionStart, end: target.selectionEnd });
-            }}
-            onSelect={(event) => {
-              const target = event.target as HTMLTextAreaElement;
-              setSelection({ start: target.selectionStart, end: target.selectionEnd });
-            }}
-            onKeyDown={(event) => {
-              if (visibleSuggestions.length > 0) {
-                if (event.key === 'ArrowDown') {
-                  event.preventDefault();
-                  setSelectedSuggestionIndex((current) => nextEnabledSuggestionIndex(visibleSuggestions, current, 1));
-                  return;
-                }
-                if (event.key === 'ArrowUp') {
-                  event.preventDefault();
-                  setSelectedSuggestionIndex((current) => nextEnabledSuggestionIndex(visibleSuggestions, current, -1));
-                  return;
-                }
-                if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
-                  const suggestion = visibleSuggestions[selectedSuggestionIndex] ?? visibleSuggestions.find((item) => !item.disabled);
-                  if (suggestion && !suggestion.disabled) {
-                    event.preventDefault();
-                    applyComposerSuggestion(suggestion);
-                    return;
-                  }
-                }
-                if (event.key === 'Escape') {
-                  event.preventDefault();
-                  setDismissedTokenKey(tokenKey);
-                  return;
-                }
-              }
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                if (!composerDisabled) submitComposer(isStreaming ? streamingMode : undefined);
-                return;
-              }
-              if (event.key === 'Escape') {
-                textareaRef.current?.blur();
-              }
-            }}
             placeholder={editingMessage ? 'Edit this message and send to continue...' : isStreaming ? (streamingMode === 'steer' ? 'Steer the current turn...' : 'Queue a follow-up...') : isActiveConversation ? 'Send a prompt to Pi...' : 'Resume the conversation before sending a prompt'}
             disabled={composerDisabled}
-            className="block w-full resize-none rounded-t-[1.35rem] bg-transparent px-3 pt-3 text-sm leading-6 text-[var(--color-text-primary)] outline-none placeholder:text-dim disabled:opacity-60 md:px-4 md:pt-3"
+            minHeight={composerMinHeight}
+            maxHeight={composerMaxHeight}
+            referenceRanges={composerReferenceRanges}
+            activeTokenRange={activeTokenRange}
+            onChange={(nextDraft, nextSelection) => {
+              if (editingMessage && editError) setEditError(null);
+              setDraftWithSelection(nextDraft, nextSelection);
+            }}
+            onSelectionChange={setSelection}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
+            onPasteFiles={handleComposerPaste}
+            onKeyCommand={handleComposerKeyCommand}
+            onOpenWorkspaceFile={onOpenWorkspaceFile}
           />
-          {composerReferences.length > 0 && (
-            <ComposerReferenceRail
-              references={composerReferences}
-              onOpenWorkspaceFile={onOpenWorkspaceFile}
-            />
-          )}
 
           <div className="flex min-h-10 items-center justify-between gap-2 px-2 pb-1.5 pt-0 md:px-2.5">
             <div className="flex min-w-0 items-center gap-1.5">
@@ -2429,50 +2421,6 @@ function ConversationActionButton({
   );
 }
 
-function ComposerReferenceRail({
-  references,
-  onOpenWorkspaceFile,
-}: {
-  references: CodeburgReference[];
-  onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void;
-}) {
-  return (
-    <div className="flex flex-wrap gap-1.5 px-3 pb-1 pt-0 md:px-4">
-      {references.map((reference) => {
-        if (reference.kind === 'skill') {
-          return (
-            <span
-              key={`skill:${reference.name}`}
-              className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full bg-accent/10 px-2.5 font-mono text-[11px] font-medium text-accent"
-              title={reference.raw}
-            >
-              <Command size={12} />
-              <span className="truncate">{reference.name}</span>
-            </span>
-          );
-        }
-        const label = reference.line ? `@${reference.path}:${reference.line}` : `@${reference.path}${reference.isDirectory ? '/' : ''}`;
-        const title = reference.isDirectory
-          ? `Reveal ${reference.path} in Files`
-          : `Open ${reference.line ? `${reference.path}:${reference.line}` : reference.path}`;
-        return (
-          <button
-            key={`file:${reference.path}:${reference.line ?? ''}:${reference.isDirectory ? 'dir' : 'file'}`}
-            type="button"
-            disabled={!onOpenWorkspaceFile}
-            onClick={() => onOpenWorkspaceFile?.(reference.path, reference.line, reference.isDirectory)}
-            className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full bg-secondary px-2.5 font-mono text-[11px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-60"
-            title={onOpenWorkspaceFile ? title : label}
-          >
-            {reference.isDirectory ? <FolderTree size={12} className="shrink-0" /> : <FileCode2 size={12} className="shrink-0" />}
-            <span className="truncate">{label}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function MessageRow({
   message,
   copied,
@@ -3155,22 +3103,39 @@ function uniqueComposerReferences(references: CodeburgReference[]): CodeburgRefe
   return unique.slice(0, 8);
 }
 
-function enrichComposerReferenceTypes(references: CodeburgReference[], fileEntries: V2FileEntry[]): CodeburgReference[] {
-  if (fileEntries.length === 0) return references;
+function enrichComposerReferenceRangeTypes(ranges: CodeburgReferenceRange[], fileEntries: V2FileEntry[]): CodeburgReferenceRange[] {
+  if (fileEntries.length === 0) return ranges;
   const entryTypes = new Map(fileEntries.map((entry) => [normalizeReferencePath(entry.path), entry.type]));
-  return references.map((reference) => {
-    if (reference.kind !== 'file') return reference;
+  return ranges.map((range) => {
+    const { reference } = range;
+    if (reference.kind !== 'file') return range;
     const path = normalizeReferencePath(reference.path);
     return {
-      ...reference,
-      path,
-      isDirectory: reference.isDirectory || entryTypes.get(path) === 'dir',
+      ...range,
+      reference: {
+        ...reference,
+        path,
+        isDirectory: reference.isDirectory || entryTypes.get(path) === 'dir',
+      },
     };
   });
 }
 
 function normalizeReferencePath(path: string): string {
   return path.replace(/\/+$/, '');
+}
+
+function normalizeComposerPromptText(text: string, ranges: CodeburgReferenceRange[]): string {
+  let next = text;
+  const orderedRanges = [...ranges].sort((a, b) => b.from - a.from);
+  for (const range of orderedRanges) {
+    const { reference } = range;
+    if (reference.kind !== 'file' || !reference.isDirectory || reference.line) continue;
+    const raw = next.slice(range.from, range.to);
+    if (raw.endsWith('/')) continue;
+    next = `${next.slice(0, range.from)}@${reference.path}/${next.slice(range.to)}`;
+  }
+  return next;
 }
 
 function appendWorkspaceReference(draft: string, path: string): string {
@@ -3181,6 +3146,15 @@ function appendWorkspaceReference(draft: string, path: string): string {
   if (!withoutTrailingSpace) return `${reference} `;
   const needsLeadingSpace = !/\s$/.test(withoutTrailingSpace);
   return `${withoutTrailingSpace}${needsLeadingSpace ? ' ' : ''}${reference} `;
+}
+
+function appendDraftText(draft: string, text: string): string {
+  const cleanText = text.trim();
+  if (!cleanText) return draft;
+  const withoutTrailingSpace = draft.replace(/\s+$/, '');
+  if (!withoutTrailingSpace) return `${cleanText} `;
+  const needsLeadingSpace = !/\s$/.test(withoutTrailingSpace);
+  return `${withoutTrailingSpace}${needsLeadingSpace ? ' ' : ''}${cleanText} `;
 }
 
 function suggestionIcon(icon: ComposerSuggestion['icon']) {

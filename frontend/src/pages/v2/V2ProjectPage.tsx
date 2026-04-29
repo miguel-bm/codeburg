@@ -414,7 +414,7 @@ export function V2ProjectPage() {
           detail={(
             <button
               type="button"
-              onClick={() => navigate(`/projects/${project.id}/tasks`)}
+              onClick={() => navigate(`/projects/${project.id}/tasks?workspace=${activeWorkspace.id}`)}
               className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]"
               title="Project tasks"
             >

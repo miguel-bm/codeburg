@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
@@ -16,7 +16,6 @@ import {
   Search,
   SquareStack,
   Trash2,
-  X,
 } from 'lucide-react';
 import { projectsApi } from '../../api';
 import type { Conversation, Task, TaskLink, TaskStatus, Workspace } from '../../api/types';
@@ -33,13 +32,15 @@ const COLUMNS: Array<{ id: TaskStatus; title: string; icon: typeof Circle; tone:
 
 export function V2ProjectTasksPage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [selectedTaskId, setSelectedTaskId] = useState('');
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<TaskStatus | null>(null);
-  const [composerStatus, setComposerStatus] = useState<TaskStatus>('backlog');
-  const [composerOpen, setComposerOpen] = useState<TaskStatus | null>('backlog');
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
+  const [createStatus, setCreateStatus] = useState<TaskStatus>('backlog');
+  const [createOpen, setCreateOpen] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
   const [editTitle, setEditTitle] = useState('');
@@ -90,11 +91,11 @@ export function V2ProjectTasksPage() {
       if (status === 'backlog') return task;
       return v2Api.updateTaskTracking(task.id, { status });
     },
-    onSuccess: async (task) => {
+    onSuccess: async () => {
       setDraftTitle('');
       setDraftDescription('');
-      setComposerOpen(null);
-      setSelectedTaskId(task.id);
+      setCreateOpen(false);
+      setSelectedTaskId('');
       await invalidate();
     },
   });
@@ -146,7 +147,8 @@ export function V2ProjectTasksPage() {
   const tasksByStatus = useMemo(() => {
     const grouped = new Map<TaskStatus, Task[]>();
     for (const column of COLUMNS) grouped.set(column.id, []);
-    for (const task of filteredTasks) grouped.set(task.status, [...(grouped.get(task.status) ?? []), task]);
+    const sorted = [...filteredTasks].sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
+    for (const task of sorted) grouped.set(task.status, [...(grouped.get(task.status) ?? []), task]);
     return grouped;
   }, [filteredTasks]);
   const selectedTask = safeTasks.find((task) => task.id === selectedTaskId) ?? null;
@@ -168,6 +170,32 @@ export function V2ProjectTasksPage() {
   const linkedTargetIds = new Set(selectedLinks.map((link) => `${link.targetType}:${link.targetId}`));
   const attachableTargets = availableTargets.filter((target) => !linkedTargetIds.has(`${target.type}:${target.id}`));
   const chosenTarget = attachableTargets.find((target) => `${target.type}:${target.id}` === linkTarget);
+  const currentWorkspaceId = searchParams.get('workspace');
+  const quickTargets = useMemo(() => {
+    const targets: LinkTarget[] = [];
+    const currentWorkspace = workspaces.find((workspace) => workspace.id === currentWorkspaceId);
+    if (currentWorkspace) {
+      targets.push({
+        type: 'workspace',
+        id: currentWorkspace.id,
+        label: currentWorkspace.name,
+        meta: currentWorkspace.branchName,
+      });
+    }
+    for (const workspace of workspaces.filter((workspace) => workspace.status === 'active')) {
+      if (targets.some((target) => target.type === 'workspace' && target.id === workspace.id)) continue;
+      targets.push({ type: 'workspace', id: workspace.id, label: workspace.name, meta: workspace.branchName });
+      if (targets.length >= 3) break;
+    }
+    const recentConversations = [...conversations]
+      .filter((conversation) => conversation.status === 'active')
+      .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
+    for (const conversation of recentConversations) {
+      if (targets.length >= 6) break;
+      targets.push({ type: 'conversation', id: conversation.id, label: conversation.title, meta: conversation.status });
+    }
+    return targets.filter((target) => !linkedTargetIds.has(`${target.type}:${target.id}`));
+  }, [conversations, currentWorkspaceId, linkedTargetIds, workspaces]);
   const activeCount = safeTasks.filter((task) => task.status === 'in_progress').length;
 
   useEffect(() => {
@@ -190,15 +218,41 @@ export function V2ProjectTasksPage() {
         title: editTitle.trim(),
         description: editDescription.trim(),
       },
+    }, {
+      onSuccess: () => setSelectedTaskId(''),
     });
   };
 
-  const handleDrop = (status: TaskStatus) => {
+  const selectedTaskChanged = !!selectedTask && (editTitle.trim() !== selectedTask.title || editDescription.trim() !== (selectedTask.description ?? ''));
+  const draftChanged = draftTitle.trim() !== '' || draftDescription.trim() !== '';
+  const closeTaskDialog = () => {
+    if (selectedTaskChanged && !window.confirm('Discard unsaved task changes?')) return;
+    setSelectedTaskId('');
+  };
+  const closeCreateDialog = () => {
+    if (draftChanged && !window.confirm('Discard this new task?')) return;
+    setCreateOpen(false);
+    setDraftTitle('');
+    setDraftDescription('');
+  };
+  const openCreateDialog = (status: TaskStatus) => {
+    setCreateStatus(status);
+    setDraftTitle('');
+    setDraftDescription('');
+    setCreateOpen(true);
+  };
+
+  const handleDrop = (status: TaskStatus, beforeTaskId?: string) => {
     const task = safeTasks.find((candidate) => candidate.id === draggingTaskId);
     setDraggingTaskId(null);
     setDragOverStatus(null);
-    if (!task || task.status === status) return;
-    updateTask.mutate({ taskId: task.id, input: { status } });
+    setDragOverTaskId(null);
+    if (!task) return;
+    const columnTasks = (tasksByStatus.get(status) ?? []).filter((candidate) => candidate.id !== task.id);
+    const beforeIndex = beforeTaskId ? columnTasks.findIndex((candidate) => candidate.id === beforeTaskId) : -1;
+    const position = beforeIndex >= 0 ? beforeIndex : columnTasks.length;
+    if (task.status === status && task.position === position) return;
+    updateTask.mutate({ taskId: task.id, input: { status, position } });
   };
 
   return (
@@ -224,15 +278,14 @@ export function V2ProjectTasksPage() {
               variant="secondary"
               icon={<Plus size={13} />}
               onClick={() => {
-                setComposerStatus('backlog');
-                setComposerOpen('backlog');
+                openCreateDialog('backlog');
               }}
             >
               New task
             </Button>
           </div>
 
-          <div className="grid min-h-0 flex-1 gap-0 overflow-auto lg:grid-cols-4">
+          <div className="grid min-h-0 flex-1 auto-cols-[minmax(18rem,86vw)] grid-flow-col gap-0 overflow-x-auto overflow-y-hidden overscroll-x-contain md:auto-cols-[minmax(19rem,22rem)] lg:auto-cols-auto lg:grid-flow-row lg:grid-cols-4 lg:overflow-auto">
             {COLUMNS.map((column) => {
               const columnTasks = tasksByStatus.get(column.id) ?? [];
               const Icon = column.icon;
@@ -272,6 +325,18 @@ export function V2ProjectTasksPage() {
                         workspaces={workspaces}
                         conversations={conversations}
                         onSelect={() => setSelectedTaskId(task.id)}
+                        dragOver={dragOverTaskId === task.id}
+                        onDragOver={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setDragOverStatus(column.id);
+                          setDragOverTaskId(task.id);
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          handleDrop(column.id, task.id);
+                        }}
                         onDragStart={(event) => {
                           event.dataTransfer.effectAllowed = 'move';
                           event.dataTransfer.setData('text/plain', task.id);
@@ -284,40 +349,16 @@ export function V2ProjectTasksPage() {
                       />
                     ))}
 
-                    {composerOpen === column.id ? (
-                      <InlineComposer
-                        title={draftTitle}
-                        description={draftDescription}
-                        pending={createTask.isPending}
-                        error={createTask.error instanceof Error ? createTask.error.message : undefined}
-                        autoFocus={composerStatus === column.id}
-                        onTitleChange={setDraftTitle}
-                        onDescriptionChange={setDraftDescription}
-                        onSubmit={() => {
-                          if (!draftTitle.trim()) return;
-                          createTask.mutate(column.id);
-                        }}
-                        onCancel={() => {
-                          setComposerOpen(null);
-                          setDraftTitle('');
-                          setDraftDescription('');
-                        }}
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setComposerStatus(column.id);
-                          setComposerOpen(column.id);
-                        }}
-                        className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-xs text-dim hover:bg-card hover:text-[var(--color-text-primary)]"
-                      >
-                        <Plus size={13} />
-                        Add task
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => openCreateDialog(column.id)}
+                      className="flex h-11 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-sm text-dim hover:bg-card hover:text-[var(--color-text-primary)] md:h-9 md:text-xs"
+                    >
+                      <Plus size={13} />
+                      Add task
+                    </button>
 
-                    {safeTasks.length === 0 && column.id === 'backlog' && composerOpen !== column.id && (
+                    {safeTasks.length === 0 && column.id === 'backlog' && (
                       <div className="rounded-lg bg-card px-3 py-4 text-sm">
                         <div className="flex items-center gap-2 font-medium">
                           <Archive size={15} className="text-dim" />
@@ -345,8 +386,9 @@ export function V2ProjectTasksPage() {
         linkTarget={linkTarget}
         attachableTargets={attachableTargets}
         chosenTarget={chosenTarget}
+        quickTargets={quickTargets}
         pending={updateTask.isPending || deleteTask.isPending || createLink.isPending || deleteLink.isPending}
-        onClose={() => setSelectedTaskId('')}
+        onClose={closeTaskDialog}
         onEditTitle={setEditTitle}
         onEditDescription={setEditDescription}
         onSave={saveSelectedTask}
@@ -361,6 +403,7 @@ export function V2ProjectTasksPage() {
         }}
         onDelete={() => {
           if (!selectedTask) return;
+          if (!window.confirm(`Delete "${selectedTask.title}"?`)) return;
           deleteTask.mutate(selectedTask.id);
         }}
         onLinkTargetChange={setLinkTarget}
@@ -369,6 +412,26 @@ export function V2ProjectTasksPage() {
           createLink.mutate({ taskId: selectedTask.id, target: chosenTarget });
         }}
         onDeleteLink={(link) => deleteLink.mutate(link)}
+        onQuickAttach={(target) => {
+          if (!selectedTask) return;
+          createLink.mutate({ taskId: selectedTask.id, target });
+        }}
+      />
+      <CreateTaskDialog
+        open={createOpen}
+        status={createStatus}
+        title={draftTitle}
+        description={draftDescription}
+        pending={createTask.isPending}
+        error={createTask.error instanceof Error ? createTask.error.message : undefined}
+        onClose={closeCreateDialog}
+        onStatusChange={setCreateStatus}
+        onTitleChange={setDraftTitle}
+        onDescriptionChange={setDraftDescription}
+        onSubmit={() => {
+          if (!draftTitle.trim()) return;
+          createTask.mutate(createStatus);
+        }}
       />
     </TaskScreen>
   );
@@ -423,58 +486,96 @@ type LinkTarget = {
   meta: string;
 };
 
-function InlineComposer({
+function CreateTaskDialog({
+  open,
+  status,
   title,
   description,
   pending,
   error,
-  autoFocus,
+  onClose,
+  onStatusChange,
   onTitleChange,
   onDescriptionChange,
   onSubmit,
-  onCancel,
 }: {
+  open: boolean;
+  status: TaskStatus;
   title: string;
   description: string;
   pending: boolean;
   error?: string;
-  autoFocus?: boolean;
+  onClose: () => void;
+  onStatusChange: (value: TaskStatus) => void;
   onTitleChange: (value: string) => void;
   onDescriptionChange: (value: string) => void;
   onSubmit: () => void;
-  onCancel: () => void;
 }) {
+  const column = COLUMNS.find((item) => item.id === status) ?? COLUMNS[0];
+  const Icon = column.icon;
+
   return (
-    <form
-      className="rounded-lg border border-[var(--color-card-border)] bg-card p-2 shadow-sm"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSubmit();
-      }}
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="New task"
+      size="lg"
+      footer={(
+        <div className="flex items-center justify-end gap-1.5">
+          <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="button" size="sm" variant="primary" icon={<Check size={14} />} loading={pending} disabled={!title.trim()} onClick={onSubmit}>
+            Save
+          </Button>
+        </div>
+      )}
     >
-      <V2Input
-        autoFocus={autoFocus}
-        value={title}
-        onChange={(event) => onTitleChange(event.target.value)}
-        placeholder="Task title"
-        className="h-8 w-full border-transparent bg-transparent px-1 focus:border-transparent"
-      />
-      <V2Textarea
-        value={description}
-        onChange={(event) => onDescriptionChange(event.target.value)}
-        placeholder="Optional notes"
-        className="mt-1 min-h-16 w-full resize-none border-transparent bg-primary/70"
-      />
-      {error && <div className="mt-2 text-xs text-[var(--color-error)]">{error}</div>}
-      <div className="mt-2 flex items-center justify-end gap-1">
-        <Button type="button" size="xs" variant="ghost" icon={<X size={13} />} disabled={pending} onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button type="submit" size="xs" variant="primary" icon={<Check size={13} />} loading={pending} disabled={!title.trim()}>
-          Add
-        </Button>
-      </div>
-    </form>
+      <form
+        className="px-5 py-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit();
+        }}
+      >
+        <div className="grid gap-4">
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_11rem]">
+            <label className="block min-w-0">
+              <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Title</span>
+              <V2Input
+                autoFocus
+                value={title}
+                onChange={(event) => onTitleChange(event.target.value)}
+                placeholder="Describe the task"
+                className="w-full bg-primary"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Status</span>
+              <div className="relative">
+                <V2Select value={status} onChange={(event) => onStatusChange(event.target.value as TaskStatus)} className="w-full pl-8">
+                  {COLUMNS.map((item) => (
+                    <option key={item.id} value={item.id}>{item.title}</option>
+                  ))}
+                </V2Select>
+                <Icon size={14} className={`pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 ${column.tone}`} />
+              </div>
+            </label>
+          </div>
+
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Notes</span>
+            <V2Textarea
+              value={description}
+              onChange={(event) => onDescriptionChange(event.target.value)}
+              placeholder="Scope, decisions, or next step"
+              className="min-h-32 w-full resize-y bg-primary"
+            />
+          </label>
+          {error && <div className="text-xs text-[var(--color-error)]">{error}</div>}
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -483,7 +584,10 @@ function TaskCard({
   links,
   workspaces,
   conversations,
+  dragOver,
   onSelect,
+  onDragOver,
+  onDrop,
   onDragStart,
   onDragEnd,
 }: {
@@ -491,16 +595,23 @@ function TaskCard({
   links: TaskLink[];
   workspaces: Workspace[];
   conversations: Conversation[];
+  dragOver: boolean;
   onSelect: () => void;
+  onDragOver: (event: React.DragEvent<HTMLElement>) => void;
+  onDrop: (event: React.DragEvent<HTMLElement>) => void;
   onDragStart: (event: React.DragEvent<HTMLElement>) => void;
   onDragEnd: () => void;
 }) {
   return (
     <article
       draggable
+      onDragOver={onDragOver}
+      onDrop={onDrop}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className="rounded-lg border border-transparent bg-card shadow-sm transition hover:border-[var(--color-card-border)]"
+      className={`rounded-lg border bg-card shadow-sm transition ${
+        dragOver ? 'border-[var(--color-accent)]/50 bg-accent/5' : 'border-transparent hover:border-[var(--color-card-border)]'
+      }`}
     >
       <button type="button" onClick={onSelect} className="block w-full cursor-pointer px-3 py-2 text-left">
         <div className="flex items-start gap-2">
@@ -536,6 +647,7 @@ function TaskDialog({
   linkTarget,
   attachableTargets,
   chosenTarget,
+  quickTargets,
   pending,
   onClose,
   onEditTitle,
@@ -547,6 +659,7 @@ function TaskDialog({
   onLinkTargetChange,
   onCreateLink,
   onDeleteLink,
+  onQuickAttach,
 }: {
   task: Task | null;
   links: TaskLink[];
@@ -557,6 +670,7 @@ function TaskDialog({
   linkTarget: string;
   attachableTargets: LinkTarget[];
   chosenTarget?: LinkTarget;
+  quickTargets: LinkTarget[];
   pending: boolean;
   onClose: () => void;
   onEditTitle: (value: string) => void;
@@ -568,6 +682,7 @@ function TaskDialog({
   onLinkTargetChange: (value: string) => void;
   onCreateLink: () => void;
   onDeleteLink: (link: TaskLink) => void;
+  onQuickAttach: (target: LinkTarget) => void;
 }) {
   const changed = !!task && (editTitle.trim() !== task.title || editDescription.trim() !== (task.description ?? ''));
   const column = task ? COLUMNS.find((item) => item.id === task.status) : null;
@@ -652,6 +767,28 @@ function TaskDialog({
                 ))}
                 {links.length === 0 && <div className="rounded-md bg-primary px-2 py-2 text-xs leading-5 text-dim">No related work attached.</div>}
               </div>
+              {quickTargets.length > 0 && (
+                <div className="mt-3">
+                  <div className="mb-1.5 text-xs font-medium text-[var(--color-text-secondary)]">Quick attach</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {quickTargets.slice(0, 6).map((target) => {
+                      const Icon = target.type === 'workspace' ? SquareStack : MessageSquareText;
+                      return (
+                        <button
+                          key={`${target.type}:${target.id}`}
+                          type="button"
+                          disabled={pending}
+                          onClick={() => onQuickAttach(target)}
+                          className="inline-flex h-8 max-w-full cursor-pointer items-center gap-1.5 rounded-md bg-primary px-2 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
+                        >
+                          <Icon size={13} />
+                          <span className="max-w-40 truncate">{target.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <V2Select value={linkTarget} onChange={(event) => onLinkTargetChange(event.target.value)} className="w-full">
                   <option value="">Attach workspace or conversation...</option>

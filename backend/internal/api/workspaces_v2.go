@@ -458,6 +458,7 @@ func (s *Server) handleCreateWorkspaceTerminal(w http.ResponseWriter, r *http.Re
 		},
 		OnOutput: func(sessionID string, chunk []byte) {
 			now := time.Now()
+			s.portSuggest.IngestWorkspaceOutput(workspaceID, sessionID, chunk)
 			_, _ = s.db.UpdateTerminalSession(sessionID, db.UpdateTerminalSessionInput{
 				LastActivityAt: &now,
 			})
@@ -1051,6 +1052,8 @@ func mergeWorkspaceBranch(repoPath, worktreePath, baseBranch, featureBranch, str
 }
 
 func (s *Server) stopWorkspaceTerminals(workspaceID string) error {
+	s.tunnels.StopForWorkspace(workspaceID)
+
 	terminals, err := s.db.ListTerminalSessionsByWorkspace(workspaceID)
 	if err != nil {
 		return err

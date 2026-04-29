@@ -256,9 +256,9 @@ function TunnelsSection({ taskId }: { taskId: string }) {
                       >
                         {copied ? 'Copied' : 'Copy'}
                       </button>
-                      {suggestion.status === 'already_tunneled_other_task' && suggestion.existingTunnel.taskTitle && (
+                      {suggestion.status === 'already_tunneled_other_workspace' && suggestion.existingTunnel.workspaceName && (
                         <span className="text-[10px] text-dim truncate">
-                          in {suggestion.existingTunnel.taskTitle}
+                          in {suggestion.existingTunnel.workspaceName}
                         </span>
                       )}
                     </>

@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { EditorView } from '@codemirror/view';
 import { openSearchPanel } from '@codemirror/search';
 import { oneDark } from '@codemirror/theme-one-dark';
-import { RotateCcw, Save, SquareArrowOutUpRight, X } from 'lucide-react';
+import { FileCode2, Loader2, RotateCcw, Save, Shapes, SquareArrowOutUpRight, X } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useWorkspaceFiles } from '../../hooks/useWorkspaceFiles';
 import { useSharedWebSocket } from '../../hooks/useSharedWebSocket';
@@ -13,6 +13,15 @@ import { getResolvedTheme, subscribeToThemeChange } from '../../lib/theme';
 import { StyledPath } from './StyledPath';
 import { preferencesApi } from '../../api';
 import { useWorkspace } from './WorkspaceContext';
+import { parseExcalidrawFileContent, shouldOpenExcalidrawVisually } from './excalidrawFile';
+
+const ExcalidrawFileEditor = lazy(() =>
+  import('./ExcalidrawFileEditor').then((module) => ({
+    default: module.ExcalidrawFileEditor,
+  })),
+);
+
+type EditorMode = 'source' | 'diagram';
 
 interface EditorTabProps {
   path: string;
@@ -32,6 +41,8 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
   const [error, setError] = useState<string | null>(null);
   const [binary, setBinary] = useState(false);
   const [truncated, setTruncated] = useState(false);
+  const [editorMode, setEditorMode] = useState<EditorMode>('source');
+  const [visualEditorRevision, setVisualEditorRevision] = useState(0);
   const [editorTheme, setEditorTheme] = useState<'dark' | 'light'>(() => getResolvedTheme());
   const cmRef = useRef<ReactCodeMirrorRef>(null);
   const editorRootRef = useRef<HTMLDivElement>(null);
@@ -66,9 +77,12 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
         if (!res.binary) {
           setContent(res.content);
           setOriginalContent(res.content);
+          setEditorMode(shouldOpenExcalidrawVisually(path, res.content) ? 'diagram' : 'source');
+          setVisualEditorRevision((revision) => revision + 1);
         } else {
           setContent(null);
           setOriginalContent(null);
+          setEditorMode('source');
         }
         setLoading(false);
       })
@@ -79,6 +93,7 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
         setTruncated(false);
         setContent(null);
         setOriginalContent(null);
+        setEditorMode('source');
         setError(err.message);
         setLoading(false);
       });
@@ -128,6 +143,8 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
       if (!res.binary) {
         setContent(res.content);
         setOriginalContent(res.content);
+        setEditorMode(shouldOpenExcalidrawVisually(loadedPath, res.content) ? 'diagram' : 'source');
+        setVisualEditorRevision((revision) => revision + 1);
       }
     } catch {
       // Background refresh is best-effort.
@@ -177,6 +194,8 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
   const handleReset = useCallback(() => {
     if (originalContent === null || saving) return;
     setContent(originalContent);
+    setEditorMode(shouldOpenExcalidrawVisually(loadedPath, originalContent) ? 'diagram' : 'source');
+    setVisualEditorRevision((revision) => revision + 1);
     markDirty(loadedPath, false);
   }, [loadedPath, markDirty, originalContent, saving]);
 
@@ -204,6 +223,7 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
       }
       // Forward Ctrl+F / Cmd+F to CodeMirror search panel
       if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'f') {
+        if (editorMode !== 'source') return;
         const view = cmRef.current?.view;
         if (view) {
           ev.preventDefault();
@@ -214,9 +234,12 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleSave]);
+  }, [editorMode, handleSave]);
 
   const switchingFiles = loading && loadedPath !== path && content !== null && !binary && !error;
+  const excalidrawData = useMemo(() => parseExcalidrawFileContent(content), [content]);
+  const canUseDiagramMode = excalidrawData !== null;
+  const showDiagramMode = canUseDiagramMode && editorMode === 'diagram';
 
   if (loading && !switchingFiles) {
     return <div className="flex items-center justify-center h-full text-xs text-dim">Loading {fileName(path)}...</div>;
@@ -253,6 +276,40 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
           )}
           {isDirty && (
             <span className="text-[10px] text-accent">modified</span>
+          )}
+          {canUseDiagramMode && (
+            <div className="mr-1 inline-flex h-6 items-center rounded-md bg-primary p-0.5 text-[10px] text-dim ring-1 ring-[var(--color-card-border)]">
+              <button
+                type="button"
+                onClick={() => setEditorMode('diagram')}
+                disabled={switchingFiles}
+                className={`inline-flex h-5 items-center gap-1 rounded px-1.5 transition-colors disabled:opacity-40 ${
+                  editorMode === 'diagram'
+                    ? 'bg-card text-[var(--color-text-primary)] shadow-sm'
+                    : 'hover:bg-secondary hover:text-[var(--color-text-primary)]'
+                }`}
+                title="Diagram view"
+                aria-pressed={editorMode === 'diagram'}
+              >
+                <Shapes size={11} />
+                Diagram
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditorMode('source')}
+                disabled={switchingFiles}
+                className={`inline-flex h-5 items-center gap-1 rounded px-1.5 transition-colors disabled:opacity-40 ${
+                  editorMode === 'source'
+                    ? 'bg-card text-[var(--color-text-primary)] shadow-sm'
+                    : 'hover:bg-secondary hover:text-[var(--color-text-primary)]'
+                }`}
+                title="JSON source"
+                aria-pressed={editorMode === 'source'}
+              >
+                <FileCode2 size={11} />
+                JSON
+              </button>
+            </div>
           )}
           <button
             type="button"
@@ -295,16 +352,38 @@ export function EditorTab({ path, line, onClose }: EditorTabProps) {
             Loading {fileName(path)}
           </div>
         )}
-        <CodeMirror
-          ref={cmRef}
-          value={content ?? ''}
-          onChange={(val) => setContent(val)}
-          extensions={extensions}
-          height="100%"
-          style={{ height: '100%' }}
-          readOnly={truncated || switchingFiles}
-        />
+        {showDiagramMode ? (
+          <Suspense fallback={<VisualEditorLoading />}>
+            <ExcalidrawFileEditor
+              key={`${loadedPath}:${visualEditorRevision}`}
+              content={content ?? ''}
+              readOnly={truncated || switchingFiles}
+              onChange={setContent}
+            />
+          </Suspense>
+        ) : (
+          <CodeMirror
+            ref={cmRef}
+            value={content ?? ''}
+            onChange={(val) => setContent(val)}
+            extensions={extensions}
+            height="100%"
+            style={{ height: '100%' }}
+            readOnly={truncated || switchingFiles}
+          />
+        )}
       </div>
+    </div>
+  );
+}
+
+function VisualEditorLoading() {
+  return (
+    <div className="flex h-full items-center justify-center bg-[var(--color-inset)] text-xs text-dim">
+      <span className="inline-flex items-center gap-2 rounded-lg bg-card px-3 py-2 shadow-card">
+        <Loader2 size={13} className="animate-spin text-accent" />
+        Loading diagram editor
+      </span>
     </div>
   );
 }

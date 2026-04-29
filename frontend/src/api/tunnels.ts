@@ -2,21 +2,21 @@ import { api } from './client';
 
 export interface TunnelInfo {
   id: string;
-  taskId: string;
+  workspaceId: string;
+  projectId: string;
   port: number;
   url: string;
+  status: 'starting' | 'active' | 'stopping' | 'failed';
+  createdAt: string;
 }
 
 export const tunnelsApi = {
-  // List tunnels for a task
-  list: (taskId: string) =>
-    api.get<TunnelInfo[]>(`/tasks/${taskId}/tunnels`),
+  list: (workspaceId: string) =>
+    api.get<TunnelInfo[]>(`/workspaces/${workspaceId}/tunnels`),
 
-  // Create a tunnel
-  create: (taskId: string, port: number) =>
-    api.post<TunnelInfo>(`/tasks/${taskId}/tunnels`, { port }),
+  create: (workspaceId: string, port: number) =>
+    api.post<TunnelInfo>(`/workspaces/${workspaceId}/tunnels`, { port }),
 
-  // Stop a tunnel
-  stop: (tunnelId: string) =>
-    api.delete(`/tunnels/${tunnelId}`),
+  stop: (workspaceId: string, tunnelId: string) =>
+    api.delete(`/workspaces/${workspaceId}/tunnels/${tunnelId}`),
 };

@@ -32,7 +32,7 @@ type Scanner interface {
 	ListListeningPorts(ctx context.Context) ([]int, error)
 }
 
-// Suggestion is a task-scoped tunnel candidate.
+// Suggestion is a workspace-scoped tunnel candidate.
 type Suggestion struct {
 	Port        int       `json:"port"`
 	Sources     []string  `json:"sources"`
@@ -119,9 +119,9 @@ func (m *Manager) cleanupLoop() {
 	}
 }
 
-// IngestOutput queues runtime output for parsing.
-func (m *Manager) IngestOutput(taskID, sessionID string, chunk []byte) {
-	if taskID == "" || sessionID == "" || len(chunk) == 0 {
+// IngestWorkspaceOutput queues runtime output for parsing.
+func (m *Manager) IngestWorkspaceOutput(workspaceID, sessionID string, chunk []byte) {
+	if workspaceID == "" || sessionID == "" || len(chunk) == 0 {
 		return
 	}
 
@@ -129,10 +129,15 @@ func (m *Manager) IngestOutput(taskID, sessionID string, chunk []byte) {
 	copy(cp, chunk)
 
 	select {
-	case m.outputCh <- outputEvent{taskID: taskID, sessionID: sessionID, chunk: cp}:
+	case m.outputCh <- outputEvent{taskID: workspaceID, sessionID: sessionID, chunk: cp}:
 	default:
 		// Drop if overloaded; suggestions are best-effort.
 	}
+}
+
+// IngestOutput queues runtime output for parsing. Kept for legacy task sessions.
+func (m *Manager) IngestOutput(taskID, sessionID string, chunk []byte) {
+	m.IngestWorkspaceOutput(taskID, sessionID, chunk)
 }
 
 // ForgetSession clears parser state for a finished session.
@@ -188,16 +193,16 @@ func (m *Manager) processOutput(ev outputEvent) {
 	}
 }
 
-// ScanTask runs a host scan and stores suggestions for a task.
-func (m *Manager) ScanTask(ctx context.Context, taskID string) (*ScanResult, error) {
+// ScanWorkspace runs a host scan and stores suggestions for a workspace.
+func (m *Manager) ScanWorkspace(ctx context.Context, workspaceID string) (*ScanResult, error) {
 	now := time.Now()
 
 	m.mu.Lock()
-	if last, ok := m.lastScan[taskID]; ok && now.Sub(last) < m.scanCooldown {
+	if last, ok := m.lastScan[workspaceID]; ok && now.Sub(last) < m.scanCooldown {
 		m.mu.Unlock()
 		return nil, ErrRateLimited
 	}
-	m.lastScan[taskID] = now
+	m.lastScan[workspaceID] = now
 	m.mu.Unlock()
 
 	ports, err := m.scanner.ListListeningPorts(ctx)
@@ -217,7 +222,7 @@ func (m *Manager) ScanTask(ctx context.Context, taskID string) (*ScanResult, err
 
 	updated := 0
 	for _, p := range filtered {
-		if m.upsert(taskID, p, sourceScan) {
+		if m.upsert(workspaceID, p, sourceScan) {
 			updated++
 		}
 	}
@@ -229,14 +234,19 @@ func (m *Manager) ScanTask(ctx context.Context, taskID string) (*ScanResult, err
 	}, nil
 }
 
-// ListTask returns current suggestions for a task.
-func (m *Manager) ListTask(taskID string) []Suggestion {
+// ScanTask runs a host scan and stores suggestions for a task. Kept for legacy callers.
+func (m *Manager) ScanTask(ctx context.Context, taskID string) (*ScanResult, error) {
+	return m.ScanWorkspace(ctx, taskID)
+}
+
+// ListWorkspace returns current suggestions for a workspace.
+func (m *Manager) ListWorkspace(workspaceID string) []Suggestion {
 	now := time.Now()
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	taskSuggestions := m.byTask[taskID]
+	taskSuggestions := m.byTask[workspaceID]
 	if len(taskSuggestions) == 0 {
 		return nil
 	}
@@ -262,11 +272,16 @@ func (m *Manager) ListTask(taskID string) []Suggestion {
 		})
 	}
 	if len(taskSuggestions) == 0 {
-		delete(m.byTask, taskID)
+		delete(m.byTask, workspaceID)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Port < out[j].Port })
 	return out
+}
+
+// ListTask returns current suggestions for a task. Kept for legacy callers.
+func (m *Manager) ListTask(taskID string) []Suggestion {
+	return m.ListWorkspace(taskID)
 }
 
 func (m *Manager) cleanupStale() {

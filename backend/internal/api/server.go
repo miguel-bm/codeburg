@@ -287,10 +287,6 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/projects/{id}/git/stash", s.handleProjectGitStash)
 		r.Get("/api/projects/{id}/git/log", s.handleProjectGitLog)
 
-		// Project tunnels
-		r.Get("/api/projects/{id}/tunnels", s.handleListProjectTunnels)
-		r.Post("/api/projects/{id}/tunnels", s.handleCreateProjectTunnel)
-
 		// Branches
 		r.Get("/api/projects/{id}/branches", s.handleListBranches)
 
@@ -379,6 +375,11 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/workspaces/{id}/file/rename", s.handleRenameWorkspaceFile)
 		r.Post("/api/workspaces/{id}/file/duplicate", s.handleDuplicateWorkspaceFile)
 		r.Post("/api/workspaces/{id}/files/search", s.handleSearchWorkspaceFiles)
+		r.Get("/api/workspaces/{id}/tunnels", s.handleListWorkspaceTunnels)
+		r.Post("/api/workspaces/{id}/tunnels", s.handleCreateWorkspaceTunnel)
+		r.Delete("/api/workspaces/{id}/tunnels/{tunnelId}", s.handleStopWorkspaceTunnel)
+		r.Get("/api/workspaces/{id}/port-suggestions", s.handleListWorkspacePortSuggestions)
+		r.Post("/api/workspaces/{id}/ports/scan", s.handleScanWorkspacePorts)
 		r.Get("/api/workspaces/{id}/git/status", s.handleWorkspaceGitStatus)
 		r.Get("/api/workspaces/{id}/git/diff", s.handleWorkspaceGitDiff)
 		r.Get("/api/workspaces/{id}/git/diff-content", s.handleWorkspaceGitDiffContent)
@@ -448,13 +449,6 @@ func (s *Server) setupRoutes() {
 		r.Delete("/api/labels/{id}", s.handleDeleteLabel)
 		r.Post("/api/tasks/{id}/labels", s.handleAssignLabel)
 		r.Delete("/api/tasks/{id}/labels/{labelId}", s.handleUnassignLabel)
-
-		// Tunnels
-		r.Get("/api/tasks/{id}/tunnels", s.handleListTunnels)
-		r.Post("/api/tasks/{id}/tunnels", s.handleCreateTunnel)
-		r.Get("/api/tasks/{id}/port-suggestions", s.handleListTaskPortSuggestions)
-		r.Post("/api/tasks/{id}/ports/scan", s.handleScanTaskPorts)
-		r.Delete("/api/tunnels/{id}", s.handleStopTunnel)
 
 		// Archives
 		r.Post("/api/projects/{id}/archive", s.handleArchiveProject)

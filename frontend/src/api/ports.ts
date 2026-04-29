@@ -2,15 +2,17 @@ import { api } from './client';
 
 export type PortSuggestionStatus =
   | 'suggested'
-  | 'already_tunneled_this_task'
-  | 'already_tunneled_other_task';
+  | 'already_tunneled_this_workspace'
+  | 'already_tunneled_other_workspace';
 
 export interface ExistingTunnelRef {
   id: string;
-  taskId: string;
-  taskTitle?: string;
+  workspaceId: string;
+  workspaceName?: string;
+  projectId: string;
   port: number;
   url: string;
+  status: 'starting' | 'active' | 'stopping' | 'failed';
 }
 
 export interface PortSuggestion {
@@ -22,7 +24,7 @@ export interface PortSuggestion {
   existingTunnel?: ExistingTunnelRef;
 }
 
-export interface TaskPortSuggestionsResponse {
+export interface WorkspacePortSuggestionsResponse {
   suggestions: PortSuggestion[];
 }
 
@@ -33,9 +35,9 @@ export interface ScanPortsResult {
 }
 
 export const portsApi = {
-  listTaskSuggestions: (taskId: string) =>
-    api.get<TaskPortSuggestionsResponse>(`/tasks/${taskId}/port-suggestions`),
+  listWorkspaceSuggestions: (workspaceId: string) =>
+    api.get<WorkspacePortSuggestionsResponse>(`/workspaces/${workspaceId}/port-suggestions`),
 
-  scanTaskPorts: (taskId: string) =>
-    api.post<ScanPortsResult>(`/tasks/${taskId}/ports/scan`),
+  scanWorkspacePorts: (workspaceId: string) =>
+    api.post<ScanPortsResult>(`/workspaces/${workspaceId}/ports/scan`),
 };

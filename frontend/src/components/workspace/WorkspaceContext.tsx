@@ -37,6 +37,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 export interface WorkspaceConversationDraft {
   enabled: boolean;
   insertReference: (path: string) => void;
+  insertText?: (text: string) => void;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

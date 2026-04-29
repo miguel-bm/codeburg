@@ -61,6 +61,8 @@ export function useWorkspaceRefresh() {
       ['workspace-git-log', scopeType, scopeId],
       ['workspace-diff', scopeType, scopeId],
       ['workspace-diff-content', scopeType, scopeId],
+      ['workspace-tunnels', scopeType, scopeId],
+      ['workspace-port-suggestions', scopeType, scopeId],
     ];
 
     const refreshResults = await Promise.allSettled(

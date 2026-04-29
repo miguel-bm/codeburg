@@ -87,8 +87,8 @@ func (db *DB) CreateTask(input CreateTaskInput) (*Task, error) {
 
 	_, err := db.conn.Exec(`
 		INSERT INTO tasks (id, project_id, title, description, task_type, priority, branch, status, position, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT MAX(position) FROM tasks WHERE status = ?), -1) + 1, ?)
-	`, id, input.ProjectID, input.Title, NullString(input.Description), taskType, NullString(input.Priority), NullString(input.Branch), TaskStatusBacklog, TaskStatusBacklog, now)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT MAX(position) FROM tasks WHERE project_id = ? AND status = ?), -1) + 1, ?)
+	`, id, input.ProjectID, input.Title, NullString(input.Description), taskType, NullString(input.Priority), NullString(input.Branch), TaskStatusBacklog, input.ProjectID, TaskStatusBacklog, now)
 	if err != nil {
 		return nil, fmt.Errorf("insert task: %w", err)
 	}
@@ -188,8 +188,8 @@ func (db *DB) UpdateTask(id string, input UpdateTaskInput) (*Task, error) {
 	if statusChanging {
 		// Close gap in old column
 		_, err = tx.Exec(
-			"UPDATE tasks SET position = position - 1 WHERE status = ? AND position > ?",
-			current.Status, current.Position,
+			"UPDATE tasks SET position = position - 1 WHERE project_id = ? AND status = ? AND position > ?",
+			current.ProjectID, current.Status, current.Position,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("close gap in old column: %w", err)
@@ -198,8 +198,8 @@ func (db *DB) UpdateTask(id string, input UpdateTaskInput) (*Task, error) {
 		if input.Position != nil {
 			// Make room at target position in new column
 			_, err = tx.Exec(
-				"UPDATE tasks SET position = position + 1 WHERE status = ? AND position >= ?",
-				*input.Status, *input.Position,
+				"UPDATE tasks SET position = position + 1 WHERE project_id = ? AND status = ? AND position >= ?",
+				current.ProjectID, *input.Status, *input.Position,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("make room in new column: %w", err)
@@ -211,13 +211,13 @@ func (db *DB) UpdateTask(id string, input UpdateTaskInput) (*Task, error) {
 		newPos := *input.Position
 		if newPos < oldPos {
 			_, err = tx.Exec(
-				"UPDATE tasks SET position = position + 1 WHERE status = ? AND position >= ? AND position < ? AND id != ?",
-				current.Status, newPos, oldPos, id,
+				"UPDATE tasks SET position = position + 1 WHERE project_id = ? AND status = ? AND position >= ? AND position < ? AND id != ?",
+				current.ProjectID, current.Status, newPos, oldPos, id,
 			)
 		} else {
 			_, err = tx.Exec(
-				"UPDATE tasks SET position = position - 1 WHERE status = ? AND position > ? AND position <= ? AND id != ?",
-				current.Status, oldPos, newPos, id,
+				"UPDATE tasks SET position = position - 1 WHERE project_id = ? AND status = ? AND position > ? AND position <= ? AND id != ?",
+				current.ProjectID, current.Status, oldPos, newPos, id,
 			)
 		}
 		if err != nil {
@@ -290,8 +290,8 @@ func (db *DB) UpdateTask(id string, input UpdateTaskInput) (*Task, error) {
 		args = append(args, *input.Position)
 	} else if statusChanging {
 		// Append to end of target column
-		query += ", position = COALESCE((SELECT MAX(position) FROM tasks WHERE status = ? AND id != ?), -1) + 1"
-		args = append(args, *input.Status, id)
+		query += ", position = COALESCE((SELECT MAX(position) FROM tasks WHERE project_id = ? AND status = ? AND id != ?), -1) + 1"
+		args = append(args, current.ProjectID, *input.Status, id)
 	}
 
 	query += " WHERE id = ?"

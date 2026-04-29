@@ -75,10 +75,12 @@ func TestURLRegex_FirstMatchWins(t *testing.T) {
 
 func TestTunnelInfo(t *testing.T) {
 	tunnel := &Tunnel{
-		ID:     "test-id",
-		TaskID: "task-id",
-		Port:   3000,
-		URL:    "https://test.trycloudflare.com",
+		ID:          "test-id",
+		WorkspaceID: "workspace-id",
+		ProjectID:   "project-id",
+		Port:        3000,
+		URL:         "https://test.trycloudflare.com",
+		Status:      StatusActive,
 	}
 
 	info := tunnel.Info()
@@ -86,8 +88,11 @@ func TestTunnelInfo(t *testing.T) {
 	if info.ID != "test-id" {
 		t.Errorf("expected ID 'test-id', got %q", info.ID)
 	}
-	if info.TaskID != "task-id" {
-		t.Errorf("expected TaskID 'task-id', got %q", info.TaskID)
+	if info.WorkspaceID != "workspace-id" {
+		t.Errorf("expected WorkspaceID 'workspace-id', got %q", info.WorkspaceID)
+	}
+	if info.ProjectID != "project-id" {
+		t.Errorf("expected ProjectID 'project-id', got %q", info.ProjectID)
 	}
 	if info.Port != 3000 {
 		t.Errorf("expected Port 3000, got %d", info.Port)
@@ -100,10 +105,12 @@ func TestTunnelInfo(t *testing.T) {
 func TestFindByPort(t *testing.T) {
 	mgr := NewManager()
 	mgr.tunnels["t-1"] = &Tunnel{
-		ID:     "t-1",
-		TaskID: "task-1",
-		Port:   3000,
-		URL:    "https://a.trycloudflare.com",
+		ID:          "t-1",
+		WorkspaceID: "workspace-1",
+		ProjectID:   "project-1",
+		Port:        3000,
+		URL:         "https://a.trycloudflare.com",
+		Status:      StatusActive,
 	}
 	mgr.ports[3000] = "t-1"
 
@@ -119,14 +126,16 @@ func TestFindByPort(t *testing.T) {
 func TestCreate_PortConflict(t *testing.T) {
 	mgr := NewManager()
 	mgr.tunnels["existing"] = &Tunnel{
-		ID:     "existing",
-		TaskID: "task-other",
-		Port:   5173,
-		URL:    "https://existing.trycloudflare.com",
+		ID:          "existing",
+		WorkspaceID: "workspace-other",
+		ProjectID:   "project-1",
+		Port:        5173,
+		URL:         "https://existing.trycloudflare.com",
+		Status:      StatusActive,
 	}
 	mgr.ports[5173] = "existing"
 
-	_, err := mgr.Create("new", "task-1", 5173)
+	_, err := mgr.Create("new", "workspace-1", "project-1", 5173)
 	if err == nil {
 		t.Fatal("expected conflict error")
 	}

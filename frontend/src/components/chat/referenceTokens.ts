@@ -6,6 +6,12 @@ export type CodeburgReferenceSegment =
   | { type: 'text'; value: string }
   | { type: 'reference'; reference: CodeburgReference };
 
+export interface CodeburgReferenceRange {
+  from: number;
+  to: number;
+  reference: CodeburgReference;
+}
+
 const INLINE_REF_PATTERN = /(^|[\s([{"'`])((\/skill:([A-Za-z0-9][A-Za-z0-9._-]*))|@([A-Za-z0-9._/-][A-Za-z0-9_./:-]*))/g;
 const TRAILING_TOKEN_PUNCTUATION = /[.,;!?)]/;
 
@@ -43,9 +49,31 @@ export function tokenizeCodeburgReferences(value: string): CodeburgReferenceSegm
 }
 
 export function parseCodeburgReferences(value: string): CodeburgReference[] {
-  return tokenizeCodeburgReferences(value)
-    .filter((segment): segment is Extract<CodeburgReferenceSegment, { type: 'reference' }> => segment.type === 'reference')
-    .map((segment) => segment.reference);
+  return findCodeburgReferenceRanges(value).map((range) => range.reference);
+}
+
+export function findCodeburgReferenceRanges(value: string): CodeburgReferenceRange[] {
+  const ranges: CodeburgReferenceRange[] = [];
+  let match: RegExpExecArray | null;
+  INLINE_REF_PATTERN.lastIndex = 0;
+
+  while ((match = INLINE_REF_PATTERN.exec(value)) !== null) {
+    const boundary = match[1] ?? '';
+    const rawToken = match[2] ?? '';
+    const tokenStart = match.index + boundary.length;
+    const tokenEnd = tokenStart + rawToken.length;
+    const { token, trailing } = trimTokenPunctuation(rawToken);
+    const reference = parseCodeburgReferenceToken(token);
+    if (reference) {
+      ranges.push({
+        from: tokenStart,
+        to: tokenEnd - trailing.length,
+        reference,
+      });
+    }
+  }
+
+  return ranges;
 }
 
 function parseCodeburgReferenceToken(token: string): CodeburgReference | null {

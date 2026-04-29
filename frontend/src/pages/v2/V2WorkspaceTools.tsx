@@ -1,13 +1,14 @@
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Files, GitBranch, Search, X } from 'lucide-react';
+import { Files, GitBranch, Globe2, Search, X } from 'lucide-react';
 import { FileExplorer } from '../../components/workspace/FileExplorer';
 import { FileSearchPanel } from '../../components/workspace/FileSearchPanel';
 import { GitPanel } from '../../components/workspace/GitPanel';
+import { WorkspacePreviewPanel } from '../../components/workspace/WorkspacePreviewPanel';
 import { useMobile } from '../../hooks/useMobile';
 import { V2ToolbarButton } from './v2-ui';
 
-export type V2HelperTab = 'files' | 'search' | 'git';
+export type V2HelperTab = 'files' | 'search' | 'git' | 'preview';
 
 export function V2WorkspaceToolTabs({
   helperTab,
@@ -29,6 +30,7 @@ export function V2WorkspaceToolTabs({
       <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'files'} icon={<Files size={14} />} onClick={() => onToggleHelperTab('files')}>Files</HelperButton>
       <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'search'} icon={<Search size={14} />} onClick={() => onToggleHelperTab('search')}>Search</HelperButton>
       <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'git'} icon={<GitBranch size={14} />} onClick={() => onToggleHelperTab('git')}>Changes</HelperButton>
+      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'preview'} icon={<Globe2 size={14} />} onClick={() => onToggleHelperTab('preview')}>Preview</HelperButton>
     </div>
   );
 }
@@ -39,6 +41,7 @@ export function V2WorkspaceTools({ helperTab }: { helperTab: V2HelperTab }) {
       {helperTab === 'files' && <FileExplorer />}
       {helperTab === 'search' && <FileSearchPanel />}
       {helperTab === 'git' && <GitPanel />}
+      {helperTab === 'preview' && <WorkspacePreviewPanel />}
     </div>
   );
 }

@@ -146,6 +146,7 @@ export function createTunnelsApi(type: WorkspaceScopeType, id: string) {
   return {
     list: () => api.get<TunnelInfo[]>(`${prefix}/tunnels`),
     create: (port: number) => api.post<TunnelInfo>(`${prefix}/tunnels`, { port }),
+    stop: (tunnelId: string) => api.delete(`${prefix}/tunnels/${tunnelId}`),
   };
 }
 

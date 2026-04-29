@@ -14,6 +14,7 @@ const languageByExt: Record<string, () => Extension> = {
   c: () => langs.c(),
   cpp: () => langs.cpp(),
   css: () => langs.css(),
+  excalidraw: () => langs.json(),
   go: () => langs.go(),
   h: () => langs.cpp(),
   html: () => langs.html(),
