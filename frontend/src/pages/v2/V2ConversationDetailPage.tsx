@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Clipboard,
   Command,
+  CornerDownRight,
   Download,
   FileCode2,
   FolderTree,
@@ -38,6 +39,7 @@ import {
   Sparkles,
   Square,
   SquareTerminal,
+  Trash2,
   Wrench,
   X,
 } from 'lucide-react';
@@ -96,6 +98,13 @@ interface ComposerAttachment {
   source?: ExcalidrawDiagramSource;
 }
 
+interface QueuedFollowUp {
+  id: string;
+  message: string;
+  images: PiConversationImageAttachment[];
+  createdAt: string;
+}
+
 type DiagramEditorState =
   | { mode: 'new' }
   | { mode: 'edit'; attachmentId: string; source: ExcalidrawDiagramSource }
@@ -116,7 +125,9 @@ type EditingMessageState = {
 };
 
 const MAX_SUGGESTIONS = 8;
+const MAX_QUEUED_FOLLOW_UPS = 20;
 const FILE_INDEX_DEPTH = 12;
+const FOLLOW_UP_QUEUE_STORAGE_PREFIX = 'codeburg:pi-follow-ups:';
 const THINKING_LEVELS: PiThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 const EMPTY_FILE_ENTRIES: V2FileEntry[] = [];
 const embeddedExcalidrawSourceCache = new Map<string, Promise<ExcalidrawDiagramSource | undefined>>();
@@ -134,6 +145,9 @@ export function V2ConversationDetailPage() {
 
   const [draft, setDraft] = useState('');
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUp[]>(() => loadQueuedFollowUps(conversationId));
+  const [queuedFollowUpSendingId, setQueuedFollowUpSendingId] = useState<string | null>(null);
+  const [queuedFollowUpError, setQueuedFollowUpError] = useState<{ id: string; message: string } | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [runtimeRequested, setRuntimeRequested] = useState(false);
@@ -147,6 +161,7 @@ export function V2ConversationDetailPage() {
   const resizeStart = useRef<{ x: number; width: number } | null>(null);
   const readOnFocusConversation = useRef<string | null>(null);
   const wasStreaming = useRef(false);
+  const queuedAutoSendBlocked = useRef(false);
 
   const { data: conversation } = useQuery({
     queryKey: ['v2-conversation', conversationId],
@@ -228,6 +243,17 @@ export function V2ConversationDetailPage() {
     setRuntimeRequested(false);
     setSendError(null);
   }, [conversationId, activeWorkspace?.id, resetWorkspaceTabs]);
+
+  useLayoutEffect(() => {
+    setQueuedFollowUps(loadQueuedFollowUps(conversationId));
+    setQueuedFollowUpSendingId(null);
+    setQueuedFollowUpError(null);
+    queuedAutoSendBlocked.current = false;
+  }, [conversationId]);
+
+  useEffect(() => {
+    persistQueuedFollowUps(conversationId, queuedFollowUps);
+  }, [conversationId, queuedFollowUps]);
 
   useEffect(() => {
     if (stateSnapshot?.runtimeActive) {
@@ -537,22 +563,89 @@ export function V2ConversationDetailPage() {
       return;
     }
     const streaming = Boolean(snapshot?.streaming);
+    if (streaming) {
+      queuedAutoSendBlocked.current = false;
+    }
     if (wasStreaming.current && !streaming) {
       markConversationReadState.mutate(false);
     }
     wasStreaming.current = streaming;
   }, [conversationId, snapshot?.streaming, markConversationReadState]);
 
-  const handleSubmit = async (streamingBehavior?: 'steer' | 'followUp', draftOverride?: string) => {
+  const removeQueuedFollowUp = useCallback((id: string) => {
+    setQueuedFollowUps((current) => current.filter((item) => item.id !== id));
+    setQueuedFollowUpError((current) => current?.id === id ? null : current);
+  }, []);
+
+  const sendQueuedFollowUpItem = useCallback(async (item: QueuedFollowUp, streamingBehavior?: 'steer') => {
+    if (!conversationId || !isActiveConversation) return;
+    setRuntimeRequested(true);
+    setSendError(null);
+    setQueuedFollowUpError(null);
+    setQueuedFollowUpSendingId(item.id);
+    setSending(true);
+    try {
+      await sendMessage(item.message, item.images, streamingBehavior);
+      removeQueuedFollowUp(item.id);
+      setMainSurface('conversation');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not send queued follow-up';
+      setSendError(message);
+      setQueuedFollowUpError({ id: item.id, message });
+    } finally {
+      setQueuedFollowUpSendingId(null);
+      setSending(false);
+    }
+  }, [conversationId, isActiveConversation, removeQueuedFollowUp, sendMessage]);
+
+  const handleQueueFollowUp = useCallback((input: { message: string; images: PiConversationImageAttachment[] }) => {
+    const message = input.message.trim();
+    const images = input.images.filter((image) => image.data.trim() && image.mimeType.trim());
+    if (!message && images.length === 0) return;
+    const next: QueuedFollowUp = {
+      id: createQueuedFollowUpId(),
+      message,
+      images,
+      createdAt: new Date().toISOString(),
+    };
+    setQueuedFollowUps((current) => pruneQueuedFollowUps([...current, next]));
+    setQueuedFollowUpError(null);
+  }, []);
+
+  const handleSteerQueuedFollowUp = useCallback((id: string) => {
+    const item = queuedFollowUps.find((candidate) => candidate.id === id);
+    if (!item || sending) return;
+    void sendQueuedFollowUpItem(item, snapshot?.streaming ? 'steer' : undefined);
+  }, [queuedFollowUps, sendQueuedFollowUpItem, sending, snapshot?.streaming]);
+
+  useEffect(() => {
+    if (!conversationId || !isActiveConversation || !snapshot || snapshot.streaming || sending || queuedFollowUpSendingId) return;
+    if (queuedAutoSendBlocked.current) return;
+    const next = queuedFollowUps[0];
+    if (!next || queuedFollowUpError?.id === next.id) return;
+    queuedAutoSendBlocked.current = true;
+    void sendQueuedFollowUpItem(next);
+  }, [
+    conversationId,
+    isActiveConversation,
+    queuedFollowUpError?.id,
+    queuedFollowUpSendingId,
+    queuedFollowUps,
+    sendQueuedFollowUpItem,
+    sending,
+    snapshot,
+  ]);
+
+  const handleSubmit = async (draftOverride?: string) => {
     const trimmed = (draftOverride ?? draft).trim();
     if ((!trimmed && attachments.length === 0) || !conversationId) return;
     if (!isActiveConversation) return;
-    if (snapshot?.streaming && !streamingBehavior) return;
+    if (snapshot?.streaming) return;
     setRuntimeRequested(true);
     setSendError(null);
     setSending(true);
     try {
-      await sendMessage(trimmed, attachments.map(({ image }) => image), streamingBehavior);
+      await sendMessage(trimmed, attachments.map(({ image }) => image));
       setDraft('');
       setAttachments([]);
       setMainSurface('conversation');
@@ -734,6 +827,12 @@ export function V2ConversationDetailPage() {
                 setDraft={setDraft}
                 attachments={attachments}
                 setAttachments={setAttachments}
+                queuedFollowUps={queuedFollowUps}
+                queuedFollowUpSendingId={queuedFollowUpSendingId}
+                queuedFollowUpError={queuedFollowUpError}
+                onQueueFollowUp={handleQueueFollowUp}
+                onDeleteQueuedFollowUp={removeQueuedFollowUp}
+                onSendQueuedFollowUp={handleSteerQueuedFollowUp}
                 sendError={sendError}
                 modelSwitching={setConversationModel.isPending}
                 forkPending={forkConversationFromMessage.isPending}
@@ -749,7 +848,7 @@ export function V2ConversationDetailPage() {
                 onForkConversation={async (title) => { await forkConversation.mutateAsync({ title }); }}
                 onArchiveConversation={() => transitionConversation.mutate('archive')}
                 abort={abort}
-                submit={(streamingBehavior) => void handleSubmit(streamingBehavior)}
+                submit={(draftOverride) => void handleSubmit(draftOverride)}
                 onOpenWorkspaceFile={openWorkspaceFileReference}
                 onOpenPiSettings={() => {
                   if (conversation?.projectId) navigate(`/projects/${conversation.projectId}/settings`);
@@ -828,6 +927,12 @@ function ConversationSurface({
   setDraft,
   attachments,
   setAttachments,
+  queuedFollowUps,
+  queuedFollowUpSendingId,
+  queuedFollowUpError,
+  onQueueFollowUp,
+  onDeleteQueuedFollowUp,
+  onSendQueuedFollowUp,
   sendError,
   modelSwitching,
   forkPending,
@@ -858,6 +963,12 @@ function ConversationSurface({
   setDraft: (draft: string) => void;
   attachments: ComposerAttachment[];
   setAttachments: Dispatch<SetStateAction<ComposerAttachment[]>>;
+  queuedFollowUps: QueuedFollowUp[];
+  queuedFollowUpSendingId: string | null;
+  queuedFollowUpError: { id: string; message: string } | null;
+  onQueueFollowUp: (input: { message: string; images: PiConversationImageAttachment[] }) => void;
+  onDeleteQueuedFollowUp: (id: string) => void;
+  onSendQueuedFollowUp: (id: string) => void;
   sendError: string | null;
   modelSwitching: boolean;
   forkPending: boolean;
@@ -873,7 +984,7 @@ function ConversationSurface({
   onForkConversation: (title?: string) => Promise<void>;
   onArchiveConversation: () => void;
   abort: () => Promise<void>;
-  submit: (streamingBehavior?: 'steer' | 'followUp', draftOverride?: string) => void;
+  submit: (draftOverride?: string) => void;
   onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void;
   onOpenPiSettings: () => void;
   onApplySnapshot: (snapshot: PiConversationSnapshot) => void;
@@ -904,7 +1015,6 @@ function ConversationSurface({
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState('');
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
-  const [streamingMode, setStreamingMode] = useState<'steer' | 'followUp'>('followUp');
   const [abortPending, setAbortPending] = useState(false);
   const [isAtLatest, setIsAtLatest] = useState(true);
   const [forkDialog, setForkDialog] = useState<ForkDialogState | null>(null);
@@ -1345,7 +1455,18 @@ function ConversationSurface({
     setAttachments(previousComposer.attachments);
   };
 
-  const submitComposer = (streamingBehavior?: 'steer' | 'followUp') => {
+  const restoreQueuedFollowUp = (item: QueuedFollowUp) => {
+    if (composerDisabled || editingMessage) return;
+    const nextAttachments = messageImagesToComposerAttachments(item.images);
+    onDeleteQueuedFollowUp(item.id);
+    setAttachments(nextAttachments);
+    setDraftWithSelection(item.message, { start: item.message.length, end: item.message.length });
+    requestAnimationFrame(() => {
+      composerRef.current?.setSelection({ start: item.message.length, end: item.message.length });
+    });
+  };
+
+  const submitComposer = () => {
     if (editingMessage) {
       const trimmed = normalizeComposerPromptText(draft, composerReferenceRanges).trim();
       if ((!trimmed && attachments.length === 0) || isStreaming || composerDisabled) return;
@@ -1357,7 +1478,21 @@ function ConversationSurface({
       });
       return;
     }
-    submit(streamingBehavior, normalizeComposerPromptText(draft, composerReferenceRanges));
+    if (isStreaming) {
+      const trimmed = normalizeComposerPromptText(draft, composerReferenceRanges).trim();
+      if ((!trimmed && attachments.length === 0) || composerDisabled) return;
+      onQueueFollowUp({
+        message: trimmed,
+        images: attachments.map(({ image }) => image),
+      });
+      setDraftWithSelection('', { start: 0, end: 0 });
+      setAttachments([]);
+      requestAnimationFrame(() => {
+        composerRef.current?.setSelection({ start: 0, end: 0 });
+      });
+      return;
+    }
+    submit(normalizeComposerPromptText(draft, composerReferenceRanges));
   };
 
   const copyMessage = async (message: PiConversationMessage) => {
@@ -1485,7 +1620,7 @@ function ConversationSurface({
     }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
-      if (!composerDisabled) submitComposer(isStreaming ? streamingMode : undefined);
+      if (!composerDisabled) submitComposer();
       return true;
     }
     if (event.key === 'Escape') {
@@ -1604,6 +1739,23 @@ function ConversationSurface({
       </div>
 
       <div className="shrink-0 bg-primary px-2 pb-2 md:px-3 md:pb-3" style={composerStyle}>
+        {queuedFollowUps.length > 0 && (
+          <div className="mx-auto mb-2 flex max-w-5xl flex-col gap-1.5">
+            {queuedFollowUps.map((item) => (
+              <QueuedFollowUpRow
+                key={item.id}
+                item={item}
+                streaming={isStreaming}
+                disabled={Boolean(sending || editTreeMessage.isPending)}
+                sending={queuedFollowUpSendingId === item.id}
+                error={queuedFollowUpError?.id === item.id ? queuedFollowUpError.message : null}
+                onSend={() => onSendQueuedFollowUp(item.id)}
+                onEdit={() => restoreQueuedFollowUp(item)}
+                onDelete={() => onDeleteQueuedFollowUp(item.id)}
+              />
+            ))}
+          </div>
+        )}
         <div
           onDragEnter={handleComposerDragEnter}
           onDragOver={handleComposerDragOver}
@@ -1705,7 +1857,7 @@ function ConversationSurface({
           <TokenAwareComposer
             ref={composerRef}
             value={draft}
-            placeholder={editingMessage ? 'Edit this message and send to continue...' : isStreaming ? (streamingMode === 'steer' ? 'Steer the current turn...' : 'Queue a follow-up...') : isActiveConversation ? 'Send a prompt to Pi...' : 'Resume the conversation before sending a prompt'}
+            placeholder={editingMessage ? 'Edit this message and send to continue...' : isStreaming ? 'Ask for follow-up changes...' : isActiveConversation ? 'Send a prompt to Pi...' : 'Resume the conversation before sending a prompt'}
             disabled={composerDisabled}
             minHeight={composerMinHeight}
             maxHeight={composerMaxHeight}
@@ -1773,23 +1925,6 @@ function ConversationSurface({
             </div>
 
             <div className="flex min-w-0 shrink-0 items-center gap-2">
-              {isStreaming && (
-                <div className="inline-flex rounded-full bg-primary p-0.5" aria-label="Streaming prompt mode">
-                  {(['steer', 'followUp'] as const).map((mode) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => setStreamingMode(mode)}
-                      title={mode === 'steer' ? 'Steer the turn Pi is currently producing' : 'Queue the next prompt after this turn'}
-                      className={`h-7 rounded-full px-2 text-[11px] font-medium transition-colors sm:px-2.5 sm:text-xs ${
-                        streamingMode === mode ? 'bg-card text-[var(--color-text-primary)] shadow-sm' : 'text-dim hover:text-[var(--color-text-secondary)]'
-                      }`}
-                    >
-                      {mode === 'steer' ? 'Steer' : 'Follow up'}
-                    </button>
-                  ))}
-                </div>
-              )}
               {snapshot?.streaming && (
                 <button type="button" onClick={() => void stopStreaming()} disabled={abortPending} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--color-error)] hover:bg-[var(--color-error)]/10 disabled:opacity-50" title="Stop current turn" aria-label="Stop current turn">
                   {abortPending ? <Loader2 size={14} className="animate-spin" /> : <Square size={13} />}
@@ -1909,13 +2044,13 @@ function ConversationSurface({
               </button>
               <button
                 type="button"
-                onClick={() => submitComposer(isStreaming ? streamingMode : undefined)}
+                onClick={() => submitComposer()}
                 disabled={(!draft.trim() && attachments.length === 0) || composerDisabled}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-text-primary)] text-[var(--color-card)] shadow-[0_7px_16px_rgba(15,23,42,0.16)] transition-transform duration-150 ease-out-quart hover:scale-[1.03] active:scale-95 disabled:scale-100 disabled:opacity-35"
-                title={isStreaming ? (streamingMode === 'steer' ? 'Steer current turn' : 'Queue follow-up') : 'Send'}
-                aria-label={isStreaming ? (streamingMode === 'steer' ? 'Steer current turn' : 'Queue follow-up') : 'Send'}
+                title={isStreaming ? 'Queue follow-up' : 'Send'}
+                aria-label={isStreaming ? 'Queue follow-up' : 'Send'}
               >
-                {sending || editTreeMessage.isPending ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={20} strokeWidth={2.2} />}
+                {sending || editTreeMessage.isPending ? <Loader2 size={16} className="animate-spin" /> : isStreaming ? <CornerDownRight size={18} strokeWidth={2.2} /> : <ArrowUp size={20} strokeWidth={2.2} />}
               </button>
             </div>
           </div>
@@ -1964,6 +2099,81 @@ function ConversationSurface({
           />
         )}
       </Suspense>
+    </div>
+  );
+}
+
+function QueuedFollowUpRow({
+  item,
+  streaming,
+  disabled,
+  sending,
+  error,
+  onSend,
+  onEdit,
+  onDelete,
+}: {
+  item: QueuedFollowUp;
+  streaming: boolean;
+  disabled: boolean;
+  sending: boolean;
+  error: string | null;
+  onSend: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const imageCount = item.images.length;
+  const preview = queuedFollowUpPreview(item);
+  const actionLabel = streaming ? 'Steer' : 'Send';
+
+  return (
+    <div className={`flex min-h-11 flex-col gap-1 rounded-2xl border bg-card px-3 py-2 shadow-sm transition-colors ${
+      error ? 'border-[var(--color-error)]/35 bg-[var(--color-error)]/5' : 'border-subtle'
+    }`}>
+      <div className="flex min-w-0 items-center gap-2">
+        <CornerDownRight size={15} className="shrink-0 text-dim" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm text-[var(--color-text-secondary)]">{preview}</div>
+          {error && <div className="mt-0.5 truncate text-xs text-[var(--color-error)]">{error}</div>}
+        </div>
+        {imageCount > 0 && (
+          <span className="hidden shrink-0 items-center gap-1 rounded-full bg-primary px-2 py-1 text-xs text-dim sm:inline-flex">
+            <ImageIcon size={12} />
+            {imageCount}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={onSend}
+          disabled={disabled || sending}
+          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-45"
+          title={streaming ? 'Steer current turn' : 'Send now'}
+          aria-label={streaming ? 'Steer current turn' : 'Send now'}
+        >
+          {sending ? <Loader2 size={13} className="animate-spin" /> : <CornerDownRight size={13} />}
+          <span className="hidden sm:inline">{actionLabel}</span>
+        </button>
+        <button
+          type="button"
+          onClick={onEdit}
+          disabled={disabled || sending}
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-dim transition-colors hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-45"
+          title="Edit follow-up"
+          aria-label="Edit follow-up"
+        >
+          <Pencil size={13} />
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={sending}
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-dim transition-colors hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)] disabled:opacity-45"
+          title="Delete follow-up"
+          aria-label="Delete follow-up"
+        >
+          <Trash2 size={13} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -3176,6 +3386,84 @@ function nextEnabledSuggestionIndex(suggestions: ComposerSuggestion[], current: 
     if (!suggestions[next].disabled) return next;
   }
   return current;
+}
+
+function queuedFollowUpPreview(item: QueuedFollowUp): string {
+  const text = item.message.replace(/\s+/g, ' ').trim();
+  if (text) return text;
+  if (item.images.length === 1) return 'Image follow-up';
+  return `${item.images.length} image follow-up`;
+}
+
+function pruneQueuedFollowUps(items: QueuedFollowUp[]): QueuedFollowUp[] {
+  return items.slice(-MAX_QUEUED_FOLLOW_UPS);
+}
+
+function createQueuedFollowUpId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `follow-up-${crypto.randomUUID()}`;
+  }
+  return `follow-up-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function loadQueuedFollowUps(conversationId?: string): QueuedFollowUp[] {
+  const key = queuedFollowUpStorageKey(conversationId);
+  if (!key || typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return [];
+    return pruneQueuedFollowUps(parseQueuedFollowUps(JSON.parse(raw)));
+  } catch {
+    return [];
+  }
+}
+
+function persistQueuedFollowUps(conversationId: string | undefined, items: QueuedFollowUp[]) {
+  const key = queuedFollowUpStorageKey(conversationId);
+  if (!key || typeof window === 'undefined') return;
+  try {
+    if (items.length === 0) {
+      window.localStorage.removeItem(key);
+      return;
+    }
+    window.localStorage.setItem(key, JSON.stringify(pruneQueuedFollowUps(items)));
+  } catch {
+    // The in-memory queue remains available for this tab if storage quota is exceeded.
+  }
+}
+
+function queuedFollowUpStorageKey(conversationId?: string): string | null {
+  const id = conversationId?.trim();
+  return id ? `${FOLLOW_UP_QUEUE_STORAGE_PREFIX}${id}` : null;
+}
+
+function parseQueuedFollowUps(value: unknown): QueuedFollowUp[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(parseQueuedFollowUp).filter((item): item is QueuedFollowUp => Boolean(item));
+}
+
+function parseQueuedFollowUp(value: unknown): QueuedFollowUp | null {
+  if (!isRecord(value)) return null;
+  const id = typeof value.id === 'string' ? value.id.trim() : '';
+  const message = typeof value.message === 'string' ? value.message : '';
+  const createdAt = typeof value.createdAt === 'string' ? value.createdAt : new Date().toISOString();
+  const images = Array.isArray(value.images)
+    ? value.images.map(parseQueuedFollowUpImage).filter((image): image is PiConversationImageAttachment => Boolean(image))
+    : [];
+  if (!id || (!message.trim() && images.length === 0)) return null;
+  return { id, message, images, createdAt };
+}
+
+function parseQueuedFollowUpImage(value: unknown): PiConversationImageAttachment | null {
+  if (!isRecord(value)) return null;
+  const data = typeof value.data === 'string' ? value.data : '';
+  const mimeType = typeof value.mimeType === 'string' ? value.mimeType : '';
+  if (!data.trim() || !mimeType.trim()) return null;
+  return { type: 'image', data, mimeType };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 async function fileToComposerAttachment(file: File): Promise<ComposerAttachment> {

@@ -48,7 +48,7 @@ interface V2WorkspaceActionHeaderProps {
   onResolveConflicts?: (target: WorkspaceResolveTarget) => void;
 }
 
-type ActionMenuName = 'more' | null;
+type ActionMenuName = 'sync' | 'more' | null;
 
 export function V2WorkspaceActionHeader({
   project,
@@ -146,6 +146,16 @@ export function V2WorkspaceActionHeader({
     if (!pr?.url) return;
     await navigator.clipboard.writeText(pr.url);
   };
+  const pullBranch = () => {
+    void git.pull().catch((error) => setOperationError(error instanceof Error ? error.message : 'Pull failed'));
+  };
+  const pushBranch = () => {
+    if (workspace.kind === 'main' && !window.confirm(`Push ${branchLabel} to upstream?`)) return;
+    void git.push({}).catch((error) => setOperationError(error instanceof Error ? error.message : 'Push failed'));
+  };
+  const rebaseOnto = (target: string, fetch = true) => {
+    rebaseWorkspace.mutate({ baseBranch: target, fetch });
+  };
 
   const updatePending =
     pending ||
@@ -171,14 +181,8 @@ export function V2WorkspaceActionHeader({
         onResolveConflicts('current');
       }
     },
-    onPull: () => {
-      void git.pull().catch((error) => setOperationError(error instanceof Error ? error.message : 'Pull failed'));
-    },
-    onPush: () => {
-      void git.push({}).catch((error) => setOperationError(error instanceof Error ? error.message : 'Push failed'));
-    },
+    onPush: pushBranch,
     onReactivate,
-    pulling: git.isPulling,
     pushing: git.isPushing,
   });
 
@@ -211,6 +215,25 @@ export function V2WorkspaceActionHeader({
                 <span className="truncate">{primaryAction.label}</span>
               </Button>
             )}
+            <WorkspaceSyncMenu
+              workspace={workspace}
+              status={status}
+              baseBranch={baseBranch}
+              isActive={isActive}
+              hasConflicts={hasConflicts}
+              updatePending={updatePending}
+              pending={pending}
+              open={openMenu === 'sync'}
+              onToggle={() => setOpenMenu(openMenu === 'sync' ? null : 'sync')}
+              onClose={() => setOpenMenu(null)}
+              onOpenGitPanel={onOpenGitPanel}
+              onUpdateFromBase={onUpdateFromBase}
+              onPull={pullBranch}
+              onRebase={rebaseOnto}
+              onContinue={() => continueOperation.mutate()}
+              onAbort={() => abortOperation.mutate()}
+              onReactivate={onReactivate}
+            />
             <V2QuickActionsMenu projectId={project.id} workspaceId={workspace.id} disabled={!isActive} />
             <ActionMenu
               name="More"
@@ -219,49 +242,8 @@ export function V2WorkspaceActionHeader({
               onToggle={() => setOpenMenu(openMenu === 'more' ? null : 'more')}
               onClose={() => setOpenMenu(null)}
             >
-              {hasConflicts ? (
-                <MenuGroup title={`${operationLabel(status?.operation)} paused`}>
-                  <MenuNote title={`${operationLabel(status?.operation)} paused`} body={`${status?.conflicted?.length ?? 0} conflicted file${(status?.conflicted?.length ?? 0) === 1 ? '' : 's'} need review.`} />
-                  <ActionMenuItem icon={<Check size={14} />} disabled={updatePending} onClick={() => { setOpenMenu(null); continueOperation.mutate(); }}>
-                    Continue {operationLabel(status?.operation)}
-                  </ActionMenuItem>
-                  <ActionMenuItem icon={<X size={14} />} danger disabled={updatePending} onClick={() => { setOpenMenu(null); abortOperation.mutate(); }}>
-                    Abort {operationLabel(status?.operation)}
-                  </ActionMenuItem>
-                </MenuGroup>
-              ) : null}
-
-              <MenuGroup title="Sync">
-                {onOpenGitPanel && (
-                  <ActionMenuItem icon={<GitCommitHorizontal size={14} />} disabled={!isActive} onClick={() => { setOpenMenu(null); onOpenGitPanel(); }}>
-                    Open Git panel
-                  </ActionMenuItem>
-                )}
-                {!hasConflicts && (
-                  <>
-                  <ActionMenuItem icon={<RefreshCw size={14} />} disabled={!isActive || updatePending || workspace.kind === 'main'} onClick={() => { setOpenMenu(null); onUpdateFromBase(); }}>
-                    <span>Update from base</span>
-                    <span className="text-[10px] text-dim">Fetch {baseBranch}, then rebase</span>
-                  </ActionMenuItem>
-                  <ActionMenuItem icon={<ArrowUp size={14} className="rotate-180" />} disabled={!isActive || updatePending || !status?.hasUpstream} onClick={() => { setOpenMenu(null); void git.pull().catch((error) => setOperationError(error instanceof Error ? error.message : 'Pull failed')); }}>
-                    <span>Pull branch</span>
-                    <span className="text-[10px] text-dim">Fast-forward from upstream</span>
-                  </ActionMenuItem>
-                  <ActionMenuItem icon={<GitBranch size={14} />} disabled={!isActive || updatePending} onClick={() => {
-                    const target = window.prompt('Rebase onto branch or ref', baseBranch)?.trim();
-                    if (!target) return;
-                    setOpenMenu(null);
-                    rebaseWorkspace.mutate({ baseBranch: target, fetch: true });
-                  }}>
-                    <span>Rebase onto...</span>
-                    <span className="text-[10px] text-dim">Choose another branch or ref</span>
-                  </ActionMenuItem>
-                  </>
-                )}
-              </MenuGroup>
-
               <MenuGroup title="Publish">
-              <ActionMenuItem icon={<ArrowUp size={14} />} disabled={!isActive || hasConflicts || updatePending} onClick={() => { setOpenMenu(null); void git.push({}).catch((error) => setOperationError(error instanceof Error ? error.message : 'Push failed')); }}>
+              <ActionMenuItem icon={<ArrowUp size={14} />} disabled={!isActive || hasConflicts || updatePending} onClick={() => { setOpenMenu(null); pushBranch(); }}>
                 <span>Push branch</span>
                 <span className="text-[10px] text-dim">{status?.hasUpstream ? 'Update upstream' : 'Publish upstream'}</span>
               </ActionMenuItem>
@@ -469,6 +451,136 @@ function WorkspaceStatePill({ summary }: { summary: WorkspaceStateSummary }) {
   );
 }
 
+function WorkspaceSyncMenu({
+  workspace,
+  status,
+  baseBranch,
+  isActive,
+  hasConflicts,
+  updatePending,
+  pending,
+  open,
+  onToggle,
+  onClose,
+  onOpenGitPanel,
+  onUpdateFromBase,
+  onPull,
+  onRebase,
+  onContinue,
+  onAbort,
+  onReactivate,
+}: {
+  workspace: Workspace;
+  status?: GitStatus;
+  baseBranch: string;
+  isActive: boolean;
+  hasConflicts: boolean;
+  updatePending: boolean;
+  pending: boolean;
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onOpenGitPanel?: () => void;
+  onUpdateFromBase: () => void;
+  onPull: () => void;
+  onRebase: (target: string, fetch?: boolean) => void;
+  onContinue: () => void;
+  onAbort: () => void;
+  onReactivate: () => void;
+}) {
+  const localChanges = localChangeCount(status);
+  const hasLocalChanges = localChanges > 0;
+  const upstream = status?.upstream || 'upstream';
+  const upstreamBranch = status?.upstream;
+  const diverged = Boolean(status && status.ahead > 0 && status.behind > 0);
+
+  return (
+    <ActionMenu
+      name={syncMenuLabel(workspace, status)}
+      icon={syncMenuIcon(workspace, status)}
+      open={open}
+      pending={updatePending}
+      onToggle={onToggle}
+      onClose={onClose}
+    >
+      {!isActive ? (
+        <MenuGroup title="Sync">
+          <MenuNote title="Inactive workspace" body="Reactivate this workspace before pulling, rebasing, or updating it from base." />
+          {workspace.status !== 'archived' && (
+            <ActionMenuItem icon={<RefreshCw size={14} />} disabled={pending} onClick={() => { onClose(); onReactivate(); }}>
+              Reactivate workspace
+            </ActionMenuItem>
+          )}
+        </MenuGroup>
+      ) : hasConflicts ? (
+        <MenuGroup title={`${operationLabel(status?.operation)} paused`}>
+          <MenuNote title={`${operationLabel(status?.operation)} paused`} body={`${status?.conflicted?.length ?? 0} conflicted file${(status?.conflicted?.length ?? 0) === 1 ? '' : 's'} need review before this workspace can sync again.`} />
+          {onOpenGitPanel && (
+            <ActionMenuItem icon={<ShieldAlert size={14} />} disabled={pending} onClick={() => { onClose(); onOpenGitPanel(); }}>
+              Open conflicts
+            </ActionMenuItem>
+          )}
+          <ActionMenuItem icon={<Check size={14} />} disabled={updatePending} onClick={() => { onClose(); onContinue(); }}>
+            Continue {operationLabel(status?.operation)}
+          </ActionMenuItem>
+          <ActionMenuItem icon={<X size={14} />} danger disabled={updatePending} onClick={() => { onClose(); onAbort(); }}>
+            Abort {operationLabel(status?.operation)}
+          </ActionMenuItem>
+        </MenuGroup>
+      ) : (
+        <>
+          <MenuGroup title="State">
+            <MenuNote title={syncStateTitle(workspace, status)} body={syncStateBody(workspace, status, baseBranch)} />
+          </MenuGroup>
+
+          {workspace.kind === 'main' ? (
+            <MenuGroup title="Default branch">
+              <ActionMenuItem icon={<ArrowUp size={14} className="rotate-180" />} disabled={updatePending || !status?.hasUpstream} onClick={() => { onClose(); onPull(); }}>
+                <span>{(status?.behind ?? 0) > 0 ? `Pull ${status?.behind} behind` : 'Pull branch'}</span>
+                <span className="text-[10px] text-dim">Fast-forward from {upstream}</span>
+              </ActionMenuItem>
+            </MenuGroup>
+          ) : (
+            <MenuGroup title="Update">
+              {upstreamBranch && diverged && (
+                <ActionMenuItem icon={<GitBranch size={14} />} disabled={updatePending || hasLocalChanges} onClick={() => { onClose(); onRebase(upstreamBranch, true); }}>
+                  <span>Rebase onto upstream</span>
+                  <span className="text-[10px] text-dim">{hasLocalChanges ? 'Commit or stash local changes first' : upstreamBranch}</span>
+                </ActionMenuItem>
+              )}
+              <ActionMenuItem icon={<RefreshCw size={14} />} disabled={updatePending || hasLocalChanges} onClick={() => { onClose(); onUpdateFromBase(); }}>
+                <span>Update from base</span>
+                <span className="text-[10px] text-dim">{hasLocalChanges ? 'Commit or stash local changes first' : `Fetch ${baseBranch}, then rebase`}</span>
+              </ActionMenuItem>
+              <ActionMenuItem icon={<ArrowUp size={14} className="rotate-180" />} disabled={updatePending || !status?.hasUpstream || diverged} onClick={() => { onClose(); onPull(); }}>
+                <span>{(status?.behind ?? 0) > 0 ? `Pull ${status?.behind} behind` : 'Pull branch'}</span>
+                <span className="text-[10px] text-dim">{diverged ? 'Diverged, rebase instead' : `Fast-forward from ${upstream}`}</span>
+              </ActionMenuItem>
+              <ActionMenuItem icon={<GitBranch size={14} />} disabled={updatePending || hasLocalChanges} onClick={() => {
+                const target = window.prompt('Rebase onto branch or ref', baseBranch)?.trim();
+                if (!target) return;
+                onClose();
+                onRebase(target, true);
+              }}>
+                <span>Rebase onto...</span>
+                <span className="text-[10px] text-dim">{hasLocalChanges ? 'Commit or stash local changes first' : 'Choose another branch or ref'}</span>
+              </ActionMenuItem>
+            </MenuGroup>
+          )}
+
+          {onOpenGitPanel && (
+            <MenuGroup title="Inspect">
+              <ActionMenuItem icon={<GitCommitHorizontal size={14} />} onClick={() => { onClose(); onOpenGitPanel(); }}>
+                Open Git panel
+              </ActionMenuItem>
+            </MenuGroup>
+          )}
+        </>
+      )}
+    </ActionMenu>
+  );
+}
+
 function getPrimaryWorkspaceAction({
   status,
   workspace,
@@ -477,10 +589,8 @@ function getPrimaryWorkspaceAction({
   hasConflicts,
   onCommit,
   onOpenConflicts,
-  onPull,
   onPush,
   onReactivate,
-  pulling,
   pushing,
 }: {
   status?: GitStatus;
@@ -490,10 +600,8 @@ function getPrimaryWorkspaceAction({
   hasConflicts: boolean;
   onCommit: () => void;
   onOpenConflicts: () => void;
-  onPull: () => void;
   onPush: () => void;
   onReactivate: () => void;
-  pulling: boolean;
   pushing: boolean;
 }): {
   label: string;
@@ -531,17 +639,6 @@ function getPrimaryWorkspaceAction({
       variant: 'primary',
       disabled: pending,
       onClick: onCommit,
-    };
-  }
-
-  if ((status?.behind ?? 0) > 0) {
-    return {
-      label: 'Pull',
-      icon: <ArrowUp size={13} className="rotate-180" />,
-      variant: 'primary',
-      disabled: pending || !status?.hasUpstream,
-      loading: pulling,
-      onClick: onPull,
     };
   }
 
@@ -636,6 +733,53 @@ function workspaceStateSummary(status: GitStatus | undefined, workspace: Workspa
     tone: 'success',
     title: 'No staged, unstaged, untracked, or divergent branch changes detected.',
   };
+}
+
+function syncMenuLabel(workspace: Workspace, status?: GitStatus) {
+  if (workspace.status !== 'active') return 'Sync';
+  if (status?.hasConflicts) return 'Sync';
+  if (workspace.kind === 'main' && (status?.behind ?? 0) > 0) return 'Pull';
+  if (workspace.kind !== 'main' && (status?.ahead ?? 0) > 0 && (status?.behind ?? 0) > 0) return 'Rebase';
+  if ((status?.behind ?? 0) > 0) return 'Pull';
+  return 'Sync';
+}
+
+function syncMenuIcon(workspace: Workspace, status?: GitStatus) {
+  if (status?.hasConflicts) return <ShieldAlert size={13} />;
+  if (workspace.kind !== 'main' && (status?.ahead ?? 0) > 0 && (status?.behind ?? 0) > 0) return <GitBranch size={13} />;
+  if ((status?.behind ?? 0) > 0) return <ArrowUp size={13} className="rotate-180" />;
+  return <RefreshCw size={13} />;
+}
+
+function syncStateTitle(workspace: Workspace, status?: GitStatus) {
+  if (!status) return 'Checking git';
+  if (localChangeCount(status) > 0) return 'Local changes present';
+  if (status.ahead > 0 && status.behind > 0) return 'Diverged from upstream';
+  if (status.behind > 0) return 'Behind upstream';
+  if (status.ahead > 0) return 'Ahead of upstream';
+  if (!status.hasUpstream) return workspace.kind === 'main' ? 'No upstream detected' : 'No branch upstream';
+  return 'Up to date';
+}
+
+function syncStateBody(workspace: Workspace, status: GitStatus | undefined, baseBranch: string) {
+  if (!status) return 'Loading branch state before choosing the safest sync action.';
+  const localChanges = localChangeCount(status);
+  if (localChanges > 0) {
+    return `${localChanges} local change${localChanges === 1 ? '' : 's'} in the worktree. Commit or stash before rebasing.`;
+  }
+  if (status.ahead > 0 && status.behind > 0) {
+    return `${status.ahead} ahead and ${status.behind} behind ${status.upstream || 'upstream'}. Rebase is safer than fast-forward pull here.`;
+  }
+  if (status.behind > 0) {
+    return `${status.behind} commit${status.behind === 1 ? '' : 's'} behind ${status.upstream || 'upstream'}. Pull can fast-forward if the branch has no local commits.`;
+  }
+  if (workspace.kind !== 'main') {
+    return `Use Update from base to fetch ${baseBranch} and rebase this workspace before publishing.`;
+  }
+  if (status.ahead > 0) {
+    return `${status.ahead} local commit${status.ahead === 1 ? '' : 's'} not on ${status.upstream || 'upstream'}.`;
+  }
+  return `No upstream drift detected${status.hasUpstream ? ` against ${status.upstream}` : ''}.`;
 }
 
 function stateToneClass(tone: WorkspaceStateSummary['tone']) {
@@ -1145,6 +1289,15 @@ function changeCount(status?: GitStatus) {
     ...status.unstaged.map((file) => file.path),
     ...status.untracked,
     ...(status.conflicted ?? []).map((file) => file.path),
+  ]).length;
+}
+
+function localChangeCount(status?: GitStatus) {
+  if (!status) return 0;
+  return uniqueFiles([
+    ...status.staged.map((file) => file.path),
+    ...status.unstaged.map((file) => file.path),
+    ...status.untracked,
   ]).length;
 }
 

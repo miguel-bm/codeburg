@@ -8,7 +8,7 @@ interface ModalProps {
   open: boolean;
   onClose: () => void;
   title?: string;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
   children: ReactNode;
   footer?: ReactNode;
 }
@@ -17,6 +17,7 @@ const sizeMap = {
   sm: 'max-w-sm',
   md: 'max-w-md',
   lg: 'max-w-lg',
+  xl: 'max-w-4xl',
 } as const;
 
 export function Modal({
@@ -47,7 +48,7 @@ export function Modal({
           className="fixed inset-0 z-50 flex items-center justify-center"
         >
           <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            className="absolute inset-0 bg-[oklch(18%_0.01_250)]/55 backdrop-blur-sm"
             onClick={onClose}
           />
           <motion.div
@@ -55,11 +56,15 @@ export function Modal({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.97 }}
             transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
-            className={`relative w-full ${sizeMap[size]} mx-4 bg-card rounded-xl border border-subtle overflow-hidden`}
+            className={`relative flex w-full flex-col ${sizeMap[size]} border border-subtle bg-card overflow-hidden ${
+              size === 'xl'
+                ? 'h-[100dvh] rounded-none sm:mx-4 sm:h-auto sm:rounded-xl'
+                : 'mx-4 rounded-xl'
+            }`}
             style={{ boxShadow: 'var(--shadow-card-hover)' }}
           >
             {title && (
-              <div className="px-5 py-3 border-b border-subtle flex items-center justify-between">
+              <div className="px-4 py-3 border-b border-subtle flex items-center justify-between sm:px-5">
                 <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">{title}</h2>
                 <button
                   onClick={onClose}
@@ -69,9 +74,9 @@ export function Modal({
                 </button>
               </div>
             )}
-            <div>{children}</div>
+            <div className={size === 'xl' ? 'min-h-0 flex-1' : undefined}>{children}</div>
             {footer && (
-              <div className="px-5 py-3 border-t border-subtle">
+              <div className="px-4 py-3 border-t border-subtle sm:px-5">
                 {footer}
               </div>
             )}

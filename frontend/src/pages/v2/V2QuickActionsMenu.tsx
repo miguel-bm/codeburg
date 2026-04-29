@@ -45,6 +45,7 @@ export function V2QuickActionsMenu({
       navigate(`/projects/${projectId}?workspace=${terminal.workspaceId}&terminal=${terminal.id}`);
     },
   });
+  const runDisabled = disabled || !workspaceId || runAction.isPending;
 
   return (
     <div className="relative">
@@ -52,7 +53,7 @@ export function V2QuickActionsMenu({
         size="xs"
         variant="secondary"
         icon={<Play size={13} />}
-        disabled={disabled || !projectId || !workspaceId}
+        disabled={!projectId}
         loading={runAction.isPending}
         onClick={() => setOpen((value) => !value)}
       >
@@ -70,9 +71,19 @@ export function V2QuickActionsMenu({
             </div>
 
             <div className="max-h-72 overflow-auto py-1">
+              {disabled && safeActions.length > 0 && (
+                <div className="mb-1 rounded-lg bg-inset px-2 py-2 text-xs leading-4 text-dim">
+                  Reactivate this workspace to run commands.
+                </div>
+              )}
               {safeActions.map((action) => (
                 <div key={action.id} className="group flex min-h-10 items-center gap-2 rounded-lg px-2 py-2 hover:bg-[var(--color-card-hover)]">
-                  <button type="button" className="min-w-0 flex-1 text-left" onClick={() => runAction.mutate(action)}>
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left disabled:cursor-default disabled:opacity-45"
+                    disabled={runDisabled}
+                    onClick={() => runAction.mutate(action)}
+                  >
                     <div className="truncate text-sm">{action.name}</div>
                     <div className="truncate font-mono text-[11px] text-dim">{action.command}</div>
                   </button>

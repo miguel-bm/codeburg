@@ -6,6 +6,7 @@ import {
   Archive,
   Check,
   CheckCircle2,
+  ChevronDown,
   Circle,
   CircleDot,
   Clock3,
@@ -21,7 +22,7 @@ import { projectsApi } from '../../api';
 import type { Conversation, Task, TaskLink, TaskStatus, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { Modal } from '../../components/ui/Modal';
-import { Button, V2Content, V2Header, V2Input, V2Panel, V2Select, V2Textarea } from './v2-ui';
+import { Button, V2Content, V2Header, V2Input, V2Panel, V2Textarea } from './v2-ui';
 
 const COLUMNS: Array<{ id: TaskStatus; title: string; icon: typeof Circle; tone: string }> = [
   { id: 'backlog', title: 'Backlog', icon: Circle, tone: 'text-dim' },
@@ -29,6 +30,8 @@ const COLUMNS: Array<{ id: TaskStatus; title: string; icon: typeof Circle; tone:
   { id: 'in_review', title: 'Review', icon: Clock3, tone: 'text-amber-400' },
   { id: 'done', title: 'Done', icon: CheckCircle2, tone: 'text-emerald-400' },
 ];
+
+const STATUS_LABELS = new Map(COLUMNS.map((column) => [column.id, column.title]));
 
 export function V2ProjectTasksPage() {
   const { id } = useParams<{ id: string }>();
@@ -167,7 +170,9 @@ export function V2ProjectTasksPage() {
     })),
   ], [conversations, workspaces]);
   const selectedLinks = selectedTask ? linksByTask.get(selectedTask.id) ?? [] : [];
-  const linkedTargetIds = new Set(selectedLinks.map((link) => `${link.targetType}:${link.targetId}`));
+  const linkedTargetIds = useMemo(() => (
+    new Set(selectedLinks.map((link) => `${link.targetType}:${link.targetId}`))
+  ), [selectedLinks]);
   const attachableTargets = availableTargets.filter((target) => !linkedTargetIds.has(`${target.type}:${target.id}`));
   const chosenTarget = attachableTargets.find((target) => `${target.type}:${target.id}` === linkTarget);
   const currentWorkspaceId = searchParams.get('workspace');
@@ -270,7 +275,7 @@ export function V2ProjectTasksPage() {
             <div className="min-w-0">
               <div className="truncate text-sm font-medium">Board</div>
               <div className="mt-0.5 truncate text-xs text-dim">
-                Drag cards between columns. Click a card to edit notes and related work.
+                {normalizedSearch ? `${filteredTasks.length} of ${safeTasks.length} matching` : `${activeCount} active, ${safeTasks.length} total`}
               </div>
             </div>
             <Button
@@ -486,6 +491,73 @@ type LinkTarget = {
   meta: string;
 };
 
+type SelectOption<T extends string> = {
+  value: T;
+  label: string;
+  meta?: string;
+  icon?: ReactNode;
+};
+
+function MenuSelect<T extends string>({
+  value,
+  options,
+  placeholder,
+  onChange,
+  className = '',
+}: {
+  value: T | '';
+  options: SelectOption<T>[];
+  placeholder: string;
+  onChange: (value: T) => void;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((option) => option.value === value);
+
+  return (
+    <div className={`relative ${className}`} onBlur={(event) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
+    }}>
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="flex h-[44px] w-full cursor-pointer items-center gap-2 rounded-md border border-[var(--color-card-border)] bg-primary px-3 text-left text-sm text-[var(--color-text-primary)] outline-none transition hover:bg-[var(--color-card-hover)] focus:border-[var(--color-accent)] md:h-8 md:px-2.5"
+      >
+        {selected?.icon && <span className="flex shrink-0 items-center text-dim">{selected.icon}</span>}
+        <span className={`min-w-0 flex-1 truncate ${selected ? '' : 'text-dim'}`}>
+          {selected?.label ?? placeholder}
+        </span>
+        {selected?.meta && <span className="hidden max-w-28 shrink-0 truncate text-xs text-dim sm:inline">{selected.meta}</span>}
+        <ChevronDown size={14} className={`shrink-0 text-dim transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-[90] max-h-64 overflow-auto rounded-lg border border-[var(--color-card-border)] bg-card p-1 shadow-[var(--shadow-card)]">
+          {options.length === 0 ? (
+            <div className="px-2 py-2 text-xs text-dim">Nothing available</div>
+          ) : options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+              className={`flex min-h-9 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-[var(--color-card-hover)] ${
+                option.value === value ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'
+              }`}
+            >
+              {option.icon && <span className="flex shrink-0 items-center text-dim">{option.icon}</span>}
+              <span className="min-w-0 flex-1 truncate">{option.label}</span>
+              {option.meta && <span className="max-w-32 shrink-0 truncate text-xs text-dim">{option.meta}</span>}
+              {option.value === value && <Check size={13} className="shrink-0 text-[var(--color-accent)]" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CreateTaskDialog({
   open,
   status,
@@ -511,17 +583,14 @@ function CreateTaskDialog({
   onDescriptionChange: (value: string) => void;
   onSubmit: () => void;
 }) {
-  const column = COLUMNS.find((item) => item.id === status) ?? COLUMNS[0];
-  const Icon = column.icon;
-
   return (
     <Modal
       open={open}
       onClose={onClose}
       title="New task"
-      size="lg"
+      size="xl"
       footer={(
-        <div className="flex items-center justify-end gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
           <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={onClose}>
             Cancel
           </Button>
@@ -532,34 +601,36 @@ function CreateTaskDialog({
       )}
     >
       <form
-        className="px-5 py-4"
+        className="px-4 py-4 sm:px-6"
         onSubmit={(event) => {
           event.preventDefault();
           onSubmit();
         }}
       >
         <div className="grid gap-4">
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_11rem]">
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_13rem]">
             <label className="block min-w-0">
               <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Title</span>
               <V2Input
                 autoFocus
                 value={title}
                 onChange={(event) => onTitleChange(event.target.value)}
-                placeholder="Describe the task"
+                placeholder="Task title"
                 className="w-full bg-primary"
               />
             </label>
             <label className="block">
               <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Status</span>
-              <div className="relative">
-                <V2Select value={status} onChange={(event) => onStatusChange(event.target.value as TaskStatus)} className="w-full pl-8">
-                  {COLUMNS.map((item) => (
-                    <option key={item.id} value={item.id}>{item.title}</option>
-                  ))}
-                </V2Select>
-                <Icon size={14} className={`pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 ${column.tone}`} />
-              </div>
+              <MenuSelect
+                value={status}
+                placeholder="Choose status"
+                options={COLUMNS.map((item) => ({
+                  value: item.id,
+                  label: item.title,
+                  icon: <item.icon size={14} className={item.tone} />,
+                }))}
+                onChange={onStatusChange}
+              />
             </label>
           </div>
 
@@ -569,7 +640,7 @@ function CreateTaskDialog({
               value={description}
               onChange={(event) => onDescriptionChange(event.target.value)}
               placeholder="Scope, decisions, or next step"
-              className="min-h-32 w-full resize-y bg-primary"
+              className="min-h-40 w-full resize-y bg-primary"
             />
           </label>
           {error && <div className="text-xs text-[var(--color-error)]">{error}</div>}
@@ -685,17 +756,15 @@ function TaskDialog({
   onQuickAttach: (target: LinkTarget) => void;
 }) {
   const changed = !!task && (editTitle.trim() !== task.title || editDescription.trim() !== (task.description ?? ''));
-  const column = task ? COLUMNS.find((item) => item.id === task.status) : null;
-  const Icon = column?.icon ?? Circle;
 
   return (
     <Modal
       open={!!task}
       onClose={onClose}
       title={task ? `CB-${task.id.slice(-4)}` : 'Task'}
-      size="lg"
+      size="xl"
       footer={(
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <button
             type="button"
             disabled={!task || pending}
@@ -717,23 +786,25 @@ function TaskDialog({
       )}
     >
       {task && (
-        <div className="max-h-[min(72vh,44rem)] overflow-auto px-5 py-4">
-          <div className="grid gap-4">
-            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_11rem]">
+        <div className="max-h-[calc(100dvh-7.5rem)] overflow-auto px-4 py-4 sm:max-h-[min(74vh,46rem)] sm:px-6">
+          <div className="grid gap-5">
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_13rem]">
               <label className="block min-w-0">
                 <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Title</span>
                 <V2Input value={editTitle} onChange={(event) => onEditTitle(event.target.value)} className="w-full bg-primary" />
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Status</span>
-                <div className="relative">
-                  <V2Select value={task.status} onChange={(event) => onStatusChange(event.target.value as TaskStatus)} className="w-full pl-8">
-                    {COLUMNS.map((item) => (
-                      <option key={item.id} value={item.id}>{item.title}</option>
-                    ))}
-                  </V2Select>
-                  <Icon size={14} className={`pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 ${column?.tone ?? 'text-dim'}`} />
-                </div>
+                <MenuSelect
+                  value={task.status}
+                  placeholder="Choose status"
+                  options={COLUMNS.map((item) => ({
+                    value: item.id,
+                    label: item.title,
+                    icon: <item.icon size={14} className={item.tone} />,
+                  }))}
+                  onChange={onStatusChange}
+                />
               </label>
             </div>
 
@@ -743,7 +814,7 @@ function TaskDialog({
                 value={editDescription}
                 onChange={(event) => onEditDescription(event.target.value)}
                 placeholder="Scope, decisions, or next step"
-                className="min-h-32 w-full resize-y bg-primary"
+                className="min-h-44 w-full resize-y bg-primary"
               />
             </label>
 
@@ -789,18 +860,32 @@ function TaskDialog({
                   </div>
                 </div>
               )}
-              <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <V2Select value={linkTarget} onChange={(event) => onLinkTargetChange(event.target.value)} className="w-full">
-                  <option value="">Attach workspace or conversation...</option>
-                  {attachableTargets.map((target) => (
-                    <option key={`${target.type}:${target.id}`} value={`${target.type}:${target.id}`}>
-                      {target.type === 'workspace' ? 'Workspace' : 'Conversation'} · {target.label}
-                    </option>
-                  ))}
-                </V2Select>
-                <Button type="button" size="sm" variant="secondary" icon={<Link2 size={14} />} disabled={!chosenTarget || pending} onClick={onCreateLink}>
+              <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                <MenuSelect
+                  value={linkTarget}
+                  placeholder="Attach workspace or conversation..."
+                  options={attachableTargets.map((target) => ({
+                    value: `${target.type}:${target.id}`,
+                    label: target.label,
+                    meta: target.type === 'workspace' ? 'Workspace' : 'Conversation',
+                    icon: target.type === 'workspace' ? <SquareStack size={14} /> : <MessageSquareText size={14} />,
+                  }))}
+                  onChange={onLinkTargetChange}
+                />
+                <Button type="button" size="sm" variant="secondary" icon={<Link2 size={14} />} disabled={!chosenTarget || pending} onClick={onCreateLink} className="h-[44px] md:h-8">
                   Attach
                 </Button>
+              </div>
+            </section>
+
+            <section className="border-t border-[var(--color-card-border)] pt-4">
+              <div className="mb-2 text-sm font-medium">Activity</div>
+              <div className="grid gap-1.5">
+                <ActivityRow label="Created" value={formatTaskDate(task.createdAt)} />
+                <ActivityRow label="Status" value={STATUS_LABELS.get(task.status) ?? task.status} />
+                {task.startedAt && <ActivityRow label="Started" value={formatTaskDate(task.startedAt)} />}
+                {task.completedAt && <ActivityRow label="Completed" value={formatTaskDate(task.completedAt)} />}
+                {links.length > 0 && <ActivityRow label="Related work" value={`${links.length} attached`} />}
               </div>
             </section>
           </div>
@@ -808,6 +893,26 @@ function TaskDialog({
       )}
     </Modal>
   );
+}
+
+function ActivityRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-3 rounded-md bg-primary px-2 py-1.5 text-xs">
+      <span className="text-dim">{label}</span>
+      <span className="truncate text-[var(--color-text-secondary)]">{value}</span>
+    </div>
+  );
+}
+
+function formatTaskDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
 }
 
 function RelationChip({ link, workspaces, conversations }: { link: TaskLink; workspaces: Workspace[]; conversations: Conversation[] }) {
