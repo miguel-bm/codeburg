@@ -1,11 +1,10 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import type { ReactNode } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, useDeferredValue } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Command } from 'cmdk';
-import { AnimatePresence, motion } from 'motion/react';
 import {
+  ArrowLeft,
   Bolt,
   Command as CommandIcon,
   FolderGit2,
@@ -21,11 +20,16 @@ import {
   SquareStack,
   Wrench,
 } from 'lucide-react';
-import type { Project, V2SidebarData, Workspace } from '../../api/types';
+import type { Conversation, Project, V2SidebarData, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 
 const COMMAND_PALETTE_OPEN_EVENT = 'codeburg:open-command-palette';
 const DEFAULT_WORKSPACE_LIMIT = 8;
+const SEARCH_WORKSPACE_LIMIT = 24;
+const SEARCH_PROJECT_LIMIT = 24;
+const PROJECT_ROUTE_LIMIT = 6;
+const CONVERSATION_RESULT_LIMIT = 20;
+const CONVERSATION_QUERY_MIN_LENGTH = 2;
 
 interface CommandPaletteProps {
   initialSearch?: string;
@@ -40,6 +44,24 @@ interface PaletteProject {
 interface PaletteWorkspace {
   workspace: Workspace;
   project: Project;
+}
+
+type PaletteMode = 'root' | 'conversation-search';
+
+interface PaletteRow {
+  id: string;
+  searchText: string;
+  icon: ReactNode;
+  title: ReactNode;
+  meta?: ReactNode;
+  badge?: string;
+  onSelect: () => void;
+}
+
+interface PaletteGroup {
+  id: string;
+  title: string;
+  rows: PaletteRow[];
 }
 
 function TypeBadge({ children }: { children: string }) {
@@ -70,43 +92,151 @@ function buildWorkspaceMeta(workspace: Workspace, project: Project) {
   return parts.join(' · ');
 }
 
+function buildConversationMeta(conversation: Conversation, project?: Project) {
+  const parts = [project?.name, formatStatus(conversation.status)];
+  return parts.filter(Boolean).join(' · ');
+}
+
 function createSearchValue(parts: Array<string | undefined | null>) {
   return parts.filter(Boolean).join(' ');
 }
 
-function keywordList(parts: Array<string | undefined | null>) {
-  return parts.filter((part): part is string => typeof part === 'string');
+function normalizeSearch(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function rowMatches(row: PaletteRow, normalizedSearch: string) {
+  return normalizedSearch.length === 0 || row.searchText.toLowerCase().includes(normalizedSearch);
+}
+
+function filterRows(rows: PaletteRow[], normalizedSearch: string, limit: number) {
+  const matches: PaletteRow[] = [];
+  for (const row of rows) {
+    if (!rowMatches(row, normalizedSearch)) continue;
+    matches.push(row);
+    if (matches.length >= limit) break;
+  }
+  return matches;
+}
+
+function PaletteItem({
+  row,
+  selected,
+  onMouseEnter,
+}: {
+  row: PaletteRow;
+  selected: boolean;
+  onMouseEnter: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="command-palette-item"
+      data-selected={selected}
+      onClick={row.onSelect}
+      onMouseEnter={onMouseEnter}
+    >
+      {row.icon}
+      <div className="min-w-0 flex-1 text-left">
+        <div className="truncate text-sm">{row.title}</div>
+        {row.meta && <CommandMeta>{row.meta}</CommandMeta>}
+      </div>
+      {row.badge && <TypeBadge>{row.badge}</TypeBadge>}
+    </button>
+  );
+}
+
+function PaletteGroupView({
+  group,
+  activeRowId,
+  onHoverRow,
+}: {
+  group: PaletteGroup;
+  activeRowId?: string;
+  onHoverRow: (rowId: string) => void;
+}) {
+  if (group.rows.length === 0) return null;
+  return (
+    <div className="command-palette-group">
+      <div className="command-palette-group-heading">{group.title}</div>
+      {group.rows.map((row) => (
+        <PaletteItem
+          key={row.id}
+          row={row}
+          selected={row.id === activeRowId}
+          onMouseEnter={() => onHoverRow(row.id)}
+        />
+      ))}
+    </div>
+  );
 }
 
 export function CommandPalette({ initialSearch = '', onClose }: CommandPaletteProps) {
   const [search, setSearch] = useState(initialSearch);
+  const [mode, setMode] = useState<PaletteMode>('root');
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [hydrateDynamicRows, setHydrateDynamicRows] = useState(false);
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
-  const normalizedSearch = search.trim().toLowerCase();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const normalizedSearch = normalizeSearch(search);
   const searchActive = normalizedSearch.length > 0;
+  const deferredSearch = useDeferredValue(search);
+  const deferredConversationSearch = normalizeSearch(mode === 'conversation-search' ? deferredSearch : '');
+  const conversationSearchReady = deferredConversationSearch.length >= CONVERSATION_QUERY_MIN_LENGTH;
 
-  const { data: sidebar, isLoading } = useQuery({
+  const { data: sidebar, isFetching: isFetchingSidebar } = useQuery({
     queryKey: ['v2-command-palette-summary'],
     queryFn: () => v2Api.getSidebar({ includeConversations: false, includeStates: false }),
+    enabled: hydrateDynamicRows,
     staleTime: 60_000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
   });
 
+  const { data: conversationResults, isFetching: isSearchingConversations } = useQuery({
+    queryKey: ['v2-command-palette-conversations', deferredConversationSearch],
+    queryFn: () => v2Api.listConversations({
+      q: deferredConversationSearch,
+      provider: 'pi',
+      limit: CONVERSATION_RESULT_LIMIT,
+    }),
+    enabled: mode === 'conversation-search' && conversationSearchReady,
+    staleTime: 15_000,
+    refetchOnWindowFocus: false,
+  });
+
   useEffect(() => {
     setSearch(initialSearch);
+    setMode('root');
+    setActiveIndex(0);
   }, [initialSearch]);
 
-  const { projects, workspaces } = useMemo(() => {
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, [mode]);
+
+  useEffect(() => {
+    const startHydration = () => setHydrateDynamicRows(true);
+    if (typeof window.requestAnimationFrame === 'function') {
+      const frame = window.requestAnimationFrame(startHydration);
+      return () => window.cancelAnimationFrame(frame);
+    }
+    const timeout = window.setTimeout(startHydration, 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  const { projects, workspaces, projectsById } = useMemo(() => {
     const projectEntries: PaletteProject[] = [];
     const workspaceEntries: PaletteWorkspace[] = [];
+    const projectMap = new Map<string, Project>();
 
     for (const entry of sidebar?.projects ?? []) {
       if (!entry?.project || entry.project.hidden) continue;
+      projectMap.set(entry.project.id, entry.project);
       projectEntries.push({ entry, project: entry.project });
 
       const projectWorkspaces = (entry.workspaces ?? []).filter((workspace) => workspace.status !== 'archived');
-
       for (const workspace of projectWorkspaces) {
         workspaceEntries.push({ workspace, project: entry.project });
       }
@@ -121,18 +251,23 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
     return {
       projects: projectEntries,
       workspaces: workspaceEntries,
+      projectsById: projectMap,
     };
   }, [sidebar]);
 
-  const defaultWorkspaceRows = searchActive ? workspaces : workspaces.slice(0, DEFAULT_WORKSPACE_LIMIT);
-  const conversationSearchHref = searchActive
-    ? `/conversations?q=${encodeURIComponent(search.trim())}`
-    : '/conversations';
-
-  const select = useCallback((fn: () => void) => {
+  const closeAfter = useCallback((fn: () => void) => {
     fn();
     onClose();
   }, [onClose]);
+
+  const navigateTo = useCallback((to: string) => {
+    closeAfter(() => navigate(to));
+  }, [closeAfter, navigate]);
+
+  const enterConversationSearch = useCallback(() => {
+    setMode('conversation-search');
+    setActiveIndex(0);
+  }, []);
 
   const handleBackdropClick = useCallback((event: React.MouseEvent) => {
     if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
@@ -140,288 +275,327 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
     }
   }, [onClose]);
 
+  const rootGroups = useMemo<PaletteGroup[]>(() => {
+    const goToRows: PaletteRow[] = [
+      {
+        id: 'route-projects',
+        searchText: 'home projects repositories repos',
+        icon: <Home className="h-4 w-4 shrink-0 text-accent" />,
+        title: 'Projects',
+        meta: 'V2 home',
+        badge: 'route',
+        onSelect: () => navigateTo('/'),
+      },
+      {
+        id: 'mode-search-conversations',
+        searchText: createSearchValue(['search conversations chats threads summaries content pi inbox', search]),
+        icon: <Search className="h-4 w-4 shrink-0 text-accent" />,
+        title: searchActive ? `Search conversations for "${search.trim()}"` : 'Search conversations',
+        meta: 'Search titles and summaries in this palette',
+        badge: 'mode',
+        onSelect: enterConversationSearch,
+      },
+      {
+        id: 'route-conversations',
+        searchText: 'all conversations chats threads inbox pi',
+        icon: <MessagesSquare className="h-4 w-4 shrink-0 text-accent" />,
+        title: 'All conversations',
+        meta: 'Chat inbox',
+        badge: 'route',
+        onSelect: () => navigateTo('/conversations'),
+      },
+      {
+        id: 'route-skills',
+        searchText: 'skills library global',
+        icon: <Hammer className="h-4 w-4 shrink-0 text-dim" />,
+        title: 'Skills library',
+        meta: 'Global skills',
+        badge: 'route',
+        onSelect: () => navigateTo('/skills'),
+      },
+      {
+        id: 'route-discover-skills',
+        searchText: 'discover skills catalog install',
+        icon: <Sparkles className="h-4 w-4 shrink-0 text-dim" />,
+        title: 'Discover skills',
+        meta: 'Catalog and local installs',
+        badge: 'route',
+        onSelect: () => navigateTo('/skills/discover'),
+      },
+      {
+        id: 'route-harness',
+        searchText: 'harness runtime pi codex claude tools auth',
+        icon: <PlugZap className="h-4 w-4 shrink-0 text-dim" />,
+        title: 'Harness',
+        meta: 'Runtime and auth tools',
+        badge: 'route',
+        onSelect: () => navigateTo('/harness'),
+      },
+      {
+        id: 'route-settings',
+        searchText: 'settings preferences general',
+        icon: <Settings className="h-4 w-4 shrink-0 text-dim" />,
+        title: 'Settings',
+        meta: 'General preferences',
+        badge: 'route',
+        onSelect: () => navigateTo('/settings'),
+      },
+    ];
+
+    const projectRows = filterRows(
+      projects.map(({ entry, project }) => ({
+        id: `project-${project.id}`,
+        searchText: createSearchValue(['project repo repository', project.name, project.path, project.gitOrigin, project.defaultBranch, entry.pinned ? 'pinned' : null]),
+        icon: <FolderGit2 className="h-4 w-4 shrink-0 text-accent" />,
+        title: project.name,
+        meta: project.path,
+        badge: entry.pinned ? 'pinned' : undefined,
+        onSelect: () => navigateTo(`/projects/${project.id}`),
+      })),
+      normalizedSearch,
+      SEARCH_PROJECT_LIMIT,
+    );
+
+    const workspaceLimit = searchActive ? SEARCH_WORKSPACE_LIMIT : DEFAULT_WORKSPACE_LIMIT;
+    const workspaceRows = filterRows(
+      workspaces.map(({ workspace, project }) => ({
+        id: `workspace-${workspace.id}`,
+        searchText: createSearchValue(['workspace worktree branch', workspace.name, workspace.branchName, workspace.worktreePath, project.name, project.path, workspace.kind, workspace.status]),
+        icon: workspace.kind === 'worktree'
+          ? <GitBranch className="h-4 w-4 shrink-0 text-dim" />
+          : <SquareStack className="h-4 w-4 shrink-0 text-dim" />,
+        title: workspace.name,
+        meta: buildWorkspaceMeta(workspace, project),
+        badge: workspace.kind === 'main' ? 'main' : 'worktree',
+        onSelect: () => navigateTo(`/projects/${project.id}?workspace=${workspace.id}`),
+      })),
+      normalizedSearch,
+      workspaceLimit,
+    );
+
+    const projectRouteRows = searchActive
+      ? filterRows(
+        projects.flatMap(({ project }) => [
+          {
+            id: `project-conversations-${project.id}`,
+            searchText: createSearchValue([project.name, 'project conversations chats threads']),
+            icon: <MessagesSquare className="h-4 w-4 shrink-0 text-dim" />,
+            title: `${project.name} conversations`,
+            meta: 'Project-scoped chat inbox',
+            onSelect: () => navigateTo(`/projects/${project.id}/conversations`),
+          },
+          {
+            id: `project-skills-${project.id}`,
+            searchText: createSearchValue([project.name, 'project skills tools']),
+            icon: <Hammer className="h-4 w-4 shrink-0 text-dim" />,
+            title: `${project.name} skills`,
+            meta: 'Project skill set',
+            onSelect: () => navigateTo(`/projects/${project.id}/skills`),
+          },
+          {
+            id: `project-pi-${project.id}`,
+            searchText: createSearchValue([project.name, 'project pi model packages extensions']),
+            icon: <Wrench className="h-4 w-4 shrink-0 text-dim" />,
+            title: `${project.name} Pi`,
+            meta: 'Project Pi configuration',
+            onSelect: () => navigateTo(`/projects/${project.id}/pi`),
+          },
+          {
+            id: `project-actions-${project.id}`,
+            searchText: createSearchValue([project.name, 'project quick actions commands']),
+            icon: <Bolt className="h-4 w-4 shrink-0 text-dim" />,
+            title: `${project.name} quick actions`,
+            meta: 'Workspace action presets',
+            onSelect: () => navigateTo(`/projects/${project.id}/actions`),
+          },
+          {
+            id: `project-settings-${project.id}`,
+            searchText: createSearchValue([project.name, 'project settings preferences secrets scripts']),
+            icon: <Settings className="h-4 w-4 shrink-0 text-dim" />,
+            title: `${project.name} settings`,
+            meta: 'Project preferences',
+            onSelect: () => navigateTo(`/projects/${project.id}/settings`),
+          },
+          {
+            id: `project-new-workspace-${project.id}`,
+            searchText: createSearchValue([project.name, 'new workspace worktree branch']),
+            icon: <GitBranch className="h-4 w-4 shrink-0 text-dim" />,
+            title: `New workspace in ${project.name}`,
+            meta: 'Create a worktree',
+            onSelect: () => navigateTo(`/projects/${project.id}?newWorkspace=1`),
+          },
+        ]),
+        normalizedSearch,
+        PROJECT_ROUTE_LIMIT,
+      )
+      : [];
+
+    return [
+      { id: 'go-to', title: 'Go to', rows: filterRows(goToRows, normalizedSearch, goToRows.length) },
+      { id: 'projects', title: 'Projects', rows: projectRows },
+      { id: 'workspaces', title: searchActive ? 'Workspaces' : 'Recent workspaces', rows: workspaceRows },
+      { id: 'project-routes', title: 'Project routes', rows: projectRouteRows },
+    ].filter((group) => group.rows.length > 0);
+  }, [enterConversationSearch, navigateTo, normalizedSearch, projects, search, searchActive, workspaces]);
+
+  const conversationGroups = useMemo<PaletteGroup[]>(() => {
+    if (!conversationSearchReady) return [];
+    const rows = (conversationResults ?? [])
+      .filter((conversation) => conversation.status !== 'archived')
+      .slice(0, CONVERSATION_RESULT_LIMIT)
+      .map((conversation) => {
+        const project = projectsById.get(conversation.projectId);
+        return {
+          id: `conversation-${conversation.id}`,
+          searchText: createSearchValue([conversation.title, conversation.summary, project?.name, conversation.status, conversation.provider]),
+          icon: <MessagesSquare className="h-4 w-4 shrink-0 text-accent" />,
+          title: conversation.title,
+          meta: buildConversationMeta(conversation, project),
+          badge: conversation.unreadAt ? 'unread' : undefined,
+          onSelect: () => navigateTo(`/conversations/${conversation.id}`),
+        };
+      });
+    return [{ id: 'conversations', title: 'Conversations', rows }];
+  }, [conversationResults, conversationSearchReady, navigateTo, projectsById]);
+
+  const groups = mode === 'conversation-search' ? conversationGroups : rootGroups;
+  const visibleRows = useMemo(() => groups.flatMap((group) => group.rows), [groups]);
+  const activeRow = visibleRows[activeIndex];
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [mode, normalizedSearch]);
+
+  useEffect(() => {
+    setActiveIndex((current) => {
+      if (visibleRows.length === 0) return 0;
+      return Math.min(current, visibleRows.length - 1);
+    });
+  }, [visibleRows.length]);
+
+  const goBackOrClose = useCallback(() => {
+    if (mode === 'conversation-search') {
+      setMode('root');
+      setActiveIndex(0);
+      return;
+    }
+    onClose();
+  }, [mode, onClose]);
+
+  const handleKeyDown = useCallback((event: ReactKeyboardEvent) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      goBackOrClose();
+      return;
+    }
+    if (mode === 'conversation-search' && event.key === 'Backspace' && search.length === 0) {
+      event.preventDefault();
+      setMode('root');
+      setActiveIndex(0);
+      return;
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveIndex((current) => visibleRows.length === 0 ? 0 : (current + 1) % visibleRows.length);
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveIndex((current) => visibleRows.length === 0 ? 0 : (current - 1 + visibleRows.length) % visibleRows.length);
+      return;
+    }
+    if (event.key === 'Enter') {
+      if (!activeRow) return;
+      event.preventDefault();
+      activeRow.onSelect();
+    }
+  }, [activeRow, goBackOrClose, mode, search.length, visibleRows.length]);
+
+  const handleHoverRow = useCallback((rowId: string) => {
+    const nextIndex = visibleRows.findIndex((row) => row.id === rowId);
+    if (nextIndex >= 0) setActiveIndex(nextIndex);
+  }, [visibleRows]);
+
+  const emptyState = mode === 'conversation-search'
+    ? conversationSearchReady
+      ? isSearchingConversations
+        ? 'Searching conversations...'
+        : 'No conversations matched.'
+      : `Type at least ${CONVERSATION_QUERY_MIN_LENGTH} characters to search conversations.`
+    : isFetchingSidebar && visibleRows.length === 0
+      ? 'Loading projects and workspaces...'
+      : 'No routes, projects, or workspaces matched.';
+
   return createPortal(
-    <AnimatePresence>
-      <div className="fixed inset-0 z-[200] flex items-start justify-center px-3 pt-[12vh]" onClick={handleBackdropClick}>
-        <motion.div
-          className="absolute inset-0 bg-[var(--color-bg-primary)]/55 backdrop-blur-sm"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-        />
+    <div
+      className="fixed inset-0 z-[200] flex items-start justify-center px-3 pt-[12vh]"
+      onClick={handleBackdropClick}
+      onKeyDown={handleKeyDown}
+    >
+      <div className="absolute inset-0 bg-[var(--color-bg-primary)]/55 backdrop-blur-sm" />
 
-        <motion.div
-          ref={containerRef}
-          className="relative w-full max-w-2xl"
-          initial={{ opacity: 0, y: -8, scale: 0.985 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: -6, scale: 0.985 }}
-          transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-        >
-          <Command
-            loop
-            className="overflow-hidden rounded-2xl bg-[var(--color-card)] shadow-[0_24px_80px_rgba(15,23,42,0.20)] ring-1 ring-[var(--color-card-border)]"
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                event.preventDefault();
-                onClose();
-              }
-            }}
-          >
-            <div className="flex items-center gap-2 px-4 py-3">
-              <Search className="h-4 w-4 shrink-0 text-dim" />
-              <Command.Input
-                value={search}
-                onValueChange={setSearch}
-                placeholder="Search projects, workspaces, conversations, routes"
-                className="min-w-0 flex-1 bg-transparent text-[15px] text-[var(--color-text-primary)] outline-none placeholder:text-dim"
-                autoFocus
+      <div
+        ref={containerRef}
+        className="relative w-full max-w-2xl overflow-hidden rounded-2xl bg-[var(--color-card)] shadow-[0_24px_80px_rgba(15,23,42,0.20)] ring-1 ring-[var(--color-card-border)]"
+      >
+        <div className="flex items-center gap-2 px-4 py-3">
+          {mode === 'conversation-search' ? (
+            <button
+              type="button"
+              aria-label="Back to commands"
+              className="rounded-md p-1 text-dim transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+              onClick={() => {
+                setMode('root');
+                setActiveIndex(0);
+              }}
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+          ) : (
+            <Search className="h-4 w-4 shrink-0 text-dim" />
+          )}
+          <input
+            ref={inputRef}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={mode === 'conversation-search' ? 'Search conversation titles and summaries' : 'Search projects, workspaces, routes'}
+            className="command-palette-input min-w-0 flex-1 bg-transparent text-[15px] text-[var(--color-text-primary)] outline-none placeholder:text-dim"
+            autoFocus
+          />
+          {mode === 'conversation-search' && isSearchingConversations ? (
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin text-dim" />
+          ) : isFetchingSidebar ? (
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin text-dim" />
+          ) : (
+            <kbd className="rounded-md bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[10px] font-medium text-dim">esc</kbd>
+          )}
+        </div>
+
+        <div className="command-palette-list max-h-[58vh] overflow-y-auto px-2 pb-2">
+          {visibleRows.length === 0 ? (
+            <div className="px-4 py-9 text-center text-sm text-dim">{emptyState}</div>
+          ) : (
+            groups.map((group) => (
+              <PaletteGroupView
+                key={group.id}
+                group={group}
+                activeRowId={activeRow?.id}
+                onHoverRow={handleHoverRow}
               />
-              {isLoading ? (
-                <LoaderCircle className="h-3.5 w-3.5 animate-spin text-dim" />
-              ) : (
-                <kbd className="rounded-md bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[10px] font-medium text-dim">esc</kbd>
-              )}
-            </div>
+            ))
+          )}
+        </div>
 
-            <Command.List className="cmdk-list max-h-[58vh] overflow-y-auto px-2 pb-2">
-              <Command.Empty className="px-4 py-9 text-center text-sm text-dim">
-                No V2 routes, projects, workspaces, or conversations matched.
-              </Command.Empty>
-
-              <Command.Group heading="Go to" className="cmdk-group">
-                <Command.Item
-                  value="home projects repositories repos"
-                  onSelect={() => select(() => navigate('/'))}
-                  className="cmdk-item"
-                >
-                  <Home className="h-4 w-4 shrink-0 text-accent" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm">Projects</div>
-                    <CommandMeta>V2 home</CommandMeta>
-                  </div>
-                  <TypeBadge>route</TypeBadge>
-                </Command.Item>
-                <Command.Item
-                  value="all conversations chats threads inbox pi"
-                  keywords={['chat', 'pi', 'threads', 'inbox']}
-                  onSelect={() => select(() => navigate('/conversations'))}
-                  className="cmdk-item"
-                >
-                  <MessagesSquare className="h-4 w-4 shrink-0 text-accent" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm">All conversations</div>
-                    <CommandMeta>Chat inbox</CommandMeta>
-                  </div>
-                  <TypeBadge>route</TypeBadge>
-                </Command.Item>
-                <Command.Item
-                  value={createSearchValue(['search conversations chats threads summaries content', search])}
-                  keywords={keywordList(['conversation search', searchActive ? search : null, 'pi', 'inbox'])}
-                  onSelect={() => select(() => navigate(conversationSearchHref))}
-                  className="cmdk-item"
-                >
-                  <Search className="h-4 w-4 shrink-0 text-accent" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm">
-                      {searchActive ? `Search conversations for "${search.trim()}"` : 'Search conversations'}
-                    </div>
-                    <CommandMeta>Open the conversation inbox search</CommandMeta>
-                  </div>
-                  <TypeBadge>search</TypeBadge>
-                </Command.Item>
-                <Command.Item
-                  value="skills library global"
-                  onSelect={() => select(() => navigate('/skills'))}
-                  className="cmdk-item"
-                >
-                  <Hammer className="h-4 w-4 shrink-0 text-dim" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm">Skills library</div>
-                    <CommandMeta>Global skills</CommandMeta>
-                  </div>
-                  <TypeBadge>route</TypeBadge>
-                </Command.Item>
-                <Command.Item
-                  value="discover skills catalog install"
-                  onSelect={() => select(() => navigate('/skills/discover'))}
-                  className="cmdk-item"
-                >
-                  <Sparkles className="h-4 w-4 shrink-0 text-dim" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm">Discover skills</div>
-                    <CommandMeta>Catalog and local installs</CommandMeta>
-                  </div>
-                  <TypeBadge>route</TypeBadge>
-                </Command.Item>
-                <Command.Item
-                  value="harness runtime pi codex claude tools auth"
-                  onSelect={() => select(() => navigate('/harness'))}
-                  className="cmdk-item"
-                >
-                  <PlugZap className="h-4 w-4 shrink-0 text-dim" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm">Harness</div>
-                    <CommandMeta>Runtime and auth tools</CommandMeta>
-                  </div>
-                  <TypeBadge>route</TypeBadge>
-                </Command.Item>
-                <Command.Item
-                  value="settings preferences general"
-                  onSelect={() => select(() => navigate('/settings'))}
-                  className="cmdk-item"
-                >
-                  <Settings className="h-4 w-4 shrink-0 text-dim" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm">Settings</div>
-                    <CommandMeta>General preferences</CommandMeta>
-                  </div>
-                  <TypeBadge>route</TypeBadge>
-                </Command.Item>
-              </Command.Group>
-
-              {projects.length > 0 && (
-                <Command.Group heading="Projects" className="cmdk-group">
-                  {projects.map(({ entry, project }) => (
-                    <Command.Item
-                      key={`project-${project.id}`}
-                      value={createSearchValue(['project repo repository', project.name, project.path, project.gitOrigin, project.defaultBranch])}
-                      keywords={keywordList([project.path, project.gitOrigin, project.defaultBranch, entry.pinned ? 'pinned' : null])}
-                      onSelect={() => select(() => navigate(`/projects/${project.id}`))}
-                      className="cmdk-item"
-                    >
-                      <FolderGit2 className="h-4 w-4 shrink-0 text-accent" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm">{project.name}</div>
-                        <CommandMeta>{project.path}</CommandMeta>
-                      </div>
-                      {entry.pinned && <TypeBadge>pinned</TypeBadge>}
-                    </Command.Item>
-                  ))}
-                </Command.Group>
-              )}
-
-              {defaultWorkspaceRows.length > 0 && (
-                <Command.Group heading={searchActive ? 'Workspaces' : 'Recent workspaces'} className="cmdk-group">
-                  {defaultWorkspaceRows.map(({ workspace, project }) => (
-                    <Command.Item
-                      key={`workspace-${workspace.id}`}
-                      value={createSearchValue(['workspace worktree branch', workspace.name, workspace.branchName, workspace.worktreePath, project.name, project.path])}
-                      keywords={keywordList([project.name, project.path, workspace.branchName, workspace.worktreePath, workspace.kind, workspace.status])}
-                      onSelect={() => select(() => navigate(`/projects/${project.id}?workspace=${workspace.id}`))}
-                      className="cmdk-item"
-                    >
-                      {workspace.kind === 'worktree'
-                        ? <GitBranch className="h-4 w-4 shrink-0 text-dim" />
-                        : <SquareStack className="h-4 w-4 shrink-0 text-dim" />}
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm">{workspace.name}</div>
-                        <CommandMeta>{buildWorkspaceMeta(workspace, project)}</CommandMeta>
-                      </div>
-                      <TypeBadge>{workspace.kind === 'main' ? 'main' : 'worktree'}</TypeBadge>
-                    </Command.Item>
-                  ))}
-                </Command.Group>
-              )}
-
-              {searchActive && projects.length > 0 && (
-                <Command.Group heading="Project routes" className="cmdk-group">
-                  {projects.flatMap(({ project }) => [
-                    <Command.Item
-                      key={`project-conversations-${project.id}`}
-                      value={createSearchValue([project.name, 'project conversations chats threads'])}
-                      keywords={[project.name, 'conversations', 'chats', 'threads']}
-                      onSelect={() => select(() => navigate(`/projects/${project.id}/conversations`))}
-                      className="cmdk-item"
-                    >
-                      <MessagesSquare className="h-4 w-4 shrink-0 text-dim" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm">{project.name} conversations</div>
-                        <CommandMeta>Project-scoped chat inbox</CommandMeta>
-                      </div>
-                    </Command.Item>,
-                    <Command.Item
-                      key={`project-skills-${project.id}`}
-                      value={createSearchValue([project.name, 'project skills tools'])}
-                      keywords={[project.name, 'skills']}
-                      onSelect={() => select(() => navigate(`/projects/${project.id}/skills`))}
-                      className="cmdk-item"
-                    >
-                      <Hammer className="h-4 w-4 shrink-0 text-dim" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm">{project.name} skills</div>
-                        <CommandMeta>Project skill set</CommandMeta>
-                      </div>
-                    </Command.Item>,
-                    <Command.Item
-                      key={`project-pi-${project.id}`}
-                      value={createSearchValue([project.name, 'project pi model packages extensions'])}
-                      keywords={[project.name, 'pi', 'models', 'packages', 'extensions']}
-                      onSelect={() => select(() => navigate(`/projects/${project.id}/pi`))}
-                      className="cmdk-item"
-                    >
-                      <Wrench className="h-4 w-4 shrink-0 text-dim" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm">{project.name} Pi</div>
-                        <CommandMeta>Project Pi configuration</CommandMeta>
-                      </div>
-                    </Command.Item>,
-                    <Command.Item
-                      key={`project-actions-${project.id}`}
-                      value={createSearchValue([project.name, 'project quick actions commands'])}
-                      keywords={[project.name, 'quick actions', 'commands']}
-                      onSelect={() => select(() => navigate(`/projects/${project.id}/actions`))}
-                      className="cmdk-item"
-                    >
-                      <Bolt className="h-4 w-4 shrink-0 text-dim" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm">{project.name} quick actions</div>
-                        <CommandMeta>Workspace action presets</CommandMeta>
-                      </div>
-                    </Command.Item>,
-                    <Command.Item
-                      key={`project-settings-${project.id}`}
-                      value={createSearchValue([project.name, 'project settings preferences secrets scripts'])}
-                      keywords={[project.name, 'settings', 'preferences', 'secrets', 'scripts']}
-                      onSelect={() => select(() => navigate(`/projects/${project.id}/settings`))}
-                      className="cmdk-item"
-                    >
-                      <Settings className="h-4 w-4 shrink-0 text-dim" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm">{project.name} settings</div>
-                        <CommandMeta>Project preferences</CommandMeta>
-                      </div>
-                    </Command.Item>,
-                    <Command.Item
-                      key={`project-new-workspace-${project.id}`}
-                      value={createSearchValue([project.name, 'new workspace worktree branch'])}
-                      keywords={[project.name, 'new workspace', 'worktree', 'branch']}
-                      onSelect={() => select(() => navigate(`/projects/${project.id}?newWorkspace=1`))}
-                      className="cmdk-item"
-                    >
-                      <GitBranch className="h-4 w-4 shrink-0 text-dim" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm">New workspace in {project.name}</div>
-                        <CommandMeta>Create a worktree</CommandMeta>
-                      </div>
-                    </Command.Item>,
-                  ])}
-                </Command.Group>
-              )}
-            </Command.List>
-
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 text-[10px] text-dim">
-              <span><kbd className="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5">↑↓</kbd> move</span>
-              <span><kbd className="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5">↵</kbd> open</span>
-              <span className="ml-auto hidden items-center gap-1 sm:inline-flex">
-                <CommandIcon size={11} /> K
-              </span>
-            </div>
-          </Command>
-        </motion.div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 text-[10px] text-dim">
+          <span><kbd className="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5">↑↓</kbd> move</span>
+          <span><kbd className="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5">↵</kbd> open</span>
+          <span><kbd className="rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5">esc</kbd> {mode === 'conversation-search' ? 'back' : 'close'}</span>
+          <span className="ml-auto hidden items-center gap-1 sm:inline-flex">
+            <CommandIcon size={11} /> K
+          </span>
+        </div>
       </div>
-    </AnimatePresence>,
+    </div>,
     document.body,
   );
 }

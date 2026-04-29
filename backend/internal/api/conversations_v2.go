@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -80,11 +81,16 @@ func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
+	limit, ok := parseConversationListLimit(w, r)
+	if !ok {
+		return
+	}
 	conversations, err := s.db.ListConversationsWithOptions(db.ListConversationOptions{
 		ProjectID: projectID,
 		Query:     strings.TrimSpace(r.URL.Query().Get("q")),
 		Status:    status,
 		Provider:  strings.TrimSpace(r.URL.Query().Get("provider")),
+		Limit:     limit,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list conversations")
@@ -110,17 +116,35 @@ func (s *Server) handleListProjectConversations(w http.ResponseWriter, r *http.R
 			return
 		}
 	}
+	limit, ok := parseConversationListLimit(w, r)
+	if !ok {
+		return
+	}
 	conversations, err := s.db.ListConversationsWithOptions(db.ListConversationOptions{
 		ProjectID: &projectID,
 		Query:     strings.TrimSpace(r.URL.Query().Get("q")),
 		Status:    status,
 		Provider:  strings.TrimSpace(r.URL.Query().Get("provider")),
+		Limit:     limit,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list conversations")
 		return
 	}
 	writeJSON(w, http.StatusOK, conversations)
+}
+
+func parseConversationListLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get("limit"))
+	if raw == "" {
+		return 0, true
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit < 1 || limit > 100 {
+		writeError(w, http.StatusBadRequest, "invalid conversation limit")
+		return 0, false
+	}
+	return limit, true
 }
 
 func (s *Server) handleForkConversation(w http.ResponseWriter, r *http.Request) {

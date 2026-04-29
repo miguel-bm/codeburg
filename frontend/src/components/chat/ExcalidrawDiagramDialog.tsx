@@ -7,6 +7,7 @@ import type { ImportedDataState } from '@excalidraw/excalidraw/data/types';
 import type { FileId } from '@excalidraw/excalidraw/element/types';
 import type { PiConversationImageAttachment } from '../../api/types';
 import { useResolvedTheme } from '../../hooks/useResolvedTheme';
+import { isDesktopShell } from '../../platform/runtimeConfig';
 import '@excalidraw/excalidraw/index.css';
 
 const EXPORT_BACKGROUND = '#f8fafc';
@@ -49,6 +50,11 @@ export function ExcalidrawDiagramDialog({
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isAnnotating = Boolean(annotationSeed);
+  const desktopShell = isDesktopShell();
+  const headerClassName = [
+    'flex h-12 shrink-0 items-center justify-between border-b border-subtle bg-card shadow-card',
+    desktopShell ? 'desktop-drag-region pl-[72px] pr-3' : 'px-3',
+  ].join(' ');
 
   const initialData = useMemo(() => async (): Promise<ImportedDataState> => {
     const base = createBaseInitialData();
@@ -127,7 +133,7 @@ export function ExcalidrawDiagramDialog({
 
   return createPortal(
     <div className="fixed inset-0 z-[80] flex flex-col bg-primary text-[var(--color-text-primary)]" role="dialog" aria-modal="true" aria-label={isAnnotating ? 'Annotate image' : 'Sketch diagram'}>
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-subtle bg-card px-3 shadow-card">
+      <header className={headerClassName}>
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold">{isAnnotating ? 'Annotate image' : 'Sketch diagram'}</div>
           <div className="hidden text-[11px] text-dim sm:block">
@@ -165,8 +171,8 @@ export function ExcalidrawDiagramDialog({
           <span>{error}</span>
         </div>
       )}
-      <div className="min-h-0 flex-1 bg-[var(--color-canvas)] p-2 sm:p-3">
-        <div className="h-full overflow-hidden rounded-xl border border-subtle bg-card shadow-card">
+      <div className="min-h-0 flex-1" style={{ backgroundColor: EXPORT_BACKGROUND }}>
+        <div className="h-full overflow-hidden" style={{ backgroundColor: EXPORT_BACKGROUND }}>
           <Excalidraw
             excalidrawAPI={(api) => { apiRef.current = api; }}
             initialData={initialData}

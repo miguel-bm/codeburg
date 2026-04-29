@@ -486,12 +486,12 @@ button:disabled,
   }
 }
 
-/* cmdk command palette styles */
-.cmdk-list {
+/* Command palette styles */
+.command-palette-list {
   transition: height 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.cmdk-group [cmdk-group-heading] {
+.command-palette-group-heading {
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
@@ -501,26 +501,36 @@ button:disabled,
   user-select: none;
 }
 
-.cmdk-item {
+.command-palette-item {
   display: flex;
+  width: 100%;
   align-items: center;
   gap: 10px;
   min-height: 46px;
   padding: 8px 10px;
+  border: 0;
   border-radius: 10px;
+  background: transparent;
   cursor: pointer;
+  font: inherit;
   color: var(--color-text-secondary);
   transition:
     background-color 140ms cubic-bezier(0.16, 1, 0.3, 1),
     color 140ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.cmdk-item[data-selected=true] {
+.command-palette-item[data-selected=true],
+.command-palette-item:focus-visible {
   background-color: color-mix(in srgb, var(--color-accent) 9%, var(--color-bg-tertiary));
   color: var(--color-text-primary);
+  outline: none;
 }
 
-[cmdk-input] {
+.command-palette-item:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 26%, transparent);
+}
+
+.command-palette-input {
   caret-color: var(--color-accent);
 }
 

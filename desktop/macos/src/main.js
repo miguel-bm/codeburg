@@ -202,7 +202,10 @@ function resolveRuntimeConfig() {
 
   if (isDevMode && !hasConfiguredConnectionTarget()) {
     // Let Vite dev server proxy /api and /ws in local development.
-    return {};
+    return {
+      platform: 'desktop-macos-electron',
+      titleBarInsetTop: 32,
+    };
   }
 
   return {

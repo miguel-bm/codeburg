@@ -116,6 +116,7 @@ export interface ListConversationsInput {
   q?: string;
   status?: 'active' | 'paused' | 'completed' | 'archived';
   provider?: string;
+  limit?: number;
 }
 
 export interface ForkConversationInput {
@@ -152,6 +153,7 @@ export const v2Api = {
     if (params?.q) search.set('q', params.q);
     if (params?.status) search.set('status', params.status);
     if (params?.provider) search.set('provider', params.provider);
+    if (params?.limit) search.set('limit', String(params.limit));
     const query = search.toString();
     return api.get<Conversation[]>(`/conversations${query ? `?${query}` : ''}`);
   },
@@ -212,6 +214,7 @@ export const v2Api = {
     if (input?.q) search.set('q', input.q);
     if (input?.status) search.set('status', input.status);
     if (input?.provider) search.set('provider', input.provider);
+    if (input?.limit) search.set('limit', String(input.limit));
     const query = search.toString();
     return api.get<Conversation[]>(`/projects/${projectId}/conversations${query ? `?${query}` : ''}`);
   },

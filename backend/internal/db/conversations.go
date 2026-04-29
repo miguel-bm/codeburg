@@ -69,6 +69,7 @@ type ListConversationOptions struct {
 	Query     string
 	Status    *ConversationStatus
 	Provider  string
+	Limit     int
 }
 
 func (db *DB) CreateConversation(input CreateConversationInput) (*Conversation, error) {
@@ -160,6 +161,10 @@ func (db *DB) ListConversationsWithOptions(opts ListConversationOptions) ([]*Con
 		query += ` WHERE ` + strings.Join(clauses, " AND ")
 	}
 	query += ` ORDER BY last_activity_at DESC, created_at DESC`
+	if opts.Limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, opts.Limit)
+	}
 
 	rows, err := db.conn.Query(query, args...)
 	if err != nil {
