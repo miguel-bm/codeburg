@@ -39,7 +39,7 @@ import {
   X,
 } from 'lucide-react';
 import { projectsApi } from '../../api';
-import type { Conversation, PiAvailableModel, PiConversationForkPosition, PiConversationImageAttachment, PiConversationMessage, PiConversationMessageVersionInfo, PiConversationSessionStats, PiConversationSnapshot, PiThinkingLevel, PiToolExecution, TerminalSession, V2SidebarData, Workspace } from '../../api/types';
+import type { Conversation, PiAvailableModel, PiConversationForkPosition, PiConversationImageAttachment, PiConversationMessage, PiConversationMessageVersionInfo, PiConversationSessionStats, PiConversationSnapshot, PiSlashCommand, PiThinkingLevel, PiToolExecution, TerminalSession, V2SidebarData, Workspace } from '../../api/types';
 import { v2Api, type V2FileEntry } from '../../api/v2';
 import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
 import { Modal } from '../../components/ui/Modal';
@@ -116,6 +116,7 @@ export function V2ConversationDetailPage() {
   const tabs = useWorkspaceStore((state) => state.tabs);
   const activeTabIndex = useWorkspaceStore((state) => state.activeTabIndex);
   const closeTab = useWorkspaceStore((state) => state.closeTab);
+  const openFile = useWorkspaceStore((state) => state.openFile);
   const isMobile = useMobile();
 
   const [draft, setDraft] = useState('');
@@ -182,6 +183,11 @@ export function V2ConversationDetailPage() {
     setDraft((current) => appendWorkspaceReference(current, path));
     setMainSurface('conversation');
   }, []);
+  const openWorkspaceFileReference = useCallback((path: string, line?: number) => {
+    if (!project || !activeWorkspace) return;
+    openFile(path, line, { ephemeral: false });
+    setMainSurface({ type: 'workspaceTab', index: useWorkspaceStore.getState().activeTabIndex });
+  }, [activeWorkspace, openFile, project]);
   const conversationDraftTarget = useMemo(
     () => ({
       enabled: isActiveConversation && mainSurface === 'conversation',
@@ -718,6 +724,7 @@ export function V2ConversationDetailPage() {
                 onArchiveConversation={() => transitionConversation.mutate('archive')}
                 abort={abort}
                 submit={(streamingBehavior) => void handleSubmit(streamingBehavior)}
+                onOpenWorkspaceFile={openWorkspaceFileReference}
                 onOpenPiSettings={() => {
                   if (conversation?.projectId) navigate(`/projects/${conversation.projectId}/settings`);
                 }}
@@ -811,6 +818,7 @@ function ConversationSurface({
   onArchiveConversation,
   abort,
   submit,
+  onOpenWorkspaceFile,
   onOpenPiSettings,
   onApplySnapshot,
 }: {
@@ -840,6 +848,7 @@ function ConversationSurface({
   onArchiveConversation: () => void;
   abort: () => Promise<void>;
   submit: (streamingBehavior?: 'steer' | 'followUp') => void;
+  onOpenWorkspaceFile?: (path: string, line?: number) => void;
   onOpenPiSettings: () => void;
   onApplySnapshot: (snapshot: PiConversationSnapshot) => void;
 }) {
@@ -1033,17 +1042,23 @@ function ConversationSurface({
         }];
       }
       const matches: ComposerSuggestion[] = slashCommands
-        .filter((command) => query === '' || command.name.toLowerCase().includes(query))
+        .filter((command) => {
+          const display = slashCommandDisplay(command);
+          return query === '' || command.name.toLowerCase().includes(query) || display.label.toLowerCase().includes(query);
+        })
         .slice(0, MAX_SUGGESTIONS)
-        .map((command) => ({
-          key: `slash:${command.name}`,
-          type: 'slash',
-          label: `/${command.name}`,
-          detail: command.description || command.source || 'Pi command',
-          value: `/${command.name}`,
-          addSpace: true,
-          icon: 'command',
-        }));
+        .map((command) => {
+          const display = slashCommandDisplay(command);
+          return {
+            key: `slash:${command.name}`,
+            type: 'slash',
+            label: display.label,
+            detail: display.detail,
+            value: `/${command.name}`,
+            addSpace: true,
+            icon: 'command',
+          };
+        });
       if (matches.length > 0) return matches;
       return [{
         key: 'slash:empty',
@@ -1408,6 +1423,7 @@ function ConversationSurface({
                 onSelectVersion={(leafId) => selectVersionAt(leafId, index)}
                 onEdit={() => beginEditingMessage(item.message)}
                 editDisabled={Boolean(isStreaming || sending || editTreeMessage.isPending)}
+                onOpenWorkspaceFile={onOpenWorkspaceFile}
                 animate={!branchSwitching}
                 rowRef={(node) => setMessageRowRef(index, node)}
               />
@@ -1417,11 +1433,12 @@ function ConversationSurface({
                 messages={item.messages}
                 copiedMessageId={copiedMessageId}
                 onCopy={(message) => void copyMessage(message)}
+                onOpenWorkspaceFile={onOpenWorkspaceFile}
                 animate={!branchSwitching}
                 rowRef={(node) => setMessageRowRef(index, node)}
               />
             ))}
-            {pendingVisible && <PendingAssistant snapshot={snapshot} />}
+            {pendingVisible && <PendingAssistant snapshot={snapshot} onOpenWorkspaceFile={onOpenWorkspaceFile} />}
           </div>
         ) : (
           <V2Empty
@@ -2317,6 +2334,7 @@ function MessageRow({
   onSelectVersion,
   onEdit,
   editDisabled = false,
+  onOpenWorkspaceFile,
   animate = true,
   rowRef,
 }: {
@@ -2332,12 +2350,13 @@ function MessageRow({
   onSelectVersion?: (leafId: string) => void;
   onEdit?: () => void;
   editDisabled?: boolean;
+  onOpenWorkspaceFile?: (path: string, line?: number) => void;
   animate?: boolean;
   rowRef?: (node: HTMLElement | null) => void;
 }) {
   const isUser = message.role === 'user';
   if (isToolMessage(message)) {
-    return <ToolResultRow message={message} compact={compact} animate={animate} rowRef={rowRef} />;
+    return <ToolResultRow message={message} compact={compact} animate={animate} rowRef={rowRef} onOpenWorkspaceFile={onOpenWorkspaceFile} />;
   }
 
   if (isUser) {
@@ -2345,7 +2364,7 @@ function MessageRow({
       <div ref={rowRef as ((node: HTMLDivElement | null) => void) | undefined} className={`group flex justify-end ${animate ? 'animate-message-enter' : ''}`}>
         <div className="max-w-[90%] md:max-w-[min(74%,46rem)]">
           <div className="rounded-2xl rounded-br-md bg-[var(--color-accent)]/8 px-2.5 py-2 text-sm leading-6 text-[var(--color-text-primary)] md:px-3">
-            {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
+            {message.text && <MarkdownRenderer enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{message.text}</MarkdownRenderer>}
             <MessageImages images={message.images ?? []} />
             <ToolCallSummary message={message} />
           </div>
@@ -2368,7 +2387,7 @@ function MessageRow({
     <article ref={rowRef as ((node: HTMLElement | null) => void) | undefined} className={`group w-full max-w-[74ch] text-sm leading-6 ${animate ? 'animate-message-enter' : ''} ${message.isError ? 'text-[var(--color-error)]' : 'text-[var(--color-text-primary)]'}`}>
       <div>
         {message.thinking && <CollapsibleEvent icon={<Sparkles size={14} />} title="Thinking" body={message.thinking} />}
-        {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
+        {message.text && <MarkdownRenderer enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{message.text}</MarkdownRenderer>}
         <ToolCallSummary message={message} />
       </div>
       <MessageActions
@@ -2440,12 +2459,14 @@ function CollapsedTurnEvents({
   messages,
   copiedMessageId,
   onCopy,
+  onOpenWorkspaceFile,
   animate = true,
   rowRef,
 }: {
   messages: PiConversationMessage[];
   copiedMessageId: string | null;
   onCopy: (message: PiConversationMessage) => void;
+  onOpenWorkspaceFile?: (path: string, line?: number) => void;
   animate?: boolean;
   rowRef?: (node: HTMLElement | null) => void;
 }) {
@@ -2470,6 +2491,7 @@ function CollapsedTurnEvents({
             compact
             copied={copiedMessageId === message.id}
             onCopy={() => onCopy(message)}
+            onOpenWorkspaceFile={onOpenWorkspaceFile}
             animate={animate}
           />
         ))}
@@ -2531,7 +2553,7 @@ function MessageActions({
   );
 }
 
-function ToolResultRow({ message, compact, animate = true, rowRef }: { message: PiConversationMessage; compact?: boolean; animate?: boolean; rowRef?: (node: HTMLElement | null) => void }) {
+function ToolResultRow({ message, compact, animate = true, rowRef, onOpenWorkspaceFile }: { message: PiConversationMessage; compact?: boolean; animate?: boolean; rowRef?: (node: HTMLElement | null) => void; onOpenWorkspaceFile?: (path: string, line?: number) => void }) {
   return (
     <details ref={rowRef as ((node: HTMLDetailsElement | null) => void) | undefined} className={`group text-xs ${compact ? '' : 'mx-0'} ${animate ? 'animate-message-enter' : ''}`}>
       <summary className="flex cursor-pointer list-none items-center gap-2 py-1 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
@@ -2542,14 +2564,14 @@ function ToolResultRow({ message, compact, animate = true, rowRef }: { message: 
       </summary>
       {message.text && (
         <div className="mt-1 pl-5 text-[var(--color-text-secondary)]">
-          {message.text && <MarkdownRenderer>{message.text}</MarkdownRenderer>}
+          {message.text && <MarkdownRenderer enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{message.text}</MarkdownRenderer>}
         </div>
       )}
     </details>
   );
 }
 
-function PendingAssistant({ snapshot }: { snapshot: PiConversationSnapshot | null }) {
+function PendingAssistant({ snapshot, onOpenWorkspaceFile }: { snapshot: PiConversationSnapshot | null; onOpenWorkspaceFile?: (path: string, line?: number) => void }) {
   if (!snapshot) return null;
   const activitySummary = assistantActivitySummary(snapshot);
   const hasActivity = Boolean(snapshot.pending?.thinking || (snapshot.pending?.toolCalls?.length ?? 0) > 0 || (snapshot.tools?.length ?? 0) > 0);
@@ -2572,7 +2594,7 @@ function PendingAssistant({ snapshot }: { snapshot: PiConversationSnapshot | nul
           </div>
         </details>
       )}
-      {snapshot.pending?.text && <MarkdownRenderer>{snapshot.pending.text}</MarkdownRenderer>}
+      {snapshot.pending?.text && <MarkdownRenderer enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{snapshot.pending.text}</MarkdownRenderer>}
       {snapshot.streaming && !snapshot.pending?.text && !hasActivity && (
         <div className="flex items-center gap-2 text-xs text-dim">
           <Loader2 size={13} className="animate-spin" />
@@ -2827,6 +2849,24 @@ function fileSuggestion(entry: V2FileEntry): ComposerSuggestion {
     addSpace: entry.type !== 'dir',
     icon: entry.type === 'dir' ? 'folder' : 'file',
   };
+}
+
+function slashCommandDisplay(command: PiSlashCommand): { label: string; detail: string } {
+  const skillName = skillCommandName(command.name);
+  if (skillName) {
+    return {
+      label: skillName,
+      detail: command.description ? `Skill: ${command.description}` : 'Skill',
+    };
+  }
+  return {
+    label: `/${command.name}`,
+    detail: command.description || command.source || 'Pi command',
+  };
+}
+
+function skillCommandName(commandName: string): string | null {
+  return commandName.startsWith('skill:') ? commandName.slice('skill:'.length) : null;
 }
 
 function appendWorkspaceReference(draft: string, path: string): string {
