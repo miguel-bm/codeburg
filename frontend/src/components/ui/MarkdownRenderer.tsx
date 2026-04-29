@@ -1,5 +1,6 @@
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { tokenizeCodeburgReferences, type CodeburgReference } from '../chat/referenceTokens';
 
 interface MarkdownRendererProps {
   children: string;
@@ -19,8 +20,6 @@ type MarkdownNode = {
 
 const FILE_REF_PREFIX = '#codeburg-file:';
 const SKILL_REF_PREFIX = '#codeburg-skill:';
-const INLINE_REF_PATTERN = /(^|[\s([{"'`])((\/skill:([A-Za-z0-9][A-Za-z0-9._-]*))|@([A-Za-z0-9._/-][A-Za-z0-9_./:-]*))/g;
-const TRAILING_TOKEN_PUNCTUATION = /[.,;!?)]/;
 
 export function MarkdownRenderer({ children, className = '', enhanceCodeburgRefs = false, onOpenWorkspaceFile }: MarkdownRendererProps) {
   return (
@@ -96,79 +95,27 @@ function visitMarkdownNode(node: MarkdownNode, parentType = '') {
 }
 
 function tokenizeInlineRefs(value: string): MarkdownNode[] {
-  const nodes: MarkdownNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  INLINE_REF_PATTERN.lastIndex = 0;
-
-  while ((match = INLINE_REF_PATTERN.exec(value)) !== null) {
-    const boundary = match[1] ?? '';
-    const rawToken = match[2] ?? '';
-    const tokenStart = match.index + boundary.length;
-    const tokenEnd = tokenStart + rawToken.length;
-    if (tokenStart > lastIndex) {
-      nodes.push({ type: 'text', value: value.slice(lastIndex, tokenStart) });
-    }
-
-    const { token, trailing } = trimTokenPunctuation(rawToken);
-    const node = tokenToMarkdownLink(token);
-    if (node) {
-      nodes.push(node);
-      if (trailing) nodes.push({ type: 'text', value: trailing });
-    } else {
-      nodes.push({ type: 'text', value: rawToken });
-    }
-    lastIndex = tokenEnd;
-  }
-
-  if (lastIndex < value.length) {
-    nodes.push({ type: 'text', value: value.slice(lastIndex) });
-  }
-
-  return nodes.length > 0 ? nodes : [{ type: 'text', value }];
+  return tokenizeCodeburgReferences(value).map((segment) => {
+    if (segment.type === 'text') return { type: 'text', value: segment.value };
+    return referenceToMarkdownLink(segment.reference);
+  });
 }
 
-function trimTokenPunctuation(rawToken: string): { token: string; trailing: string } {
-  let token = rawToken;
-  let trailing = '';
-  while (token.length > 0 && TRAILING_TOKEN_PUNCTUATION.test(token[token.length - 1])) {
-    trailing = `${token[token.length - 1]}${trailing}`;
-    token = token.slice(0, -1);
-  }
-  return { token, trailing };
-}
-
-function tokenToMarkdownLink(token: string): MarkdownNode | null {
-  if (token.startsWith('/skill:')) {
-    const skillName = token.slice('/skill:'.length);
-    if (!skillName) return null;
+function referenceToMarkdownLink(reference: CodeburgReference): MarkdownNode {
+  if (reference.kind === 'skill') {
     return {
       type: 'link',
-      url: `${SKILL_REF_PREFIX}${encodeURIComponent(skillName)}`,
+      url: `${SKILL_REF_PREFIX}${encodeURIComponent(reference.name)}`,
       title: null,
-      children: [{ type: 'text', value: skillName }],
+      children: [{ type: 'text', value: reference.name }],
     };
   }
-
-  if (token.startsWith('@')) {
-    const reference = parseWorkspaceFileReference(token.slice(1));
-    if (!reference.path) return null;
-    return {
-      type: 'link',
-      url: `${FILE_REF_PREFIX}${encodeURIComponent(reference.path)}${reference.line ? `:${reference.line}` : ''}`,
-      title: null,
-      children: [{ type: 'text', value: `@${reference.line ? `${reference.path}:${reference.line}` : reference.path}` }],
-    };
-  }
-
-  return null;
-}
-
-function parseWorkspaceFileReference(value: string): { path: string; line?: number } {
-  const lineMatch = value.match(/^(.*):(\d+)$/);
-  if (!lineMatch) return { path: value };
-  const line = Number.parseInt(lineMatch[2], 10);
-  return { path: lineMatch[1], line: Number.isFinite(line) ? line : undefined };
+  return {
+    type: 'link',
+    url: `${FILE_REF_PREFIX}${encodeURIComponent(reference.path)}${reference.line ? `:${reference.line}` : ''}`,
+    title: null,
+    children: [{ type: 'text', value: reference.raw }],
+  };
 }
 
 function decodeWorkspaceFileHref(href: string): { path: string; line?: number } {

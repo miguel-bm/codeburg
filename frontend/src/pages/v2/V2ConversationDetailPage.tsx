@@ -52,6 +52,7 @@ import { usePiConversation } from '../../hooks/usePiConversation';
 import { useVirtualKeyboard } from '../../hooks/useVirtualKeyboard';
 import { useWorkspaceStore } from '../../stores/workspace';
 import { applySuggestionToText, findActiveToken, fuzzyScore, type InputSelection } from '../../components/chat/chatAutocomplete';
+import { parseCodeburgReferences, type CodeburgReference } from '../../components/chat/referenceTokens';
 import { Button, V2Empty, V2Screen } from './v2-ui';
 import { V2WorkspaceActionHeader } from './V2WorkspaceActionHeader';
 import { WorkspaceConversationTab, WorkspaceTerminalTab } from './V2WorkspaceTabs';
@@ -1107,8 +1108,12 @@ function ConversationSurface({
     return [];
   }, [activeToken, commandsLoading, fileEntries, filesLoading, slashCommands]);
   const visibleSuggestions = useMemo(
-    () => (tokenKey && dismissedTokenKey !== tokenKey ? suggestions : []),
-    [dismissedTokenKey, suggestions, tokenKey],
+    () => (inputFocused && tokenKey && dismissedTokenKey !== tokenKey ? suggestions : []),
+    [dismissedTokenKey, inputFocused, suggestions, tokenKey],
+  );
+  const composerReferences = useMemo(
+    () => uniqueComposerReferences(parseCodeburgReferences(draft)),
+    [draft],
   );
   const suggestionSignature = useMemo(
     () => visibleSuggestions.map((suggestion) => `${suggestion.key}:${suggestion.disabled ? 'disabled' : 'enabled'}`).join('|'),
@@ -1670,6 +1675,12 @@ function ConversationSurface({
             disabled={composerDisabled}
             className="block w-full resize-none rounded-t-[1.35rem] bg-transparent px-3 pt-3 text-sm leading-6 text-[var(--color-text-primary)] outline-none placeholder:text-dim disabled:opacity-60 md:px-4 md:pt-3"
           />
+          {composerReferences.length > 0 && (
+            <ComposerReferenceRail
+              references={composerReferences}
+              onOpenWorkspaceFile={onOpenWorkspaceFile}
+            />
+          )}
 
           <div className="flex min-h-10 items-center justify-between gap-2 px-2 pb-1.5 pt-0 md:px-2.5">
             <div className="flex min-w-0 items-center gap-1.5">
@@ -2369,6 +2380,47 @@ function ConversationActionButton({
   );
 }
 
+function ComposerReferenceRail({
+  references,
+  onOpenWorkspaceFile,
+}: {
+  references: CodeburgReference[];
+  onOpenWorkspaceFile?: (path: string, line?: number) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5 px-3 pb-1 pt-0 md:px-4">
+      {references.map((reference) => {
+        if (reference.kind === 'skill') {
+          return (
+            <span
+              key={`skill:${reference.name}`}
+              className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full bg-accent/10 px-2.5 font-mono text-[11px] font-medium text-accent"
+              title={reference.raw}
+            >
+              <Command size={12} />
+              <span className="truncate">{reference.name}</span>
+            </span>
+          );
+        }
+        const label = reference.line ? `@${reference.path}:${reference.line}` : `@${reference.path}`;
+        return (
+          <button
+            key={`file:${reference.path}:${reference.line ?? ''}`}
+            type="button"
+            disabled={!onOpenWorkspaceFile}
+            onClick={() => onOpenWorkspaceFile?.(reference.path, reference.line)}
+            className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full bg-secondary px-2.5 font-mono text-[11px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-60"
+            title={onOpenWorkspaceFile ? `Open ${reference.line ? `${reference.path}:${reference.line}` : reference.path}` : label}
+          >
+            <FileCode2 size={12} className="shrink-0" />
+            <span className="truncate">{label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function MessageRow({
   message,
   copied,
@@ -2915,6 +2967,20 @@ function slashCommandDisplay(command: PiSlashCommand): { label: string; detail: 
 
 function skillCommandName(commandName: string): string | null {
   return commandName.startsWith('skill:') ? commandName.slice('skill:'.length) : null;
+}
+
+function uniqueComposerReferences(references: CodeburgReference[]): CodeburgReference[] {
+  const seen = new Set<string>();
+  const unique: CodeburgReference[] = [];
+  for (const reference of references) {
+    const key = reference.kind === 'skill'
+      ? `skill:${reference.name}`
+      : `file:${reference.path}:${reference.line ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(reference);
+  }
+  return unique.slice(0, 8);
 }
 
 function appendWorkspaceReference(draft: string, path: string): string {
