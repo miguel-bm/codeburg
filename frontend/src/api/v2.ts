@@ -137,8 +137,13 @@ export interface CreateTaskLinkInput {
 }
 
 export const v2Api = {
-  getSidebar: () =>
-    api.get<V2SidebarData>('/sidebar/v2'),
+  getSidebar: (input?: { includeConversations?: boolean; includeStates?: boolean }) => {
+    const search = new URLSearchParams();
+    if (input?.includeConversations === false) search.set('conversations', '0');
+    if (input?.includeStates === false) search.set('states', '0');
+    const query = search.toString();
+    return api.get<V2SidebarData>(`/sidebar/v2${query ? `?${query}` : ''}`);
+  },
 
   listConversations: (input?: string | ListConversationsInput) => {
     const search = new URLSearchParams();

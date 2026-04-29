@@ -13,7 +13,6 @@ import {
   Hammer,
   Home,
   LoaderCircle,
-  MessageSquareText,
   MessagesSquare,
   PlugZap,
   Search,
@@ -22,11 +21,10 @@ import {
   SquareStack,
   Wrench,
 } from 'lucide-react';
-import type { Conversation, PiConversationSnapshot, Project, V2SidebarData, Workspace } from '../../api/types';
+import type { Project, V2SidebarData, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 
 const COMMAND_PALETTE_OPEN_EVENT = 'codeburg:open-command-palette';
-const DEFAULT_CONVERSATION_LIMIT = 8;
 const DEFAULT_WORKSPACE_LIMIT = 8;
 
 interface CommandPaletteProps {
@@ -42,13 +40,6 @@ interface PaletteProject {
 interface PaletteWorkspace {
   workspace: Workspace;
   project: Project;
-}
-
-interface PaletteConversation {
-  conversation: Conversation;
-  project: Project;
-  workspace?: Workspace;
-  snapshot?: PiConversationSnapshot;
 }
 
 function TypeBadge({ children }: { children: string }) {
@@ -67,30 +58,9 @@ function formatStatus(value: string) {
   return value.replace(/_/g, ' ');
 }
 
-function formatRecency(value?: string) {
-  if (!value) return 'no activity yet';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'recent activity';
-  const deltaSeconds = Math.round((date.getTime() - Date.now()) / 1000);
-  const abs = Math.abs(deltaSeconds);
-  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-  if (abs < 60) return 'just now';
-  if (abs < 3600) return formatter.format(Math.round(deltaSeconds / 60), 'minute');
-  if (abs < 86400) return formatter.format(Math.round(deltaSeconds / 3600), 'hour');
-  return formatter.format(Math.round(deltaSeconds / 86400), 'day');
-}
-
-function conversationStateLabel(item: PaletteConversation) {
-  if (item.snapshot?.lastError) return 'needs attention';
-  if (item.snapshot?.streaming) return 'streaming';
-  if (item.conversation.unreadAt) return 'unread';
-  if (item.snapshot?.runtimeActive) return 'runtime active';
-  return formatRecency(item.conversation.lastActivityAt);
-}
-
-function sortByActivity<T extends { conversation?: Conversation; workspace?: Workspace; project?: Project }>(a: T, b: T) {
-  const left = a.conversation?.lastActivityAt ?? a.workspace?.updatedAt ?? a.project?.updatedAt ?? '';
-  const right = b.conversation?.lastActivityAt ?? b.workspace?.updatedAt ?? b.project?.updatedAt ?? '';
+function sortByActivity<T extends { workspace?: Workspace; project?: Project }>(a: T, b: T) {
+  const left = a.workspace?.updatedAt ?? a.project?.updatedAt ?? '';
+  const right = b.workspace?.updatedAt ?? b.project?.updatedAt ?? '';
   return right.localeCompare(left);
 }
 
@@ -116,44 +86,29 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
   const searchActive = normalizedSearch.length > 0;
 
   const { data: sidebar, isLoading } = useQuery({
-    queryKey: ['v2-sidebar-summary'],
-    queryFn: () => v2Api.getSidebar(),
+    queryKey: ['v2-command-palette-summary'],
+    queryFn: () => v2Api.getSidebar({ includeConversations: false, includeStates: false }),
+    staleTime: 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   });
 
   useEffect(() => {
     setSearch(initialSearch);
   }, [initialSearch]);
 
-  const { projects, workspaces, conversations, attentionConversations } = useMemo(() => {
+  const { projects, workspaces } = useMemo(() => {
     const projectEntries: PaletteProject[] = [];
     const workspaceEntries: PaletteWorkspace[] = [];
-    const conversationEntries: PaletteConversation[] = [];
-    const attentionEntries: PaletteConversation[] = [];
 
     for (const entry of sidebar?.projects ?? []) {
       if (!entry?.project || entry.project.hidden) continue;
       projectEntries.push({ entry, project: entry.project });
 
       const projectWorkspaces = (entry.workspaces ?? []).filter((workspace) => workspace.status !== 'archived');
-      const workspaceById = new Map(projectWorkspaces.map((workspace) => [workspace.id, workspace]));
-      const stateByConversationId = new Map((entry.states ?? []).map((state) => [state.conversationId, state]));
 
       for (const workspace of projectWorkspaces) {
         workspaceEntries.push({ workspace, project: entry.project });
-      }
-
-      for (const conversation of entry.conversations ?? []) {
-        if (conversation.status === 'archived') continue;
-        const item = {
-          conversation,
-          project: entry.project,
-          workspace: conversation.currentWorkspaceId ? workspaceById.get(conversation.currentWorkspaceId) : undefined,
-          snapshot: stateByConversationId.get(conversation.id),
-        };
-        conversationEntries.push(item);
-        if (conversation.unreadAt || item.snapshot?.streaming || item.snapshot?.lastError) {
-          attentionEntries.push(item);
-        }
       }
     }
 
@@ -162,25 +117,17 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
       return a.project.name.localeCompare(b.project.name);
     });
     workspaceEntries.sort((a, b) => sortByActivity({ workspace: a.workspace }, { workspace: b.workspace }));
-    conversationEntries.sort((a, b) => sortByActivity({ conversation: a.conversation }, { conversation: b.conversation }));
-    attentionEntries.sort((a, b) => sortByActivity({ conversation: a.conversation }, { conversation: b.conversation }));
 
     return {
       projects: projectEntries,
       workspaces: workspaceEntries,
-      conversations: conversationEntries,
-      attentionConversations: attentionEntries,
     };
   }, [sidebar]);
 
   const defaultWorkspaceRows = searchActive ? workspaces : workspaces.slice(0, DEFAULT_WORKSPACE_LIMIT);
-  const attentionIds = useMemo(
-    () => new Set(attentionConversations.map((item) => item.conversation.id)),
-    [attentionConversations],
-  );
-  const defaultConversationRows = searchActive
-    ? conversations
-    : conversations.filter((item) => !attentionIds.has(item.conversation.id)).slice(0, DEFAULT_CONVERSATION_LIMIT);
+  const conversationSearchHref = searchActive
+    ? `/conversations?q=${encodeURIComponent(search.trim())}`
+    : '/conversations';
 
   const select = useCallback((fn: () => void) => {
     fn();
@@ -270,6 +217,21 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
                   <TypeBadge>route</TypeBadge>
                 </Command.Item>
                 <Command.Item
+                  value={createSearchValue(['search conversations chats threads summaries content', search])}
+                  keywords={keywordList(['conversation search', searchActive ? search : null, 'pi', 'inbox'])}
+                  onSelect={() => select(() => navigate(conversationSearchHref))}
+                  className="cmdk-item"
+                >
+                  <Search className="h-4 w-4 shrink-0 text-accent" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm">
+                      {searchActive ? `Search conversations for "${search.trim()}"` : 'Search conversations'}
+                    </div>
+                    <CommandMeta>Open the conversation inbox search</CommandMeta>
+                  </div>
+                  <TypeBadge>search</TypeBadge>
+                </Command.Item>
+                <Command.Item
                   value="skills library global"
                   onSelect={() => select(() => navigate('/skills'))}
                   className="cmdk-item"
@@ -319,29 +281,6 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
                 </Command.Item>
               </Command.Group>
 
-              {attentionConversations.length > 0 && (
-                <Command.Group heading="Needs attention" className="cmdk-group">
-                  {attentionConversations.map(({ conversation, project, workspace, snapshot }) => (
-                    <Command.Item
-                      key={`attention-${conversation.id}`}
-                      value={createSearchValue(['attention conversation chat', conversation.title, project.name, workspace?.name, snapshot?.lastError])}
-                      keywords={keywordList([project.name, workspace?.name, conversation.provider, conversationStateLabel({ conversation, project, workspace, snapshot })])}
-                      onSelect={() => select(() => navigate(`/conversations/${conversation.id}`))}
-                      className="cmdk-item"
-                    >
-                      <MessageSquareText className="h-4 w-4 shrink-0 text-accent" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm">{conversation.title}</div>
-                        <CommandMeta>
-                          {project.name}{workspace ? ` · ${workspace.name}` : ''} · {conversationStateLabel({ conversation, project, workspace, snapshot })}
-                        </CommandMeta>
-                      </div>
-                      <TypeBadge>chat</TypeBadge>
-                    </Command.Item>
-                  ))}
-                </Command.Group>
-              )}
-
               {projects.length > 0 && (
                 <Command.Group heading="Projects" className="cmdk-group">
                   {projects.map(({ entry, project }) => (
@@ -381,29 +320,6 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
                         <CommandMeta>{buildWorkspaceMeta(workspace, project)}</CommandMeta>
                       </div>
                       <TypeBadge>{workspace.kind === 'main' ? 'main' : 'worktree'}</TypeBadge>
-                    </Command.Item>
-                  ))}
-                </Command.Group>
-              )}
-
-              {defaultConversationRows.length > 0 && (
-                <Command.Group heading={searchActive ? 'Conversations' : 'Recent conversations'} className="cmdk-group">
-                  {defaultConversationRows.map(({ conversation, project, workspace, snapshot }) => (
-                    <Command.Item
-                      key={`conversation-${conversation.id}`}
-                      value={createSearchValue(['conversation chat thread pi', conversation.title, conversation.summary, project.name, workspace?.name])}
-                      keywords={keywordList([project.name, workspace?.name, conversation.provider, conversation.status, conversationStateLabel({ conversation, project, workspace, snapshot })])}
-                      onSelect={() => select(() => navigate(`/conversations/${conversation.id}`))}
-                      className="cmdk-item"
-                    >
-                      <MessageSquareText className="h-4 w-4 shrink-0 text-dim" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm">{conversation.title}</div>
-                        <CommandMeta>
-                          {project.name}{workspace ? ` · ${workspace.name}` : ''} · {formatRecency(conversation.lastActivityAt)}
-                        </CommandMeta>
-                      </div>
-                      <TypeBadge>chat</TypeBadge>
                     </Command.Item>
                   ))}
                 </Command.Group>

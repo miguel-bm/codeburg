@@ -292,6 +292,9 @@ func (s *Server) handleSidebar(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleV2Sidebar(w http.ResponseWriter, r *http.Request) {
+	includeConversations := r.URL.Query().Get("conversations") != "0"
+	includeStates := includeConversations && r.URL.Query().Get("states") != "0"
+
 	projects, err := s.db.ListProjects()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list projects")
@@ -308,22 +311,24 @@ func (s *Server) handleV2Sidebar(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	activeStatus := db.ConversationStatusActive
-	conversations, err := s.db.ListConversationsWithOptions(db.ListConversationOptions{
-		Status:   &activeStatus,
-		Provider: "pi",
-	})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list conversations")
-		return
-	}
-
 	conversationsByProject := make(map[string][]db.Conversation)
 	stateByConversation := make(map[string]piConversationSnapshot)
-	for i, conversation := range conversations {
-		conversationsByProject[conversation.ProjectID] = append(conversationsByProject[conversation.ProjectID], *conversation)
-		if i < 60 {
-			stateByConversation[conversation.ID] = s.pi.ExistingSnapshotSummary(conversation)
+	if includeConversations {
+		activeStatus := db.ConversationStatusActive
+		conversations, err := s.db.ListConversationsWithOptions(db.ListConversationOptions{
+			Status:   &activeStatus,
+			Provider: "pi",
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to list conversations")
+			return
+		}
+
+		for i, conversation := range conversations {
+			conversationsByProject[conversation.ProjectID] = append(conversationsByProject[conversation.ProjectID], *conversation)
+			if includeStates && i < 60 {
+				stateByConversation[conversation.ID] = s.pi.ExistingSnapshotSummary(conversation)
+			}
 		}
 	}
 

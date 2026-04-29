@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import {
@@ -33,9 +33,15 @@ type ConversationSectionModel = {
 export function V2ConversationsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const isMobile = useMobile();
-  const [search, setSearch] = useState('');
+  const querySearch = searchParams.get('q') ?? '';
+  const [search, setSearch] = useState(() => querySearch);
   const deferredSearch = useDeferredValue(search.trim());
+
+  useEffect(() => {
+    setSearch(querySearch);
+  }, [querySearch]);
 
   const { data: conversations } = useQuery({
     queryKey: ['v2-conversations', deferredSearch],

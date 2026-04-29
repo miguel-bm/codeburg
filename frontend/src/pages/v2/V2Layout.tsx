@@ -782,6 +782,7 @@ function ProjectTree({
   const longPressTimer = useRef<number | null>(null);
   const longPressTriggered = useRef(false);
   const projectRouteActive = pathname === `/projects/${project.id}`;
+  const projectTasksRouteActive = pathname === `/projects/${project.id}/tasks`;
   const projectDescendantActive = pathname.startsWith(`/projects/${project.id}/`);
   const activeConversationId = pathname.match(/^\/conversations\/([^/]+)/)?.[1];
   const conversationActive = conversations.some((conversation) => conversation.id === activeConversationId);
@@ -804,7 +805,7 @@ function ProjectTree({
     .slice(0, showAllConversations ? undefined : 3);
   const projectMenuOpen = contextMenu?.type === 'project' && contextMenu.id === project.id;
   const workspaceMenuId = contextMenu?.type === 'workspace' ? contextMenu.id : null;
-  const projectIsSelectedLeaf = projectRouteActive && orderedWorkspaces.length === 0 && !selectedWorkspaceId;
+  const projectIsSelectedLeaf = (projectRouteActive && orderedWorkspaces.length === 0 && !selectedWorkspaceId) || projectTasksRouteActive;
   const projectActionVisibility = mobile || projectMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100';
   const runProjectAction = (action: () => void) => {
     onCloseContextMenu();
@@ -855,8 +856,7 @@ function ProjectTree({
             return;
           }
           onCloseContextMenu();
-          setUserToggled(true);
-          setExpanded((value) => !value);
+          navigate(`/projects/${project.id}/tasks`);
         }}
         onContextMenu={(event) => {
           event.preventDefault();
@@ -935,7 +935,8 @@ function ProjectTree({
             : 'absolute right-1 top-8 z-50 w-52 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]'}
             data-sidebar-context-menu-root
           >
-            <ProjectMenuItem icon={<FolderOpen size={14} />} onClick={() => runProjectAction(() => navigate(`/projects/${project.id}`))}>Open project</ProjectMenuItem>
+            <ProjectMenuItem icon={<ClipboardList size={14} />} onClick={() => runProjectAction(() => navigate(`/projects/${project.id}/tasks`))}>Open tasks</ProjectMenuItem>
+            <ProjectMenuItem icon={<FolderOpen size={14} />} onClick={() => runProjectAction(() => navigate(`/projects/${project.id}`))}>Open workspace</ProjectMenuItem>
             <ProjectMenuItem
               icon={treeOpen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
               onClick={() => runProjectAction(() => {
@@ -946,7 +947,6 @@ function ProjectTree({
               {treeOpen ? 'Collapse project' : 'Expand project'}
             </ProjectMenuItem>
             <ProjectMenuItem icon={<FolderPlus size={14} />} onClick={() => runProjectAction(() => navigate(`/projects/${project.id}?newWorkspace=1`))}>New workspace</ProjectMenuItem>
-            <ProjectMenuItem icon={<ClipboardList size={14} />} onClick={() => runProjectAction(() => navigate(`/projects/${project.id}/tasks`))}>Tasks</ProjectMenuItem>
             <ProjectMenuItem icon={pinned ? <PinOff size={14} /> : <Pin size={14} />} onClick={() => runProjectAction(() => void togglePinnedProject(project.id, queryClient))}>
               {pinned ? 'Unpin project' : 'Pin project'}
             </ProjectMenuItem>

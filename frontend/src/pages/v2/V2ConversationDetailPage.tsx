@@ -56,7 +56,7 @@ import { Button, V2Empty, V2Screen } from './v2-ui';
 import { V2WorkspaceActionHeader } from './V2WorkspaceActionHeader';
 import { WorkspaceConversationTab, WorkspaceTerminalTab } from './V2WorkspaceTabs';
 import { V2WorkspaceToolTabs, V2WorkspaceTools, V2WorkspaceToolsSurface, type V2HelperTab } from './V2WorkspaceTools';
-import type { DiagramAttachmentResult, ExcalidrawDiagramSource } from '../../components/chat/ExcalidrawDiagramDialog';
+import type { DiagramAttachmentResult, ExcalidrawAnnotationSeed, ExcalidrawDiagramSource } from '../../components/chat/ExcalidrawDiagramDialog';
 
 const ExcalidrawDiagramDialog = lazy(() =>
   import('../../components/chat/ExcalidrawDiagramDialog').then((module) => ({
@@ -87,7 +87,8 @@ interface ComposerAttachment {
 
 type DiagramEditorState =
   | { mode: 'new' }
-  | { mode: 'edit'; attachmentId: string; source: ExcalidrawDiagramSource };
+  | { mode: 'edit'; attachmentId: string; source: ExcalidrawDiagramSource }
+  | { mode: 'annotate'; seed: ExcalidrawAnnotationSeed };
 
 type ConversationRenderItem =
   | { type: 'message'; message: PiConversationMessage }
@@ -861,6 +862,7 @@ function ConversationSurface({
   const messageScrollerRef = useRef<HTMLDivElement>(null);
   const messageRowRefs = useRef<Map<number, HTMLElement>>(new Map());
   const stickToLatestRef = useRef(true);
+  const preEditComposerRef = useRef<{ draft: string; attachments: ComposerAttachment[] } | null>(null);
   const branchSwitchAnchorRef = useRef<{ index: number; top: number } | null>(null);
   const branchSwitchTimerRef = useRef<number | null>(null);
   const suppressBranchAutoScrollRef = useRef(false);
@@ -983,6 +985,7 @@ function ConversationSurface({
       setDraft('');
       setAttachments([]);
       setEditingMessage(null);
+      preEditComposerRef.current = null;
       setEditError(null);
       void queryClient.invalidateQueries({ queryKey: ['v2-conversation-tree', conversationId] });
       void queryClient.invalidateQueries({ queryKey: ['v2-conversation-state', conversationId] });
@@ -1170,6 +1173,7 @@ function ConversationSurface({
     messageRowRefs.current.clear();
     scrollToLatest();
     setEditingMessage(null);
+    preEditComposerRef.current = null;
     setEditError(null);
   }, [conversationId, scrollToLatest]);
 
@@ -1258,8 +1262,12 @@ function ConversationSurface({
   const beginEditingMessage = (message: PiConversationMessage) => {
     if (isStreaming || sending || editTreeMessage.isPending || !message.entryId) return;
     const text = message.text ?? '';
-    if (!text.trim()) return;
-    setAttachments([]);
+    const nextAttachments = messageImagesToComposerAttachments(message.images);
+    if (!text.trim() && nextAttachments.length === 0) return;
+    if (!editingMessage) {
+      preEditComposerRef.current = { draft, attachments };
+    }
+    setAttachments(nextAttachments);
     setDraftWithSelection(text, { start: text.length, end: text.length });
     setEditingMessage({ entryId: message.entryId });
     setEditError(null);
@@ -1272,8 +1280,16 @@ function ConversationSurface({
   };
 
   const cancelEditingMessage = () => {
+    const previousComposer = preEditComposerRef.current;
     setEditingMessage(null);
     setEditError(null);
+    preEditComposerRef.current = null;
+    if (!previousComposer) return;
+    setDraftWithSelection(previousComposer.draft, {
+      start: previousComposer.draft.length,
+      end: previousComposer.draft.length,
+    });
+    setAttachments(previousComposer.attachments);
   };
 
   const submitComposer = (streamingBehavior?: 'steer' | 'followUp') => {
@@ -1338,6 +1354,18 @@ function ConversationSurface({
       mode: 'edit',
       attachmentId: attachment.id,
       source: attachment.source,
+    });
+  };
+
+  const annotateImageAttachment = (attachment: ComposerAttachment) => {
+    if (composerDisabled) return;
+    setDiagramEditor({
+      mode: 'annotate',
+      seed: {
+        name: attachment.name,
+        dataUrl: attachment.previewUrl,
+        mimeType: attachment.image.mimeType,
+      },
     });
   };
 
@@ -1518,6 +1546,17 @@ function ConversationSurface({
                       <Pencil size={11} />
                     </button>
                   )}
+                  {!attachment.source && (
+                    <button
+                      type="button"
+                      onClick={() => annotateImageAttachment(attachment)}
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]"
+                      title="Annotate image"
+                      aria-label="Annotate image"
+                    >
+                      <PenLine size={11} />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => removeAttachment(attachment.id)}
@@ -1529,14 +1568,6 @@ function ConversationSurface({
                   </button>
                 </div>
               ))}
-            </div>
-          )}
-          {editingMessage && (
-            <div className="mx-3 mt-2 flex items-center justify-between gap-3 rounded-xl bg-accent/8 px-3 py-2 text-xs text-[var(--color-text-secondary)] md:mx-4">
-              <span className="min-w-0 truncate">Editing an earlier message. Send to continue from that point.</span>
-              <button type="button" onClick={cancelEditingMessage} disabled={editTreeMessage.isPending} className="shrink-0 rounded-md px-2 py-1 font-medium text-dim hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-50">
-                Cancel
-              </button>
             </div>
           )}
           {(sendError || editError) && (
@@ -1669,6 +1700,22 @@ function ConversationSurface({
                 <span className="hidden items-center gap-1 text-xs text-dim sm:inline-flex">
                   <ImageIcon size={13} />
                   {attachments.length}
+                </span>
+              )}
+              {editingMessage && (
+                <span className="ml-1 inline-flex h-7 max-w-[11rem] items-center gap-1.5 rounded-full border border-subtle bg-primary px-2 text-xs text-[var(--color-text-secondary)] shadow-sm">
+                  <Pencil size={12} className="shrink-0 text-dim" />
+                  <span className="min-w-0 truncate">Editing</span>
+                  <button
+                    type="button"
+                    onClick={cancelEditingMessage}
+                    disabled={editTreeMessage.isPending}
+                    className="-mr-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-50"
+                    title="Cancel edit"
+                    aria-label="Cancel edit"
+                  >
+                    <X size={12} />
+                  </button>
                 </span>
               )}
             </div>
@@ -1859,6 +1906,7 @@ function ConversationSurface({
         {diagramEditor && (
           <ExcalidrawDiagramDialog
             initialSource={diagramEditor.mode === 'edit' ? diagramEditor.source : undefined}
+            annotationSeed={diagramEditor.mode === 'annotate' ? diagramEditor.seed : undefined}
             onAttach={attachDiagram}
             onClose={() => setDiagramEditor(null)}
           />
@@ -2913,6 +2961,32 @@ async function fileToComposerAttachment(file: File): Promise<ComposerAttachment>
       mimeType: file.type || 'image/png',
     },
   };
+}
+
+function messageImagesToComposerAttachments(images?: PiConversationImageAttachment[]): ComposerAttachment[] {
+  return (images ?? [])
+    .filter((image) => image.data.trim() && image.mimeType.trim())
+    .map((image, index) => {
+      const mimeType = image.mimeType.trim();
+      return {
+        id: `message-image-${index}-${crypto.randomUUID()}`,
+        name: `attachment-${index + 1}.${imageExtension(mimeType)}`,
+        previewUrl: `data:${mimeType};base64,${image.data}`,
+        image: {
+          type: 'image',
+          data: image.data,
+          mimeType,
+        },
+      };
+    });
+}
+
+function imageExtension(mimeType: string): string {
+  if (mimeType === 'image/jpeg') return 'jpg';
+  if (mimeType === 'image/webp') return 'webp';
+  if (mimeType === 'image/gif') return 'gif';
+  if (mimeType === 'image/svg+xml') return 'svg';
+  return 'png';
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
