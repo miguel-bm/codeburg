@@ -537,7 +537,7 @@ button:disabled,
 /* Markdown prose styling */
 .prose-md {
   line-height: 1.6;
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
   word-wrap: break-word;
   overflow-wrap: break-word;
 }
@@ -621,10 +621,9 @@ button:disabled,
 }
 
 .prose-md .codeburg-code-block {
-  background: color-mix(in srgb, var(--color-card-hover) 72%, var(--color-bg-secondary));
+  background: color-mix(in srgb, var(--color-bg-secondary) 82%, var(--color-card-hover));
 }
 
-.prose-md .codeburg-code-block pre,
 .prose-md .codeburg-code-block code {
   background: transparent;
   border-radius: 0;

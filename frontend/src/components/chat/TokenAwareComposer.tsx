@@ -135,15 +135,15 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
         backgroundColor: 'color-mix(in srgb, var(--color-accent) 18%, transparent)',
       },
       '.cm-codeburg-token-file': {
-        backgroundColor: 'var(--color-bg-secondary)',
-        color: 'var(--color-text-secondary)',
+        backgroundColor: 'color-mix(in srgb, var(--color-warning) 12%, transparent)',
+        color: 'var(--color-warning)',
       },
       '.cm-codeburg-token-file[data-clickable="true"]': {
         cursor: 'pointer',
       },
       '.cm-codeburg-token-file[data-clickable="true"]:hover': {
-        backgroundColor: 'var(--color-card-hover)',
-        color: 'var(--color-text-primary)',
+        backgroundColor: 'color-mix(in srgb, var(--color-warning) 18%, transparent)',
+        color: 'var(--color-warning)',
       },
     }),
     [maxHeight, minHeight],

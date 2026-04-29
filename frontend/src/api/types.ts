@@ -321,10 +321,6 @@ export interface ManagedSkill {
   symlinked: boolean;
 }
 
-export interface SkillDetail extends ManagedSkill {
-  content: string;
-}
-
 export interface SkillCatalogEntry {
   sourceId: string;
   sourceName: string;

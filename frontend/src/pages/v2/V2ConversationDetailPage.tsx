@@ -1033,6 +1033,7 @@ function ConversationSurface({
   const pendingVisible = hasPendingAssistant(snapshot);
   const messageItems = useMemo(() => buildConversationItems(messages), [messages]);
   const messageActivityKey = `${messages.length}:${snapshot?.updatedAt ?? ''}:${snapshot?.pending?.text?.length ?? 0}:${snapshot?.pending?.thinking?.length ?? 0}:${snapshot?.tools?.map((tool) => `${tool.toolCallId}:${tool.status}:${tool.output?.length ?? 0}`).join('|') ?? ''}`;
+  const skillManagerHref = activeWorkspace?.projectId ? `/projects/${activeWorkspace.projectId}/skills` : '/skills';
   const selectedModel = snapshot?.model ? { provider: snapshot.model.provider, id: snapshot.model.id } : null;
   const forkDialogPending = forkPending || forkConversationPending;
   const activeToken = useMemo(
@@ -1362,8 +1363,8 @@ function ConversationSurface({
     if (stickToLatestRef.current) scrollToLatest();
   }, [messageActivityKey, scrollToLatest]);
 
-  const composerMinHeight = isMobile ? 70 : 82;
-  const composerMaxHeight = isMobile ? 150 : 210;
+  const composerMinHeight = isMobile ? 70 : isStreaming ? 116 : 82;
+  const composerMaxHeight = isMobile ? 150 : isStreaming ? 230 : 210;
 
   const setDraftWithSelection = (nextDraft: string, nextSelection?: InputSelection) => {
     setDraft(nextDraft);
@@ -1668,6 +1669,7 @@ function ConversationSurface({
               <MessageRow
                 key={item.message.id || `${item.message.role}-${index}`}
                 conversationId={conversationId}
+                skillManagerHref={skillManagerHref}
                 message={item.message}
                 copied={copiedMessageId === item.message.id}
                 forkPending={forkPending}
@@ -1687,6 +1689,7 @@ function ConversationSurface({
               <CollapsedTurnEvents
                 key={`collapsed-${index}-${item.messages.map((message) => message.id).join(':')}`}
                 conversationId={conversationId}
+                skillManagerHref={skillManagerHref}
                 messages={item.messages}
                 copiedMessageId={copiedMessageId}
                 onCopy={(message) => void copyMessage(message)}
@@ -1695,7 +1698,7 @@ function ConversationSurface({
                 rowRef={(node) => setMessageRowRef(index, node)}
               />
             ))}
-            {pendingVisible && <PendingAssistant conversationId={conversationId} snapshot={snapshot} onOpenWorkspaceFile={onOpenWorkspaceFile} />}
+            {pendingVisible && <PendingAssistant conversationId={conversationId} skillManagerHref={skillManagerHref} snapshot={snapshot} onOpenWorkspaceFile={onOpenWorkspaceFile} />}
           </div>
         ) : (
           <V2Empty
@@ -1742,7 +1745,7 @@ function ConversationSurface({
 
       <div className="shrink-0 bg-primary px-2 pb-2 md:px-3 md:pb-3" style={composerStyle}>
         {queuedFollowUps.length > 0 && (
-          <div className="mx-auto mb-2 flex max-w-5xl flex-col gap-1.5">
+          <div className="relative z-0 mx-auto mb-1 flex max-w-[60rem] flex-col gap-1.5 px-1 md:-mb-5 md:px-0">
             {queuedFollowUps.map((item) => (
               <QueuedFollowUpRow
                 key={item.id}
@@ -1763,9 +1766,9 @@ function ConversationSurface({
           onDragOver={handleComposerDragOver}
           onDragLeave={handleComposerDragLeave}
           onDrop={handleComposerDrop}
-          className={`relative mx-auto max-w-5xl overflow-visible rounded-[1.35rem] border bg-card shadow-[0_18px_60px_rgba(15,23,42,0.12)] transition-colors ${
+          className={`relative z-10 mx-auto max-w-5xl overflow-visible rounded-[1.6rem] border bg-card transition-colors ${
           inputFocused ? 'border-accent/70' : 'border-subtle'
-        } ${imageDragActive ? 'border-accent bg-accent/5 shadow-[0_20px_70px_rgba(37,99,235,0.2)] ring-2 ring-accent/25' : ''}`}
+        } ${isStreaming ? 'shadow-[0_22px_70px_rgba(15,23,42,0.16)]' : 'shadow-[0_18px_60px_rgba(15,23,42,0.12)]'} ${imageDragActive ? 'border-accent bg-accent/5 shadow-[0_20px_70px_rgba(37,99,235,0.2)] ring-2 ring-accent/25' : ''}`}
         >
           {imageDragActive && (
             <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center rounded-[1.35rem] border-2 border-dashed border-accent bg-[var(--color-card)]/88 backdrop-blur-sm animate-fadeIn">
@@ -2129,17 +2132,19 @@ function QueuedFollowUpRow({
   const actionLabel = streaming ? 'Steer' : 'Send';
 
   return (
-    <div className={`flex min-h-11 flex-col gap-1 rounded-2xl border bg-card px-3 py-2 shadow-sm transition-colors ${
-      error ? 'border-[var(--color-error)]/35 bg-[var(--color-error)]/5' : 'border-subtle'
+    <div className={`flex min-h-[4.35rem] flex-col justify-center gap-1 rounded-[1.55rem] border bg-card px-4 py-3 shadow-[0_12px_34px_rgba(15,23,42,0.10)] transition-colors ${
+      error ? 'border-[var(--color-error)]/35 bg-[var(--color-error)]/5' : 'border-[var(--color-card-border)]'
     }`}>
-      <div className="flex min-w-0 items-center gap-2">
-        <CornerDownRight size={15} className="shrink-0 text-dim" />
+      <div className="flex min-w-0 items-center gap-2.5">
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-dim">
+          <CornerDownRight size={17} />
+        </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm text-[var(--color-text-secondary)]">{preview}</div>
+          <div className="truncate text-[15px] font-medium leading-6 text-[var(--color-text-secondary)]">{preview}</div>
           {error && <div className="mt-0.5 truncate text-xs text-[var(--color-error)]">{error}</div>}
         </div>
         {imageCount > 0 && (
-          <span className="hidden shrink-0 items-center gap-1 rounded-full bg-primary px-2 py-1 text-xs text-dim sm:inline-flex">
+          <span className="hidden h-7 shrink-0 items-center gap-1 rounded-full bg-primary px-2 text-xs text-dim sm:inline-flex">
             <ImageIcon size={12} />
             {imageCount}
           </span>
@@ -2148,32 +2153,32 @@ function QueuedFollowUpRow({
           type="button"
           onClick={onSend}
           disabled={disabled || sending}
-          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-45"
+          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-sm font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-45"
           title={streaming ? 'Steer current turn' : 'Send now'}
           aria-label={streaming ? 'Steer current turn' : 'Send now'}
         >
-          {sending ? <Loader2 size={13} className="animate-spin" /> : <CornerDownRight size={13} />}
+          {sending ? <Loader2 size={14} className="animate-spin" /> : <CornerDownRight size={14} />}
           <span className="hidden sm:inline">{actionLabel}</span>
-        </button>
-        <button
-          type="button"
-          onClick={onEdit}
-          disabled={disabled || sending}
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-dim transition-colors hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-45"
-          title="Edit follow-up"
-          aria-label="Edit follow-up"
-        >
-          <Pencil size={13} />
         </button>
         <button
           type="button"
           onClick={onDelete}
           disabled={sending}
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-dim transition-colors hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)] disabled:opacity-45"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-dim transition-colors hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)] disabled:opacity-45"
           title="Delete follow-up"
           aria-label="Delete follow-up"
         >
-          <Trash2 size={13} />
+          <Trash2 size={15} />
+        </button>
+        <button
+          type="button"
+          onClick={onEdit}
+          disabled={disabled || sending}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-dim transition-colors hover:bg-secondary hover:text-[var(--color-text-primary)] disabled:opacity-45"
+          title="Edit follow-up"
+          aria-label="Edit follow-up"
+        >
+          <MoreHorizontal size={16} />
         </button>
       </div>
     </div>
@@ -2635,6 +2640,7 @@ function ConversationActionButton({
 
 function MessageRow({
   conversationId,
+  skillManagerHref,
   message,
   copied,
   compact = false,
@@ -2652,6 +2658,7 @@ function MessageRow({
   rowRef,
 }: {
   conversationId: string;
+  skillManagerHref: string;
   message: PiConversationMessage;
   copied: boolean;
   compact?: boolean;
@@ -2670,7 +2677,7 @@ function MessageRow({
 }) {
   const isUser = message.role === 'user';
   if (isToolMessage(message)) {
-    return <ToolResultRow conversationId={conversationId} message={message} compact={compact} animate={animate} rowRef={rowRef} onOpenWorkspaceFile={onOpenWorkspaceFile} />;
+    return <ToolResultRow conversationId={conversationId} skillManagerHref={skillManagerHref} message={message} compact={compact} animate={animate} rowRef={rowRef} onOpenWorkspaceFile={onOpenWorkspaceFile} />;
   }
 
   if (isUser) {
@@ -2678,7 +2685,7 @@ function MessageRow({
       <div ref={rowRef as ((node: HTMLDivElement | null) => void) | undefined} className={`group flex justify-end ${animate ? 'animate-message-enter' : ''}`}>
         <div className="max-w-[90%] md:max-w-[min(74%,46rem)]">
           <div className="rounded-2xl rounded-br-md bg-[var(--color-accent)]/8 px-2.5 py-2 text-sm leading-6 text-[var(--color-text-primary)] md:px-3">
-            {message.text && <UserMessageText conversationId={conversationId} text={message.text} onOpenWorkspaceFile={onOpenWorkspaceFile} />}
+            {message.text && <UserMessageText conversationId={conversationId} skillManagerHref={skillManagerHref} text={message.text} onOpenWorkspaceFile={onOpenWorkspaceFile} />}
             <MessageImages images={message.images ?? []} />
             <ToolCallSummary message={message} />
           </div>
@@ -2701,7 +2708,7 @@ function MessageRow({
     <article ref={rowRef as ((node: HTMLElement | null) => void) | undefined} className={`group w-full max-w-[74ch] text-sm leading-6 ${animate ? 'animate-message-enter' : ''} ${message.isError ? 'text-[var(--color-error)]' : 'text-[var(--color-text-primary)]'}`}>
       <div>
         {message.thinking && <CollapsibleEvent icon={<Sparkles size={14} />} title="Thinking" body={message.thinking} />}
-        {message.text && <MarkdownRenderer conversationId={conversationId} enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{message.text}</MarkdownRenderer>}
+        {message.text && <MarkdownRenderer conversationId={conversationId} skillManagerHref={skillManagerHref} enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{message.text}</MarkdownRenderer>}
         <ToolCallSummary message={message} />
       </div>
       <MessageActions
@@ -2720,10 +2727,12 @@ const COLLAPSED_USER_MESSAGE_MAX_LINES = 18;
 
 function UserMessageText({
   conversationId,
+  skillManagerHref,
   text,
   onOpenWorkspaceFile,
 }: {
   conversationId: string;
+  skillManagerHref: string;
   text: string;
   onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void;
 }) {
@@ -2736,7 +2745,7 @@ function UserMessageText({
         className={collapsible && !expanded ? 'max-h-64 overflow-hidden' : ''}
         style={collapsible && !expanded ? { WebkitMaskImage: 'linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent)' } : undefined}
       >
-        <MarkdownRenderer conversationId={conversationId} enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>
+        <MarkdownRenderer conversationId={conversationId} skillManagerHref={skillManagerHref} enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>
           {text}
         </MarkdownRenderer>
       </div>
@@ -2935,6 +2944,7 @@ function ImageAttachmentPreviewDialog({ image, onClose }: { image: PiConversatio
 
 function CollapsedTurnEvents({
   conversationId,
+  skillManagerHref,
   messages,
   copiedMessageId,
   onCopy,
@@ -2943,6 +2953,7 @@ function CollapsedTurnEvents({
   rowRef,
 }: {
   conversationId: string;
+  skillManagerHref: string;
   messages: PiConversationMessage[];
   copiedMessageId: string | null;
   onCopy: (message: PiConversationMessage) => void;
@@ -2968,6 +2979,7 @@ function CollapsedTurnEvents({
           <MessageRow
             key={message.id || `${message.role}-${index}`}
             conversationId={conversationId}
+            skillManagerHref={skillManagerHref}
             message={message}
             compact
             copied={copiedMessageId === message.id}
@@ -3034,7 +3046,7 @@ function MessageActions({
   );
 }
 
-function ToolResultRow({ conversationId, message, compact, animate = true, rowRef, onOpenWorkspaceFile }: { conversationId: string; message: PiConversationMessage; compact?: boolean; animate?: boolean; rowRef?: (node: HTMLElement | null) => void; onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void }) {
+function ToolResultRow({ conversationId, skillManagerHref, message, compact, animate = true, rowRef, onOpenWorkspaceFile }: { conversationId: string; skillManagerHref: string; message: PiConversationMessage; compact?: boolean; animate?: boolean; rowRef?: (node: HTMLElement | null) => void; onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void }) {
   return (
     <details ref={rowRef as ((node: HTMLDetailsElement | null) => void) | undefined} className={`group text-xs ${compact ? '' : 'mx-0'} ${animate ? 'animate-message-enter' : ''}`}>
       <summary className="flex cursor-pointer list-none items-center gap-2 py-1 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
@@ -3045,14 +3057,14 @@ function ToolResultRow({ conversationId, message, compact, animate = true, rowRe
       </summary>
       {message.text && (
         <div className="mt-1 pl-5 text-[var(--color-text-secondary)]">
-          {message.text && <MarkdownRenderer conversationId={conversationId} enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{message.text}</MarkdownRenderer>}
+          {message.text && <MarkdownRenderer conversationId={conversationId} skillManagerHref={skillManagerHref} enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{message.text}</MarkdownRenderer>}
         </div>
       )}
     </details>
   );
 }
 
-function PendingAssistant({ conversationId, snapshot, onOpenWorkspaceFile }: { conversationId: string; snapshot: PiConversationSnapshot | null; onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void }) {
+function PendingAssistant({ conversationId, skillManagerHref, snapshot, onOpenWorkspaceFile }: { conversationId: string; skillManagerHref: string; snapshot: PiConversationSnapshot | null; onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void }) {
   if (!snapshot) return null;
   const activitySummary = assistantActivitySummary(snapshot);
   const hasActivity = Boolean(snapshot.pending?.thinking || (snapshot.pending?.toolCalls?.length ?? 0) > 0 || (snapshot.tools?.length ?? 0) > 0);
@@ -3075,7 +3087,7 @@ function PendingAssistant({ conversationId, snapshot, onOpenWorkspaceFile }: { c
           </div>
         </details>
       )}
-      {snapshot.pending?.text && <MarkdownRenderer conversationId={conversationId} enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{snapshot.pending.text}</MarkdownRenderer>}
+      {snapshot.pending?.text && <MarkdownRenderer conversationId={conversationId} skillManagerHref={skillManagerHref} enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{snapshot.pending.text}</MarkdownRenderer>}
       {snapshot.streaming && !snapshot.pending?.text && !hasActivity && (
         <div className="flex items-center gap-2 text-xs text-dim">
           <Loader2 size={13} className="animate-spin" />

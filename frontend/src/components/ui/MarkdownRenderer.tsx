@@ -1,16 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
-import { useQuery } from '@tanstack/react-query';
-import { BookOpen, Loader2 } from 'lucide-react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { Check, Copy } from 'lucide-react';
 import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { v2Api } from '../../api/v2';
 import { tokenizeCodeburgReferences, type CodeburgReference } from '../chat/referenceTokens';
 
 interface MarkdownRendererProps {
   children: string;
   className?: string;
   conversationId?: string;
+  skillManagerHref?: string;
   enhanceCodeburgRefs?: boolean;
   onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void;
 }
@@ -65,10 +63,10 @@ const LANGUAGE_ALIASES: Record<string, string> = {
   zsh: 'shell',
 };
 
-export function MarkdownRenderer({ children, className = '', conversationId, enhanceCodeburgRefs = false, onOpenWorkspaceFile }: MarkdownRendererProps) {
+export function MarkdownRenderer({ children, className = '', skillManagerHref, enhanceCodeburgRefs = false, onOpenWorkspaceFile }: MarkdownRendererProps) {
   const components = useMemo(
-    () => markdownComponents({ conversationId, onOpenWorkspaceFile }),
-    [conversationId, onOpenWorkspaceFile],
+    () => markdownComponents({ skillManagerHref, onOpenWorkspaceFile }),
+    [skillManagerHref, onOpenWorkspaceFile],
   );
 
   return (
@@ -84,10 +82,10 @@ export function MarkdownRenderer({ children, className = '', conversationId, enh
 }
 
 function markdownComponents({
-  conversationId,
+  skillManagerHref,
   onOpenWorkspaceFile,
 }: {
-  conversationId?: string;
+  skillManagerHref?: string;
   onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void;
 }): Components {
   return {
@@ -108,14 +106,14 @@ function markdownComponents({
       if (href?.startsWith(SKILL_REF_PREFIX)) {
         const skillName = decodeURIComponent(href.slice(SKILL_REF_PREFIX.length));
         return (
-          <SkillReferenceTag skillName={skillName} conversationId={conversationId}>
+          <SkillReferenceTag skillName={skillName} skillManagerHref={skillManagerHref}>
             {children}
           </SkillReferenceTag>
         );
       }
       if (href?.startsWith(FILE_REF_PREFIX)) {
         const reference = decodeWorkspaceFileHref(href);
-        const className = "mx-0.5 inline-flex max-w-full align-middle rounded-md bg-secondary px-1.5 py-0.5 font-mono text-[0.92em] font-medium text-[var(--color-text-secondary)] no-underline transition-colors hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]";
+        const className = "mx-0.5 inline-flex max-w-full align-middle rounded-md bg-[var(--color-warning)]/12 px-1.5 py-0.5 font-mono text-[0.92em] font-medium text-[var(--color-warning)] no-underline transition-colors hover:bg-[var(--color-warning)]/18 hover:text-[var(--color-warning)]";
         if (onOpenWorkspaceFile && reference.path) {
           return (
             <button
@@ -148,19 +146,34 @@ function markdownComponents({
 
 function CodeBlock({ code, language }: { code: string; language?: string }) {
   const normalizedLanguage = normalizeLanguage(language);
+  const [copied, setCopied] = useState(false);
   const highlighted = useMemo(
     () => highlightCode(code, normalizedLanguage),
     [code, normalizedLanguage],
   );
+  const copyCode = async () => {
+    await navigator.clipboard?.writeText(code);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  };
 
   return (
-    <div className="codeburg-code-block not-prose my-3 overflow-hidden rounded-lg">
+    <div className="codeburg-code-block not-prose group relative my-3 overflow-hidden rounded-lg">
       {normalizedLanguage && (
-        <div className="px-3 pb-0 pt-2 font-mono text-[10px] font-medium text-dim opacity-75">
+        <div className="px-5 pb-0 pt-2.5 pr-10 font-mono text-[10px] font-medium text-dim opacity-75">
           {normalizedLanguage}
         </div>
       )}
-      <pre className={`m-0 max-h-[32rem] overflow-auto px-3 ${normalizedLanguage ? 'pb-3 pt-1.5' : 'py-3'} text-[12px] leading-5 text-[var(--color-text-secondary)]`}>
+      <button
+        type="button"
+        onClick={() => void copyCode()}
+        className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-md text-dim opacity-60 transition-colors hover:bg-secondary hover:text-[var(--color-text-primary)] group-hover:opacity-100 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
+        title="Copy code"
+        aria-label="Copy code"
+      >
+        {copied ? <Check size={13} /> : <Copy size={13} />}
+      </button>
+      <pre className={`m-0 max-h-[32rem] overflow-auto px-5 pr-10 ${normalizedLanguage ? 'pb-4 pt-2' : 'py-4'} text-[12px] leading-5 text-[var(--color-text-primary)]`}>
         <code className="font-mono" dangerouslySetInnerHTML={{ __html: highlighted }} />
       </pre>
     </div>
@@ -169,170 +182,26 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
 
 function SkillReferenceTag({
   skillName,
-  conversationId,
+  skillManagerHref,
   children,
 }: {
   skillName: string;
-  conversationId?: string;
+  skillManagerHref?: string;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
-  const [pinned, setPinned] = useState(false);
-  const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(null);
-  const anchorRef = useRef<HTMLButtonElement | null>(null);
-  const closeTimerRef = useRef<number | null>(null);
-  const pinnedRef = useRef(pinned);
-  const tooltipComponents = useMemo(() => markdownComponents({}), []);
-  const skillQuery = useQuery({
-    queryKey: ['v2-conversation-skill', conversationId, skillName],
-    queryFn: () => v2Api.getConversationSkill(conversationId!, skillName),
-    enabled: open && Boolean(conversationId && skillName),
-    staleTime: 5 * 60_000,
-    retry: false,
-  });
-
-  useEffect(() => {
-    pinnedRef.current = pinned;
-  }, [pinned]);
-
-  useEffect(() => () => {
-    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    updateSkillPopoverPosition(anchorRef.current, setPosition);
-    const update = () => updateSkillPopoverPosition(anchorRef.current, setPosition);
-    window.addEventListener('resize', update);
-    window.addEventListener('scroll', update, true);
-    return () => {
-      window.removeEventListener('resize', update);
-      window.removeEventListener('scroll', update, true);
-    };
-  }, [open]);
-
-  const clearCloseTimer = () => {
-    if (!closeTimerRef.current) return;
-    window.clearTimeout(closeTimerRef.current);
-    closeTimerRef.current = null;
-  };
-
-  const openPopover = () => {
-    clearCloseTimer();
-    setOpen(true);
-    window.requestAnimationFrame(() => updateSkillPopoverPosition(anchorRef.current, setPosition));
-  };
-
-  const closeIfFloating = () => {
-    clearCloseTimer();
-    closeTimerRef.current = window.setTimeout(() => {
-      if (!pinnedRef.current) setOpen(false);
-    }, 120);
-  };
+  const href = skillManagerHref || '/skills';
 
   return (
-    <span className="not-prose relative mx-0.5 inline-flex align-middle" onMouseEnter={openPopover} onMouseLeave={closeIfFloating}>
-      <button
-        ref={anchorRef}
-        type="button"
-        className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-accent/10 px-1.5 py-0.5 font-mono text-[0.92em] font-medium text-accent transition-colors hover:bg-accent/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
-        title={`/skill:${skillName}`}
-        aria-expanded={open}
-        onClick={(event) => {
-          event.preventDefault();
-          setPinned((current) => {
-            const next = !current;
-            setOpen(next);
-            if (next) window.requestAnimationFrame(() => updateSkillPopoverPosition(anchorRef.current, setPosition));
-            return next;
-          });
-        }}
-        onFocus={openPopover}
-        onBlur={closeIfFloating}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            setPinned(false);
-            setOpen(false);
-          }
-        }}
+    <span className="not-prose relative mx-0.5 inline-flex align-middle">
+      <a
+        href={href}
+        className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-accent/10 px-1.5 py-0.5 font-mono text-[0.92em] font-medium text-accent no-underline transition-colors hover:bg-accent/15 hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
+        title={`Open skills for /skill:${skillName}`}
       >
         {children}
-      </button>
-      {open && position && typeof document !== 'undefined' && createPortal(
-        <div
-          className="fixed z-[90] -translate-x-1/2 overflow-hidden rounded-2xl border border-subtle bg-card text-left shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
-          style={{ top: position.top, left: position.left, width: position.width }}
-          onMouseEnter={clearCloseTimer}
-          onMouseLeave={closeIfFloating}
-        >
-          <SkillReferencePopover
-            skillName={skillName}
-            conversationId={conversationId}
-            query={skillQuery}
-            components={tooltipComponents}
-          />
-        </div>,
-        document.body,
-      )}
+      </a>
     </span>
   );
-}
-
-function SkillReferencePopover({
-  skillName,
-  conversationId,
-  query,
-  components,
-}: {
-  skillName: string;
-  conversationId?: string;
-  query: ReturnType<typeof useQuery>;
-  components: Components;
-}) {
-  return (
-    <>
-      <div className="px-3 py-2">
-        <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-[var(--color-text-primary)]">
-          <BookOpen size={14} className="shrink-0 text-accent" />
-          <span className="min-w-0 truncate">{(query.data as { title?: string } | undefined)?.title || skillName}</span>
-          {query.isFetching && <Loader2 size={13} className="shrink-0 animate-spin text-dim" />}
-        </div>
-        <div className="mt-0.5 truncate font-mono text-[11px] text-dim">/skill:{skillName}</div>
-      </div>
-      <div className="max-h-[28rem] overflow-y-auto px-3 pb-3 pt-1 text-xs leading-5 text-[var(--color-text-secondary)]">
-        {!conversationId ? (
-          <p className="m-0 text-dim">Skill details are available inside a conversation.</p>
-        ) : query.data ? (
-          <>
-            {(query.data as { description?: string }).description && <p className="mb-3 mt-0 text-[var(--color-text-secondary)]">{(query.data as { description?: string }).description}</p>}
-            <div className="prose-md max-w-none text-xs leading-5">
-              <Markdown remarkPlugins={[remarkGfm]} components={components}>
-                {(query.data as { content: string }).content}
-              </Markdown>
-            </div>
-          </>
-        ) : query.isError ? (
-          <p className="m-0 text-dim">No installed skill readme was found for this tag.</p>
-        ) : (
-          <div className="flex min-h-24 items-center gap-2 text-dim">
-            <Loader2 size={13} className="animate-spin" />
-            <span>Loading skill readme</span>
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
-function updateSkillPopoverPosition(
-  anchor: HTMLElement | null,
-  setPosition: (position: { top: number; left: number; width: number }) => void,
-) {
-  if (!anchor) return;
-  const rect = anchor.getBoundingClientRect();
-  const width = Math.min(576, Math.max(280, window.innerWidth - 32));
-  const left = Math.min(Math.max(rect.left + rect.width / 2, 16 + width / 2), window.innerWidth - 16 - width / 2);
-  setPosition({ top: rect.bottom + 8, left, width });
 }
 
 function remarkCodeburgInlineRefs() {
