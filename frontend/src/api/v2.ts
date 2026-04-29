@@ -19,6 +19,7 @@ import type {
   PiConfigResponse,
   ConversationWorkspaceLink,
   ManagedSkill,
+  SkillDetail,
   SkillCatalogEntry,
   SkillCatalogSource,
   ProjectSkillsResponse,
@@ -341,6 +342,9 @@ export const v2Api = {
 
   listConversationCommands: (conversationId: string, input?: { activate?: boolean }) =>
     api.get<{ commands: PiSlashCommand[] }>(`/conversations/${conversationId}/commands${input?.activate ? '?activate=1' : ''}`),
+
+  getConversationSkill: (conversationId: string, name: string) =>
+    api.get<SkillDetail>(`/conversations/${conversationId}/skills/${encodeURIComponent(name)}`),
 
   getPiStatus: () =>
     api.get<PiStatus>('/pi/status'),

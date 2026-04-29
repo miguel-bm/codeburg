@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } from 'react';
 import CodeMirror, { EditorView, type ReactCodeMirrorRef, type ViewUpdate } from '@uiw/react-codemirror';
-import { Decoration, type DecorationSet } from '@codemirror/view';
+import { Decoration, keymap, type DecorationSet } from '@codemirror/view';
 import { RangeSetBuilder, Prec, type Extension } from '@codemirror/state';
 import { WidgetType, ViewPlugin } from '@codemirror/view';
 import type { CodeburgReference, CodeburgReferenceRange } from './referenceTokens';
@@ -11,6 +11,12 @@ export interface TokenAwareComposerHandle {
   blur: () => void;
   setSelection: (selection: InputSelection) => void;
   getSelection: () => InputSelection;
+}
+
+export interface ComposerKeyCommand {
+  key: string;
+  shiftKey: boolean;
+  preventDefault: () => void;
 }
 
 interface TokenAwareComposerProps {
@@ -26,7 +32,7 @@ interface TokenAwareComposerProps {
   onFocus: () => void;
   onBlur: () => void;
   onPasteFiles: (clipboardData: DataTransfer) => boolean;
-  onKeyCommand: (event: KeyboardEvent, selection: InputSelection) => boolean;
+  onKeyCommand: (event: ComposerKeyCommand, selection: InputSelection) => boolean;
   onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void;
 }
 
@@ -142,6 +148,13 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
   const extensions = useMemo<Extension[]>(() => [
     EditorView.lineWrapping,
     editorTheme,
+    Prec.highest(keymap.of([
+      { key: 'ArrowDown', run: (view) => onKeyCommand(codeMirrorKeyCommand('ArrowDown'), editorSelection(view)) },
+      { key: 'ArrowUp', run: (view) => onKeyCommand(codeMirrorKeyCommand('ArrowUp'), editorSelection(view)) },
+      { key: 'Enter', run: (view) => onKeyCommand(codeMirrorKeyCommand('Enter'), editorSelection(view)) },
+      { key: 'Tab', run: (view) => onKeyCommand(codeMirrorKeyCommand('Tab'), editorSelection(view)) },
+      { key: 'Escape', run: (view) => onKeyCommand(codeMirrorKeyCommand('Escape'), editorSelection(view)) },
+    ])),
     codeburgReferenceDecorations(referenceRanges, activeTokenRange, onOpenWorkspaceFile),
     EditorView.domEventHandlers({
       focus: () => {
@@ -157,7 +170,6 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
         event.preventDefault();
         return true;
       },
-      keydown: (event, view) => onKeyCommand(event, editorSelection(view)),
     }),
     Prec.high(EditorView.editable.of(!disabled)),
   ], [activeTokenRange, disabled, editorTheme, onBlur, onFocus, onKeyCommand, onOpenWorkspaceFile, onPasteFiles, referenceRanges]);
@@ -298,6 +310,14 @@ function editorSelection(view: EditorView): InputSelection {
   return {
     start: Math.min(range.from, range.to),
     end: Math.max(range.from, range.to),
+  };
+}
+
+function codeMirrorKeyCommand(key: string, shiftKey = false): ComposerKeyCommand {
+  return {
+    key,
+    shiftKey,
+    preventDefault: () => undefined,
   };
 }
 

@@ -59,7 +59,7 @@ import { useWorkspaceStore } from '../../stores/workspace';
 import { isDesktopShell } from '../../platform/runtimeConfig';
 import { applySuggestionToText, findActiveToken, fuzzyScore, type InputSelection } from '../../components/chat/chatAutocomplete';
 import { findCodeburgReferenceRanges, type CodeburgReference, type CodeburgReferenceRange } from '../../components/chat/referenceTokens';
-import { TokenAwareComposer, type TokenAwareComposerHandle } from '../../components/chat/TokenAwareComposer';
+import { TokenAwareComposer, type ComposerKeyCommand, type TokenAwareComposerHandle } from '../../components/chat/TokenAwareComposer';
 import { Button, V2Empty, V2Screen } from './v2-ui';
 import { V2WorkspaceActionHeader } from './V2WorkspaceActionHeader';
 import { WorkspaceConversationTab, WorkspaceTerminalTab } from './V2WorkspaceTabs';
@@ -1591,7 +1591,7 @@ function ConversationSurface({
     return true;
   };
 
-  const handleComposerKeyCommand = (event: KeyboardEvent, currentSelection: InputSelection): boolean => {
+  const handleComposerKeyCommand = (event: ComposerKeyCommand, currentSelection: InputSelection): boolean => {
     setSelection(currentSelection);
     if (visibleSuggestions.length > 0) {
       if (event.key === 'ArrowDown') {
@@ -1667,6 +1667,7 @@ function ConversationSurface({
             {messageItems.map((item, index) => item.type === 'message' ? (
               <MessageRow
                 key={item.message.id || `${item.message.role}-${index}`}
+                conversationId={conversationId}
                 message={item.message}
                 copied={copiedMessageId === item.message.id}
                 forkPending={forkPending}
@@ -1685,6 +1686,7 @@ function ConversationSurface({
             ) : (
               <CollapsedTurnEvents
                 key={`collapsed-${index}-${item.messages.map((message) => message.id).join(':')}`}
+                conversationId={conversationId}
                 messages={item.messages}
                 copiedMessageId={copiedMessageId}
                 onCopy={(message) => void copyMessage(message)}
@@ -1693,7 +1695,7 @@ function ConversationSurface({
                 rowRef={(node) => setMessageRowRef(index, node)}
               />
             ))}
-            {pendingVisible && <PendingAssistant snapshot={snapshot} onOpenWorkspaceFile={onOpenWorkspaceFile} />}
+            {pendingVisible && <PendingAssistant conversationId={conversationId} snapshot={snapshot} onOpenWorkspaceFile={onOpenWorkspaceFile} />}
           </div>
         ) : (
           <V2Empty
@@ -2632,6 +2634,7 @@ function ConversationActionButton({
 }
 
 function MessageRow({
+  conversationId,
   message,
   copied,
   compact = false,
@@ -2648,6 +2651,7 @@ function MessageRow({
   animate = true,
   rowRef,
 }: {
+  conversationId: string;
   message: PiConversationMessage;
   copied: boolean;
   compact?: boolean;
@@ -2666,7 +2670,7 @@ function MessageRow({
 }) {
   const isUser = message.role === 'user';
   if (isToolMessage(message)) {
-    return <ToolResultRow message={message} compact={compact} animate={animate} rowRef={rowRef} onOpenWorkspaceFile={onOpenWorkspaceFile} />;
+    return <ToolResultRow conversationId={conversationId} message={message} compact={compact} animate={animate} rowRef={rowRef} onOpenWorkspaceFile={onOpenWorkspaceFile} />;
   }
 
   if (isUser) {
@@ -2674,7 +2678,7 @@ function MessageRow({
       <div ref={rowRef as ((node: HTMLDivElement | null) => void) | undefined} className={`group flex justify-end ${animate ? 'animate-message-enter' : ''}`}>
         <div className="max-w-[90%] md:max-w-[min(74%,46rem)]">
           <div className="rounded-2xl rounded-br-md bg-[var(--color-accent)]/8 px-2.5 py-2 text-sm leading-6 text-[var(--color-text-primary)] md:px-3">
-            {message.text && <MarkdownRenderer enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{message.text}</MarkdownRenderer>}
+            {message.text && <UserMessageText conversationId={conversationId} text={message.text} onOpenWorkspaceFile={onOpenWorkspaceFile} />}
             <MessageImages images={message.images ?? []} />
             <ToolCallSummary message={message} />
           </div>
@@ -2697,7 +2701,7 @@ function MessageRow({
     <article ref={rowRef as ((node: HTMLElement | null) => void) | undefined} className={`group w-full max-w-[74ch] text-sm leading-6 ${animate ? 'animate-message-enter' : ''} ${message.isError ? 'text-[var(--color-error)]' : 'text-[var(--color-text-primary)]'}`}>
       <div>
         {message.thinking && <CollapsibleEvent icon={<Sparkles size={14} />} title="Thinking" body={message.thinking} />}
-        {message.text && <MarkdownRenderer enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{message.text}</MarkdownRenderer>}
+        {message.text && <MarkdownRenderer conversationId={conversationId} enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{message.text}</MarkdownRenderer>}
         <ToolCallSummary message={message} />
       </div>
       <MessageActions
@@ -2709,6 +2713,50 @@ function MessageRow({
       />
     </article>
   );
+}
+
+const COLLAPSED_USER_MESSAGE_MAX_CHARS = 1200;
+const COLLAPSED_USER_MESSAGE_MAX_LINES = 18;
+
+function UserMessageText({
+  conversationId,
+  text,
+  onOpenWorkspaceFile,
+}: {
+  conversationId: string;
+  text: string;
+  onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const collapsible = shouldCollapseUserMessage(text);
+
+  return (
+    <div>
+      <div
+        className={collapsible && !expanded ? 'max-h-64 overflow-hidden' : ''}
+        style={collapsible && !expanded ? { WebkitMaskImage: 'linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent)' } : undefined}
+      >
+        <MarkdownRenderer conversationId={conversationId} enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>
+          {text}
+        </MarkdownRenderer>
+      </div>
+      {collapsible && (
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-dim transition-colors hover:text-[var(--color-text-secondary)]"
+          aria-expanded={expanded}
+        >
+          <ChevronDown size={13} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          <span>{expanded ? 'Show less' : 'Show more'}</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+function shouldCollapseUserMessage(text: string): boolean {
+  return text.length > COLLAPSED_USER_MESSAGE_MAX_CHARS || text.split('\n').length > COLLAPSED_USER_MESSAGE_MAX_LINES;
 }
 
 function MessageVersionControls({
@@ -2886,6 +2934,7 @@ function ImageAttachmentPreviewDialog({ image, onClose }: { image: PiConversatio
 }
 
 function CollapsedTurnEvents({
+  conversationId,
   messages,
   copiedMessageId,
   onCopy,
@@ -2893,6 +2942,7 @@ function CollapsedTurnEvents({
   animate = true,
   rowRef,
 }: {
+  conversationId: string;
   messages: PiConversationMessage[];
   copiedMessageId: string | null;
   onCopy: (message: PiConversationMessage) => void;
@@ -2917,6 +2967,7 @@ function CollapsedTurnEvents({
         {messages.map((message, index) => (
           <MessageRow
             key={message.id || `${message.role}-${index}`}
+            conversationId={conversationId}
             message={message}
             compact
             copied={copiedMessageId === message.id}
@@ -2983,7 +3034,7 @@ function MessageActions({
   );
 }
 
-function ToolResultRow({ message, compact, animate = true, rowRef, onOpenWorkspaceFile }: { message: PiConversationMessage; compact?: boolean; animate?: boolean; rowRef?: (node: HTMLElement | null) => void; onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void }) {
+function ToolResultRow({ conversationId, message, compact, animate = true, rowRef, onOpenWorkspaceFile }: { conversationId: string; message: PiConversationMessage; compact?: boolean; animate?: boolean; rowRef?: (node: HTMLElement | null) => void; onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void }) {
   return (
     <details ref={rowRef as ((node: HTMLDetailsElement | null) => void) | undefined} className={`group text-xs ${compact ? '' : 'mx-0'} ${animate ? 'animate-message-enter' : ''}`}>
       <summary className="flex cursor-pointer list-none items-center gap-2 py-1 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
@@ -2994,14 +3045,14 @@ function ToolResultRow({ message, compact, animate = true, rowRef, onOpenWorkspa
       </summary>
       {message.text && (
         <div className="mt-1 pl-5 text-[var(--color-text-secondary)]">
-          {message.text && <MarkdownRenderer enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{message.text}</MarkdownRenderer>}
+          {message.text && <MarkdownRenderer conversationId={conversationId} enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{message.text}</MarkdownRenderer>}
         </div>
       )}
     </details>
   );
 }
 
-function PendingAssistant({ snapshot, onOpenWorkspaceFile }: { snapshot: PiConversationSnapshot | null; onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void }) {
+function PendingAssistant({ conversationId, snapshot, onOpenWorkspaceFile }: { conversationId: string; snapshot: PiConversationSnapshot | null; onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void }) {
   if (!snapshot) return null;
   const activitySummary = assistantActivitySummary(snapshot);
   const hasActivity = Boolean(snapshot.pending?.thinking || (snapshot.pending?.toolCalls?.length ?? 0) > 0 || (snapshot.tools?.length ?? 0) > 0);
@@ -3024,7 +3075,7 @@ function PendingAssistant({ snapshot, onOpenWorkspaceFile }: { snapshot: PiConve
           </div>
         </details>
       )}
-      {snapshot.pending?.text && <MarkdownRenderer enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{snapshot.pending.text}</MarkdownRenderer>}
+      {snapshot.pending?.text && <MarkdownRenderer conversationId={conversationId} enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{snapshot.pending.text}</MarkdownRenderer>}
       {snapshot.streaming && !snapshot.pending?.text && !hasActivity && (
         <div className="flex items-center gap-2 text-xs text-dim">
           <Loader2 size={13} className="animate-spin" />

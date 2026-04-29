@@ -27,6 +27,18 @@ type managedSkill struct {
 	Symlinked   bool    `json:"symlinked"`
 }
 
+type skillDetail struct {
+	Name        string  `json:"name"`
+	Title       string  `json:"title"`
+	Description *string `json:"description,omitempty"`
+	Path        string  `json:"path"`
+	Scope       string  `json:"scope"`
+	Target      string  `json:"target"`
+	SourcePath  *string `json:"sourcePath,omitempty"`
+	Symlinked   bool    `json:"symlinked"`
+	Content     string  `json:"content"`
+}
+
 type projectSkillsResponse struct {
 	Installed []managedSkill `json:"installed"`
 	Available []managedSkill `json:"available"`
@@ -77,6 +89,7 @@ type createSkillCatalogSourceRequest struct {
 }
 
 const customSkillCatalogSourcesPreferenceKey = "v2_skill_catalog_sources"
+const maxSkillDetailContentBytes = 128 * 1024
 
 var curatedSkillCatalogSources = []curatedSkillCatalogSource{
 	{
@@ -216,6 +229,53 @@ func (s *Server) handleListProjectSkills(w http.ResponseWriter, r *http.Request)
 		Installed: installed,
 		Available: available,
 	})
+}
+
+func (s *Server) handleGetConversationSkill(w http.ResponseWriter, r *http.Request) {
+	conversationID := urlParam(r, "id")
+	name := strings.TrimSpace(urlParam(r, "name"))
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "skill name is required")
+		return
+	}
+
+	conversation, err := s.db.GetConversation(conversationID)
+	if err != nil {
+		writeDBError(w, err, "conversation")
+		return
+	}
+	project, err := s.db.GetProject(conversation.ProjectID)
+	if err != nil {
+		writeDBError(w, err, "project")
+		return
+	}
+
+	for _, source := range []struct {
+		roots map[string]string
+		scope string
+	}{
+		{roots: projectSkillRoots(project.Path), scope: "project"},
+		{roots: globalSkillRoots(), scope: "global"},
+	} {
+		skills, err := discoverSkillsForRoots(source.roots, source.scope)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to discover skills")
+			return
+		}
+		skill, ok := findManagedSkillByName(skills, name)
+		if !ok {
+			continue
+		}
+		content, err := readSkillDetailContent(skill.Path)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to read skill")
+			return
+		}
+		writeJSON(w, http.StatusOK, skillDetailFromManaged(skill, content))
+		return
+	}
+
+	writeError(w, http.StatusNotFound, "skill not found")
 }
 
 func (s *Server) handleListSkillCatalog(w http.ResponseWriter, r *http.Request) {
@@ -760,6 +820,46 @@ func inspectSkillDir(path, scope, target string) (managedSkill, error) {
 		skill.SourcePath = &sourcePath
 	}
 	return skill, nil
+}
+
+func findManagedSkillByName(skills []managedSkill, name string) (managedSkill, bool) {
+	for _, skill := range skills {
+		if skill.Name == name || skill.Title == name {
+			return skill, true
+		}
+	}
+	return managedSkill{}, false
+}
+
+func readSkillDetailContent(skillPath string) (string, error) {
+	file, err := os.Open(filepath.Join(skillPath, "SKILL.md"))
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	raw, err := io.ReadAll(io.LimitReader(file, maxSkillDetailContentBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(raw) > maxSkillDetailContentBytes {
+		return string(raw[:maxSkillDetailContentBytes]) + "\n\n[truncated]", nil
+	}
+	return string(raw), nil
+}
+
+func skillDetailFromManaged(skill managedSkill, content string) skillDetail {
+	return skillDetail{
+		Name:        skill.Name,
+		Title:       skill.Title,
+		Description: skill.Description,
+		Path:        skill.Path,
+		Scope:       skill.Scope,
+		Target:      skill.Target,
+		SourcePath:  skill.SourcePath,
+		Symlinked:   skill.Symlinked,
+		Content:     content,
+	}
 }
 
 func parseSkillMetadata(content, fallback string) (string, string) {

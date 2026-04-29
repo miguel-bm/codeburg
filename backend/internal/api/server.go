@@ -336,6 +336,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/conversations/{id}/export/html", s.handleExportConversationHTML)
 		r.Post("/api/conversations/{id}/reload", s.handleReloadConversationPi)
 		r.Get("/api/conversations/{id}/commands", s.handleListConversationCommands)
+		r.Get("/api/conversations/{id}/skills/{name}", s.handleGetConversationSkill)
 		r.Get("/api/skills", s.handleListSkills)
 		r.Post("/api/skills", s.handleInstallGlobalSkill)
 		r.Get("/api/skills/catalog/sources", s.handleListSkillCatalogSources)

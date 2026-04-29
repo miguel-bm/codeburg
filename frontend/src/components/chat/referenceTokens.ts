@@ -12,7 +12,7 @@ export interface CodeburgReferenceRange {
   reference: CodeburgReference;
 }
 
-const INLINE_REF_PATTERN = /(^|[\s([{"'`])((\/skill:([A-Za-z0-9][A-Za-z0-9._-]*))|@([A-Za-z0-9._/-][A-Za-z0-9_./:-]*))/g;
+const INLINE_REF_PATTERN = /(^|[\s([{"'`])((\/skill:([A-Za-z0-9][A-Za-z0-9._:-]*))|@([A-Za-z0-9._/-][A-Za-z0-9_./:-]*))/g;
 const TRAILING_TOKEN_PUNCTUATION = /[.,;!?)]/;
 
 export function tokenizeCodeburgReferences(value: string): CodeburgReferenceSegment[] {
