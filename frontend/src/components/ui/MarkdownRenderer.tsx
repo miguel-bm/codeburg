@@ -1,4 +1,5 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { BookOpen, Loader2 } from 'lucide-react';
 import Markdown, { type Components } from 'react-markdown';
@@ -153,13 +154,13 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
   );
 
   return (
-    <div className="not-prose my-3 overflow-hidden rounded-xl border border-subtle bg-[var(--color-inset)] shadow-sm">
+    <div className="codeburg-code-block not-prose my-3 overflow-hidden rounded-lg">
       {normalizedLanguage && (
-        <div className="flex h-8 items-center border-b border-subtle px-3 font-mono text-[11px] uppercase text-dim">
+        <div className="px-3 pb-0 pt-2 font-mono text-[10px] font-medium text-dim opacity-75">
           {normalizedLanguage}
         </div>
       )}
-      <pre className="m-0 max-h-[32rem] overflow-auto p-3 text-[12px] leading-5 text-[var(--color-text-secondary)]">
+      <pre className={`m-0 max-h-[32rem] overflow-auto px-3 ${normalizedLanguage ? 'pb-3 pt-1.5' : 'py-3'} text-[12px] leading-5 text-[var(--color-text-secondary)]`}>
         <code className="font-mono" dangerouslySetInnerHTML={{ __html: highlighted }} />
       </pre>
     </div>
@@ -177,6 +178,10 @@ function SkillReferenceTag({
 }) {
   const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
+  const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(null);
+  const anchorRef = useRef<HTMLButtonElement | null>(null);
+  const closeTimerRef = useRef<number | null>(null);
+  const pinnedRef = useRef(pinned);
   const tooltipComponents = useMemo(() => markdownComponents({}), []);
   const skillQuery = useQuery({
     queryKey: ['v2-conversation-skill', conversationId, skillName],
@@ -186,15 +191,51 @@ function SkillReferenceTag({
     retry: false,
   });
 
+  useEffect(() => {
+    pinnedRef.current = pinned;
+  }, [pinned]);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    updateSkillPopoverPosition(anchorRef.current, setPosition);
+    const update = () => updateSkillPopoverPosition(anchorRef.current, setPosition);
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [open]);
+
+  const clearCloseTimer = () => {
+    if (!closeTimerRef.current) return;
+    window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+  };
+
+  const openPopover = () => {
+    clearCloseTimer();
+    setOpen(true);
+    window.requestAnimationFrame(() => updateSkillPopoverPosition(anchorRef.current, setPosition));
+  };
+
   const closeIfFloating = () => {
-    if (!pinned) setOpen(false);
+    clearCloseTimer();
+    closeTimerRef.current = window.setTimeout(() => {
+      if (!pinnedRef.current) setOpen(false);
+    }, 120);
   };
 
   return (
-    <span className="not-prose relative mx-0.5 inline-flex align-middle" onMouseEnter={() => setOpen(true)} onMouseLeave={closeIfFloating}>
+    <span className="not-prose relative mx-0.5 inline-flex align-middle" onMouseEnter={openPopover} onMouseLeave={closeIfFloating}>
       <button
+        ref={anchorRef}
         type="button"
-        className="inline-flex rounded-md bg-accent/10 px-1.5 py-0.5 font-mono text-[0.92em] font-medium text-accent transition-colors hover:bg-accent/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
+        className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-accent/10 px-1.5 py-0.5 font-mono text-[0.92em] font-medium text-accent transition-colors hover:bg-accent/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
         title={`/skill:${skillName}`}
         aria-expanded={open}
         onClick={(event) => {
@@ -202,10 +243,11 @@ function SkillReferenceTag({
           setPinned((current) => {
             const next = !current;
             setOpen(next);
+            if (next) window.requestAnimationFrame(() => updateSkillPopoverPosition(anchorRef.current, setPosition));
             return next;
           });
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={openPopover}
         onBlur={closeIfFloating}
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
@@ -216,41 +258,81 @@ function SkillReferenceTag({
       >
         {children}
       </button>
-      {open && (
-        <div className="absolute left-1/2 top-full z-50 mt-2 w-[min(36rem,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden rounded-2xl border border-subtle bg-card text-left shadow-[0_18px_60px_rgba(15,23,42,0.18)]">
-          <div className="border-b border-subtle px-3 py-2">
-            <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-[var(--color-text-primary)]">
-              <BookOpen size={14} className="shrink-0 text-accent" />
-              <span className="min-w-0 truncate">{skillQuery.data?.title || skillName}</span>
-              {skillQuery.isFetching && <Loader2 size={13} className="shrink-0 animate-spin text-dim" />}
-            </div>
-            <div className="mt-0.5 truncate font-mono text-[11px] text-dim">/skill:{skillName}</div>
-          </div>
-          <div className="max-h-[28rem] overflow-y-auto px-3 py-3 text-xs leading-5 text-[var(--color-text-secondary)]">
-            {!conversationId ? (
-              <p className="m-0 text-dim">Skill details are available inside a conversation.</p>
-            ) : skillQuery.data ? (
-              <>
-                {skillQuery.data.description && <p className="mb-3 mt-0 text-[var(--color-text-secondary)]">{skillQuery.data.description}</p>}
-                <div className="prose-md max-w-none text-xs leading-5">
-                  <Markdown remarkPlugins={[remarkGfm]} components={tooltipComponents}>
-                    {skillQuery.data.content}
-                  </Markdown>
-                </div>
-              </>
-            ) : skillQuery.isError ? (
-              <p className="m-0 text-dim">No installed skill readme was found for this tag.</p>
-            ) : (
-              <div className="flex items-center gap-2 text-dim">
-                <Loader2 size={13} className="animate-spin" />
-                <span>Loading skill readme</span>
-              </div>
-            )}
-          </div>
-        </div>
+      {open && position && typeof document !== 'undefined' && createPortal(
+        <div
+          className="fixed z-[90] -translate-x-1/2 overflow-hidden rounded-2xl border border-subtle bg-card text-left shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
+          style={{ top: position.top, left: position.left, width: position.width }}
+          onMouseEnter={clearCloseTimer}
+          onMouseLeave={closeIfFloating}
+        >
+          <SkillReferencePopover
+            skillName={skillName}
+            conversationId={conversationId}
+            query={skillQuery}
+            components={tooltipComponents}
+          />
+        </div>,
+        document.body,
       )}
     </span>
   );
+}
+
+function SkillReferencePopover({
+  skillName,
+  conversationId,
+  query,
+  components,
+}: {
+  skillName: string;
+  conversationId?: string;
+  query: ReturnType<typeof useQuery>;
+  components: Components;
+}) {
+  return (
+    <>
+      <div className="px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-[var(--color-text-primary)]">
+          <BookOpen size={14} className="shrink-0 text-accent" />
+          <span className="min-w-0 truncate">{(query.data as { title?: string } | undefined)?.title || skillName}</span>
+          {query.isFetching && <Loader2 size={13} className="shrink-0 animate-spin text-dim" />}
+        </div>
+        <div className="mt-0.5 truncate font-mono text-[11px] text-dim">/skill:{skillName}</div>
+      </div>
+      <div className="max-h-[28rem] overflow-y-auto px-3 pb-3 pt-1 text-xs leading-5 text-[var(--color-text-secondary)]">
+        {!conversationId ? (
+          <p className="m-0 text-dim">Skill details are available inside a conversation.</p>
+        ) : query.data ? (
+          <>
+            {(query.data as { description?: string }).description && <p className="mb-3 mt-0 text-[var(--color-text-secondary)]">{(query.data as { description?: string }).description}</p>}
+            <div className="prose-md max-w-none text-xs leading-5">
+              <Markdown remarkPlugins={[remarkGfm]} components={components}>
+                {(query.data as { content: string }).content}
+              </Markdown>
+            </div>
+          </>
+        ) : query.isError ? (
+          <p className="m-0 text-dim">No installed skill readme was found for this tag.</p>
+        ) : (
+          <div className="flex min-h-24 items-center gap-2 text-dim">
+            <Loader2 size={13} className="animate-spin" />
+            <span>Loading skill readme</span>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function updateSkillPopoverPosition(
+  anchor: HTMLElement | null,
+  setPosition: (position: { top: number; left: number; width: number }) => void,
+) {
+  if (!anchor) return;
+  const rect = anchor.getBoundingClientRect();
+  const width = Math.min(576, Math.max(280, window.innerWidth - 32));
+  const left = Math.min(Math.max(rect.left + rect.width / 2, 16 + width / 2), window.innerWidth - 16 - width / 2);
+  setPosition({ top: rect.bottom + 8, left, width });
 }
 
 function remarkCodeburgInlineRefs() {

@@ -129,6 +129,10 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
       '.cm-codeburg-token-skill': {
         backgroundColor: 'color-mix(in srgb, var(--color-accent) 12%, transparent)',
         color: 'var(--color-accent)',
+        cursor: 'pointer',
+      },
+      '.cm-codeburg-token-skill:hover': {
+        backgroundColor: 'color-mix(in srgb, var(--color-accent) 18%, transparent)',
       },
       '.cm-codeburg-token-file': {
         backgroundColor: 'var(--color-bg-secondary)',
@@ -295,6 +299,10 @@ class CodeburgReferenceWidget extends WidgetType {
         event.preventDefault();
         this.onOpenWorkspaceFile?.(reference.path, reference.line, reference.isDirectory);
       });
+    }
+    if (reference.kind === 'skill') {
+      node.setAttribute('role', 'button');
+      node.setAttribute('aria-label', `Skill ${reference.name}`);
     }
 
     return node;

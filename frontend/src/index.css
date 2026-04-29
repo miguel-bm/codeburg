@@ -620,6 +620,22 @@ button:disabled,
   line-height: 1.5;
 }
 
+.prose-md .codeburg-code-block {
+  background: color-mix(in srgb, var(--color-card-hover) 72%, var(--color-bg-secondary));
+}
+
+.prose-md .codeburg-code-block pre,
+.prose-md .codeburg-code-block code {
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+}
+
+.prose-md .codeburg-code-block code {
+  font-size: inherit;
+  line-height: inherit;
+}
+
 .prose-md ul,
 .prose-md ol {
   padding-left: 1.5em;
