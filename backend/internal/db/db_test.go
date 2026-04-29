@@ -138,6 +138,50 @@ func TestListProjects(t *testing.T) {
 	}
 }
 
+func TestListConversationsExcludeStatusBeforeLimit(t *testing.T) {
+	db := openTestDB(t)
+
+	project, err := db.CreateProject(CreateProjectInput{
+		Name: "conversation-project",
+		Path: "/tmp/conversation-project",
+	})
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+
+	active, err := db.CreateConversation(CreateConversationInput{
+		ProjectID: project.ID,
+		Title:     "needle active",
+	})
+	if err != nil {
+		t.Fatalf("create active conversation: %v", err)
+	}
+	_, err = db.CreateConversation(CreateConversationInput{
+		ProjectID: project.ID,
+		Title:     "needle archived",
+		Status:    ConversationStatusArchived,
+	})
+	if err != nil {
+		t.Fatalf("create archived conversation: %v", err)
+	}
+
+	excludeArchived := ConversationStatusArchived
+	conversations, err := db.ListConversationsWithOptions(ListConversationOptions{
+		Query:         "needle",
+		ExcludeStatus: &excludeArchived,
+		Limit:         1,
+	})
+	if err != nil {
+		t.Fatalf("list conversations: %v", err)
+	}
+	if len(conversations) != 1 {
+		t.Fatalf("expected 1 conversation, got %d", len(conversations))
+	}
+	if conversations[0].ID != active.ID {
+		t.Fatalf("expected active conversation after filtering before limit, got %s", conversations[0].ID)
+	}
+}
+
 func TestUpdateProject(t *testing.T) {
 	db := openTestDB(t)
 

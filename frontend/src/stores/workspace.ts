@@ -19,11 +19,13 @@ interface WorkspaceState {
   activityPanelWidth: number;
   tabs: WorkspaceTab[];
   activeTabIndex: number;
+  revealFileRequest: { path: string; nonce: number } | null;
 
   // Actions
   togglePanel: (panel: ActivityPanel) => void;
   setActivePanel: (panel: ActivityPanel | null) => void;
   setActivityPanelWidth: (width: number) => void;
+  revealFile: (path: string) => void;
   openFile: (path: string, line?: number, options?: OpenTabOptions) => void;
   openDiff: (file?: string, staged?: boolean, base?: boolean, commit?: string, options?: OpenTabOptions) => void;
   openNewSession: () => void;
@@ -67,6 +69,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       activityPanelWidth: 260,
       tabs: [],
       activeTabIndex: 0,
+      revealFileRequest: null,
 
       togglePanel: (panel) =>
         set((s) => ({
@@ -77,6 +80,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       setActivityPanelWidth: (width) =>
         set({ activityPanelWidth: Math.max(180, Math.min(480, width)) }),
+
+      revealFile: (path) => set({ revealFileRequest: { path, nonce: Date.now() } }),
 
       openFile: (path, line, options) => {
         const { tabs, activeTabIndex } = get();

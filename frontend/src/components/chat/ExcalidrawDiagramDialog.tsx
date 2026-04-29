@@ -91,6 +91,7 @@ export function ExcalidrawDiagramDialog({
       const exportAppState: Partial<AppState> = {
         ...appState,
         exportBackground: true,
+        exportEmbedScene: true,
         exportWithDarkMode: false,
         viewBackgroundColor: EXPORT_BACKGROUND,
       };

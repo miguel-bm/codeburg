@@ -65,11 +65,12 @@ type UpdateConversationInput struct {
 }
 
 type ListConversationOptions struct {
-	ProjectID *string
-	Query     string
-	Status    *ConversationStatus
-	Provider  string
-	Limit     int
+	ProjectID     *string
+	Query         string
+	Status        *ConversationStatus
+	ExcludeStatus *ConversationStatus
+	Provider      string
+	Limit         int
 }
 
 func (db *DB) CreateConversation(input CreateConversationInput) (*Conversation, error) {
@@ -138,8 +139,8 @@ func (db *DB) ListConversationsWithOptions(opts ListConversationOptions) ([]*Con
 		       summary, provider_session_id, last_activity_at, created_at, updated_at, archived_at, unread_at
 		FROM conversations
 	`
-	args := make([]any, 0, 6)
-	clauses := make([]string, 0, 4)
+	args := make([]any, 0, 8)
+	clauses := make([]string, 0, 5)
 	if opts.ProjectID != nil && strings.TrimSpace(*opts.ProjectID) != "" {
 		clauses = append(clauses, "project_id = ?")
 		args = append(args, strings.TrimSpace(*opts.ProjectID))
@@ -152,6 +153,10 @@ func (db *DB) ListConversationsWithOptions(opts ListConversationOptions) ([]*Con
 	if opts.Status != nil && strings.TrimSpace(string(*opts.Status)) != "" {
 		clauses = append(clauses, "status = ?")
 		args = append(args, strings.TrimSpace(string(*opts.Status)))
+	}
+	if opts.ExcludeStatus != nil && strings.TrimSpace(string(*opts.ExcludeStatus)) != "" {
+		clauses = append(clauses, "status != ?")
+		args = append(args, strings.TrimSpace(string(*opts.ExcludeStatus)))
 	}
 	if trimmedProvider := strings.TrimSpace(opts.Provider); trimmedProvider != "" {
 		clauses = append(clauses, "provider = ?")

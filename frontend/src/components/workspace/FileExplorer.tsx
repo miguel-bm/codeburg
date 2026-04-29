@@ -85,6 +85,7 @@ export function FileExplorer() {
     const activeTab = state.tabs[state.activeTabIndex];
     return activeTab?.type === 'editor' ? state.activeTabIndex : -1;
   });
+  const revealFileRequest = useWorkspaceStore((state) => state.revealFileRequest);
   const closeTab = useWorkspaceStore((state) => state.closeTab);
   const { data: gitStatus } = useQuery({
     queryKey: ['workspace-git-status', scopeType, scopeId],
@@ -429,6 +430,31 @@ export function FileExplorer() {
     });
   }, [activeEditorPath, treeData]);
 
+  useEffect(() => {
+    const requestedPath = revealFileRequest?.path.replace(/\/+$/, '');
+    if (!requestedPath) return;
+    setSearchQuery('');
+    requestAnimationFrame(() => {
+      const tree = treeRef.current;
+      const node = tree?.get(requestedPath);
+      if (!tree || !node) return;
+
+      suppressSelectRef.current = true;
+      for (const ancestorPath of ancestorPaths(requestedPath)) {
+        const ancestor = tree.get(ancestorPath);
+        if (ancestor?.data.type === 'dir' && !ancestor.isOpen) ancestor.open();
+      }
+      if (node.data.type === 'dir' && !node.isOpen) node.open();
+      tree.select(requestedPath, { focus: false });
+      requestAnimationFrame(() => {
+        void tree.scrollTo(requestedPath, 'center');
+        queueMicrotask(() => {
+          suppressSelectRef.current = false;
+        });
+      });
+    });
+  }, [revealFileRequest, treeData]);
+
   return (
     <WorkbenchFrame>
       <WorkbenchToolbar className="flex items-center gap-1.5" onSubmit={(event) => event.preventDefault()}>
@@ -664,4 +690,10 @@ function markPathAndAncestors(tones: Map<string, DiffTone>, path: string, tone: 
     if (parentSlash < 0) break;
     current = current.slice(0, parentSlash);
   }
+}
+
+function ancestorPaths(path: string): string[] {
+  const parts = path.split('/').filter(Boolean);
+  if (parts.length <= 1) return [];
+  return parts.slice(0, -1).map((_part, index) => parts.slice(0, index + 1).join('/'));
 }

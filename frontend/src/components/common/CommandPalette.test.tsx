@@ -37,11 +37,13 @@ describe('CommandPalette', () => {
 
     renderPalette();
 
+    expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();
     expect(screen.getByText('Search conversations')).toBeInTheDocument();
     expect(mockedV2Api.listConversations).not.toHaveBeenCalled();
 
     await user.click(screen.getByText('Search conversations'));
 
+    expect(screen.getByRole('dialog', { name: 'Search conversations' })).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Search conversation titles and summaries')).toBeInTheDocument();
     expect(mockedV2Api.listConversations).not.toHaveBeenCalled();
 
@@ -51,6 +53,7 @@ describe('CommandPalette', () => {
       expect(mockedV2Api.listConversations).toHaveBeenCalledWith({
         q: 'archive',
         provider: 'pi',
+        excludeStatus: 'archived',
         limit: 20,
       });
     });

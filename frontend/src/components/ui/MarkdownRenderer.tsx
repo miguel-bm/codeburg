@@ -6,7 +6,7 @@ interface MarkdownRendererProps {
   children: string;
   className?: string;
   enhanceCodeburgRefs?: boolean;
-  onOpenWorkspaceFile?: (path: string, line?: number) => void;
+  onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void;
 }
 
 type MarkdownNode = {
@@ -47,10 +47,10 @@ export function MarkdownRenderer({ children, className = '', enhanceCodeburgRefs
                   <button
                     type="button"
                     className={className}
-                    title={`Open ${reference.line ? `${reference.path}:${reference.line}` : reference.path}`}
+                    title={reference.isDirectory ? `Reveal ${reference.path} in Files` : `Open ${reference.line ? `${reference.path}:${reference.line}` : reference.path}`}
                     onClick={(event) => {
                       event.preventDefault();
-                      onOpenWorkspaceFile(reference.path, reference.line);
+                      onOpenWorkspaceFile(reference.path, reference.line, reference.isDirectory);
                     }}
                   >
                     {children}
@@ -112,19 +112,28 @@ function referenceToMarkdownLink(reference: CodeburgReference): MarkdownNode {
   }
   return {
     type: 'link',
-    url: `${FILE_REF_PREFIX}${encodeURIComponent(reference.path)}${reference.line ? `:${reference.line}` : ''}`,
+    url: encodeWorkspaceFileHref(reference),
     title: null,
     children: [{ type: 'text', value: reference.raw }],
   };
 }
 
-function decodeWorkspaceFileHref(href: string): { path: string; line?: number } {
+function encodeWorkspaceFileHref(reference: Extract<CodeburgReference, { kind: 'file' }>): string {
+  const params = new URLSearchParams();
+  if (reference.line) params.set('line', String(reference.line));
+  if (reference.isDirectory) params.set('dir', '1');
+  const query = params.toString();
+  return `${FILE_REF_PREFIX}${encodeURIComponent(reference.path)}${query ? `?${query}` : ''}`;
+}
+
+function decodeWorkspaceFileHref(href: string): { path: string; line?: number; isDirectory?: boolean } {
   const encoded = href.slice(FILE_REF_PREFIX.length);
-  const lineMatch = encoded.match(/^(.*):(\d+)$/);
-  const encodedPath = lineMatch ? lineMatch[1] : encoded;
-  const line = lineMatch ? Number.parseInt(lineMatch[2], 10) : undefined;
+  const [encodedPath, query = ''] = encoded.split('?', 2);
+  const params = new URLSearchParams(query);
+  const line = Number.parseInt(params.get('line') ?? '', 10);
   return {
-    path: decodeURIComponent(encodedPath),
+    path: decodeURIComponent(encodedPath ?? ''),
     line: Number.isFinite(line) ? line : undefined,
+    isDirectory: params.get('dir') === '1',
   };
 }

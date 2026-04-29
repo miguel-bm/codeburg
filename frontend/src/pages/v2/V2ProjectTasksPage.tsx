@@ -21,6 +21,7 @@ import {
 import { projectsApi } from '../../api';
 import type { Conversation, Task, TaskLink, TaskStatus, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
+import { Modal } from '../../components/ui/Modal';
 import { Button, V2Content, V2Header, V2Input, V2Panel, V2Select, V2Textarea } from './v2-ui';
 
 const COLUMNS: Array<{ id: TaskStatus; title: string; icon: typeof Circle; tone: string }> = [
@@ -267,17 +268,10 @@ export function V2ProjectTasksPage() {
                       <TaskCard
                         key={task.id}
                         task={task}
-                        expanded={selectedTaskId === task.id}
                         links={linksByTask.get(task.id) ?? []}
                         workspaces={workspaces}
                         conversations={conversations}
-                        editTitle={editTitle}
-                        editDescription={editDescription}
-                        linkTarget={linkTarget}
-                        attachableTargets={attachableTargets}
-                        chosenTarget={chosenTarget}
-                        pending={updateTask.isPending || deleteTask.isPending || createLink.isPending || deleteLink.isPending}
-                        onSelect={() => setSelectedTaskId((current) => current === task.id ? '' : task.id)}
+                        onSelect={() => setSelectedTaskId(task.id)}
                         onDragStart={(event) => {
                           event.dataTransfer.effectAllowed = 'move';
                           event.dataTransfer.setData('text/plain', task.id);
@@ -287,21 +281,6 @@ export function V2ProjectTasksPage() {
                           setDraggingTaskId(null);
                           setDragOverStatus(null);
                         }}
-                        onEditTitle={setEditTitle}
-                        onEditDescription={setEditDescription}
-                        onSave={saveSelectedTask}
-                        onCancelEdit={() => {
-                          setEditTitle(task.title);
-                          setEditDescription(task.description ?? '');
-                        }}
-                        onMove={(status) => updateTask.mutate({ taskId: task.id, input: { status } })}
-                        onDelete={() => deleteTask.mutate(task.id)}
-                        onLinkTargetChange={setLinkTarget}
-                        onCreateLink={() => {
-                          if (!chosenTarget) return;
-                          createLink.mutate({ taskId: task.id, target: chosenTarget });
-                        }}
-                        onDeleteLink={(link) => deleteLink.mutate(link)}
                       />
                     ))}
 
@@ -356,6 +335,41 @@ export function V2ProjectTasksPage() {
           </div>
         </V2Panel>
       </V2Content>
+      <TaskDialog
+        task={selectedTask}
+        links={selectedLinks}
+        workspaces={workspaces}
+        conversations={conversations}
+        editTitle={editTitle}
+        editDescription={editDescription}
+        linkTarget={linkTarget}
+        attachableTargets={attachableTargets}
+        chosenTarget={chosenTarget}
+        pending={updateTask.isPending || deleteTask.isPending || createLink.isPending || deleteLink.isPending}
+        onClose={() => setSelectedTaskId('')}
+        onEditTitle={setEditTitle}
+        onEditDescription={setEditDescription}
+        onSave={saveSelectedTask}
+        onCancelEdit={() => {
+          if (!selectedTask) return;
+          setEditTitle(selectedTask.title);
+          setEditDescription(selectedTask.description ?? '');
+        }}
+        onStatusChange={(status) => {
+          if (!selectedTask) return;
+          updateTask.mutate({ taskId: selectedTask.id, input: { status } });
+        }}
+        onDelete={() => {
+          if (!selectedTask) return;
+          deleteTask.mutate(selectedTask.id);
+        }}
+        onLinkTargetChange={setLinkTarget}
+        onCreateLink={() => {
+          if (!selectedTask || !chosenTarget) return;
+          createLink.mutate({ taskId: selectedTask.id, target: chosenTarget });
+        }}
+        onDeleteLink={(link) => deleteLink.mutate(link)}
+      />
     </TaskScreen>
   );
 }
@@ -466,66 +480,27 @@ function InlineComposer({
 
 function TaskCard({
   task,
-  expanded,
   links,
   workspaces,
   conversations,
-  editTitle,
-  editDescription,
-  linkTarget,
-  attachableTargets,
-  chosenTarget,
-  pending,
   onSelect,
   onDragStart,
   onDragEnd,
-  onEditTitle,
-  onEditDescription,
-  onSave,
-  onCancelEdit,
-  onMove,
-  onDelete,
-  onLinkTargetChange,
-  onCreateLink,
-  onDeleteLink,
 }: {
   task: Task;
-  expanded: boolean;
   links: TaskLink[];
   workspaces: Workspace[];
   conversations: Conversation[];
-  editTitle: string;
-  editDescription: string;
-  linkTarget: string;
-  attachableTargets: LinkTarget[];
-  chosenTarget?: LinkTarget;
-  pending: boolean;
   onSelect: () => void;
   onDragStart: (event: React.DragEvent<HTMLElement>) => void;
   onDragEnd: () => void;
-  onEditTitle: (value: string) => void;
-  onEditDescription: (value: string) => void;
-  onSave: () => void;
-  onCancelEdit: () => void;
-  onMove: (status: TaskStatus) => void;
-  onDelete: () => void;
-  onLinkTargetChange: (value: string) => void;
-  onCreateLink: () => void;
-  onDeleteLink: (link: TaskLink) => void;
 }) {
-  const currentIndex = COLUMNS.findIndex((column) => column.id === task.status);
-  const previousStatus = COLUMNS[currentIndex - 1]?.id;
-  const nextStatus = COLUMNS[currentIndex + 1]?.id;
-  const changed = editTitle.trim() !== task.title || editDescription.trim() !== (task.description ?? '');
-
   return (
     <article
-      draggable={!expanded}
+      draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className={`rounded-lg border bg-card shadow-sm transition ${
-        expanded ? 'border-[var(--color-accent)]/40' : 'border-transparent hover:border-[var(--color-card-border)]'
-      }`}
+      className="rounded-lg border border-transparent bg-card shadow-sm transition hover:border-[var(--color-card-border)]"
     >
       <button type="button" onClick={onSelect} className="block w-full cursor-pointer px-3 py-2 text-left">
         <div className="flex items-start gap-2">
@@ -535,8 +510,8 @@ function TaskCard({
               <span className="truncate text-[13px] font-medium leading-5">{task.title}</span>
               <span className="shrink-0 text-[10px] uppercase text-dim">CB-{task.id.slice(-4)}</span>
             </div>
-            {task.description && !expanded && <p className="mt-1 line-clamp-2 text-xs leading-5 text-dim">{task.description}</p>}
-            {!expanded && links.length > 0 && (
+            {task.description && <p className="mt-1 line-clamp-2 text-xs leading-5 text-dim">{task.description}</p>}
+            {links.length > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 {links.slice(0, 3).map((link) => (
                   <RelationChip key={link.id} link={link} workspaces={workspaces} conversations={conversations} />
@@ -547,84 +522,154 @@ function TaskCard({
           </div>
         </div>
       </button>
+    </article>
+  );
+}
 
-      {expanded && (
-        <div className="border-t border-[var(--color-card-border)] px-3 pb-3 pt-2">
-          <div className="space-y-2">
-            <V2Input value={editTitle} onChange={(event) => onEditTitle(event.target.value)} className="h-8 w-full bg-primary" />
-            <V2Textarea value={editDescription} onChange={(event) => onEditDescription(event.target.value)} placeholder="Notes" className="min-h-20 w-full resize-none bg-primary" />
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  disabled={!previousStatus || pending}
-                  onClick={() => previousStatus && onMove(previousStatus)}
-                  className="inline-flex h-7 items-center rounded-md px-2 text-xs text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
-                >
-                  Back
-                </button>
-                <button
-                  type="button"
-                  disabled={!nextStatus || pending}
-                  onClick={() => nextStatus && onMove(nextStatus)}
-                  className="inline-flex h-7 items-center rounded-md px-2 text-xs text-dim hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
-                >
-                  Forward
-                </button>
-              </div>
-              <div className="flex items-center gap-1">
-                <Button type="button" size="xs" variant="ghost" disabled={!changed || pending} onClick={onCancelEdit}>Reset</Button>
-                <Button type="button" size="xs" variant="primary" icon={<Check size={13} />} disabled={!changed || !editTitle.trim()} loading={pending} onClick={onSave}>
-                  Save
-                </Button>
-              </div>
-            </div>
-          </div>
+function TaskDialog({
+  task,
+  links,
+  workspaces,
+  conversations,
+  editTitle,
+  editDescription,
+  linkTarget,
+  attachableTargets,
+  chosenTarget,
+  pending,
+  onClose,
+  onEditTitle,
+  onEditDescription,
+  onSave,
+  onCancelEdit,
+  onStatusChange,
+  onDelete,
+  onLinkTargetChange,
+  onCreateLink,
+  onDeleteLink,
+}: {
+  task: Task | null;
+  links: TaskLink[];
+  workspaces: Workspace[];
+  conversations: Conversation[];
+  editTitle: string;
+  editDescription: string;
+  linkTarget: string;
+  attachableTargets: LinkTarget[];
+  chosenTarget?: LinkTarget;
+  pending: boolean;
+  onClose: () => void;
+  onEditTitle: (value: string) => void;
+  onEditDescription: (value: string) => void;
+  onSave: () => void;
+  onCancelEdit: () => void;
+  onStatusChange: (status: TaskStatus) => void;
+  onDelete: () => void;
+  onLinkTargetChange: (value: string) => void;
+  onCreateLink: () => void;
+  onDeleteLink: (link: TaskLink) => void;
+}) {
+  const changed = !!task && (editTitle.trim() !== task.title || editDescription.trim() !== (task.description ?? ''));
+  const column = task ? COLUMNS.find((item) => item.id === task.status) : null;
+  const Icon = column?.icon ?? Circle;
 
-          <div className="mt-3 border-t border-[var(--color-card-border)] pt-3">
-            <div className="mb-2 text-xs font-medium text-[var(--color-text-secondary)]">Related work</div>
-            <div className="space-y-1.5">
-              {links.map((link) => (
-                <LinkedTargetRow
-                  key={link.id}
-                  link={link}
-                  workspaces={workspaces}
-                  conversations={conversations}
-                  pending={pending}
-                  onDelete={() => onDeleteLink(link)}
-                />
-              ))}
-              {links.length === 0 && <div className="rounded-md bg-primary px-2 py-2 text-xs leading-5 text-dim">No related work attached.</div>}
-            </div>
-            <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-              <V2Select value={linkTarget} onChange={(event) => onLinkTargetChange(event.target.value)} className="w-full">
-                <option value="">Attach workspace or conversation...</option>
-                {attachableTargets.map((target) => (
-                  <option key={`${target.type}:${target.id}`} value={`${target.type}:${target.id}`}>
-                    {target.type === 'workspace' ? 'Workspace' : 'Conversation'} · {target.label}
-                  </option>
-                ))}
-              </V2Select>
-              <Button type="button" size="sm" variant="secondary" icon={<Link2 size={14} />} disabled={!chosenTarget || pending} onClick={onCreateLink}>
-                Attach
-              </Button>
-            </div>
-          </div>
-
-          <div className="mt-3 flex justify-end">
-            <button
-              type="button"
-              disabled={pending}
-              onClick={onDelete}
-              className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs text-dim hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)] disabled:cursor-default disabled:opacity-40"
-            >
-              <Trash2 size={13} />
-              Delete
-            </button>
+  return (
+    <Modal
+      open={!!task}
+      onClose={onClose}
+      title={task ? `CB-${task.id.slice(-4)}` : 'Task'}
+      size="lg"
+      footer={(
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            disabled={!task || pending}
+            onClick={onDelete}
+            className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs text-dim hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)] disabled:cursor-default disabled:opacity-40"
+          >
+            <Trash2 size={13} />
+            Delete
+          </button>
+          <div className="flex items-center gap-1.5">
+            <Button type="button" size="sm" variant="ghost" disabled={!changed || pending} onClick={onCancelEdit}>
+              Reset
+            </Button>
+            <Button type="button" size="sm" variant="primary" icon={<Check size={14} />} disabled={!changed || !editTitle.trim()} loading={pending} onClick={onSave}>
+              Save
+            </Button>
           </div>
         </div>
       )}
-    </article>
+    >
+      {task && (
+        <div className="max-h-[min(72vh,44rem)] overflow-auto px-5 py-4">
+          <div className="grid gap-4">
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_11rem]">
+              <label className="block min-w-0">
+                <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Title</span>
+                <V2Input value={editTitle} onChange={(event) => onEditTitle(event.target.value)} className="w-full bg-primary" />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Status</span>
+                <div className="relative">
+                  <V2Select value={task.status} onChange={(event) => onStatusChange(event.target.value as TaskStatus)} className="w-full pl-8">
+                    {COLUMNS.map((item) => (
+                      <option key={item.id} value={item.id}>{item.title}</option>
+                    ))}
+                  </V2Select>
+                  <Icon size={14} className={`pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 ${column?.tone ?? 'text-dim'}`} />
+                </div>
+              </label>
+            </div>
+
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Notes</span>
+              <V2Textarea
+                value={editDescription}
+                onChange={(event) => onEditDescription(event.target.value)}
+                placeholder="Scope, decisions, or next step"
+                className="min-h-32 w-full resize-y bg-primary"
+              />
+            </label>
+
+            <section className="border-t border-[var(--color-card-border)] pt-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium">Related work</div>
+                  <div className="mt-0.5 text-xs text-dim">Attach workspaces or conversations without making the task own them.</div>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                {links.map((link) => (
+                  <LinkedTargetRow
+                    key={link.id}
+                    link={link}
+                    workspaces={workspaces}
+                    conversations={conversations}
+                    pending={pending}
+                    onDelete={() => onDeleteLink(link)}
+                  />
+                ))}
+                {links.length === 0 && <div className="rounded-md bg-primary px-2 py-2 text-xs leading-5 text-dim">No related work attached.</div>}
+              </div>
+              <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <V2Select value={linkTarget} onChange={(event) => onLinkTargetChange(event.target.value)} className="w-full">
+                  <option value="">Attach workspace or conversation...</option>
+                  {attachableTargets.map((target) => (
+                    <option key={`${target.type}:${target.id}`} value={`${target.type}:${target.id}`}>
+                      {target.type === 'workspace' ? 'Workspace' : 'Conversation'} · {target.label}
+                    </option>
+                  ))}
+                </V2Select>
+                <Button type="button" size="sm" variant="secondary" icon={<Link2 size={14} />} disabled={!chosenTarget || pending} onClick={onCreateLink}>
+                  Attach
+                </Button>
+              </div>
+            </section>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 

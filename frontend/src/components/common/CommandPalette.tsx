@@ -24,12 +24,22 @@ import type { Conversation, Project, V2SidebarData, Workspace } from '../../api/
 import { v2Api } from '../../api/v2';
 
 const COMMAND_PALETTE_OPEN_EVENT = 'codeburg:open-command-palette';
+const COMMAND_PALETTE_SIDEBAR_QUERY_KEY = ['v2-sidebar-summary', 'command-palette'] as const;
+const COMMAND_PALETTE_LIST_ID = 'command-palette-results';
 const DEFAULT_WORKSPACE_LIMIT = 8;
 const SEARCH_WORKSPACE_LIMIT = 24;
 const SEARCH_PROJECT_LIMIT = 24;
 const PROJECT_ROUTE_LIMIT = 6;
 const CONVERSATION_RESULT_LIMIT = 20;
 const CONVERSATION_QUERY_MIN_LENGTH = 2;
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled]):not([tabindex="-1"])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
 
 interface CommandPaletteProps {
   initialSearch?: string;
@@ -119,6 +129,15 @@ function filterRows(rows: PaletteRow[], normalizedSearch: string, limit: number)
   return matches;
 }
 
+function optionDomId(rowId: string) {
+  return `command-palette-option-${rowId}`;
+}
+
+function focusableElements(container: HTMLElement) {
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+    .filter((element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true');
+}
+
 function PaletteItem({
   row,
   selected,
@@ -130,9 +149,13 @@ function PaletteItem({
 }) {
   return (
     <button
+      id={optionDomId(row.id)}
       type="button"
+      role="option"
+      aria-selected={selected}
       className="command-palette-item"
       data-selected={selected}
+      tabIndex={-1}
       onClick={row.onSelect}
       onMouseEnter={onMouseEnter}
     >
@@ -186,7 +209,7 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
   const conversationSearchReady = deferredConversationSearch.length >= CONVERSATION_QUERY_MIN_LENGTH;
 
   const { data: sidebar, isFetching: isFetchingSidebar } = useQuery({
-    queryKey: ['v2-command-palette-summary'],
+    queryKey: COMMAND_PALETTE_SIDEBAR_QUERY_KEY,
     queryFn: () => v2Api.getSidebar({ includeConversations: false, includeStates: false }),
     enabled: hydrateDynamicRows,
     staleTime: 60_000,
@@ -199,6 +222,7 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
     queryFn: () => v2Api.listConversations({
       q: deferredConversationSearch,
       provider: 'pi',
+      excludeStatus: 'archived',
       limit: CONVERSATION_RESULT_LIMIT,
     }),
     enabled: mode === 'conversation-search' && conversationSearchReady,
@@ -441,7 +465,6 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
   const conversationGroups = useMemo<PaletteGroup[]>(() => {
     if (!conversationSearchReady) return [];
     const rows = (conversationResults ?? [])
-      .filter((conversation) => conversation.status !== 'archived')
       .slice(0, CONVERSATION_RESULT_LIMIT)
       .map((conversation) => {
         const project = projectsById.get(conversation.projectId);
@@ -461,6 +484,7 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
   const groups = mode === 'conversation-search' ? conversationGroups : rootGroups;
   const visibleRows = useMemo(() => groups.flatMap((group) => group.rows), [groups]);
   const activeRow = visibleRows[activeIndex];
+  const activeOptionId = activeRow ? optionDomId(activeRow.id) : undefined;
 
   useEffect(() => {
     setActiveIndex(0);
@@ -483,6 +507,23 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
   }, [mode, onClose]);
 
   const handleKeyDown = useCallback((event: ReactKeyboardEvent) => {
+    if (event.key === 'Tab') {
+      if (!containerRef.current) return;
+      const focusable = focusableElements(containerRef.current);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+        return;
+      }
+      if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+        return;
+      }
+    }
     if (event.key === 'Escape') {
       event.preventDefault();
       goBackOrClose();
@@ -536,6 +577,9 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
 
       <div
         ref={containerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={mode === 'conversation-search' ? 'Search conversations' : 'Command palette'}
         className="relative w-full max-w-2xl overflow-hidden rounded-2xl bg-[var(--color-card)] shadow-[0_24px_80px_rgba(15,23,42,0.20)] ring-1 ring-[var(--color-card-border)]"
       >
         <div className="flex items-center gap-2 px-4 py-3">
@@ -559,6 +603,9 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={mode === 'conversation-search' ? 'Search conversation titles and summaries' : 'Search projects, workspaces, routes'}
+            aria-label={mode === 'conversation-search' ? 'Search conversations' : 'Search commands'}
+            aria-controls={COMMAND_PALETTE_LIST_ID}
+            aria-activedescendant={activeOptionId}
             className="command-palette-input min-w-0 flex-1 bg-transparent text-[15px] text-[var(--color-text-primary)] outline-none placeholder:text-dim"
             autoFocus
           />
@@ -571,9 +618,14 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
           )}
         </div>
 
-        <div className="command-palette-list max-h-[58vh] overflow-y-auto px-2 pb-2">
+        <div
+          id={COMMAND_PALETTE_LIST_ID}
+          role="listbox"
+          aria-label={mode === 'conversation-search' ? 'Conversation results' : 'Command results'}
+          className="command-palette-list max-h-[58vh] overflow-y-auto px-2 pb-2"
+        >
           {visibleRows.length === 0 ? (
-            <div className="px-4 py-9 text-center text-sm text-dim">{emptyState}</div>
+            <div role="status" className="px-4 py-9 text-center text-sm text-dim">{emptyState}</div>
           ) : (
             groups.map((group) => (
               <PaletteGroupView

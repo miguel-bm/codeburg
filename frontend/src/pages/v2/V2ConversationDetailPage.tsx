@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ClipboardEvent, Dispatch, DragEvent, ReactNode, SetStateAction } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
@@ -21,6 +22,7 @@ import {
   GitBranchPlus,
   Image as ImageIcon,
   Loader2,
+  Maximize2,
   Mic,
   MessageSquarePlus,
   MessageSquareText,
@@ -31,6 +33,7 @@ import {
   PlusCircle,
   RefreshCw,
   Search,
+  Shapes,
   Slash,
   Sparkles,
   Square,
@@ -51,6 +54,7 @@ import { useMobile } from '../../hooks/useMobile';
 import { usePiConversation } from '../../hooks/usePiConversation';
 import { useVirtualKeyboard } from '../../hooks/useVirtualKeyboard';
 import { useWorkspaceStore } from '../../stores/workspace';
+import { isDesktopShell } from '../../platform/runtimeConfig';
 import { applySuggestionToText, findActiveToken, fuzzyScore, type InputSelection } from '../../components/chat/chatAutocomplete';
 import { parseCodeburgReferences, type CodeburgReference } from '../../components/chat/referenceTokens';
 import { Button, V2Empty, V2Screen } from './v2-ui';
@@ -62,6 +66,11 @@ import type { DiagramAttachmentResult, ExcalidrawAnnotationSeed, ExcalidrawDiagr
 const ExcalidrawDiagramDialog = lazy(() =>
   import('../../components/chat/ExcalidrawDiagramDialog').then((module) => ({
     default: module.ExcalidrawDiagramDialog,
+  })),
+);
+const ExcalidrawDiagramViewerDialog = lazy(() =>
+  import('../../components/chat/ExcalidrawDiagramViewerDialog').then((module) => ({
+    default: module.ExcalidrawDiagramViewerDialog,
   })),
 );
 
@@ -109,6 +118,7 @@ const MAX_SUGGESTIONS = 8;
 const FILE_INDEX_DEPTH = 12;
 const THINKING_LEVELS: PiThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 const EMPTY_FILE_ENTRIES: V2FileEntry[] = [];
+const embeddedExcalidrawSourceCache = new Map<string, Promise<ExcalidrawDiagramSource | undefined>>();
 
 export function V2ConversationDetailPage() {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -185,8 +195,16 @@ export function V2ConversationDetailPage() {
     setDraft((current) => appendWorkspaceReference(current, path));
     setMainSurface('conversation');
   }, []);
-  const openWorkspaceFileReference = useCallback((path: string, line?: number) => {
+  const openWorkspaceFileReference = useCallback((path: string, line?: number, isDirectory?: boolean) => {
     if (!project || !activeWorkspace) return;
+    if (isDirectory) {
+      const workspaceStore = useWorkspaceStore.getState();
+      workspaceStore.setActivePanel('files');
+      workspaceStore.revealFile(path);
+      setHelperTab('files');
+      setToolsOpen(true);
+      return;
+    }
     openFile(path, line, { ephemeral: false });
     setMainSurface({ type: 'workspaceTab', index: useWorkspaceStore.getState().activeTabIndex });
   }, [activeWorkspace, openFile, project]);
@@ -850,7 +868,7 @@ function ConversationSurface({
   onArchiveConversation: () => void;
   abort: () => Promise<void>;
   submit: (streamingBehavior?: 'steer' | 'followUp') => void;
-  onOpenWorkspaceFile?: (path: string, line?: number) => void;
+  onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void;
   onOpenPiSettings: () => void;
   onApplySnapshot: (snapshot: PiConversationSnapshot) => void;
 }) {
@@ -864,6 +882,7 @@ function ConversationSurface({
   const messageRowRefs = useRef<Map<number, HTMLElement>>(new Map());
   const stickToLatestRef = useRef(true);
   const preEditComposerRef = useRef<{ draft: string; attachments: ComposerAttachment[] } | null>(null);
+  const editAttachmentSourceRequestRef = useRef(0);
   const branchSwitchAnchorRef = useRef<{ index: number; top: number } | null>(null);
   const branchSwitchTimerRef = useRef<number | null>(null);
   const suppressBranchAutoScrollRef = useRef(false);
@@ -986,6 +1005,7 @@ function ConversationSurface({
       setDraft('');
       setAttachments([]);
       setEditingMessage(null);
+      editAttachmentSourceRequestRef.current += 1;
       preEditComposerRef.current = null;
       setEditError(null);
       void queryClient.invalidateQueries({ queryKey: ['v2-conversation-tree', conversationId] });
@@ -1111,9 +1131,13 @@ function ConversationSurface({
     () => (inputFocused && tokenKey && dismissedTokenKey !== tokenKey ? suggestions : []),
     [dismissedTokenKey, inputFocused, suggestions, tokenKey],
   );
-  const composerReferences = useMemo(
-    () => uniqueComposerReferences(parseCodeburgReferences(draft)),
+  const parsedComposerReferences = useMemo(
+    () => parseCodeburgReferences(draft),
     [draft],
+  );
+  const composerReferences = useMemo(
+    () => uniqueComposerReferences(enrichComposerReferenceTypes(parsedComposerReferences, fileEntries)),
+    [fileEntries, parsedComposerReferences],
   );
   const suggestionSignature = useMemo(
     () => visibleSuggestions.map((suggestion) => `${suggestion.key}:${suggestion.disabled ? 'disabled' : 'enabled'}`).join('|'),
@@ -1129,6 +1153,12 @@ function ConversationSurface({
       setFileIndexRequested(true);
     }
   }, [activeToken?.prefix]);
+
+  useEffect(() => {
+    if (parsedComposerReferences.some((reference) => reference.kind === 'file')) {
+      setFileIndexRequested(true);
+    }
+  }, [parsedComposerReferences]);
 
   useEffect(() => {
     suggestionRefs.current = [];
@@ -1178,6 +1208,7 @@ function ConversationSurface({
     messageRowRefs.current.clear();
     scrollToLatest();
     setEditingMessage(null);
+    editAttachmentSourceRequestRef.current += 1;
     preEditComposerRef.current = null;
     setEditError(null);
   }, [conversationId, scrollToLatest]);
@@ -1269,6 +1300,8 @@ function ConversationSurface({
     const text = message.text ?? '';
     const nextAttachments = messageImagesToComposerAttachments(message.images);
     if (!text.trim() && nextAttachments.length === 0) return;
+    const sourceRequestId = editAttachmentSourceRequestRef.current + 1;
+    editAttachmentSourceRequestRef.current = sourceRequestId;
     if (!editingMessage) {
       preEditComposerRef.current = { draft, attachments };
     }
@@ -1282,12 +1315,28 @@ function ConversationSurface({
       node.focus();
       node.setSelectionRange(text.length, text.length);
     });
+    if (nextAttachments.length > 0) {
+      void hydrateEmbeddedExcalidrawSources(nextAttachments).then((hydratedAttachments) => {
+        if (editAttachmentSourceRequestRef.current !== sourceRequestId) return;
+        const sourceById = new Map(
+          hydratedAttachments
+            .filter((attachment) => attachment.source)
+            .map((attachment) => [attachment.id, attachment.source] as const),
+        );
+        if (sourceById.size === 0) return;
+        setAttachments((current) => current.map((attachment) => {
+          const source = sourceById.get(attachment.id);
+          return source ? { ...attachment, source } : attachment;
+        }));
+      });
+    }
   };
 
   const cancelEditingMessage = () => {
     const previousComposer = preEditComposerRef.current;
     setEditingMessage(null);
     setEditError(null);
+    editAttachmentSourceRequestRef.current += 1;
     preEditComposerRef.current = null;
     if (!previousComposer) return;
     setDraftWithSelection(previousComposer.draft, {
@@ -2385,7 +2434,7 @@ function ComposerReferenceRail({
   onOpenWorkspaceFile,
 }: {
   references: CodeburgReference[];
-  onOpenWorkspaceFile?: (path: string, line?: number) => void;
+  onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void;
 }) {
   return (
     <div className="flex flex-wrap gap-1.5 px-3 pb-1 pt-0 md:px-4">
@@ -2402,17 +2451,20 @@ function ComposerReferenceRail({
             </span>
           );
         }
-        const label = reference.line ? `@${reference.path}:${reference.line}` : `@${reference.path}`;
+        const label = reference.line ? `@${reference.path}:${reference.line}` : `@${reference.path}${reference.isDirectory ? '/' : ''}`;
+        const title = reference.isDirectory
+          ? `Reveal ${reference.path} in Files`
+          : `Open ${reference.line ? `${reference.path}:${reference.line}` : reference.path}`;
         return (
           <button
-            key={`file:${reference.path}:${reference.line ?? ''}`}
+            key={`file:${reference.path}:${reference.line ?? ''}:${reference.isDirectory ? 'dir' : 'file'}`}
             type="button"
             disabled={!onOpenWorkspaceFile}
-            onClick={() => onOpenWorkspaceFile?.(reference.path, reference.line)}
+            onClick={() => onOpenWorkspaceFile?.(reference.path, reference.line, reference.isDirectory)}
             className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full bg-secondary px-2.5 font-mono text-[11px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-60"
-            title={onOpenWorkspaceFile ? `Open ${reference.line ? `${reference.path}:${reference.line}` : reference.path}` : label}
+            title={onOpenWorkspaceFile ? title : label}
           >
-            <FileCode2 size={12} className="shrink-0" />
+            {reference.isDirectory ? <FolderTree size={12} className="shrink-0" /> : <FileCode2 size={12} className="shrink-0" />}
             <span className="truncate">{label}</span>
           </button>
         );
@@ -2450,7 +2502,7 @@ function MessageRow({
   onSelectVersion?: (leafId: string) => void;
   onEdit?: () => void;
   editDisabled?: boolean;
-  onOpenWorkspaceFile?: (path: string, line?: number) => void;
+  onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void;
   animate?: boolean;
   rowRef?: (node: HTMLElement | null) => void;
 }) {
@@ -2539,19 +2591,139 @@ function MessageVersionControls({
   );
 }
 
+interface AttachmentPreviewTarget {
+  image: PiConversationImageAttachment;
+  source?: ExcalidrawDiagramSource;
+}
+
 function MessageImages({ images }: { images: PiConversationImageAttachment[] }) {
+  const [diagramSources, setDiagramSources] = useState<Record<number, ExcalidrawDiagramSource>>({});
+  const [previewTarget, setPreviewTarget] = useState<AttachmentPreviewTarget | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDiagramSources({});
+    const pngImages = images
+      .map((image, index) => ({ image, index }))
+      .filter(({ image }) => image.mimeType === 'image/png' && image.data.trim());
+    if (pngImages.length === 0) return () => { cancelled = true; };
+
+    void Promise.all(pngImages.map(async ({ image, index }) => ({
+      index,
+      source: await recoverCachedEmbeddedExcalidrawSource(image),
+    }))).then((entries) => {
+      if (cancelled) return;
+      const nextSources: Record<number, ExcalidrawDiagramSource> = {};
+      for (const entry of entries) {
+        if (entry.source) nextSources[entry.index] = entry.source;
+      }
+      setDiagramSources(nextSources);
+    });
+
+    return () => { cancelled = true; };
+  }, [images]);
+
   if (images.length === 0) return null;
   return (
-    <div className="mt-3 grid grid-cols-2 gap-2">
-      {images.map((image, index) => (
-        <img
-          key={`${image.mimeType}-${index}`}
-          src={`data:${image.mimeType};base64,${image.data}`}
-          alt="Attached screenshot"
-          className="max-h-64 rounded-lg object-contain"
-        />
-      ))}
+    <>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        {images.map((image, index) => {
+          const source = diagramSources[index];
+          return (
+            <button
+              key={`${image.mimeType}-${index}`}
+              type="button"
+              onClick={() => setPreviewTarget({ image, source })}
+              className="group relative overflow-hidden rounded-lg bg-primary/80 text-left ring-1 ring-[var(--color-card-border)] transition-shadow hover:shadow-[var(--shadow-card-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/45"
+              title={source ? 'Open diagram preview' : 'Open image preview'}
+              aria-label={source ? 'Open diagram preview' : 'Open image preview'}
+            >
+              <img
+                src={imageDataUrl(image)}
+                alt="Attached screenshot"
+                className="h-full max-h-64 w-full object-contain transition-transform duration-200 ease-out-quart group-hover:scale-[1.01]"
+              />
+              {source && (
+                <span className="absolute left-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-md bg-[var(--color-text-primary)]/88 text-[var(--color-card)] shadow-sm backdrop-blur-sm" title="Diagram" aria-label="Diagram">
+                  <Shapes size={13} />
+                </span>
+              )}
+              <span className="absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-md bg-[var(--color-text-primary)]/82 text-[var(--color-card)] opacity-0 shadow-sm backdrop-blur-sm transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                <Maximize2 size={13} />
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <Suspense fallback={previewTarget ? <AttachmentPreviewLoading /> : null}>
+        {previewTarget?.source ? (
+          <ExcalidrawDiagramViewerDialog
+            source={previewTarget.source}
+            onClose={() => setPreviewTarget(null)}
+          />
+        ) : previewTarget ? (
+          <ImageAttachmentPreviewDialog
+            image={previewTarget.image}
+            onClose={() => setPreviewTarget(null)}
+          />
+        ) : null}
+      </Suspense>
+    </>
+  );
+}
+
+function AttachmentPreviewLoading() {
+  return (
+    <div className="fixed inset-0 z-[85] grid place-items-center bg-primary text-sm text-dim">
+      <span className="inline-flex items-center gap-2 rounded-xl border border-subtle bg-card px-4 py-3 shadow-card">
+        <Loader2 size={15} className="animate-spin text-accent" />
+        Loading preview
+      </span>
     </div>
+  );
+}
+
+function ImageAttachmentPreviewDialog({ image, onClose }: { image: PiConversationImageAttachment; onClose: () => void }) {
+  const desktopShell = isDesktopShell();
+  const headerClassName = [
+    'flex h-12 shrink-0 items-center justify-between border-b border-subtle bg-card shadow-card',
+    desktopShell ? 'desktop-drag-region pl-[72px] pr-3' : 'px-3',
+  ].join(' ');
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[85] flex flex-col bg-primary text-[var(--color-text-primary)]" role="dialog" aria-modal="true" aria-label="Image preview">
+      <header className={headerClassName}>
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold">Image preview</div>
+          <div className="hidden text-[11px] text-dim sm:block">{image.mimeType}</div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]"
+          title="Close preview"
+          aria-label="Close preview"
+        >
+          <X size={15} />
+        </button>
+      </header>
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-[var(--color-canvas)] p-4 sm:p-6">
+        <img
+          src={imageDataUrl(image)}
+          alt="Attached screenshot preview"
+          className="max-h-full max-w-full rounded-xl bg-card object-contain shadow-[var(--shadow-card-hover)] ring-1 ring-[var(--color-card-border)]"
+        />
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -2566,7 +2738,7 @@ function CollapsedTurnEvents({
   messages: PiConversationMessage[];
   copiedMessageId: string | null;
   onCopy: (message: PiConversationMessage) => void;
-  onOpenWorkspaceFile?: (path: string, line?: number) => void;
+  onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void;
   animate?: boolean;
   rowRef?: (node: HTMLElement | null) => void;
 }) {
@@ -2653,7 +2825,7 @@ function MessageActions({
   );
 }
 
-function ToolResultRow({ message, compact, animate = true, rowRef, onOpenWorkspaceFile }: { message: PiConversationMessage; compact?: boolean; animate?: boolean; rowRef?: (node: HTMLElement | null) => void; onOpenWorkspaceFile?: (path: string, line?: number) => void }) {
+function ToolResultRow({ message, compact, animate = true, rowRef, onOpenWorkspaceFile }: { message: PiConversationMessage; compact?: boolean; animate?: boolean; rowRef?: (node: HTMLElement | null) => void; onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void }) {
   return (
     <details ref={rowRef as ((node: HTMLDetailsElement | null) => void) | undefined} className={`group text-xs ${compact ? '' : 'mx-0'} ${animate ? 'animate-message-enter' : ''}`}>
       <summary className="flex cursor-pointer list-none items-center gap-2 py-1 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
@@ -2671,7 +2843,7 @@ function ToolResultRow({ message, compact, animate = true, rowRef, onOpenWorkspa
   );
 }
 
-function PendingAssistant({ snapshot, onOpenWorkspaceFile }: { snapshot: PiConversationSnapshot | null; onOpenWorkspaceFile?: (path: string, line?: number) => void }) {
+function PendingAssistant({ snapshot, onOpenWorkspaceFile }: { snapshot: PiConversationSnapshot | null; onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void }) {
   if (!snapshot) return null;
   const activitySummary = assistantActivitySummary(snapshot);
   const hasActivity = Boolean(snapshot.pending?.thinking || (snapshot.pending?.toolCalls?.length ?? 0) > 0 || (snapshot.tools?.length ?? 0) > 0);
@@ -2975,12 +3147,30 @@ function uniqueComposerReferences(references: CodeburgReference[]): CodeburgRefe
   for (const reference of references) {
     const key = reference.kind === 'skill'
       ? `skill:${reference.name}`
-      : `file:${reference.path}:${reference.line ?? ''}`;
+      : `file:${normalizeReferencePath(reference.path)}:${reference.line ?? ''}`;
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push(reference);
   }
   return unique.slice(0, 8);
+}
+
+function enrichComposerReferenceTypes(references: CodeburgReference[], fileEntries: V2FileEntry[]): CodeburgReference[] {
+  if (fileEntries.length === 0) return references;
+  const entryTypes = new Map(fileEntries.map((entry) => [normalizeReferencePath(entry.path), entry.type]));
+  return references.map((reference) => {
+    if (reference.kind !== 'file') return reference;
+    const path = normalizeReferencePath(reference.path);
+    return {
+      ...reference,
+      path,
+      isDirectory: reference.isDirectory || entryTypes.get(path) === 'dir',
+    };
+  });
+}
+
+function normalizeReferencePath(path: string): string {
+  return path.replace(/\/+$/, '');
 }
 
 function appendWorkspaceReference(draft: string, path: string): string {
@@ -3034,17 +3224,79 @@ function messageImagesToComposerAttachments(images?: PiConversationImageAttachme
     .filter((image) => image.data.trim() && image.mimeType.trim())
     .map((image, index) => {
       const mimeType = image.mimeType.trim();
-      return {
-        id: `message-image-${index}-${crypto.randomUUID()}`,
-        name: `attachment-${index + 1}.${imageExtension(mimeType)}`,
-        previewUrl: `data:${mimeType};base64,${image.data}`,
-        image: {
-          type: 'image',
-          data: image.data,
+        return {
+          id: `message-image-${index}-${crypto.randomUUID()}`,
+          name: `attachment-${index + 1}.${imageExtension(mimeType)}`,
+          previewUrl: imageDataUrl({ ...image, mimeType }),
+          image: {
+            type: 'image',
+            data: image.data,
           mimeType,
         },
       };
     });
+}
+
+async function hydrateEmbeddedExcalidrawSources(attachments: ComposerAttachment[]): Promise<ComposerAttachment[]> {
+  const hydrated = await Promise.all(attachments.map(async (attachment) => {
+    const source = await recoverCachedEmbeddedExcalidrawSource(attachment.image);
+    return source ? { ...attachment, source } : attachment;
+  }));
+  return hydrated;
+}
+
+function recoverCachedEmbeddedExcalidrawSource(image: PiConversationImageAttachment): Promise<ExcalidrawDiagramSource | undefined> {
+  const key = embeddedSourceCacheKey(image);
+  const cached = embeddedExcalidrawSourceCache.get(key);
+  if (cached) return cached;
+  const next = recoverEmbeddedExcalidrawSource(image);
+  embeddedExcalidrawSourceCache.set(key, next);
+  return next;
+}
+
+async function recoverEmbeddedExcalidrawSource(image: PiConversationImageAttachment): Promise<ExcalidrawDiagramSource | undefined> {
+  if (image.mimeType !== 'image/png' || !image.data.trim()) return undefined;
+  try {
+    const { loadFromBlob } = await import('@excalidraw/excalidraw');
+    const restored = await loadFromBlob(imageAttachmentToBlob(image), null, null);
+    if (restored.elements.length === 0) return undefined;
+    return {
+      type: 'excalidraw',
+      data: JSON.stringify({
+        type: 'excalidraw',
+        version: 2,
+        source: 'codeburg',
+        elements: restored.elements,
+        appState: restored.appState,
+        files: restored.files,
+      }),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function embeddedSourceCacheKey(image: PiConversationImageAttachment): string {
+  const data = image.data.trim();
+  return `${image.mimeType}:${data.length}:${data.slice(0, 48)}:${data.slice(-48)}`;
+}
+
+function imageDataUrl(image: PiConversationImageAttachment): string {
+  return `data:${image.mimeType};base64,${image.data}`;
+}
+
+function imageAttachmentToBlob(image: PiConversationImageAttachment): Blob {
+  const binary = window.atob(image.data);
+  const chunks: ArrayBuffer[] = [];
+  for (let offset = 0; offset < binary.length; offset += 8192) {
+    const slice = binary.slice(offset, offset + 8192);
+    const bytes = new Uint8Array(slice.length);
+    for (let index = 0; index < slice.length; index += 1) {
+      bytes[index] = slice.charCodeAt(index);
+    }
+    chunks.push(bytes.buffer as ArrayBuffer);
+  }
+  return new Blob(chunks, { type: image.mimeType });
 }
 
 function imageExtension(mimeType: string): string {

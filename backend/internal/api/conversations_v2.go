@@ -70,27 +70,25 @@ func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request)
 	if raw := strings.TrimSpace(r.URL.Query().Get("projectId")); raw != "" {
 		projectID = &raw
 	}
-	var status *db.ConversationStatus
-	if raw := strings.TrimSpace(r.URL.Query().Get("status")); raw != "" {
-		parsed := db.ConversationStatus(raw)
-		switch parsed {
-		case db.ConversationStatusActive, db.ConversationStatusPaused, db.ConversationStatusCompleted, db.ConversationStatusArchived:
-			status = &parsed
-		default:
-			writeError(w, http.StatusBadRequest, "invalid conversation status")
-			return
-		}
+	status, ok := parseConversationStatusQuery(w, r, "status")
+	if !ok {
+		return
+	}
+	excludeStatus, ok := parseConversationStatusQuery(w, r, "excludeStatus")
+	if !ok {
+		return
 	}
 	limit, ok := parseConversationListLimit(w, r)
 	if !ok {
 		return
 	}
 	conversations, err := s.db.ListConversationsWithOptions(db.ListConversationOptions{
-		ProjectID: projectID,
-		Query:     strings.TrimSpace(r.URL.Query().Get("q")),
-		Status:    status,
-		Provider:  strings.TrimSpace(r.URL.Query().Get("provider")),
-		Limit:     limit,
+		ProjectID:     projectID,
+		Query:         strings.TrimSpace(r.URL.Query().Get("q")),
+		Status:        status,
+		ExcludeStatus: excludeStatus,
+		Provider:      strings.TrimSpace(r.URL.Query().Get("provider")),
+		Limit:         limit,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list conversations")
@@ -105,33 +103,46 @@ func (s *Server) handleListProjectConversations(w http.ResponseWriter, r *http.R
 		writeDBError(w, err, "project")
 		return
 	}
-	var status *db.ConversationStatus
-	if raw := strings.TrimSpace(r.URL.Query().Get("status")); raw != "" {
-		parsed := db.ConversationStatus(raw)
-		switch parsed {
-		case db.ConversationStatusActive, db.ConversationStatusPaused, db.ConversationStatusCompleted, db.ConversationStatusArchived:
-			status = &parsed
-		default:
-			writeError(w, http.StatusBadRequest, "invalid conversation status")
-			return
-		}
+	status, ok := parseConversationStatusQuery(w, r, "status")
+	if !ok {
+		return
+	}
+	excludeStatus, ok := parseConversationStatusQuery(w, r, "excludeStatus")
+	if !ok {
+		return
 	}
 	limit, ok := parseConversationListLimit(w, r)
 	if !ok {
 		return
 	}
 	conversations, err := s.db.ListConversationsWithOptions(db.ListConversationOptions{
-		ProjectID: &projectID,
-		Query:     strings.TrimSpace(r.URL.Query().Get("q")),
-		Status:    status,
-		Provider:  strings.TrimSpace(r.URL.Query().Get("provider")),
-		Limit:     limit,
+		ProjectID:     &projectID,
+		Query:         strings.TrimSpace(r.URL.Query().Get("q")),
+		Status:        status,
+		ExcludeStatus: excludeStatus,
+		Provider:      strings.TrimSpace(r.URL.Query().Get("provider")),
+		Limit:         limit,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list conversations")
 		return
 	}
 	writeJSON(w, http.StatusOK, conversations)
+}
+
+func parseConversationStatusQuery(w http.ResponseWriter, r *http.Request, key string) (*db.ConversationStatus, bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get(key))
+	if raw == "" {
+		return nil, true
+	}
+	parsed := db.ConversationStatus(raw)
+	switch parsed {
+	case db.ConversationStatusActive, db.ConversationStatusPaused, db.ConversationStatusCompleted, db.ConversationStatusArchived:
+		return &parsed, true
+	default:
+		writeError(w, http.StatusBadRequest, "invalid conversation "+key)
+		return nil, false
+	}
 }
 
 func parseConversationListLimit(w http.ResponseWriter, r *http.Request) (int, bool) {

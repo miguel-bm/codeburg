@@ -115,6 +115,7 @@ export interface ListConversationsInput {
   projectId?: string;
   q?: string;
   status?: 'active' | 'paused' | 'completed' | 'archived';
+  excludeStatus?: 'active' | 'paused' | 'completed' | 'archived';
   provider?: string;
   limit?: number;
 }
@@ -152,6 +153,7 @@ export const v2Api = {
     if (params?.projectId) search.set('projectId', params.projectId);
     if (params?.q) search.set('q', params.q);
     if (params?.status) search.set('status', params.status);
+    if (params?.excludeStatus) search.set('excludeStatus', params.excludeStatus);
     if (params?.provider) search.set('provider', params.provider);
     if (params?.limit) search.set('limit', String(params.limit));
     const query = search.toString();
@@ -213,6 +215,7 @@ export const v2Api = {
     const search = new URLSearchParams();
     if (input?.q) search.set('q', input.q);
     if (input?.status) search.set('status', input.status);
+    if (input?.excludeStatus) search.set('excludeStatus', input.excludeStatus);
     if (input?.provider) search.set('provider', input.provider);
     if (input?.limit) search.set('limit', String(input.limit));
     const query = search.toString();

@@ -1,6 +1,6 @@
 export type CodeburgReference =
   | { kind: 'skill'; name: string; raw: string }
-  | { kind: 'file'; path: string; line?: number; raw: string };
+  | { kind: 'file'; path: string; line?: number; raw: string; isDirectory?: boolean };
 
 export type CodeburgReferenceSegment =
   | { type: 'text'; value: string }
@@ -56,7 +56,7 @@ function parseCodeburgReferenceToken(token: string): CodeburgReference | null {
 
   if (token.startsWith('@')) {
     const reference = parseWorkspaceFileReference(token.slice(1));
-    return reference.path ? { kind: 'file', path: reference.path, line: reference.line, raw: token } : null;
+    return reference.path ? { kind: 'file', path: reference.path, line: reference.line, raw: token, isDirectory: reference.isDirectory } : null;
   }
 
   return null;
@@ -72,9 +72,11 @@ function trimTokenPunctuation(rawToken: string): { token: string; trailing: stri
   return { token, trailing };
 }
 
-function parseWorkspaceFileReference(value: string): { path: string; line?: number } {
-  const lineMatch = value.match(/^(.*):(\d+)$/);
-  if (!lineMatch) return { path: value };
+function parseWorkspaceFileReference(value: string): { path: string; line?: number; isDirectory?: boolean } {
+  const isDirectory = value.endsWith('/');
+  const normalizedValue = isDirectory ? value.replace(/\/+$/, '') : value;
+  const lineMatch = normalizedValue.match(/^(.*):(\d+)$/);
+  if (!lineMatch) return { path: normalizedValue, isDirectory };
   const line = Number.parseInt(lineMatch[2], 10);
-  return { path: lineMatch[1], line: Number.isFinite(line) ? line : undefined };
+  return { path: lineMatch[1], line: Number.isFinite(line) ? line : undefined, isDirectory };
 }
