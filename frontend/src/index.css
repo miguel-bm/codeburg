@@ -624,9 +624,13 @@ button:disabled,
   background: color-mix(in srgb, var(--color-bg-secondary) 82%, var(--color-card-hover));
 }
 
+.prose-md .codeburg-code-block pre,
 .prose-md .codeburg-code-block code {
   background: transparent;
   border-radius: 0;
+}
+
+.prose-md .codeburg-code-block code {
   padding: 0;
 }
 
