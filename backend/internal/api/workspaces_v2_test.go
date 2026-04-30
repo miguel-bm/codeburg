@@ -1427,7 +1427,7 @@ func TestPiConfigReadAndWrite(t *testing.T) {
 	if err := os.MkdirAll(agentDir, 0755); err != nil {
 		t.Fatalf("mkdir agent dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(agentDir, "settings.json"), []byte("{\"defaultProvider\":\"openai\"}\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(agentDir, "settings.json"), []byte("{\"defaultProvider\":\"openai\",\"packages\":[\"npm:pi-web-access@0.10.6\"]}\n"), 0644); err != nil {
 		t.Fatalf("write settings.json: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(agentDir, "models.json"), []byte("{\"providers\":{\"openai\":{\"models\":[{\"id\":\"gpt-5.4\"}]}}}\n"), 0644); err != nil {
@@ -1465,6 +1465,12 @@ func TestPiConfigReadAndWrite(t *testing.T) {
 	if !strings.Contains(globalConfig.Models.Content, "gpt-5.4") {
 		t.Fatalf("expected models content, got %q", globalConfig.Models.Content)
 	}
+	if !globalConfig.WebAccess.Installed {
+		t.Fatalf("expected web access package to be detected, got %+v", globalConfig.WebAccess)
+	}
+	if globalConfig.WebAccess.Provider != "auto" || globalConfig.WebAccess.Workflow != "summary-review" {
+		t.Fatalf("unexpected web access defaults: %+v", globalConfig.WebAccess)
+	}
 
 	projectResp := env.get("/api/projects/" + project.ID + "/pi/config")
 	if projectResp.Code != http.StatusOK {
@@ -1500,6 +1506,40 @@ func TestPiConfigReadAndWrite(t *testing.T) {
 		t.Fatalf("put project pi settings: %d %s", writeProjectSettingsResp.Code, writeProjectSettingsResp.Body.String())
 	}
 
+	writeWebAccessResp := env.request("PUT", "/api/pi/web-access", map[string]any{
+		"provider":              "exa",
+		"workflow":              "none",
+		"exaApiKey":             "exa-test-key",
+		"searchModel":           "gemini-2.5-flash",
+		"curatorTimeoutSeconds": 45,
+		"githubClone": map[string]any{
+			"enabled":       true,
+			"maxRepoSizeMB": 200,
+			"clonePath":     "/tmp/codeburg-web-repos",
+		},
+		"youtube": map[string]any{
+			"enabled": false,
+		},
+		"video": map[string]any{
+			"enabled":   true,
+			"maxSizeMB": 75,
+		},
+	})
+	if writeWebAccessResp.Code != http.StatusOK {
+		t.Fatalf("put pi web access: %d %s", writeWebAccessResp.Code, writeWebAccessResp.Body.String())
+	}
+	var webAccess piWebAccessStatus
+	decodeResponse(t, writeWebAccessResp, &webAccess)
+	if webAccess.Provider != "exa" || webAccess.Workflow != "none" {
+		t.Fatalf("unexpected web access status: %+v", webAccess)
+	}
+	if !webAccess.Credentials.Exa.Configured || webAccess.Credentials.Exa.Source != "config" {
+		t.Fatalf("expected exa key to be configured from config, got %+v", webAccess.Credentials.Exa)
+	}
+	if webAccess.YouTube.Enabled {
+		t.Fatalf("expected youtube to be disabled, got %+v", webAccess.YouTube)
+	}
+
 	globalSettingsRaw, err := os.ReadFile(filepath.Join(agentDir, "settings.json"))
 	if err != nil {
 		t.Fatalf("read written settings.json: %v", err)
@@ -1525,11 +1565,26 @@ func TestPiConfigReadAndWrite(t *testing.T) {
 		t.Fatalf("unexpected project settings content: %q", string(projectSettingsRaw))
 	}
 
+	webAccessRaw, err := os.ReadFile(filepath.Join(homeDir, ".pi", "web-search.json"))
+	if err != nil {
+		t.Fatalf("read web-search.json: %v", err)
+	}
+	if !strings.Contains(string(webAccessRaw), "\"workflow\": \"none\"") || !strings.Contains(string(webAccessRaw), "\"exaApiKey\": \"exa-test-key\"") {
+		t.Fatalf("unexpected web access content: %q", string(webAccessRaw))
+	}
+
 	invalidResp := env.request("PUT", "/api/pi/settings", map[string]any{
 		"content": "{\"broken\":",
 	})
 	if invalidResp.Code != http.StatusBadRequest {
 		t.Fatalf("expected invalid json to fail, got %d %s", invalidResp.Code, invalidResp.Body.String())
+	}
+
+	invalidWebAccessResp := env.request("PUT", "/api/pi/web-access", map[string]any{
+		"provider": "not-real",
+	})
+	if invalidWebAccessResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid provider to fail, got %d %s", invalidWebAccessResp.Code, invalidWebAccessResp.Body.String())
 	}
 }
 

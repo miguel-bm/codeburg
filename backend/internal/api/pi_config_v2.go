@@ -24,6 +24,7 @@ type piConfigResponse struct {
 	Status            piStatusResponse   `json:"status"`
 	GlobalSettings    piConfigDocument   `json:"globalSettings"`
 	Models            piConfigDocument   `json:"models"`
+	WebAccess         piWebAccessStatus  `json:"webAccess"`
 	ProjectSettings   *piConfigDocument  `json:"projectSettings,omitempty"`
 	GlobalPackages    []piPackageEntry   `json:"globalPackages,omitempty"`
 	ProjectPackages   []piPackageEntry   `json:"projectPackages,omitempty"`
@@ -45,6 +46,90 @@ type updatePiPackagesRequest struct {
 
 type mutatePiExtensionRequest struct {
 	Path string `json:"path"`
+}
+
+type updatePiWebAccessRequest struct {
+	Provider              *string                      `json:"provider,omitempty"`
+	Workflow              *string                      `json:"workflow,omitempty"`
+	SearchModel           *string                      `json:"searchModel,omitempty"`
+	ChromeProfile         *string                      `json:"chromeProfile,omitempty"`
+	CuratorTimeoutSeconds *int                         `json:"curatorTimeoutSeconds,omitempty"`
+	ExaAPIKey             *string                      `json:"exaApiKey,omitempty"`
+	PerplexityAPIKey      *string                      `json:"perplexityApiKey,omitempty"`
+	GeminiAPIKey          *string                      `json:"geminiApiKey,omitempty"`
+	ClearExaAPIKey        bool                         `json:"clearExaApiKey,omitempty"`
+	ClearPerplexityAPIKey bool                         `json:"clearPerplexityApiKey,omitempty"`
+	ClearGeminiAPIKey     bool                         `json:"clearGeminiApiKey,omitempty"`
+	GitHubClone           *piWebAccessGitHubCloneInput `json:"githubClone,omitempty"`
+	YouTube               *piWebAccessFeatureInput     `json:"youtube,omitempty"`
+	Video                 *piWebAccessVideoInput       `json:"video,omitempty"`
+}
+
+type piWebAccessGitHubCloneInput struct {
+	Enabled             *bool   `json:"enabled,omitempty"`
+	MaxRepoSizeMB       *int    `json:"maxRepoSizeMB,omitempty"`
+	CloneTimeoutSeconds *int    `json:"cloneTimeoutSeconds,omitempty"`
+	ClonePath           *string `json:"clonePath,omitempty"`
+}
+
+type piWebAccessFeatureInput struct {
+	Enabled        *bool   `json:"enabled,omitempty"`
+	PreferredModel *string `json:"preferredModel,omitempty"`
+}
+
+type piWebAccessVideoInput struct {
+	Enabled        *bool   `json:"enabled,omitempty"`
+	PreferredModel *string `json:"preferredModel,omitempty"`
+	MaxSizeMB      *int    `json:"maxSizeMB,omitempty"`
+}
+
+type piWebAccessStatus struct {
+	PackageSource         string                         `json:"packageSource"`
+	Installed             bool                           `json:"installed"`
+	ConfigPath            string                         `json:"configPath"`
+	ConfigExists          bool                           `json:"configExists"`
+	ConfigValid           bool                           `json:"configValid"`
+	UpdatedAt             *time.Time                     `json:"updatedAt,omitempty"`
+	ParseError            *string                        `json:"parseError,omitempty"`
+	Provider              string                         `json:"provider"`
+	Workflow              string                         `json:"workflow"`
+	SearchModel           string                         `json:"searchModel,omitempty"`
+	ChromeProfile         string                         `json:"chromeProfile,omitempty"`
+	CuratorTimeoutSeconds *int                           `json:"curatorTimeoutSeconds,omitempty"`
+	Credentials           piWebAccessCredentials         `json:"credentials"`
+	GitHubClone           piWebAccessGitHubCloneSettings `json:"githubClone"`
+	YouTube               piWebAccessFeatureSettings     `json:"youtube"`
+	Video                 piWebAccessVideoSettings       `json:"video"`
+	LoadWarnings          []string                       `json:"loadWarnings,omitempty"`
+}
+
+type piWebAccessCredentials struct {
+	Exa        piWebAccessCredential `json:"exa"`
+	Perplexity piWebAccessCredential `json:"perplexity"`
+	Gemini     piWebAccessCredential `json:"gemini"`
+}
+
+type piWebAccessCredential struct {
+	Configured bool   `json:"configured"`
+	Source     string `json:"source,omitempty"`
+}
+
+type piWebAccessGitHubCloneSettings struct {
+	Enabled             bool   `json:"enabled"`
+	MaxRepoSizeMB       *int   `json:"maxRepoSizeMB,omitempty"`
+	CloneTimeoutSeconds *int   `json:"cloneTimeoutSeconds,omitempty"`
+	ClonePath           string `json:"clonePath,omitempty"`
+}
+
+type piWebAccessFeatureSettings struct {
+	Enabled        bool   `json:"enabled"`
+	PreferredModel string `json:"preferredModel,omitempty"`
+}
+
+type piWebAccessVideoSettings struct {
+	Enabled        bool   `json:"enabled"`
+	PreferredModel string `json:"preferredModel,omitempty"`
+	MaxSizeMB      *int   `json:"maxSizeMB,omitempty"`
 }
 
 type piPackageEntry struct {
@@ -115,6 +200,25 @@ func (s *Server) handlePutPiModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, config.Models)
+}
+
+func (s *Server) handlePutPiWebAccess(w http.ResponseWriter, r *http.Request) {
+	var req updatePiWebAccessRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := writePiWebAccessConfig(req); err != nil {
+		writePiConfigWriteError(w, err)
+		return
+	}
+
+	config, err := loadPiConfigResponse(nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read pi config")
+		return
+	}
+	writeJSON(w, http.StatusOK, config.WebAccess)
 }
 
 func (s *Server) handlePutProjectPiSettings(w http.ResponseWriter, r *http.Request) {
@@ -304,7 +408,7 @@ func (s *Server) handleRemoveProjectPiExtension(w http.ResponseWriter, r *http.R
 }
 
 func writePiConfigWriteError(w http.ResponseWriter, err error) {
-	if strings.Contains(err.Error(), "invalid JSON") || strings.Contains(err.Error(), "invalid request body") {
+	if strings.Contains(err.Error(), "invalid JSON") || strings.Contains(err.Error(), "invalid request body") || strings.Contains(err.Error(), " must be ") {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -343,6 +447,7 @@ func loadPiConfigResponse(projectPath *string) (piConfigResponse, error) {
 	if response.ProjectSettings != nil {
 		response.ProjectPackages, response.ProjectExtensions = parsePiSettingsResources(*response.ProjectSettings, "project")
 	}
+	response.WebAccess = inspectPiWebAccess(globalSettings)
 
 	return response, nil
 }
@@ -423,6 +528,286 @@ func piGlobalSettingsPath() string {
 
 func piModelsPath() string {
 	return filepath.Join(piAgentDir(), "models.json")
+}
+
+func piWebAccessConfigPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".", ".pi", "web-search.json")
+	}
+	return filepath.Join(home, ".pi", "web-search.json")
+}
+
+const piWebAccessPackageSource = "npm:pi-web-access"
+
+func inspectPiWebAccess(globalSettings piConfigDocument) piWebAccessStatus {
+	status := piWebAccessStatus{
+		PackageSource: piWebAccessPackageSource,
+		ConfigPath:    piWebAccessConfigPath(),
+		ConfigValid:   true,
+		Provider:      "auto",
+		Workflow:      "summary-review",
+		GitHubClone:   piWebAccessGitHubCloneSettings{Enabled: true},
+		YouTube:       piWebAccessFeatureSettings{Enabled: true},
+		Video:         piWebAccessVideoSettings{Enabled: true},
+		LoadWarnings:  []string{},
+	}
+
+	packages, _ := parsePiSettingsResources(globalSettings, "global")
+	for _, pkg := range packages {
+		if isPiWebAccessPackageSource(pkg.Source) {
+			status.Installed = true
+			break
+		}
+	}
+
+	document, err := readPiJSONDocument(status.ConfigPath)
+	if err != nil {
+		status.ConfigValid = false
+		status.LoadWarnings = append(status.LoadWarnings, fmt.Sprintf("failed to read web-search.json: %v", err))
+		return compactPiWebAccessStatus(status)
+	}
+	status.ConfigExists = document.Exists
+	status.ConfigValid = document.Valid
+	status.UpdatedAt = document.UpdatedAt
+	status.ParseError = document.ParseError
+	if !document.Valid {
+		return compactPiWebAccessStatus(status)
+	}
+
+	settings := map[string]any{}
+	if strings.TrimSpace(document.Content) != "" {
+		if err := json.Unmarshal([]byte(document.Content), &settings); err != nil {
+			msg := err.Error()
+			status.ConfigValid = false
+			status.ParseError = &msg
+			return compactPiWebAccessStatus(status)
+		}
+	}
+
+	status.Provider = webAccessString(settings, "provider", status.Provider)
+	status.Workflow = webAccessString(settings, "workflow", status.Workflow)
+	status.SearchModel = webAccessString(settings, "searchModel", "")
+	status.ChromeProfile = webAccessString(settings, "chromeProfile", "")
+	status.CuratorTimeoutSeconds = webAccessIntPtr(settings, "curatorTimeoutSeconds")
+	status.Credentials = piWebAccessCredentials{
+		Exa:        webAccessCredential(settings, "exaApiKey", "EXA_API_KEY"),
+		Perplexity: webAccessCredential(settings, "perplexityApiKey", "PERPLEXITY_API_KEY"),
+		Gemini:     webAccessCredential(settings, "geminiApiKey", "GEMINI_API_KEY"),
+	}
+	status.GitHubClone = webAccessGitHubCloneSettings(settings)
+	status.YouTube = webAccessFeatureSettings(settings, "youtube")
+	status.Video = webAccessVideoSettings(settings)
+	return compactPiWebAccessStatus(status)
+}
+
+func compactPiWebAccessStatus(status piWebAccessStatus) piWebAccessStatus {
+	if len(status.LoadWarnings) == 0 {
+		status.LoadWarnings = nil
+	}
+	return status
+}
+
+func isPiWebAccessPackageSource(source string) bool {
+	source = strings.TrimSpace(source)
+	source = strings.TrimPrefix(source, "npm:")
+	return source == "pi-web-access" || strings.HasPrefix(source, "pi-web-access@")
+}
+
+func webAccessString(settings map[string]any, key, fallback string) string {
+	if value, ok := settings[key].(string); ok && strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	return fallback
+}
+
+func webAccessIntPtr(settings map[string]any, key string) *int {
+	switch value := settings[key].(type) {
+	case float64:
+		next := int(value)
+		return &next
+	case int:
+		next := value
+		return &next
+	default:
+		return nil
+	}
+}
+
+func webAccessBool(settings map[string]any, key string, fallback bool) bool {
+	if value, ok := settings[key].(bool); ok {
+		return value
+	}
+	return fallback
+}
+
+func webAccessNestedMap(settings map[string]any, key string) map[string]any {
+	if value, ok := settings[key].(map[string]any); ok {
+		return value
+	}
+	return map[string]any{}
+}
+
+func webAccessCredential(settings map[string]any, configKey, envKey string) piWebAccessCredential {
+	if strings.TrimSpace(os.Getenv(envKey)) != "" {
+		return piWebAccessCredential{Configured: true, Source: "env"}
+	}
+	if value, ok := settings[configKey].(string); ok && strings.TrimSpace(value) != "" {
+		return piWebAccessCredential{Configured: true, Source: "config"}
+	}
+	return piWebAccessCredential{}
+}
+
+func webAccessGitHubCloneSettings(settings map[string]any) piWebAccessGitHubCloneSettings {
+	githubClone := webAccessNestedMap(settings, "githubClone")
+	return piWebAccessGitHubCloneSettings{
+		Enabled:             webAccessBool(githubClone, "enabled", true),
+		MaxRepoSizeMB:       webAccessIntPtr(githubClone, "maxRepoSizeMB"),
+		CloneTimeoutSeconds: webAccessIntPtr(githubClone, "cloneTimeoutSeconds"),
+		ClonePath:           webAccessString(githubClone, "clonePath", ""),
+	}
+}
+
+func webAccessFeatureSettings(settings map[string]any, key string) piWebAccessFeatureSettings {
+	feature := webAccessNestedMap(settings, key)
+	return piWebAccessFeatureSettings{
+		Enabled:        webAccessBool(feature, "enabled", true),
+		PreferredModel: webAccessString(feature, "preferredModel", ""),
+	}
+}
+
+func webAccessVideoSettings(settings map[string]any) piWebAccessVideoSettings {
+	video := webAccessNestedMap(settings, "video")
+	return piWebAccessVideoSettings{
+		Enabled:        webAccessBool(video, "enabled", true),
+		PreferredModel: webAccessString(video, "preferredModel", ""),
+		MaxSizeMB:      webAccessIntPtr(video, "maxSizeMB"),
+	}
+}
+
+func writePiWebAccessConfig(req updatePiWebAccessRequest) error {
+	path := piWebAccessConfigPath()
+	settings, err := loadMutablePiSettings(path)
+	if err != nil {
+		return err
+	}
+
+	if err := setWebAccessEnum(settings, "provider", req.Provider, []string{"auto", "exa", "perplexity", "gemini"}); err != nil {
+		return err
+	}
+	if err := setWebAccessEnum(settings, "workflow", req.Workflow, []string{"none", "summary-review"}); err != nil {
+		return err
+	}
+	setWebAccessOptionalString(settings, "searchModel", req.SearchModel)
+	setWebAccessOptionalString(settings, "chromeProfile", req.ChromeProfile)
+	if req.CuratorTimeoutSeconds != nil {
+		if *req.CuratorTimeoutSeconds < 1 || *req.CuratorTimeoutSeconds > 600 {
+			return fmt.Errorf("curatorTimeoutSeconds must be between 1 and 600")
+		}
+		settings["curatorTimeoutSeconds"] = *req.CuratorTimeoutSeconds
+	}
+
+	setWebAccessSecret(settings, "exaApiKey", req.ExaAPIKey, req.ClearExaAPIKey)
+	setWebAccessSecret(settings, "perplexityApiKey", req.PerplexityAPIKey, req.ClearPerplexityAPIKey)
+	setWebAccessSecret(settings, "geminiApiKey", req.GeminiAPIKey, req.ClearGeminiAPIKey)
+
+	if req.GitHubClone != nil {
+		githubClone := mutableNestedMap(settings, "githubClone")
+		setWebAccessOptionalBool(githubClone, "enabled", req.GitHubClone.Enabled)
+		setWebAccessOptionalInt(githubClone, "maxRepoSizeMB", req.GitHubClone.MaxRepoSizeMB, 1, 5000)
+		setWebAccessOptionalInt(githubClone, "cloneTimeoutSeconds", req.GitHubClone.CloneTimeoutSeconds, 1, 600)
+		setWebAccessOptionalString(githubClone, "clonePath", req.GitHubClone.ClonePath)
+		settings["githubClone"] = githubClone
+	}
+	if req.YouTube != nil {
+		youtube := mutableNestedMap(settings, "youtube")
+		setWebAccessOptionalBool(youtube, "enabled", req.YouTube.Enabled)
+		setWebAccessOptionalString(youtube, "preferredModel", req.YouTube.PreferredModel)
+		settings["youtube"] = youtube
+	}
+	if req.Video != nil {
+		video := mutableNestedMap(settings, "video")
+		setWebAccessOptionalBool(video, "enabled", req.Video.Enabled)
+		setWebAccessOptionalString(video, "preferredModel", req.Video.PreferredModel)
+		setWebAccessOptionalInt(video, "maxSizeMB", req.Video.MaxSizeMB, 1, 2000)
+		settings["video"] = video
+	}
+
+	return saveMutablePiSettings(path, settings)
+}
+
+func setWebAccessEnum(settings map[string]any, key string, value *string, allowed []string) error {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		delete(settings, key)
+		return nil
+	}
+	for _, option := range allowed {
+		if trimmed == option {
+			settings[key] = trimmed
+			return nil
+		}
+	}
+	return fmt.Errorf("%s must be one of %s", key, strings.Join(allowed, ", "))
+}
+
+func setWebAccessOptionalString(settings map[string]any, key string, value *string) {
+	if value == nil {
+		return
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		delete(settings, key)
+		return
+	}
+	settings[key] = trimmed
+}
+
+func setWebAccessOptionalBool(settings map[string]any, key string, value *bool) {
+	if value == nil {
+		return
+	}
+	settings[key] = *value
+}
+
+func setWebAccessOptionalInt(settings map[string]any, key string, value *int, min int, max int) {
+	if value == nil {
+		return
+	}
+	if *value < min {
+		settings[key] = min
+		return
+	}
+	if *value > max {
+		settings[key] = max
+		return
+	}
+	settings[key] = *value
+}
+
+func setWebAccessSecret(settings map[string]any, key string, value *string, clear bool) {
+	if clear {
+		delete(settings, key)
+		return
+	}
+	if value == nil {
+		return
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return
+	}
+	settings[key] = trimmed
+}
+
+func mutableNestedMap(settings map[string]any, key string) map[string]any {
+	if value, ok := settings[key].(map[string]any); ok {
+		return value
+	}
+	return map[string]any{}
 }
 
 func normalizePiJSONDocument(content string) ([]byte, error) {

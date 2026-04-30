@@ -349,6 +349,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/pi/config", s.handleGetPiConfig)
 		r.Put("/api/pi/settings", s.handlePutPiGlobalSettings)
 		r.Put("/api/pi/models", s.handlePutPiModels)
+		r.Put("/api/pi/web-access", s.handlePutPiWebAccess)
 		r.Post("/api/pi/packages/install", s.handleInstallPiPackage)
 		r.Post("/api/pi/packages/remove", s.handleRemovePiPackage)
 		r.Post("/api/pi/packages/update", s.handleUpdatePiPackages)

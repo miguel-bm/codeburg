@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   CircleSlash,
   ExternalLink,
+  Globe2,
   KeyRound,
   PackagePlus,
   PlugZap,
@@ -20,10 +21,10 @@ import {
 } from 'lucide-react';
 import claudeLogo from '../../assets/claude-logo.svg';
 import openaiLogo from '../../assets/openai-logo.svg';
-import type { HarnessAuthStatus, HarnessToolId, HarnessToolStatus, PiConfigDocument, PiPackageEntry } from '../../api/types';
+import type { HarnessAuthStatus, HarnessToolId, HarnessToolStatus, PiConfigDocument, PiPackageEntry, PiWebAccessStatus, UpdatePiWebAccessConfigInput } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import type { HarnessUpdateEvent } from '../../api/v2';
-import { Button, V2Input, V2Screen, V2Textarea } from './v2-ui';
+import { Button, V2Input, V2Screen, V2Select, V2Textarea } from './v2-ui';
 
 type UpdateLogEntry = {
   id: number;
@@ -33,6 +34,42 @@ type UpdateLogEntry = {
 
 const EMPTY_TOOLS: HarnessToolStatus[] = [];
 const EMPTY_AUTH_STATUSES: HarnessAuthStatus[] = [];
+const WEB_ACCESS_PACKAGE_SOURCE = 'npm:pi-web-access';
+
+type WebAccessForm = {
+  provider: string;
+  workflow: string;
+  searchModel: string;
+  chromeProfile: string;
+  curatorTimeoutSeconds: string;
+  githubCloneEnabled: boolean;
+  githubCloneMaxRepoSizeMB: string;
+  githubCloneTimeoutSeconds: string;
+  githubClonePath: string;
+  youtubeEnabled: boolean;
+  youtubePreferredModel: string;
+  videoEnabled: boolean;
+  videoPreferredModel: string;
+  videoMaxSizeMB: string;
+};
+
+type WebAccessSecretDrafts = {
+  exa: string;
+  perplexity: string;
+  gemini: string;
+  clearExa: boolean;
+  clearPerplexity: boolean;
+  clearGemini: boolean;
+};
+
+const EMPTY_WEB_ACCESS_SECRETS: WebAccessSecretDrafts = {
+  exa: '',
+  perplexity: '',
+  gemini: '',
+  clearExa: false,
+  clearPerplexity: false,
+  clearGemini: false,
+};
 
 export function V2HarnessPage() {
   const queryClient = useQueryClient();
@@ -40,6 +77,8 @@ export function V2HarnessPage() {
   const [modelsDraft, setModelsDraft] = useState('');
   const [packageSource, setPackageSource] = useState('');
   const [extensionPath, setExtensionPath] = useState('');
+  const [webAccessForm, setWebAccessForm] = useState<WebAccessForm>(() => webAccessFormFromStatus());
+  const [webAccessSecrets, setWebAccessSecrets] = useState<WebAccessSecretDrafts>(EMPTY_WEB_ACCESS_SECRETS);
   const [latestRequested, setLatestRequested] = useState(false);
   const [activeUpdate, setActiveUpdate] = useState<HarnessToolId | null>(null);
   const [dialogTool, setDialogTool] = useState<HarnessToolId | null>(null);
@@ -61,6 +100,8 @@ export function V2HarnessPage() {
     if (!piConfig) return;
     setGlobalSettingsDraft(piConfig.globalSettings.content);
     setModelsDraft(piConfig.models.content);
+    setWebAccessForm(webAccessFormFromStatus(piConfig.webAccess));
+    setWebAccessSecrets(EMPTY_WEB_ACCESS_SECRETS);
   }, [piConfig]);
 
   const refreshHarnessState = async () => {
@@ -80,6 +121,16 @@ export function V2HarnessPage() {
   });
   const removeGlobalPackage = useMutation({ mutationFn: (source: string) => v2Api.removePiPackage(source), onSuccess: refreshHarnessState });
   const updateGlobalPackages = useMutation({ mutationFn: () => v2Api.updatePiPackages(), onSuccess: refreshHarnessState });
+  const installWebAccess = useMutation({ mutationFn: () => v2Api.installPiPackage(WEB_ACCESS_PACKAGE_SOURCE), onSuccess: refreshHarnessState });
+  const removeWebAccess = useMutation({ mutationFn: () => v2Api.removePiPackage(WEB_ACCESS_PACKAGE_SOURCE), onSuccess: refreshHarnessState });
+  const updateWebAccess = useMutation({ mutationFn: () => v2Api.updatePiPackages(WEB_ACCESS_PACKAGE_SOURCE), onSuccess: refreshHarnessState });
+  const saveWebAccess = useMutation({
+    mutationFn: () => v2Api.updatePiWebAccessConfig(buildWebAccessConfigInput(webAccessForm, webAccessSecrets)),
+    onSuccess: async () => {
+      setWebAccessSecrets(EMPTY_WEB_ACCESS_SECRETS);
+      await refreshHarnessState();
+    },
+  });
   const addGlobalExtension = useMutation({
     mutationFn: (path: string) => v2Api.addPiExtension(path),
     onSuccess: async () => {
@@ -208,6 +259,26 @@ export function V2HarnessPage() {
                   <div className="break-all py-2 font-mono text-xs text-dim">{piConfig?.status.agentDir ?? '~/.pi/agent'}</div>
                 </div>
               </SettingsSection>
+
+              <WebAccessSection
+                webAccess={piConfig?.webAccess}
+                form={webAccessForm}
+                secrets={webAccessSecrets}
+                onFormChange={setWebAccessForm}
+                onSecretsChange={setWebAccessSecrets}
+                onInstall={() => installWebAccess.mutate()}
+                installPending={installWebAccess.isPending}
+                installError={installWebAccess.error}
+                onRemove={() => removeWebAccess.mutate()}
+                removePending={removeWebAccess.isPending}
+                removeError={removeWebAccess.error}
+                onUpdate={() => updateWebAccess.mutate()}
+                updatePending={updateWebAccess.isPending}
+                updateError={updateWebAccess.error}
+                onSave={() => saveWebAccess.mutate()}
+                savePending={saveWebAccess.isPending}
+                saveError={saveWebAccess.error}
+              />
 
               <ResourceManager
                 title="Global Pi packages"
@@ -508,6 +579,261 @@ function AuthStatusRow({ status }: { status: HarnessAuthStatus }) {
   );
 }
 
+function WebAccessSection({
+  webAccess,
+  form,
+  secrets,
+  onFormChange,
+  onSecretsChange,
+  onInstall,
+  installPending,
+  installError,
+  onRemove,
+  removePending,
+  removeError,
+  onUpdate,
+  updatePending,
+  updateError,
+  onSave,
+  savePending,
+  saveError,
+}: {
+  webAccess?: PiWebAccessStatus;
+  form: WebAccessForm;
+  secrets: WebAccessSecretDrafts;
+  onFormChange: (form: WebAccessForm) => void;
+  onSecretsChange: (secrets: WebAccessSecretDrafts) => void;
+  onInstall: () => void;
+  installPending: boolean;
+  installError: unknown;
+  onRemove: () => void;
+  removePending: boolean;
+  removeError: unknown;
+  onUpdate: () => void;
+  updatePending: boolean;
+  updateError: unknown;
+  onSave: () => void;
+  savePending: boolean;
+  saveError: unknown;
+}) {
+  const configValid = webAccess?.configValid ?? true;
+  const ready = Boolean(webAccess?.installed && configValid && webAccess.configExists);
+  const statusLabel = !webAccess?.installed ? 'Missing' : !configValid ? 'Invalid config' : webAccess.configExists ? 'Ready' : 'Configure';
+  const actionError = firstErrorMessage(saveError, installError, updateError, removeError);
+  const updateForm = (patch: Partial<WebAccessForm>) => onFormChange({ ...form, ...patch });
+  const updateSecrets = (patch: Partial<WebAccessSecretDrafts>) => onSecretsChange({ ...secrets, ...patch });
+
+  return (
+    <SettingsSection
+      icon={<Globe2 size={15} />}
+      title="Pi web access"
+      description={webAccess?.configPath ?? '~/.pi/web-search.json'}
+      action={<StatusPill ok={ready} label={statusLabel} />}
+    >
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          {!webAccess?.installed ? (
+            <Button size="sm" variant="primary" icon={<PackagePlus size={14} />} loading={installPending} onClick={onInstall}>
+              Install
+            </Button>
+          ) : (
+            <>
+              <Button size="sm" variant="secondary" icon={<RefreshCcw size={14} />} loading={updatePending} onClick={onUpdate}>
+                Update
+              </Button>
+              <Button size="sm" variant="secondary" icon={<Trash2 size={14} />} loading={removePending} onClick={onRemove}>
+                Remove
+              </Button>
+            </>
+          )}
+          <span className="font-mono text-xs text-dim">{webAccess?.packageSource ?? WEB_ACCESS_PACKAGE_SOURCE}</span>
+        </div>
+
+        {webAccess?.parseError && (
+          <div className="rounded-lg bg-[var(--color-warning)]/10 px-3 py-2 text-xs text-[var(--color-warning)]">{webAccess.parseError}</div>
+        )}
+        {webAccess?.loadWarnings?.map((warning) => (
+          <div key={warning} className="rounded-lg bg-[var(--color-warning)]/10 px-3 py-2 text-xs text-[var(--color-warning)]">{warning}</div>
+        ))}
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <LabeledControl label="Provider">
+            <V2Select value={form.provider} onChange={(event) => updateForm({ provider: event.target.value })} className="w-full">
+              <option value="auto">Auto</option>
+              <option value="exa">Exa</option>
+              <option value="perplexity">Perplexity</option>
+              <option value="gemini">Gemini</option>
+            </V2Select>
+          </LabeledControl>
+          <LabeledControl label="Curator">
+            <V2Select value={form.workflow} onChange={(event) => updateForm({ workflow: event.target.value })} className="w-full">
+              <option value="none">Off for Codeburg chat</option>
+              <option value="summary-review">Summary review</option>
+            </V2Select>
+          </LabeledControl>
+          <LabeledControl label="Search model">
+            <V2Input value={form.searchModel} onChange={(event) => updateForm({ searchModel: event.target.value })} placeholder="gemini-2.5-flash" className="w-full" />
+          </LabeledControl>
+          <LabeledControl label="Curator timeout">
+            <V2Input value={form.curatorTimeoutSeconds} onChange={(event) => updateForm({ curatorTimeoutSeconds: event.target.value })} inputMode="numeric" placeholder="20" className="w-full" />
+          </LabeledControl>
+          <LabeledControl label="Chrome profile">
+            <V2Input value={form.chromeProfile} onChange={(event) => updateForm({ chromeProfile: event.target.value })} placeholder="Profile 2" className="w-full" />
+          </LabeledControl>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-[var(--color-text-secondary)]">API keys</div>
+          <CredentialRow
+            label="Exa"
+            credential={webAccess?.credentials.exa}
+            value={secrets.exa}
+            clear={secrets.clearExa}
+            onValueChange={(value) => updateSecrets({ exa: value })}
+            onClearChange={(clearExa) => updateSecrets({ clearExa })}
+          />
+          <CredentialRow
+            label="Perplexity"
+            credential={webAccess?.credentials.perplexity}
+            value={secrets.perplexity}
+            clear={secrets.clearPerplexity}
+            onValueChange={(value) => updateSecrets({ perplexity: value })}
+            onClearChange={(clearPerplexity) => updateSecrets({ clearPerplexity })}
+          />
+          <CredentialRow
+            label="Gemini"
+            credential={webAccess?.credentials.gemini}
+            value={secrets.gemini}
+            clear={secrets.clearGemini}
+            onValueChange={(value) => updateSecrets({ gemini: value })}
+            onClearChange={(clearGemini) => updateSecrets({ clearGemini })}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <CheckboxRow
+            label="GitHub cloning"
+            detail="Use local clones for repository URLs."
+            checked={form.githubCloneEnabled}
+            onChange={(githubCloneEnabled) => updateForm({ githubCloneEnabled })}
+          />
+          <div className="grid gap-2 md:grid-cols-3">
+            <V2Input value={form.githubCloneMaxRepoSizeMB} onChange={(event) => updateForm({ githubCloneMaxRepoSizeMB: event.target.value })} inputMode="numeric" placeholder="350 MB" />
+            <V2Input value={form.githubCloneTimeoutSeconds} onChange={(event) => updateForm({ githubCloneTimeoutSeconds: event.target.value })} inputMode="numeric" placeholder="30 sec" />
+            <V2Input value={form.githubClonePath} onChange={(event) => updateForm({ githubClonePath: event.target.value })} placeholder="/tmp/pi-github-repos" />
+          </div>
+          <CheckboxRow
+            label="YouTube understanding"
+            detail="Allow video URL analysis through the extension."
+            checked={form.youtubeEnabled}
+            onChange={(youtubeEnabled) => updateForm({ youtubeEnabled })}
+          />
+          <V2Input value={form.youtubePreferredModel} onChange={(event) => updateForm({ youtubePreferredModel: event.target.value })} placeholder="YouTube model" />
+          <CheckboxRow
+            label="Local video analysis"
+            detail="Allow local video files to be sent to the configured provider."
+            checked={form.videoEnabled}
+            onChange={(videoEnabled) => updateForm({ videoEnabled })}
+          />
+          <div className="grid gap-2 md:grid-cols-2">
+            <V2Input value={form.videoPreferredModel} onChange={(event) => updateForm({ videoPreferredModel: event.target.value })} placeholder="video model" />
+            <V2Input value={form.videoMaxSizeMB} onChange={(event) => updateForm({ videoMaxSizeMB: event.target.value })} inputMode="numeric" placeholder="50 MB" />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs text-dim">{webAccess?.configExists ? 'Existing config' : 'Will create config on save'}</div>
+          <Button size="sm" variant="primary" icon={<Save size={14} />} loading={savePending} onClick={onSave}>
+            Save web access
+          </Button>
+        </div>
+        {actionError && <div className="text-xs text-[var(--color-error)]">{actionError}</div>}
+      </div>
+    </SettingsSection>
+  );
+}
+
+function LabeledControl({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block min-w-0">
+      <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function CredentialRow({
+  label,
+  credential,
+  value,
+  clear,
+  onValueChange,
+  onClearChange,
+}: {
+  label: string;
+  credential?: { configured: boolean; source?: string };
+  value: string;
+  clear: boolean;
+  onValueChange: (value: string) => void;
+  onClearChange: (clear: boolean) => void;
+}) {
+  const detail = credential?.configured ? `Configured via ${credential.source || 'config'}` : 'Not configured';
+  const canClear = credential?.configured && credential.source !== 'env';
+  return (
+    <div className="rounded-lg bg-primary px-3 py-2">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">{label}</div>
+          <div className="mt-0.5 text-xs text-dim">{detail}</div>
+        </div>
+        <StatusPill ok={Boolean(credential?.configured) && !clear} label={clear ? 'Clearing' : credential?.configured ? 'Set' : 'Unset'} />
+      </div>
+      <div className="flex gap-2">
+        <V2Input
+          type="password"
+          value={value}
+          disabled={clear}
+          onChange={(event) => onValueChange(event.target.value)}
+          placeholder={clear ? 'Saved key will be cleared' : `Set ${label} API key`}
+          className="min-w-0 flex-1"
+        />
+        {canClear && (
+          <Button size="sm" variant={clear ? 'primary' : 'secondary'} onClick={() => onClearChange(!clear)}>
+            {clear ? 'Keep' : 'Clear'}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CheckboxRow({
+  label,
+  detail,
+  checked,
+  onChange,
+}: {
+  label: string;
+  detail: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3 rounded-lg bg-primary px-3 py-2">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-0.5 h-4 w-4 accent-[var(--color-accent)]"
+      />
+      <span className="min-w-0">
+        <span className="block text-sm font-medium">{label}</span>
+        <span className="mt-0.5 block text-xs text-dim">{detail}</span>
+      </span>
+    </label>
+  );
+}
+
 function ConfigEditorSection({
   title,
   subtitle,
@@ -700,6 +1026,73 @@ function HarnessToolLogo({ tool }: { tool: HarnessToolId }) {
 function toolDisplayName(toolId: HarnessToolId | null, tools: HarnessToolStatus[]) {
   if (!toolId) return 'Harness';
   return tools.find((tool) => tool.id === toolId)?.name ?? toolId;
+}
+
+function webAccessFormFromStatus(status?: PiWebAccessStatus): WebAccessForm {
+  return {
+    provider: status?.provider || 'auto',
+    workflow: status?.configExists ? status.workflow || 'summary-review' : 'none',
+    searchModel: status?.searchModel ?? '',
+    chromeProfile: status?.chromeProfile ?? '',
+    curatorTimeoutSeconds: status?.curatorTimeoutSeconds ? String(status.curatorTimeoutSeconds) : '',
+    githubCloneEnabled: status?.githubClone.enabled ?? true,
+    githubCloneMaxRepoSizeMB: status?.githubClone.maxRepoSizeMB ? String(status.githubClone.maxRepoSizeMB) : '',
+    githubCloneTimeoutSeconds: status?.githubClone.cloneTimeoutSeconds ? String(status.githubClone.cloneTimeoutSeconds) : '',
+    githubClonePath: status?.githubClone.clonePath ?? '',
+    youtubeEnabled: status?.youtube.enabled ?? true,
+    youtubePreferredModel: status?.youtube.preferredModel ?? '',
+    videoEnabled: status?.video.enabled ?? true,
+    videoPreferredModel: status?.video.preferredModel ?? '',
+    videoMaxSizeMB: status?.video.maxSizeMB ? String(status.video.maxSizeMB) : '',
+  };
+}
+
+function buildWebAccessConfigInput(form: WebAccessForm, secrets: WebAccessSecretDrafts): UpdatePiWebAccessConfigInput {
+  const input: UpdatePiWebAccessConfigInput = {
+    provider: form.provider,
+    workflow: form.workflow,
+    searchModel: form.searchModel.trim(),
+    chromeProfile: form.chromeProfile.trim(),
+    githubClone: {
+      enabled: form.githubCloneEnabled,
+      maxRepoSizeMB: optionalNumber(form.githubCloneMaxRepoSizeMB),
+      cloneTimeoutSeconds: optionalNumber(form.githubCloneTimeoutSeconds),
+      clonePath: form.githubClonePath.trim(),
+    },
+    youtube: {
+      enabled: form.youtubeEnabled,
+      preferredModel: form.youtubePreferredModel.trim(),
+    },
+    video: {
+      enabled: form.videoEnabled,
+      preferredModel: form.videoPreferredModel.trim(),
+      maxSizeMB: optionalNumber(form.videoMaxSizeMB),
+    },
+  };
+  const timeout = optionalNumber(form.curatorTimeoutSeconds);
+  if (timeout !== undefined) input.curatorTimeoutSeconds = timeout;
+  if (secrets.exa.trim()) input.exaApiKey = secrets.exa.trim();
+  if (secrets.perplexity.trim()) input.perplexityApiKey = secrets.perplexity.trim();
+  if (secrets.gemini.trim()) input.geminiApiKey = secrets.gemini.trim();
+  if (secrets.clearExa) input.clearExaApiKey = true;
+  if (secrets.clearPerplexity) input.clearPerplexityApiKey = true;
+  if (secrets.clearGemini) input.clearGeminiApiKey = true;
+  return input;
+}
+
+function optionalNumber(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) return undefined;
+  return Math.round(parsed);
+}
+
+function firstErrorMessage(...errors: unknown[]) {
+  for (const error of errors) {
+    if (error instanceof Error) return error.message;
+  }
+  return undefined;
 }
 
 function normalizeHarnessVersion(version?: string) {

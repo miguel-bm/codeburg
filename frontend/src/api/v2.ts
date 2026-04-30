@@ -17,6 +17,8 @@ import type {
   PiStatus,
   PiConfigDocument,
   PiConfigResponse,
+  PiWebAccessStatus,
+  UpdatePiWebAccessConfigInput,
   ConversationWorkspaceLink,
   ManagedSkill,
   SkillCatalogEntry,
@@ -362,6 +364,9 @@ export const v2Api = {
 
   updatePiModels: (content: string) =>
     api.put<PiConfigDocument>('/pi/models', { content }),
+
+  updatePiWebAccessConfig: (input: UpdatePiWebAccessConfigInput) =>
+    api.put<PiWebAccessStatus>('/pi/web-access', input),
 
   updateProjectPiSettings: (projectId: string, content: string) =>
     api.put<PiConfigDocument>(`/projects/${projectId}/pi/settings`, { content }),

@@ -385,11 +385,90 @@ export interface PiConfigResponse {
   status: PiStatus;
   globalSettings: PiConfigDocument;
   models: PiConfigDocument;
+  webAccess: PiWebAccessStatus;
   projectSettings?: PiConfigDocument;
   globalPackages?: PiPackageEntry[];
   projectPackages?: PiPackageEntry[];
   globalExtensions?: PiExtensionEntry[];
   projectExtensions?: PiExtensionEntry[];
+}
+
+export interface PiWebAccessStatus {
+  packageSource: string;
+  installed: boolean;
+  configPath: string;
+  configExists: boolean;
+  configValid: boolean;
+  updatedAt?: string;
+  parseError?: string;
+  provider: string;
+  workflow: string;
+  searchModel?: string;
+  chromeProfile?: string;
+  curatorTimeoutSeconds?: number;
+  credentials: PiWebAccessCredentials;
+  githubClone: PiWebAccessGitHubCloneSettings;
+  youtube: PiWebAccessFeatureSettings;
+  video: PiWebAccessVideoSettings;
+  loadWarnings?: string[];
+}
+
+export interface PiWebAccessCredentials {
+  exa: PiWebAccessCredential;
+  perplexity: PiWebAccessCredential;
+  gemini: PiWebAccessCredential;
+}
+
+export interface PiWebAccessCredential {
+  configured: boolean;
+  source?: string;
+}
+
+export interface PiWebAccessGitHubCloneSettings {
+  enabled: boolean;
+  maxRepoSizeMB?: number;
+  cloneTimeoutSeconds?: number;
+  clonePath?: string;
+}
+
+export interface PiWebAccessFeatureSettings {
+  enabled: boolean;
+  preferredModel?: string;
+}
+
+export interface PiWebAccessVideoSettings {
+  enabled: boolean;
+  preferredModel?: string;
+  maxSizeMB?: number;
+}
+
+export interface UpdatePiWebAccessConfigInput {
+  provider?: string;
+  workflow?: string;
+  searchModel?: string;
+  chromeProfile?: string;
+  curatorTimeoutSeconds?: number;
+  exaApiKey?: string;
+  perplexityApiKey?: string;
+  geminiApiKey?: string;
+  clearExaApiKey?: boolean;
+  clearPerplexityApiKey?: boolean;
+  clearGeminiApiKey?: boolean;
+  githubClone?: {
+    enabled?: boolean;
+    maxRepoSizeMB?: number;
+    cloneTimeoutSeconds?: number;
+    clonePath?: string;
+  };
+  youtube?: {
+    enabled?: boolean;
+    preferredModel?: string;
+  };
+  video?: {
+    enabled?: boolean;
+    preferredModel?: string;
+    maxSizeMB?: number;
+  };
 }
 
 export interface PiPackageEntry {
