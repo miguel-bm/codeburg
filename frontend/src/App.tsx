@@ -29,7 +29,14 @@ import { V2ProjectQuickActionsPage } from './pages/v2/V2ProjectQuickActionsPage'
 import { V2GlobalSkillsPage } from './pages/v2/V2GlobalSkillsPage';
 import { V2SkillsDiscoverPage } from './pages/v2/V2SkillsDiscoverPage';
 import { V2ProjectSettingsPage } from './pages/v2/V2ProjectSettingsPage';
-import { V2HarnessPage } from './pages/v2/V2HarnessPage';
+import {
+  V2HarnessConfigPage,
+  V2HarnessOverviewPage,
+  V2HarnessPackagesPage,
+  V2HarnessPiPage,
+  V2HarnessRuntimesPage,
+  V2HarnessShell,
+} from './pages/v2/V2HarnessPage';
 import { useSessionFocusPresence } from './hooks/useSessionFocusPresence';
 
 const queryClient = new QueryClient({
@@ -76,7 +83,13 @@ function MainAppShell() {
           <Route index element={<V2ProjectsPage />} />
           <Route path="conversations" element={<V2ConversationsPage />} />
           <Route path="conversations/:conversationId" element={<V2ConversationDetailPage />} />
-          <Route path="harness" element={<V2HarnessPage />} />
+          <Route path="harness" element={<V2HarnessShell />}>
+            <Route index element={<V2HarnessOverviewPage />} />
+            <Route path="runtimes" element={<V2HarnessRuntimesPage />} />
+            <Route path="pi" element={<V2HarnessPiPage />} />
+            <Route path="packages" element={<V2HarnessPackagesPage />} />
+            <Route path="config" element={<V2HarnessConfigPage />} />
+          </Route>
           <Route path="projects/:id" element={<V2ProjectPage />} />
           <Route path="projects/:id/conversations" element={<V2ProjectConversationsPage />} />
           <Route path="projects/:id/tasks" element={<V2ProjectTasksPage />} />
