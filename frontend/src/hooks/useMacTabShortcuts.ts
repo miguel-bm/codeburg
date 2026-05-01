@@ -7,6 +7,16 @@ export interface MacTabShortcutItem {
   disabled?: boolean;
 }
 
+export const MAC_NEW_CONVERSATION_TAB_EVENT = 'codeburg:mac-new-conversation-tab';
+export const MAC_NEW_TERMINAL_TAB_EVENT = 'codeburg:mac-new-terminal-tab';
+
+export interface MacNewTabShortcutOptions {
+  onNewConversation: () => void;
+  onNewTerminal: () => void;
+  conversationDisabled?: boolean;
+  terminalDisabled?: boolean;
+}
+
 function shortcutIndex(event: KeyboardEvent): number {
   const digit = event.code.startsWith('Digit') || event.code.startsWith('Numpad')
     ? Number(event.code.slice(-1))
@@ -14,6 +24,48 @@ function shortcutIndex(event: KeyboardEvent): number {
 
   if (!Number.isInteger(digit) || digit < 1 || digit > 9) return -1;
   return digit - 1;
+}
+
+export function useMacNewTabShortcuts({
+  onNewConversation,
+  onNewTerminal,
+  conversationDisabled = false,
+  terminalDisabled = false,
+}: MacNewTabShortcutOptions, enabled = true): void {
+  const desktopShell = isDesktopShell();
+
+  useEffect(() => {
+    if (!desktopShell || !enabled) return;
+
+    const runConversation = () => {
+      if (conversationDisabled) return;
+      onNewConversation();
+    };
+
+    const runTerminal = () => {
+      if (terminalDisabled) return;
+      onNewTerminal();
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      if (!event.metaKey || event.altKey || event.ctrlKey) return;
+      if (event.key.toLowerCase() !== 't') return;
+
+      event.preventDefault();
+      if (event.shiftKey) runTerminal();
+      else runConversation();
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener(MAC_NEW_CONVERSATION_TAB_EVENT, runConversation);
+    window.addEventListener(MAC_NEW_TERMINAL_TAB_EVENT, runTerminal);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener(MAC_NEW_CONVERSATION_TAB_EVENT, runConversation);
+      window.removeEventListener(MAC_NEW_TERMINAL_TAB_EVENT, runTerminal);
+    };
+  }, [conversationDisabled, desktopShell, enabled, onNewConversation, onNewTerminal, terminalDisabled]);
 }
 
 export function useMacTabShortcuts(items: MacTabShortcutItem[], enabled = true): boolean {

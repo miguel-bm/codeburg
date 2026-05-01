@@ -16,7 +16,7 @@ import { TerminalView } from '../../components/session/TerminalView';
 import { DiffTab } from '../../components/workspace/DiffTab';
 import { EditorTab } from '../../components/workspace/EditorTab';
 import { WorkspaceProvider } from '../../components/workspace/WorkspaceContext';
-import { useMacTabShortcuts, type MacTabShortcutItem } from '../../hooks/useMacTabShortcuts';
+import { useMacNewTabShortcuts, useMacTabShortcuts, type MacTabShortcutItem } from '../../hooks/useMacTabShortcuts';
 import { useMobile } from '../../hooks/useMobile';
 import { useWorkspaceStore, type WorkspaceTab } from '../../stores/workspace';
 import type { ReactNode } from 'react';
@@ -301,6 +301,19 @@ export function V2ProjectPage() {
   const workspaceError =
     createWorkspace.error ?? forkWorkspace.error ?? deleteWorkspace.error ?? mutateWorkspaceStatus.error ?? syncWorkspace.error ?? resolveConflictWithAgent.error;
   const terminalDisabled = !activeWorkspaceId || activeWorkspace?.status !== 'active' || createTerminal.isPending;
+  const conversationDisabled = !activeWorkspaceId || activeWorkspace?.status !== 'active' || createConversation.isPending;
+  const handleNewConversationShortcut = useCallback(() => {
+    createConversation.mutate();
+  }, [createConversation]);
+  const handleNewTerminalShortcut = useCallback(() => {
+    createTerminal.mutate(undefined);
+  }, [createTerminal]);
+  useMacNewTabShortcuts({
+    onNewConversation: handleNewConversationShortcut,
+    onNewTerminal: handleNewTerminalShortcut,
+    conversationDisabled,
+    terminalDisabled,
+  }, !isMobile);
 
   const closeComposer = (targetWorkspaceId?: string) => {
     suppressNewWorkspaceRouteOpen.current = true;

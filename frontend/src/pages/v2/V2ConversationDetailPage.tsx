@@ -51,7 +51,7 @@ import { Modal } from '../../components/ui/Modal';
 import { DiffTab } from '../../components/workspace/DiffTab';
 import { EditorTab } from '../../components/workspace/EditorTab';
 import { WorkspaceProvider } from '../../components/workspace/WorkspaceContext';
-import { useMacTabShortcuts, type MacTabShortcutItem } from '../../hooks/useMacTabShortcuts';
+import { useMacNewTabShortcuts, useMacTabShortcuts, type MacTabShortcutItem } from '../../hooks/useMacTabShortcuts';
 import { useMobile } from '../../hooks/useMobile';
 import { usePiConversation } from '../../hooks/usePiConversation';
 import { useVirtualKeyboard } from '../../hooks/useVirtualKeyboard';
@@ -343,6 +343,20 @@ export function V2ConversationDetailPage() {
       navigate(`/conversations/${created.id}`);
     },
   });
+  const terminalShortcutDisabled = !activeWorkspaceId || activeWorkspace?.status !== 'active' || createTerminal.isPending;
+  const conversationShortcutDisabled = !conversation?.projectId || createConversation.isPending;
+  const handleNewConversationShortcut = useCallback(() => {
+    createConversation.mutate();
+  }, [createConversation]);
+  const handleNewTerminalShortcut = useCallback(() => {
+    createTerminal.mutate();
+  }, [createTerminal]);
+  useMacNewTabShortcuts({
+    onNewConversation: handleNewConversationShortcut,
+    onNewTerminal: handleNewTerminalShortcut,
+    conversationDisabled: conversationShortcutDisabled,
+    terminalDisabled: terminalShortcutDisabled,
+  }, !isMobile);
   const renameConversation = useMutation({
     mutationFn: ({ id, title }: { id: string; title: string }) =>
       v2Api.updateConversation(id, { title }),

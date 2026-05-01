@@ -343,6 +343,31 @@ async function navigateToSettings() {
   }
 }
 
+async function dispatchRendererCommand(eventName) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.focus();
+
+  const currentUrl = mainWindow.webContents.getURL();
+  if (!currentUrl || currentUrl.startsWith('file://')) {
+    return;
+  }
+
+  try {
+    await mainWindow.webContents.executeJavaScript(
+      `window.dispatchEvent(new CustomEvent(${JSON.stringify(eventName)}));`,
+      true,
+    );
+  } catch {
+    // Ignore command dispatch errors if renderer is still initializing.
+  }
+}
+
 function buildApplicationMenu() {
   const isMac = process.platform === 'darwin';
   const appName = app.getName();
@@ -371,6 +396,25 @@ function buildApplicationMenu() {
           ],
         }]
       : []),
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'New Conversation Tab',
+          accelerator: 'Cmd+T',
+          click: () => {
+            void dispatchRendererCommand('codeburg:mac-new-conversation-tab');
+          },
+        },
+        {
+          label: 'New Terminal Tab',
+          accelerator: 'Cmd+Shift+T',
+          click: () => {
+            void dispatchRendererCommand('codeburg:mac-new-terminal-tab');
+          },
+        },
+      ],
+    },
     {
       label: 'Edit',
       submenu: [
