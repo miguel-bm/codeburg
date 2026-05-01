@@ -130,7 +130,34 @@ const FILE_INDEX_DEPTH = 12;
 const FOLLOW_UP_QUEUE_STORAGE_PREFIX = 'codeburg:pi-follow-ups:';
 const THINKING_LEVELS: PiThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 const EMPTY_FILE_ENTRIES: V2FileEntry[] = [];
+const EMPTY_COMPOSER_ATTACHMENTS: ComposerAttachment[] = [];
 const embeddedExcalidrawSourceCache = new Map<string, Promise<ExcalidrawDiagramSource | undefined>>();
+const conversationScopedStateCache = new Map<string, unknown>();
+
+function useConversationScopedState<T>(
+  namespace: string,
+  conversationId: string | undefined,
+  emptyValue: T,
+): [T, Dispatch<SetStateAction<T>>] {
+  const [, forceRender] = useState(0);
+  const cacheKey = conversationId ? `${namespace}:${conversationId}` : null;
+  const value = cacheKey && conversationScopedStateCache.has(cacheKey)
+    ? conversationScopedStateCache.get(cacheKey) as T
+    : emptyValue;
+  const setValue = useCallback<Dispatch<SetStateAction<T>>>((nextValue) => {
+    if (!cacheKey) return;
+    const previousValue = conversationScopedStateCache.has(cacheKey)
+      ? conversationScopedStateCache.get(cacheKey) as T
+      : emptyValue;
+    const resolvedValue = typeof nextValue === 'function'
+      ? (nextValue as (previous: T) => T)(previousValue)
+      : nextValue;
+    conversationScopedStateCache.set(cacheKey, resolvedValue);
+    forceRender((version) => version + 1);
+  }, [cacheKey, emptyValue]);
+
+  return [value, setValue];
+}
 
 export function V2ConversationDetailPage() {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -143,8 +170,8 @@ export function V2ConversationDetailPage() {
   const openFile = useWorkspaceStore((state) => state.openFile);
   const isMobile = useMobile();
 
-  const [draft, setDraft] = useState('');
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [draft, setDraft] = useConversationScopedState<string>('draft', conversationId, '');
+  const [attachments, setAttachments] = useConversationScopedState<ComposerAttachment[]>('attachments', conversationId, EMPTY_COMPOSER_ATTACHMENTS);
   const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUp[]>(() => loadQueuedFollowUps(conversationId));
   const [queuedFollowUpSendingId, setQueuedFollowUpSendingId] = useState<string | null>(null);
   const [queuedFollowUpError, setQueuedFollowUpError] = useState<{ id: string; message: string } | null>(null);
@@ -210,11 +237,11 @@ export function V2ConversationDetailPage() {
   const insertWorkspaceReference = useCallback((path: string) => {
     setDraft((current) => appendWorkspaceReference(current, path));
     setMainSurface('conversation');
-  }, []);
+  }, [setDraft]);
   const insertWorkspaceText = useCallback((text: string) => {
     setDraft((current) => appendDraftText(current, text));
     setMainSurface('conversation');
-  }, []);
+  }, [setDraft]);
   const openWorkspaceFileReference = useCallback((path: string, line?: number, isDirectory?: boolean) => {
     if (!project || !activeWorkspace) return;
     if (isDirectory) {
@@ -974,7 +1001,7 @@ function ConversationSurface({
   isActiveConversation: boolean;
   sending: boolean;
   draft: string;
-  setDraft: (draft: string) => void;
+  setDraft: Dispatch<SetStateAction<string>>;
   attachments: ComposerAttachment[];
   setAttachments: Dispatch<SetStateAction<ComposerAttachment[]>>;
   queuedFollowUps: QueuedFollowUp[];

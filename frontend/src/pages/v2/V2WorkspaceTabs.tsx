@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
 import {
+  Circle,
+  CircleAlert,
   Files,
   GitCommitHorizontal,
+  LoaderCircle,
   MessageSquareText,
   SquareTerminal,
   X,
 } from 'lucide-react';
-import type { Conversation, TerminalSession } from '../../api/types';
+import type { Conversation, PiConversationSnapshot, TerminalSession } from '../../api/types';
 import { workspacePreviewTabLabel, type PreviewWorkspaceTab } from './V2WorkspaceTabHelpers';
 
 function tabSurface(active: boolean, tone: 'conversation' | 'terminal' | 'preview') {
@@ -38,6 +41,7 @@ function ShortcutHint({ index, show }: { index?: number; show?: boolean }) {
 
 export function WorkspaceConversationTab({
   conversation,
+  snapshot,
   active = false,
   onSelect,
   onRename,
@@ -45,6 +49,7 @@ export function WorkspaceConversationTab({
   showShortcutHint,
 }: {
   conversation: Conversation;
+  snapshot?: PiConversationSnapshot;
   active?: boolean;
   onSelect: () => void;
   onRename: (title: string) => void;
@@ -68,7 +73,7 @@ export function WorkspaceConversationTab({
   return (
     <div className={tabSurface(active, 'conversation')} data-tone="conversation">
       <ShortcutHint index={shortcutIndex} show={showShortcutHint} />
-      <MessageSquareText size={13} className="ml-2.5 shrink-0 text-[var(--tab-accent,var(--color-accent))] md:ml-2" />
+      <ConversationTabIndicator conversation={conversation} snapshot={snapshot} />
       {editing ? (
         <input
           autoFocus
@@ -97,6 +102,42 @@ export function WorkspaceConversationTab({
       )}
     </div>
   );
+}
+
+function ConversationTabIndicator({ conversation, snapshot }: { conversation: Conversation; snapshot?: PiConversationSnapshot }) {
+  if (snapshot?.lastError) {
+    return (
+      <span className="ml-2.5 flex w-4 shrink-0 justify-center text-[var(--color-error)] md:ml-2" title={snapshot.lastError}>
+        <CircleAlert size={13} />
+      </span>
+    );
+  }
+
+  if (snapshot?.streaming) {
+    return (
+      <span className="ml-2.5 flex w-4 shrink-0 justify-center text-accent md:ml-2" title="Pi is working">
+        <LoaderCircle size={13} className="animate-spin" />
+      </span>
+    );
+  }
+
+  if (snapshot?.runtimeActive && conversation.unreadAt) {
+    return (
+      <span className="ml-2.5 flex w-4 shrink-0 justify-center text-[var(--color-status-in-review)] md:ml-2" title="Unread response">
+        <Circle size={9} fill="currentColor" />
+      </span>
+    );
+  }
+
+  if (conversation.unreadAt) {
+    return (
+      <span className="ml-2.5 flex w-4 shrink-0 justify-center text-accent md:ml-2" title="Unread">
+        <Circle size={9} fill="currentColor" />
+      </span>
+    );
+  }
+
+  return <MessageSquareText size={13} className="ml-2.5 w-4 shrink-0 text-[var(--tab-accent,var(--color-accent))] md:ml-2" />;
 }
 
 export function WorkspaceTerminalTab({

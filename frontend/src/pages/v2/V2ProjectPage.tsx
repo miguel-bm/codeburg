@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ClipboardList,
   Files,
@@ -10,7 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import { preferencesApi, projectsApi } from '../../api';
-import type { Conversation, TerminalSession, Workspace } from '../../api/types';
+import type { Conversation, PiConversationSnapshot, TerminalSession, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { TerminalView } from '../../components/session/TerminalView';
 import { DiffTab } from '../../components/workspace/DiffTab';
@@ -110,6 +110,23 @@ export function V2ProjectPage() {
       : []
   ), [workspaceConversations, safePinnedConversationIds]);
   const sortedTerminals = useMemo(() => [...safeTerminals].sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [safeTerminals]);
+  const conversationStateQueries = useQueries({
+    queries: safeWorkspaceConversations.map((conversation) => ({
+      queryKey: ['v2-conversation-state', conversation.id, 'workspace-tabs'],
+      queryFn: () => v2Api.getConversationState(conversation.id),
+      enabled: conversation.provider === 'pi',
+      staleTime: 5_000,
+      refetchInterval: conversation.status === 'active' ? 5_000 : false,
+    })),
+  });
+  const conversationStateById = useMemo(() => {
+    const snapshots = new Map<string, PiConversationSnapshot>();
+    safeWorkspaceConversations.forEach((conversation, index) => {
+      const snapshot = conversationStateQueries[index]?.data;
+      if (snapshot) snapshots.set(conversation.id, snapshot);
+    });
+    return snapshots;
+  }, [conversationStateQueries, safeWorkspaceConversations]);
   const activeTerminal = mainSurface?.type === 'terminal'
     ? sortedTerminals.find((terminal) => terminal.id === mainSurface.terminalId) ?? null
     : requestedTerminalId
@@ -481,6 +498,7 @@ export function V2ProjectPage() {
               onCloseTerminal={(terminal) => closeTerminal.mutate(terminal.id)}
               onRenameTerminal={(terminal, title) => renameTerminal.mutate({ terminalId: terminal.id, title })}
               conversations={safeWorkspaceConversations}
+              conversationStateById={conversationStateById}
               onSelectConversation={(conversation) => navigate(`/conversations/${conversation.id}`)}
               onRenameConversation={(conversation, title) => renameConversation.mutate({ conversationId: conversation.id, title })}
               onCreateConversation={() => createConversation.mutate()}
@@ -683,6 +701,7 @@ function MainTabBar({
   onCloseTerminal,
   onRenameTerminal,
   conversations,
+  conversationStateById,
   onSelectConversation,
   onRenameConversation,
   onCreateConversation,
@@ -707,6 +726,7 @@ function MainTabBar({
   onCloseTerminal: (terminal: TerminalSession) => void;
   onRenameTerminal: (terminal: TerminalSession, title: string) => void;
   conversations: Conversation[];
+  conversationStateById: Map<string, PiConversationSnapshot>;
   onSelectConversation: (conversation: Conversation) => void;
   onRenameConversation: (conversation: Conversation, title: string) => void;
   onCreateConversation: () => void;
@@ -806,6 +826,7 @@ function MainTabBar({
           <WorkspaceConversationTab
             key={conversation.id}
             conversation={conversation}
+            snapshot={conversationStateById.get(conversation.id)}
             active={false}
             onSelect={() => onSelectConversation(conversation)}
             onRename={(title) => onRenameConversation(conversation, title)}
