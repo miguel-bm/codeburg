@@ -57,18 +57,25 @@ export function WorkspaceConversationTab({
   showShortcutHint?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
+  const [displayTitle, setDisplayTitle] = useState(conversation.title);
   const [draft, setDraft] = useState(conversation.title);
 
   useEffect(() => {
+    setDisplayTitle(conversation.title);
     setDraft(conversation.title);
   }, [conversation.title]);
 
   const save = () => {
     const title = draft.trim();
     setEditing(false);
-    if (title && title !== conversation.title) onRename(title);
-    else setDraft(conversation.title);
-  };
+    if (title && title !== conversation.title) {
+      setDisplayTitle(title);
+      setDraft(title);
+      onRename(title);
+    } else {
+      setDraft(conversation.title);
+    }
+  }; 
 
   return (
     <div className={tabSurface(active, 'conversation')} data-tone="conversation">
@@ -95,9 +102,9 @@ export function WorkspaceConversationTab({
           onClick={onSelect}
           onDoubleClick={() => setEditing(true)}
           className="flex h-full min-w-0 flex-1 items-center px-2 text-left"
-          title={`${conversation.title}. Double-click to rename.`}
+          title={`${displayTitle}. Double-click to rename.`}
         >
-          <span className="truncate">{conversation.title}</span>
+          <span className="truncate">{displayTitle}</span>
         </button>
       )}
     </div>
@@ -160,16 +167,22 @@ export function WorkspaceTerminalTab({
   showShortcutHint?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
+  const [displayTitle, setDisplayTitle] = useState(terminal.title ?? '');
   const [draft, setDraft] = useState(terminal.title ?? '');
 
   useEffect(() => {
+    setDisplayTitle(terminal.title ?? '');
     setDraft(terminal.title ?? '');
   }, [terminal.title]);
 
   const save = () => {
     const title = draft.trim();
     setEditing(false);
-    if (title && title !== terminal.title) onRename?.(title);
+    if (title && title !== terminal.title) {
+      setDisplayTitle(title);
+      setDraft(title);
+      onRename?.(title);
+    }
   };
 
   return (
@@ -189,8 +202,8 @@ export function WorkspaceTerminalTab({
           className="h-full w-36 bg-transparent px-3 outline-none md:w-28 md:px-2"
         />
       ) : (
-        <button type="button" onClick={onSelect} onDoubleClick={() => onRename && setEditing(true)} className="flex h-full min-w-0 items-center px-2.5 md:px-2" title={`${terminal.title || 'Terminal'}. Double-click to rename.`}>
-          <span className="max-w-32 truncate">{terminal.title || 'Terminal'}</span>
+        <button type="button" onClick={onSelect} onDoubleClick={() => onRename && setEditing(true)} className="flex h-full min-w-0 items-center px-2.5 md:px-2" title={`${displayTitle || 'Terminal'}. Double-click to rename.`}>
+          <span className="max-w-32 truncate">{displayTitle || 'Terminal'}</span>
         </button>
       )}
       {onClose && (

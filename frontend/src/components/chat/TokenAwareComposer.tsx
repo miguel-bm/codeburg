@@ -87,6 +87,7 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
   const editorTheme = useMemo(
     () => EditorView.theme({
       '&': {
+        minHeight: `${minHeight}px`,
         backgroundColor: 'transparent',
         color: 'var(--color-text-primary)',
         fontFamily: 'inherit',
@@ -103,7 +104,7 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
         lineHeight: '1.5rem',
       },
       '.cm-content': {
-        minHeight: `${minHeight}px`,
+        minHeight: `calc(${minHeight}px - 1.3rem)`,
         padding: '0.75rem 0.75rem 0.55rem',
         caretColor: 'var(--color-accent)',
       },

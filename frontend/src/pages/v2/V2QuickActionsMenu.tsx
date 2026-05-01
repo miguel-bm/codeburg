@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bolt, ChevronRight, Play, Settings2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Play, Settings2 } from 'lucide-react';
 import { preferencesApi } from '../../api';
 import { v2Api } from '../../api/v2';
 import { Button } from './v2-ui';
@@ -53,6 +53,7 @@ export function V2QuickActionsMenu({
         size="xs"
         variant="secondary"
         icon={<Play size={13} />}
+        iconRight={<ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />}
         disabled={!projectId}
         loading={runAction.isPending}
         onClick={() => setOpen((value) => !value)}
@@ -63,13 +64,6 @@ export function V2QuickActionsMenu({
         <>
           <button type="button" className="fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} aria-label="Close quick actions" />
           <div className="fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 max-h-[min(34rem,calc(100dvh-96px))] overflow-auto rounded-2xl bg-card p-2 shadow-[var(--shadow-card)] ring-1 ring-[var(--color-card-border)] md:absolute md:inset-auto md:right-0 md:top-8 md:w-80 md:max-h-[min(34rem,calc(100vh-5rem))]">
-            <div className="flex items-center justify-between px-2 py-1.5">
-              <div className="flex items-center gap-2 text-sm font-medium text-[var(--color-text-primary)]">
-                <Bolt size={14} />
-                Run
-              </div>
-            </div>
-
             <div className="max-h-72 overflow-auto py-1">
               {disabled && safeActions.length > 0 && (
                 <div className="mb-1 rounded-lg bg-inset px-2 py-2 text-xs leading-4 text-dim">

@@ -1431,8 +1431,14 @@ function ConversationSurface({
     if (stickToLatestRef.current) scrollToLatest();
   }, [messageActivityKey, scrollToLatest]);
 
-  const composerMinHeight = isMobile ? 70 : isStreaming ? 116 : 82;
+  const composerMinHeight = isMobile ? 70 : 82;
   const composerMaxHeight = isMobile ? 150 : isStreaming ? 230 : 210;
+
+  useEffect(() => {
+    if (!isActiveConversation || composerDisabled) return;
+    const frame = window.requestAnimationFrame(() => composerRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [conversationId, composerDisabled, isActiveConversation]);
 
   const setDraftWithSelection = (nextDraft: string, nextSelection?: InputSelection) => {
     setDraft(nextDraft);
@@ -1565,6 +1571,7 @@ function ConversationSurface({
       return;
     }
     submit(normalizeComposerPromptText(draftOverride, currentReferenceRanges));
+    requestAnimationFrame(() => composerRef.current?.focus());
   };
 
   const copyMessage = async (message: PiConversationMessage) => {

@@ -1247,11 +1247,13 @@ function ConversationSidebarRow({
 }) {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
+  const [displayTitle, setDisplayTitle] = useState(conversation.title);
   const [draft, setDraft] = useState(conversation.title);
   const longPressTimer = useRef<number | null>(null);
   const longPressTriggered = useRef(false);
 
   useEffect(() => {
+    setDisplayTitle(conversation.title);
     setDraft(conversation.title);
   }, [conversation.title]);
 
@@ -1262,8 +1264,13 @@ function ConversationSidebarRow({
   const save = () => {
     const title = draft.trim();
     setEditing(false);
-    if (title && title !== conversation.title) onRename(title);
-    else setDraft(conversation.title);
+    if (title && title !== conversation.title) {
+      setDisplayTitle(title);
+      setDraft(title);
+      onRename(title);
+    } else {
+      setDraft(conversation.title);
+    }
   };
 
   const openMenu = onOpenMenu;
@@ -1356,7 +1363,7 @@ function ConversationSidebarRow({
           >
             <span className="inline-flex min-w-0 items-center gap-1">
               {pinned && <Pin size={10} className="shrink-0 text-accent" />}
-              <span className="truncate">{conversation.title}</span>
+              <span className="truncate">{displayTitle}</span>
             </span>
           </button>
         )}

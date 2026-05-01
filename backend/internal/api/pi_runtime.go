@@ -391,13 +391,13 @@ func (m *piConversationManager) ExistingSnapshotSummary(conversation *db.Convers
 	m.mu.Unlock()
 
 	if runtime == nil {
-		return staticPiConversationSnapshot(conversation, "")
+		return staticPiConversationSummary(conversation, "")
 	}
 
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	if runtime.closed {
-		return staticPiConversationSnapshot(conversation, runtime.workDir)
+		return staticPiConversationSummary(conversation, runtime.workDir)
 	}
 
 	snapshot := runtime.snapshot
@@ -960,6 +960,17 @@ func (m *piConversationManager) Abort(conversation *db.Conversation, workDir str
 }
 
 func staticPiConversationSnapshot(conversation *db.Conversation, workDir string) piConversationSnapshot {
+	snapshot := staticPiConversationSummary(conversation, workDir)
+	if conversation.ProviderSessionID != nil && strings.TrimSpace(*conversation.ProviderSessionID) != "" {
+		if messages, err := piSessionMessages(strings.TrimSpace(*conversation.ProviderSessionID)); err == nil {
+			snapshot.Messages = messages
+			snapshot.MessageCount = len(messages)
+		}
+	}
+	return snapshot
+}
+
+func staticPiConversationSummary(conversation *db.Conversation, workDir string) piConversationSnapshot {
 	snapshot := piConversationSnapshot{
 		ConversationID: conversation.ID,
 		RuntimeActive:  false,
@@ -971,10 +982,6 @@ func staticPiConversationSnapshot(conversation *db.Conversation, workDir string)
 	}
 	if conversation.ProviderSessionID != nil && strings.TrimSpace(*conversation.ProviderSessionID) != "" {
 		snapshot.SessionFile = conversation.ProviderSessionID
-		if messages, err := piSessionMessages(strings.TrimSpace(*conversation.ProviderSessionID)); err == nil {
-			snapshot.Messages = messages
-			snapshot.MessageCount = len(messages)
-		}
 	}
 	if strings.TrimSpace(conversation.Title) != "" {
 		snapshot.SessionName = stringPtr(conversation.Title)
