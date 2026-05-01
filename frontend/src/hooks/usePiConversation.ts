@@ -6,6 +6,7 @@ import { useAuthStore } from '../stores/auth';
 
 const MAX_RETRIES = 6;
 const RETRY_DELAYS_MS = [600, 1000, 1800, 3000, 5000, 8000];
+const STREAMING_SNAPSHOT_RENDER_INTERVAL_MS = 120;
 
 interface SnapshotEvent {
   type: 'snapshot';
@@ -36,6 +37,8 @@ export function usePiConversation(conversationId: string, enabled = true, option
 
   const wsRef = useRef<WebSocket | null>(null);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamingSnapshotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingStreamingSnapshotRef = useRef<PiConversationSnapshot | null>(null);
   const retryCountRef = useRef(0);
   const disposedRef = useRef(false);
 
@@ -43,6 +46,38 @@ export function usePiConversation(conversationId: string, enabled = true, option
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const discardPendingStreamingSnapshot = useCallback(() => {
+    if (streamingSnapshotTimerRef.current) {
+      clearTimeout(streamingSnapshotTimerRef.current);
+      streamingSnapshotTimerRef.current = null;
+    }
+    pendingStreamingSnapshotRef.current = null;
+  }, []);
+
+  const applySocketSnapshot = useCallback((nextSnapshot: PiConversationSnapshot) => {
+    if (!nextSnapshot.streaming) {
+      if (streamingSnapshotTimerRef.current) {
+        clearTimeout(streamingSnapshotTimerRef.current);
+        streamingSnapshotTimerRef.current = null;
+      }
+      pendingStreamingSnapshotRef.current = null;
+      setSnapshot(nextSnapshot);
+      return;
+    }
+
+    pendingStreamingSnapshotRef.current = nextSnapshot;
+    if (streamingSnapshotTimerRef.current) return;
+
+    streamingSnapshotTimerRef.current = setTimeout(() => {
+      streamingSnapshotTimerRef.current = null;
+      const pending = pendingStreamingSnapshotRef.current;
+      pendingStreamingSnapshotRef.current = null;
+      if (pending && !disposedRef.current) {
+        setSnapshot(pending);
+      }
+    }, STREAMING_SNAPSHOT_RENDER_INTERVAL_MS);
+  }, []);
 
   const wsUrl = useMemo(() => {
     let path = `/ws/conversation?conversation=${encodeURIComponent(conversationId)}`;
@@ -61,6 +96,7 @@ export function usePiConversation(conversationId: string, enabled = true, option
       if (retryTimerRef.current) {
         clearTimeout(retryTimerRef.current);
       }
+      discardPendingStreamingSnapshot();
       wsRef.current?.close();
       wsRef.current = null;
       setSnapshot(null);
@@ -102,7 +138,7 @@ export function usePiConversation(conversationId: string, enabled = true, option
         }
 
         if (data.type === 'snapshot') {
-          setSnapshot(data.snapshot);
+          applySocketSnapshot(data.snapshot);
           return;
         }
         if (data.type === 'error') {
@@ -138,10 +174,11 @@ export function usePiConversation(conversationId: string, enabled = true, option
       if (retryTimerRef.current) {
         clearTimeout(retryTimerRef.current);
       }
+      discardPendingStreamingSnapshot();
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [wsUrl, enabled, conversationId, resetKey]);
+  }, [wsUrl, enabled, conversationId, resetKey, applySocketSnapshot, discardPendingStreamingSnapshot]);
 
   const sendMessage = useCallback(async (message: string, images: PiConversationImageAttachment[] = [], streamingBehavior?: 'steer' | 'followUp') => {
     const trimmed = message.trim();

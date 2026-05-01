@@ -5,11 +5,10 @@ import {
   ClipboardList,
   Files,
   MessageSquarePlus,
-  PlusCircle,
   SquareTerminal,
   X,
 } from 'lucide-react';
-import { preferencesApi, projectsApi } from '../../api';
+import { projectsApi } from '../../api';
 import type { Conversation, PiConversationSnapshot, TerminalSession, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { TerminalView } from '../../components/session/TerminalView';
@@ -19,7 +18,6 @@ import { WorkspaceProvider } from '../../components/workspace/WorkspaceContext';
 import { useMacNewTabShortcuts, useMacTabShortcuts, type MacTabShortcutItem } from '../../hooks/useMacTabShortcuts';
 import { useMobile } from '../../hooks/useMobile';
 import { useWorkspaceStore, type WorkspaceTab } from '../../stores/workspace';
-import type { ReactNode } from 'react';
 import {
   Button,
   V2Empty,
@@ -28,8 +26,10 @@ import {
 } from './v2-ui';
 import { V2WorkspaceActionHeader } from './V2WorkspaceActionHeader';
 import { V2WorkspaceToolTabs, V2WorkspaceTools, V2WorkspaceToolsSurface, type V2HelperTab } from './V2WorkspaceTools';
+import { WorkspaceNewTabIconActions, WorkspaceNewTabMenuButton } from './V2WorkspaceTabActions';
 import { WorkspaceConversationTab, WorkspacePreviewTab, WorkspaceTerminalTab } from './V2WorkspaceTabs';
 import { workspacePreviewTabKey, workspacePreviewTabLabel } from './V2WorkspaceTabHelpers';
+import { comparePinnedThenCreated, getPinnedConversationIds } from './conversationOrdering';
 
 type MainSurface = { type: 'terminal'; terminalId: string } | { type: 'workspaceTab'; index: number } | null;
 
@@ -742,7 +742,6 @@ function MainTabBar({
   onToggleHelperTab: (tab: V2HelperTab) => void;
   showShortcutHints?: boolean;
 }) {
-  const [newTabOpen, setNewTabOpen] = useState(false);
   const workspaceTabs = tabs
     .map((tab, index) => ({ tab, index }))
     .filter((entry): entry is { tab: Extract<WorkspaceTab, { type: 'editor' | 'diff' }>; index: number } => entry.tab.type === 'editor' || entry.tab.type === 'diff');
@@ -788,27 +787,13 @@ function MainTabBar({
           <option key={workspacePreviewTabKey(tab, index)} value={`workspaceTab:${index}`}>{workspacePreviewTabLabel(tab)}</option>
           ))}
         </select>
-        <div className="relative shrink-0">
-          <button
-            type="button"
-            disabled={createTerminalDisabled && createConversationPending}
-            onClick={() => setNewTabOpen((value) => !value)}
-            className="inline-flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
-            title="New tab"
-            aria-label="New tab"
-          >
-            <PlusCircle size={15} />
-          </button>
-          {newTabOpen && (
-            <>
-              <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close new tab menu" onClick={() => setNewTabOpen(false)} />
-              <div className="fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
-                <NewTabMenuItem icon={<MessageSquarePlus size={14} />} disabled={createConversationPending} onClick={() => { setNewTabOpen(false); onCreateConversation(); }}>Conversation</NewTabMenuItem>
-                <NewTabMenuItem icon={<SquareTerminal size={14} />} disabled={createTerminalDisabled || createTerminalPending} onClick={() => { setNewTabOpen(false); onCreateTerminal(); }}>Terminal</NewTabMenuItem>
-              </div>
-            </>
-          )}
-        </div>
+        <WorkspaceNewTabMenuButton
+          createConversationPending={createConversationPending}
+          createTerminalDisabled={createTerminalDisabled}
+          createTerminalPending={createTerminalPending}
+          onCreateConversation={onCreateConversation}
+          onCreateTerminal={onCreateTerminal}
+        />
         <V2WorkspaceToolTabs
           helperTab={helperTab}
           toolsOpen={toolsOpen}
@@ -861,28 +846,13 @@ function MainTabBar({
           />
         ))}
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <button
-          type="button"
-          disabled={createConversationPending}
-          onClick={onCreateConversation}
-          className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
-          title="New conversation in this workspace"
-          aria-label="New conversation in this workspace"
-        >
-          <MessageSquarePlus size={15} />
-        </button>
-        <button
-          type="button"
-          disabled={createTerminalDisabled || createTerminalPending}
-          onClick={onCreateTerminal}
-          className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
-          title="New terminal in this workspace"
-          aria-label="New terminal in this workspace"
-        >
-          <SquareTerminal size={15} />
-        </button>
-      </div>
+      <WorkspaceNewTabIconActions
+        createConversationPending={createConversationPending}
+        createTerminalDisabled={createTerminalDisabled}
+        createTerminalPending={createTerminalPending}
+        onCreateConversation={onCreateConversation}
+        onCreateTerminal={onCreateTerminal}
+      />
       {!toolsOpen && (
         <V2WorkspaceToolTabs
           helperTab={helperTab}
@@ -893,34 +863,6 @@ function MainTabBar({
       )}
     </div>
   );
-}
-
-function NewTabMenuItem({ icon, children, disabled, onClick }: { icon: ReactNode; children: ReactNode; disabled?: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="flex min-h-[44px] w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50 md:min-h-0 md:text-xs"
-    >
-      {icon}
-      <span>{children}</span>
-    </button>
-  );
-}
-
-function comparePinnedThenCreated(a: Conversation, b: Conversation, pinnedConversationIds: string[]) {
-  const pinnedA = pinnedConversationIds.includes(a.id);
-  const pinnedB = pinnedConversationIds.includes(b.id);
-  if (pinnedA !== pinnedB) return pinnedA ? -1 : 1;
-  const createdCompare = a.createdAt.localeCompare(b.createdAt);
-  if (createdCompare !== 0) return createdCompare;
-  return a.id.localeCompare(b.id);
-}
-
-async function getPinnedConversationIds() {
-  const pinned = await preferencesApi.get<string[]>('v2_pinned_conversations').catch(() => []);
-  return Array.isArray(pinned) ? pinned : [];
 }
 
 function confirmWorkspaceCleanupAction(workspace: Workspace, action: string) {

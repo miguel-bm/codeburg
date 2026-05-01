@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useLayoutEffe
 import type { Dispatch, DragEvent, ReactNode, SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import {
   Archive,
@@ -25,26 +25,23 @@ import {
   Loader2,
   Maximize2,
   Mic,
-  MessageSquarePlus,
   MessageSquareText,
   MoreHorizontal,
   Paperclip,
   PenLine,
   Pencil,
-  PlusCircle,
   RefreshCw,
   Search,
   Shapes,
   Slash,
   Sparkles,
   Square,
-  SquareTerminal,
   Trash2,
   Wrench,
   X,
 } from 'lucide-react';
-import { preferencesApi, projectsApi } from '../../api';
-import type { Conversation, PiAvailableModel, PiConversationForkPosition, PiConversationImageAttachment, PiConversationMessage, PiConversationMessageVersionInfo, PiConversationSessionStats, PiConversationSnapshot, PiSlashCommand, PiThinkingLevel, PiToolExecution, TerminalSession, V2SidebarData, Workspace } from '../../api/types';
+import { projectsApi } from '../../api';
+import type { Conversation, PiAvailableModel, PiConversationForkPosition, PiConversationImageAttachment, PiConversationMessage, PiConversationMessageVersionInfo, PiConversationSessionStats, PiConversationSnapshot, PiSlashCommand, PiThinkingLevel, PiToolExecution, Project, TerminalSession, V2SidebarData, Workspace } from '../../api/types';
 import { v2Api, type V2FileEntry } from '../../api/v2';
 import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
 import { Modal } from '../../components/ui/Modal';
@@ -62,8 +59,10 @@ import { findCodeburgReferenceRanges, type CodeburgReference, type CodeburgRefer
 import { TokenAwareComposer, type ComposerKeyCommand, type TokenAwareComposerHandle } from '../../components/chat/TokenAwareComposer';
 import { Button, V2Empty, V2Screen } from './v2-ui';
 import { V2WorkspaceActionHeader } from './V2WorkspaceActionHeader';
+import { WorkspaceNewTabIconActions, WorkspaceNewTabMenuButton } from './V2WorkspaceTabActions';
 import { WorkspaceConversationTab, WorkspaceTerminalTab } from './V2WorkspaceTabs';
 import { V2WorkspaceToolTabs, V2WorkspaceTools, V2WorkspaceToolsSurface, type V2HelperTab } from './V2WorkspaceTools';
+import { comparePinnedThenCreated, getPinnedConversationIds } from './conversationOrdering';
 import type { DiagramAttachmentResult, ExcalidrawAnnotationSeed, ExcalidrawDiagramSource } from '../../components/chat/ExcalidrawDiagramDialog';
 
 const ExcalidrawDiagramDialog = lazy(() =>
@@ -193,24 +192,31 @@ export function V2ConversationDetailPage() {
     queryKey: ['v2-conversation', conversationId],
     queryFn: () => v2Api.getConversation(conversationId!),
     enabled: !!conversationId,
+    initialData: () => findSidebarConversation(queryClient, conversationId),
+    staleTime: 5_000,
   });
 
   const { data: project } = useQuery({
     queryKey: ['project', conversation?.projectId],
     queryFn: () => projectsApi.get(conversation!.projectId),
     enabled: !!conversation?.projectId,
+    initialData: () => findSidebarProject(queryClient, conversation?.projectId),
+    staleTime: 20_000,
   });
 
   const { data: workspaces } = useQuery({
     queryKey: ['v2-workspaces', conversation?.projectId],
     queryFn: () => v2Api.listWorkspaces(conversation!.projectId),
     enabled: !!conversation?.projectId,
+    initialData: () => findSidebarWorkspaces(queryClient, conversation?.projectId),
+    staleTime: 20_000,
   });
 
-  const { data: stateSnapshot } = useQuery({
+  const { data: stateSnapshot, isLoading: stateLoading, isFetching: stateFetching } = useQuery({
     queryKey: ['v2-conversation-state', conversationId, conversation?.status],
     queryFn: () => v2Api.getConversationState(conversationId!),
     enabled: !!conversationId,
+    staleTime: 5_000,
   });
 
   const isActiveConversation = conversation?.status === 'active';
@@ -311,6 +317,14 @@ export function V2ConversationDetailPage() {
     }
   }, [activePreviewTab, isMobile, toolsOpen]);
 
+  const [workspaceMetaEnabled, setWorkspaceMetaEnabled] = useState(false);
+  useEffect(() => {
+    setWorkspaceMetaEnabled(false);
+    if (!activeWorkspaceId) return;
+    const timer = window.setTimeout(() => setWorkspaceMetaEnabled(true), 80);
+    return () => window.clearTimeout(timer);
+  }, [activeWorkspaceId, conversationId]);
+
   const updateWorkspace = useMutation({
     mutationFn: (currentWorkspaceId?: string) => v2Api.switchConversationWorkspace(conversationId!, { currentWorkspaceId }),
     onSuccess: async (updated) => {
@@ -330,8 +344,8 @@ export function V2ConversationDetailPage() {
   const { data: terminals = [] } = useQuery({
     queryKey: ['v2-terminals', activeWorkspaceId],
     queryFn: () => v2Api.listTerminals(activeWorkspaceId!),
-    enabled: !!activeWorkspaceId,
-    refetchInterval: 5000,
+    enabled: workspaceMetaEnabled && !!activeWorkspaceId,
+    refetchInterval: workspaceMetaEnabled ? 5000 : false,
   });
   const { data: workspaceConversations = [] } = useQuery({
     queryKey: ['v2-workspace-conversations', activeWorkspaceId],
@@ -340,7 +354,9 @@ export function V2ConversationDetailPage() {
       const conversations = await v2Api.listProjectConversations(project.id, { provider: 'pi', status: 'active' });
       return conversations.filter((candidate) => candidate.currentWorkspaceId === activeWorkspaceId);
     },
-    enabled: !!project && !!activeWorkspaceId,
+    enabled: workspaceMetaEnabled && !!project && !!activeWorkspaceId,
+    initialData: () => findSidebarWorkspaceConversations(queryClient, activeWorkspaceId),
+    staleTime: 10_000,
   });
   const { data: pinnedConversationIds = [] } = useQuery({
     queryKey: ['v2-pinned-conversations'],
@@ -727,24 +743,11 @@ export function V2ConversationDetailPage() {
       ? [conversation, ...safeWorkspaceConversations].sort((a, b) => comparePinnedThenCreated(a, b, safePinnedConversationIds))
       : safeWorkspaceConversations
   ), [conversation, safePinnedConversationIds, safeWorkspaceConversations]);
-  const conversationStateQueries = useQueries({
-    queries: visibleTabConversations.map((candidate) => ({
-      queryKey: ['v2-conversation-state', candidate.id, 'workspace-tabs'],
-      queryFn: () => v2Api.getConversationState(candidate.id),
-      enabled: candidate.provider === 'pi' && candidate.id !== conversationId,
-      staleTime: 5_000,
-      refetchInterval: candidate.status === 'active' ? 5_000 : false,
-    })),
-  });
   const conversationStateById = useMemo(() => {
-    const snapshots = new Map<string, PiConversationSnapshot>();
+    const snapshots = sidebarStateMap(queryClient);
     if (conversationId && snapshot) snapshots.set(conversationId, snapshot);
-    visibleTabConversations.forEach((candidate, index) => {
-      const candidateSnapshot = conversationStateQueries[index]?.data;
-      if (candidateSnapshot) snapshots.set(candidate.id, candidateSnapshot);
-    });
     return snapshots;
-  }, [conversationId, conversationStateQueries, snapshot, visibleTabConversations]);
+  }, [conversationId, queryClient, snapshot]);
   const mobileConversations = visibleTabConversations;
   const sortedTerminals = useMemo(() => [...safeTerminals].sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [safeTerminals]);
   const tabShortcutItems = useMemo<MacTabShortcutItem[]>(() => ([
@@ -829,28 +832,13 @@ export function V2ConversationDetailPage() {
                   />
                 ))}
               </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <button
-                  type="button"
-                  disabled={createConversation.isPending}
-                  onClick={() => createConversation.mutate()}
-                  className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
-                  title="New conversation in this workspace"
-                  aria-label="New conversation in this workspace"
-                >
-                  <MessageSquarePlus size={15} />
-                </button>
-                <button
-                  type="button"
-                  disabled={createTerminal.isPending || !activeWorkspace || activeWorkspace.status !== 'active'}
-                  onClick={() => createTerminal.mutate()}
-                  className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
-                  title="New terminal in this workspace"
-                  aria-label="New terminal in this workspace"
-                >
-                  <SquareTerminal size={15} />
-                </button>
-              </div>
+              <WorkspaceNewTabIconActions
+                createConversationPending={createConversation.isPending}
+                createTerminalDisabled={!activeWorkspace || activeWorkspace.status !== 'active'}
+                createTerminalPending={createTerminal.isPending}
+                onCreateConversation={() => createConversation.mutate()}
+                onCreateTerminal={() => createTerminal.mutate()}
+              />
               {!toolsOpen && (
                 <V2WorkspaceToolTabs
                   helperTab={helperTab}
@@ -890,6 +878,8 @@ export function V2ConversationDetailPage() {
                 conversationId={conversationId ?? ''}
                 activeWorkspaceId={activeWorkspaceId ?? undefined}
                 snapshot={snapshot}
+                snapshotLoading={!snapshot && stateLoading}
+                snapshotFetching={stateFetching}
                 conversationTitle={conversation?.title ?? 'Conversation'}
                 isActiveConversation={isActiveConversation}
                 sending={sending}
@@ -990,6 +980,8 @@ function ConversationSurface({
   conversationId,
   activeWorkspaceId,
   snapshot,
+  snapshotLoading,
+  snapshotFetching,
   conversationTitle,
   isActiveConversation,
   sending,
@@ -1026,6 +1018,8 @@ function ConversationSurface({
   conversationId: string;
   activeWorkspaceId?: string;
   snapshot: PiConversationSnapshot | null;
+  snapshotLoading?: boolean;
+  snapshotFetching?: boolean;
   conversationTitle: string;
   isActiveConversation: boolean;
   sending: boolean;
@@ -1740,7 +1734,14 @@ function ConversationSurface({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div ref={messageScrollerRef} onScroll={updateStickToLatest} className={`relative min-h-0 flex-1 overflow-auto px-3 py-4 md:px-6 md:py-5 ${branchSwitching ? '[overflow-anchor:none]' : ''}`}>
-        {messages.length ? (
+        {snapshotFetching && messages.length > 0 && (
+          <div className="pointer-events-none sticky top-2 z-10 mx-auto mb-2 flex max-w-4xl justify-center">
+            <span className="rounded-full bg-card px-2.5 py-1 text-[11px] text-dim shadow-[var(--shadow-card)]">Updating…</span>
+          </div>
+        )}
+        {snapshotLoading ? (
+          <ConversationMessagesSkeleton />
+        ) : messages.length ? (
           <div className="mx-auto max-w-4xl space-y-4 md:space-y-5">
             {messageItems.map((item, index) => item.type === 'message' ? (
               <MessageRow
@@ -2712,6 +2713,25 @@ function ConversationActionButton({
       {pending ? <Loader2 size={14} className="animate-spin" /> : icon}
       <span>{children}</span>
     </button>
+  );
+}
+
+function ConversationMessagesSkeleton() {
+  return (
+    <div className="mx-auto max-w-4xl space-y-5" aria-label="Loading conversation">
+      <div className="flex justify-end">
+        <div className="h-20 w-[min(70%,32rem)] animate-pulse rounded-2xl rounded-br-md bg-[var(--color-card)]" />
+      </div>
+      <div className="space-y-3">
+        <div className="h-4 w-24 animate-pulse rounded bg-[var(--color-card)]" />
+        <div className="h-4 w-[88%] animate-pulse rounded bg-[var(--color-card)]" />
+        <div className="h-4 w-[76%] animate-pulse rounded bg-[var(--color-card)]" />
+        <div className="h-4 w-[54%] animate-pulse rounded bg-[var(--color-card)]" />
+      </div>
+      <div className="flex justify-end">
+        <div className="h-14 w-[min(62%,28rem)] animate-pulse rounded-2xl rounded-br-md bg-[var(--color-card)]" />
+      </div>
+    </div>
   );
 }
 
@@ -3734,20 +3754,6 @@ function canDropFiles(event: DragEvent<HTMLElement>, isActiveConversation: boole
   return Array.from(event.dataTransfer.types ?? []).includes('Files');
 }
 
-function NewTabMenuItem({ icon, children, disabled, onClick }: { icon: ReactNode; children: ReactNode; disabled?: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="flex min-h-[44px] w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50 md:min-h-0 md:text-xs"
-    >
-      {icon}
-      <span>{children}</span>
-    </button>
-  );
-}
-
 function MobileConversationSurfaceBar({
   conversations,
   activeConversationId,
@@ -3781,7 +3787,6 @@ function MobileConversationSurfaceBar({
   toolsDisabled?: boolean;
   onToggleHelperTab: (tab: V2HelperTab) => void;
 }) {
-  const [newTabOpen, setNewTabOpen] = useState(false);
   const activeValue = activeConversationId ? `conversation:${activeConversationId}` : '';
 
   return (
@@ -3809,27 +3814,13 @@ function MobileConversationSurfaceBar({
           <option key={terminal.id} value={`terminal:${terminal.id}`}>{terminal.title || 'Terminal'}</option>
         ))}
       </select>
-      <div className="relative shrink-0">
-        <button
-          type="button"
-          disabled={createTerminalDisabled && createConversationPending}
-          onClick={() => setNewTabOpen((value) => !value)}
-          className="inline-flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
-          title="New tab"
-          aria-label="New tab"
-        >
-          <PlusCircle size={15} />
-        </button>
-        {newTabOpen && (
-          <>
-            <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close new tab menu" onClick={() => setNewTabOpen(false)} />
-            <div className="fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)]">
-              <NewTabMenuItem icon={<MessageSquarePlus size={14} />} disabled={createConversationPending} onClick={() => { setNewTabOpen(false); onCreateConversation(); }}>Conversation</NewTabMenuItem>
-              <NewTabMenuItem icon={<SquareTerminal size={14} />} disabled={!projectId || createTerminalDisabled || createTerminalPending} onClick={() => { setNewTabOpen(false); onCreateTerminal(); }}>Terminal</NewTabMenuItem>
-            </div>
-          </>
-        )}
-      </div>
+      <WorkspaceNewTabMenuButton
+        createConversationPending={createConversationPending}
+        createTerminalDisabled={!projectId || createTerminalDisabled}
+        createTerminalPending={createTerminalPending}
+        onCreateConversation={onCreateConversation}
+        onCreateTerminal={onCreateTerminal}
+      />
       <V2WorkspaceToolTabs
         helperTab={helperTab}
         toolsOpen={toolsOpen}
@@ -3840,18 +3831,46 @@ function MobileConversationSurfaceBar({
   );
 }
 
-function comparePinnedThenCreated(a: Conversation, b: Conversation, pinnedConversationIds: string[]) {
-  const pinnedA = pinnedConversationIds.includes(a.id);
-  const pinnedB = pinnedConversationIds.includes(b.id);
-  if (pinnedA !== pinnedB) return pinnedA ? -1 : 1;
-  const createdCompare = a.createdAt.localeCompare(b.createdAt);
-  if (createdCompare !== 0) return createdCompare;
-  return a.id.localeCompare(b.id);
+function findSidebarConversation(queryClient: QueryClient, conversationId?: string): Conversation | undefined {
+  if (!conversationId) return undefined;
+  for (const project of sidebarProjects(queryClient)) {
+    const conversation = project.conversations.find((candidate) => candidate.id === conversationId);
+    if (conversation) return conversation;
+  }
+  return undefined;
 }
 
-async function getPinnedConversationIds() {
-  const pinned = await preferencesApi.get<string[]>('v2_pinned_conversations').catch(() => []);
-  return Array.isArray(pinned) ? pinned : [];
+function findSidebarProject(queryClient: QueryClient, projectId?: string): Project | undefined {
+  if (!projectId) return undefined;
+  return sidebarProjects(queryClient).find((entry) => entry.project.id === projectId)?.project;
+}
+
+function findSidebarWorkspaces(queryClient: QueryClient, projectId?: string): Workspace[] | undefined {
+  if (!projectId) return undefined;
+  return sidebarProjects(queryClient).find((entry) => entry.project.id === projectId)?.workspaces;
+}
+
+function findSidebarWorkspaceConversations(queryClient: QueryClient, workspaceId?: string | null): Conversation[] | undefined {
+  if (!workspaceId) return undefined;
+  for (const project of sidebarProjects(queryClient)) {
+    const conversations = project.conversations.filter((candidate) => candidate.currentWorkspaceId === workspaceId && candidate.status === 'active');
+    if (conversations.length > 0) return conversations;
+  }
+  return undefined;
+}
+
+function sidebarStateMap(queryClient: QueryClient): Map<string, PiConversationSnapshot> {
+  const snapshots = new Map<string, PiConversationSnapshot>();
+  for (const project of sidebarProjects(queryClient)) {
+    for (const state of project.states ?? []) {
+      snapshots.set(state.conversationId, state);
+    }
+  }
+  return snapshots;
+}
+
+function sidebarProjects(queryClient: QueryClient): V2SidebarData['projects'] {
+  return queryClient.getQueryData<V2SidebarData>(['v2-sidebar-summary'])?.projects ?? [];
 }
 
 function terminalWorkspaceProjectId(project?: { id: string } | null, conversation?: { projectId: string } | null) {

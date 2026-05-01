@@ -1719,9 +1719,9 @@ func (rt *piConversationRuntime) handleEvent(event map[string]any) {
 		deltaType, _ := assistantEvent["type"].(string)
 		switch deltaType {
 		case "text_delta":
-			rt.snapshot.Pending.Text += stringFromMap(assistantEvent, "delta")
+			rt.snapshot.Pending.Text += rawStringFromMap(assistantEvent, "delta")
 		case "thinking_delta":
-			rt.snapshot.Pending.Thinking += stringFromMap(assistantEvent, "delta")
+			rt.snapshot.Pending.Thinking += rawStringFromMap(assistantEvent, "delta")
 		case "toolcall_end":
 			if toolCall, ok := assistantEvent["toolCall"].(map[string]any); ok {
 				rt.snapshot.Pending.ToolCalls = append(rt.snapshot.Pending.ToolCalls, piConversationToolCall{
@@ -1950,6 +1950,11 @@ func appendOrReplaceTool(existing []piToolExecution, next piToolExecution) []piT
 func stringFromMap(value map[string]any, key string) string {
 	raw, _ := value[key].(string)
 	return strings.TrimSpace(raw)
+}
+
+func rawStringFromMap(value map[string]any, key string) string {
+	raw, _ := value[key].(string)
+	return raw
 }
 
 func boolFromMap(value map[string]any, key string) bool {

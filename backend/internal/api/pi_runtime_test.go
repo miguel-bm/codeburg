@@ -118,6 +118,42 @@ func TestPiConversationPassiveReadsDoNotStartRuntime(t *testing.T) {
 	}
 }
 
+func TestPiConversationStreamingDeltasPreserveWhitespace(t *testing.T) {
+	runtime := testPiRuntime(newPiConversationManager(nil), "conversation-1", "/tmp/project")
+
+	runtime.handleEvent(map[string]any{"type": "agent_start"})
+	runtime.handleEvent(map[string]any{
+		"type": "message_update",
+		"assistantMessageEvent": map[string]any{
+			"type":  "text_delta",
+			"delta": "Hello",
+		},
+	})
+	runtime.handleEvent(map[string]any{
+		"type": "message_update",
+		"assistantMessageEvent": map[string]any{
+			"type":  "text_delta",
+			"delta": " world",
+		},
+	})
+	runtime.handleEvent(map[string]any{
+		"type": "message_update",
+		"assistantMessageEvent": map[string]any{
+			"type":  "text_delta",
+			"delta": "\n\n- item",
+		},
+	})
+
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.snapshot.Pending == nil {
+		t.Fatal("expected pending assistant text")
+	}
+	if got := runtime.snapshot.Pending.Text; got != "Hello world\n\n- item" {
+		t.Fatalf("expected streaming text whitespace to be preserved, got %q", got)
+	}
+}
+
 func TestPiSessionBranchMessagesAndForksUseActiveBranch(t *testing.T) {
 	sourceSession := writeTestPiSession(t, t.TempDir(), []map[string]any{
 		{"type": "session", "version": 3, "id": "session-1", "timestamp": "2026-01-01T00:00:00Z", "cwd": "/source"},

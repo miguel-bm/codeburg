@@ -50,6 +50,7 @@ import { selectIsExpanded, useSidebarStore } from '../../stores/sidebar';
 import { useSharedWebSocket } from '../../hooks/useSharedWebSocket';
 import type { QueryClient } from '@tanstack/react-query';
 import type { NavigateFunction } from 'react-router-dom';
+import { comparePinnedThenCreated, getPinnedConversationIds } from './conversationOrdering';
 
 type ProjectTreeMode = 'project' | 'chronological' | 'chats';
 type ProjectTreeSort = 'created' | 'updated';
@@ -1606,15 +1607,6 @@ function orderProjectsForTree(
   });
 }
 
-function comparePinnedThenCreated(a: Conversation, b: Conversation, pinnedConversationIds: string[]) {
-  const pinnedA = pinnedConversationIds.includes(a.id);
-  const pinnedB = pinnedConversationIds.includes(b.id);
-  if (pinnedA !== pinnedB) return pinnedA ? -1 : 1;
-  const createdCompare = a.createdAt.localeCompare(b.createdAt);
-  if (createdCompare !== 0) return createdCompare;
-  return a.id.localeCompare(b.id);
-}
-
 function copyToClipboard(value: string | undefined, label: string) {
   if (!value) return;
   const write = navigator.clipboard?.writeText(value);
@@ -1625,11 +1617,6 @@ function copyToClipboard(value: string | undefined, label: string) {
   void write.catch(() => {
     window.prompt(`Copy ${label}`, value);
   });
-}
-
-async function getPinnedConversationIds() {
-  const pinned = await preferencesApi.get<string[]>('v2_pinned_conversations').catch(() => []);
-  return Array.isArray(pinned) ? pinned : [];
 }
 
 async function togglePinnedConversation(conversationId: string, queryClient: QueryClient) {
