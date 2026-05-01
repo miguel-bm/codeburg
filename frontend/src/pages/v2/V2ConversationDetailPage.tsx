@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useLayoutEffe
 import type { Dispatch, DragEvent, ReactNode, SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import {
   Archive,
@@ -43,7 +43,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import { projectsApi } from '../../api';
+import { preferencesApi, projectsApi } from '../../api';
 import type { Conversation, PiAvailableModel, PiConversationForkPosition, PiConversationImageAttachment, PiConversationMessage, PiConversationMessageVersionInfo, PiConversationSessionStats, PiConversationSnapshot, PiSlashCommand, PiThinkingLevel, PiToolExecution, TerminalSession, V2SidebarData, Workspace } from '../../api/types';
 import { v2Api, type V2FileEntry } from '../../api/v2';
 import { MarkdownRenderer } from '../../components/ui/MarkdownRenderer';
@@ -184,7 +184,6 @@ export function V2ConversationDetailPage() {
   const [toolsWidth, setToolsWidth] = useState(360);
   const [toolsResizing, setToolsResizing] = useState(false);
   const [mainSurface, setMainSurface] = useState<MainSurface>('conversation');
-  const [newTabOpen, setNewTabOpen] = useState(false);
   const resizeStart = useRef<{ x: number; width: number } | null>(null);
   const readOnFocusConversation = useRef<string | null>(null);
   const wasStreaming = useRef(false);
@@ -343,8 +342,17 @@ export function V2ConversationDetailPage() {
     },
     enabled: !!project && !!activeWorkspaceId,
   });
+  const { data: pinnedConversationIds = [] } = useQuery({
+    queryKey: ['v2-pinned-conversations'],
+    queryFn: getPinnedConversationIds,
+  });
   const safeTerminals = useMemo(() => Array.isArray(terminals) ? terminals : [], [terminals]);
-  const safeWorkspaceConversations = useMemo(() => Array.isArray(workspaceConversations) ? workspaceConversations : [], [workspaceConversations]);
+  const safePinnedConversationIds = useMemo(() => Array.isArray(pinnedConversationIds) ? pinnedConversationIds : [], [pinnedConversationIds]);
+  const safeWorkspaceConversations = useMemo(() => (
+    Array.isArray(workspaceConversations)
+      ? [...workspaceConversations].sort((a, b) => comparePinnedThenCreated(a, b, safePinnedConversationIds))
+      : []
+  ), [workspaceConversations, safePinnedConversationIds]);
   const createTerminal = useMutation({
     mutationFn: () => v2Api.createTerminal(activeWorkspaceId!, {
       title: `Terminal #${safeTerminals.length + 1}`,
@@ -716,9 +724,27 @@ export function V2ConversationDetailPage() {
     : null;
   const visibleTabConversations = useMemo(() => (
     conversation?.status === 'active' && !safeWorkspaceConversations.some((candidate) => candidate.id === conversation.id)
-      ? [conversation, ...safeWorkspaceConversations]
+      ? [conversation, ...safeWorkspaceConversations].sort((a, b) => comparePinnedThenCreated(a, b, safePinnedConversationIds))
       : safeWorkspaceConversations
-  ), [conversation, safeWorkspaceConversations]);
+  ), [conversation, safePinnedConversationIds, safeWorkspaceConversations]);
+  const conversationStateQueries = useQueries({
+    queries: visibleTabConversations.map((candidate) => ({
+      queryKey: ['v2-conversation-state', candidate.id, 'workspace-tabs'],
+      queryFn: () => v2Api.getConversationState(candidate.id),
+      enabled: candidate.provider === 'pi' && candidate.id !== conversationId,
+      staleTime: 5_000,
+      refetchInterval: candidate.status === 'active' ? 5_000 : false,
+    })),
+  });
+  const conversationStateById = useMemo(() => {
+    const snapshots = new Map<string, PiConversationSnapshot>();
+    if (conversationId && snapshot) snapshots.set(conversationId, snapshot);
+    visibleTabConversations.forEach((candidate, index) => {
+      const candidateSnapshot = conversationStateQueries[index]?.data;
+      if (candidateSnapshot) snapshots.set(candidate.id, candidateSnapshot);
+    });
+    return snapshots;
+  }, [conversationId, conversationStateQueries, snapshot, visibleTabConversations]);
   const mobileConversations = visibleTabConversations;
   const sortedTerminals = useMemo(() => [...safeTerminals].sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [safeTerminals]);
   const tabShortcutItems = useMemo<MacTabShortcutItem[]>(() => ([
@@ -784,6 +810,7 @@ export function V2ConversationDetailPage() {
                   <WorkspaceConversationTab
                     key={candidate.id}
                     conversation={candidate}
+                    snapshot={conversationStateById.get(candidate.id)}
                     active={candidate.id === conversationId}
                     onSelect={() => navigate(`/conversations/${candidate.id}`)}
                     onRename={(title) => renameConversation.mutate({ id: candidate.id, title })}
@@ -802,25 +829,27 @@ export function V2ConversationDetailPage() {
                   />
                 ))}
               </div>
-              <div className="relative shrink-0">
+              <div className="flex shrink-0 items-center gap-1">
                 <button
                   type="button"
-                  disabled={!activeWorkspace || activeWorkspace.status !== 'active'}
-                  onClick={() => setNewTabOpen((value) => !value)}
-                  className="inline-flex h-[44px] cursor-pointer items-center justify-center rounded-md px-3 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50 md:h-7 md:px-2"
-                  title="New tab"
+                  disabled={createConversation.isPending}
+                  onClick={() => createConversation.mutate()}
+                  className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
+                  title="New conversation in this workspace"
+                  aria-label="New conversation in this workspace"
                 >
-                  <PlusCircle size={15} />
+                  <MessageSquarePlus size={15} />
                 </button>
-                {newTabOpen && (
-                  <>
-                    <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close new tab menu" onClick={() => setNewTabOpen(false)} />
-                    <div className="fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)] md:absolute md:inset-auto md:right-0 md:top-8 md:w-44">
-                      <NewTabMenuItem icon={<MessageSquarePlus size={14} />} disabled={createConversation.isPending} onClick={() => { setNewTabOpen(false); createConversation.mutate(); }}>Conversation</NewTabMenuItem>
-                      <NewTabMenuItem icon={<SquareTerminal size={14} />} disabled={createTerminal.isPending || !activeWorkspace} onClick={() => { setNewTabOpen(false); createTerminal.mutate(); }}>Terminal</NewTabMenuItem>
-                    </div>
-                  </>
-                )}
+                <button
+                  type="button"
+                  disabled={createTerminal.isPending || !activeWorkspace || activeWorkspace.status !== 'active'}
+                  onClick={() => createTerminal.mutate()}
+                  className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
+                  title="New terminal in this workspace"
+                  aria-label="New terminal in this workspace"
+                >
+                  <SquareTerminal size={15} />
+                </button>
               </div>
               {!toolsOpen && (
                 <V2WorkspaceToolTabs
@@ -3809,6 +3838,20 @@ function MobileConversationSurfaceBar({
       />
     </div>
   );
+}
+
+function comparePinnedThenCreated(a: Conversation, b: Conversation, pinnedConversationIds: string[]) {
+  const pinnedA = pinnedConversationIds.includes(a.id);
+  const pinnedB = pinnedConversationIds.includes(b.id);
+  if (pinnedA !== pinnedB) return pinnedA ? -1 : 1;
+  const createdCompare = a.createdAt.localeCompare(b.createdAt);
+  if (createdCompare !== 0) return createdCompare;
+  return a.id.localeCompare(b.id);
+}
+
+async function getPinnedConversationIds() {
+  const pinned = await preferencesApi.get<string[]>('v2_pinned_conversations').catch(() => []);
+  return Array.isArray(pinned) ? pinned : [];
 }
 
 function terminalWorkspaceProjectId(project?: { id: string } | null, conversation?: { projectId: string } | null) {
