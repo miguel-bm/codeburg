@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, DragEvent, ReactNode, SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -1050,9 +1050,13 @@ function ConversationSurface({
   const skillManagerHref = activeWorkspace?.projectId ? `/projects/${activeWorkspace.projectId}/skills` : '/skills';
   const selectedModel = snapshot?.model ? { provider: snapshot.model.provider, id: snapshot.model.id } : null;
   const forkDialogPending = forkPending || forkConversationPending;
+  // Keep the editor itself urgent. Token parsing, file fuzzy search, and CodeMirror
+  // decoration rebuilding can lag a frame without making typed characters lag.
+  const deferredDraft = useDeferredValue(draft);
+  const deferredSelection = useDeferredValue(selection);
   const activeToken = useMemo(
-    () => findActiveToken(draft, selection, ['/', '@']),
-    [draft, selection],
+    () => findActiveToken(deferredDraft, deferredSelection, ['/', '@']),
+    [deferredDraft, deferredSelection],
   );
   const tokenKey = activeToken ? `${activeToken.start}:${activeToken.end}:${activeToken.token}` : null;
   const activeTokenRange = useMemo(
@@ -1267,8 +1271,8 @@ function ConversationSurface({
     [dismissedTokenKey, inputFocused, suggestions, tokenKey],
   );
   const parsedComposerReferenceRanges = useMemo(
-    () => findCodeburgReferenceRanges(draft),
-    [draft],
+    () => findCodeburgReferenceRanges(deferredDraft),
+    [deferredDraft],
   );
   const composerReferenceRanges = useMemo(
     () => enrichComposerReferenceRangeTypes(parsedComposerReferenceRanges, fileEntries),
@@ -1481,9 +1485,12 @@ function ConversationSurface({
     });
   };
 
-  const submitComposer = () => {
+  const submitComposer = (draftOverride = draft) => {
+    const currentReferenceRanges = draftOverride === deferredDraft
+      ? composerReferenceRanges
+      : enrichComposerReferenceRangeTypes(findCodeburgReferenceRanges(draftOverride), fileEntries);
     if (editingMessage) {
-      const trimmed = normalizeComposerPromptText(draft, composerReferenceRanges).trim();
+      const trimmed = normalizeComposerPromptText(draftOverride, currentReferenceRanges).trim();
       if ((!trimmed && attachments.length === 0) || isStreaming || composerDisabled) return;
       setEditError(null);
       editTreeMessage.mutate({
@@ -1494,7 +1501,7 @@ function ConversationSurface({
       return;
     }
     if (isStreaming) {
-      const trimmed = normalizeComposerPromptText(draft, composerReferenceRanges).trim();
+      const trimmed = normalizeComposerPromptText(draftOverride, currentReferenceRanges).trim();
       if ((!trimmed && attachments.length === 0) || composerDisabled) return;
       onQueueFollowUp({
         message: trimmed,
@@ -1507,7 +1514,7 @@ function ConversationSurface({
       });
       return;
     }
-    submit(normalizeComposerPromptText(draft, composerReferenceRanges));
+    submit(normalizeComposerPromptText(draftOverride, currentReferenceRanges));
   };
 
   const copyMessage = async (message: PiConversationMessage) => {
@@ -1635,7 +1642,7 @@ function ConversationSurface({
     }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
-      if (!composerDisabled) submitComposer();
+      if (!composerDisabled) submitComposer(event.value);
       return true;
     }
     if (event.key === 'Escape') {

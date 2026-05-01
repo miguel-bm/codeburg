@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } from 'react';
+import { forwardRef, startTransition, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import CodeMirror, { EditorView, type ReactCodeMirrorRef, type ViewUpdate } from '@uiw/react-codemirror';
 import { Decoration, keymap, type DecorationSet } from '@codemirror/view';
 import { RangeSetBuilder, Prec, type Extension } from '@codemirror/state';
@@ -16,6 +16,7 @@ export interface TokenAwareComposerHandle {
 export interface ComposerKeyCommand {
   key: string;
   shiftKey: boolean;
+  value: string;
   preventDefault: () => void;
 }
 
@@ -75,6 +76,13 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
   onOpenWorkspaceFile,
 }, ref) {
   const cmRef = useRef<ReactCodeMirrorRef>(null);
+  const [localValue, setLocalValue] = useState(value);
+  const pendingEchoValuesRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (pendingEchoValuesRef.current.delete(value)) return;
+    setLocalValue(value);
+  }, [value]);
 
   const editorTheme = useMemo(
     () => EditorView.theme({
@@ -153,11 +161,11 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
     EditorView.lineWrapping,
     editorTheme,
     Prec.highest(keymap.of([
-      { key: 'ArrowDown', run: (view) => onKeyCommand(codeMirrorKeyCommand('ArrowDown'), editorSelection(view)) },
-      { key: 'ArrowUp', run: (view) => onKeyCommand(codeMirrorKeyCommand('ArrowUp'), editorSelection(view)) },
-      { key: 'Enter', run: (view) => onKeyCommand(codeMirrorKeyCommand('Enter'), editorSelection(view)) },
-      { key: 'Tab', run: (view) => onKeyCommand(codeMirrorKeyCommand('Tab'), editorSelection(view)) },
-      { key: 'Escape', run: (view) => onKeyCommand(codeMirrorKeyCommand('Escape'), editorSelection(view)) },
+      { key: 'ArrowDown', run: (view) => onKeyCommand(codeMirrorKeyCommand('ArrowDown', view), editorSelection(view)) },
+      { key: 'ArrowUp', run: (view) => onKeyCommand(codeMirrorKeyCommand('ArrowUp', view), editorSelection(view)) },
+      { key: 'Enter', run: (view) => onKeyCommand(codeMirrorKeyCommand('Enter', view), editorSelection(view)) },
+      { key: 'Tab', run: (view) => onKeyCommand(codeMirrorKeyCommand('Tab', view), editorSelection(view)) },
+      { key: 'Escape', run: (view) => onKeyCommand(codeMirrorKeyCommand('Escape', view), editorSelection(view)) },
     ])),
     codeburgReferenceDecorations(referenceRanges, activeTokenRange, onOpenWorkspaceFile),
     EditorView.domEventHandlers({
@@ -197,14 +205,17 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
   }), []);
 
   const handleUpdate = useCallback((update: ViewUpdate) => {
-    if (!update.selectionSet && !update.docChanged) return;
+    // onChange already reports the selection for document edits. Reporting it again
+    // from onUpdate turns every keystroke into two React state updates, which is
+    // noticeable in long conversations.
+    if (!update.selectionSet || update.docChanged) return;
     onSelectionChange(editorSelection(update.view));
   }, [onSelectionChange]);
 
   return (
     <CodeMirror
       ref={cmRef}
-      value={value}
+      value={localValue}
       editable={!disabled}
       readOnly={disabled}
       placeholder={placeholder}
@@ -212,7 +223,14 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
       indentWithTab={false}
       theme="none"
       extensions={extensions}
-      onChange={(nextValue, update) => onChange(nextValue, editorSelection(update.view))}
+      onChange={(nextValue, update) => {
+        const nextSelection = editorSelection(update.view);
+        pendingEchoValuesRef.current.add(nextValue);
+        setLocalValue(nextValue);
+        startTransition(() => {
+          onChange(nextValue, nextSelection);
+        });
+      }}
       onUpdate={handleUpdate}
       className="codeburg-token-composer"
     />
@@ -321,10 +339,11 @@ function editorSelection(view: EditorView): InputSelection {
   };
 }
 
-function codeMirrorKeyCommand(key: string, shiftKey = false): ComposerKeyCommand {
+function codeMirrorKeyCommand(key: string, view: EditorView, shiftKey = false): ComposerKeyCommand {
   return {
     key,
     shiftKey,
+    value: view.state.doc.toString(),
     preventDefault: () => undefined,
   };
 }
