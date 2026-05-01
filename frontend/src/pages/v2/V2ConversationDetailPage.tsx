@@ -2786,17 +2786,19 @@ function MessageRow({
             <MessageImages images={message.images ?? []} />
             <ToolCallSummary message={message} />
           </div>
-          <MessageActions
-            copied={copied}
-            align="right"
-            canEdit={Boolean(!compact && onEdit && version?.canEdit)}
-            editDisabled={editDisabled}
-            version={version}
-            versionPending={versionPending}
-            onCopy={onCopy}
-            onEdit={onEdit}
-            onSelectVersion={onSelectVersion}
-          />
+          {!compact && (
+            <MessageActions
+              copied={copied}
+              align="right"
+              canEdit={Boolean(onEdit && version?.canEdit)}
+              editDisabled={editDisabled}
+              version={version}
+              versionPending={versionPending}
+              onCopy={onCopy}
+              onEdit={onEdit}
+              onSelectVersion={onSelectVersion}
+            />
+          )}
         </div>
       </div>
     );
@@ -2808,13 +2810,15 @@ function MessageRow({
         {message.text && <MarkdownRenderer conversationId={conversationId} skillManagerHref={skillManagerHref} enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{message.text}</MarkdownRenderer>}
         <ToolCallSummary message={message} />
       </div>
-      <MessageActions
-        copied={copied}
-        canFork={Boolean(!compact && forkTarget && onRequestFork)}
-        forkPending={forkPending}
-        onCopy={onCopy}
-        onFork={() => forkTarget && onRequestFork?.(forkTarget)}
-      />
+      {!compact && (
+        <MessageActions
+          copied={copied}
+          canFork={Boolean(forkTarget && onRequestFork)}
+          forkPending={forkPending}
+          onCopy={onCopy}
+          onFork={() => forkTarget && onRequestFork?.(forkTarget)}
+        />
+      )}
     </article>
   );
 }
@@ -3145,19 +3149,17 @@ function MessageActions({
 
 function ToolResultRow({ conversationId, skillManagerHref, message, compact, animate = true, rowRef, onOpenWorkspaceFile }: { conversationId: string; skillManagerHref: string; message: PiConversationMessage; compact?: boolean; animate?: boolean; rowRef?: (node: HTMLElement | null) => void; onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void }) {
   return (
-    <details ref={rowRef as ((node: HTMLDetailsElement | null) => void) | undefined} className={`group text-xs ${compact ? '' : 'mx-0'} ${animate ? 'animate-message-enter' : ''}`}>
-      <summary className="flex cursor-pointer list-none items-center gap-2 py-1 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
-        <Wrench size={13} />
-        <span className="min-w-0 flex-1 truncate font-medium text-[var(--color-text-secondary)]">{toolMessageTitle(message)}</span>
-        {message.isError && <span className="text-[var(--color-error)]">error</span>}
-        <ChevronDown size={13} className="transition-transform group-open:rotate-180" />
-      </summary>
-      {message.text && (
-        <div className="mt-1 pl-5 text-[var(--color-text-secondary)]">
-          {message.text && <MarkdownRenderer conversationId={conversationId} skillManagerHref={skillManagerHref} enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{message.text}</MarkdownRenderer>}
-        </div>
-      )}
-    </details>
+    <ToolEventRow
+      conversationId={conversationId}
+      skillManagerHref={skillManagerHref}
+      name={message.toolName || (message.role === 'bashExecution' ? 'bash' : 'tool')}
+      status={message.isError ? 'error' : 'completed'}
+      output={message.text}
+      compact={compact}
+      animate={animate}
+      rowRef={rowRef}
+      onOpenWorkspaceFile={onOpenWorkspaceFile}
+    />
   );
 }
 
@@ -3177,10 +3179,9 @@ function PendingAssistant({ conversationId, skillManagerHref, snapshot, onOpenWo
             <span>{activitySummary}</span>
             <ChevronDown size={15} className="transition-transform group-open:rotate-180" />
           </summary>
-          <div className="mt-3 space-y-2 pl-4 text-sm text-dim">
+          <div className="mt-3 max-h-[33vh] space-y-2 overflow-y-auto overscroll-contain pr-1 pl-4 text-sm text-dim [scrollbar-width:thin]">
             {snapshot.pending?.thinking && <ActivityDisclosure icon={<Sparkles size={14} />} title="Thinking" body={snapshot.pending.thinking} />}
-            <ToolCallsList toolCalls={snapshot.pending?.toolCalls ?? []} compact />
-            <ToolExecutionList tools={snapshot.tools ?? []} />
+            <ToolActivityList toolCalls={snapshot.pending?.toolCalls ?? []} tools={snapshot.tools ?? []} />
           </div>
         </details>
       )}
@@ -3195,45 +3196,203 @@ function PendingAssistant({ conversationId, skillManagerHref, snapshot, onOpenWo
   );
 }
 
-function ToolExecutionList({ tools }: { tools: PiToolExecution[] }) {
-  if (tools.length === 0) return null;
-  return (
-    <div className="space-y-2">
-      {tools.map((tool, index) => (
-        <details key={tool.toolCallId || `${tool.toolName}-${index}`} className="group">
-          <summary className="flex cursor-pointer list-none items-center gap-2 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
-            {tool.status === 'running' ? <Loader2 size={13} className="animate-spin" /> : <Wrench size={13} />}
-            <span>{toolActivityLabel(tool)}</span>
-            {tool.isError && <span className="text-[var(--color-error)]">error</span>}
-            <ChevronDown size={13} className="ml-auto transition-transform group-open:rotate-180" />
-          </summary>
-          {tool.output && <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap pl-5 font-mono text-[11px] text-[var(--color-text-secondary)]">{tool.output}</pre>}
-        </details>
-      ))}
-    </div>
-  );
-}
+type ToolEventStatus = 'called' | 'running' | 'completed' | 'error';
 
 function ToolCallSummary({ message }: { message: PiConversationMessage }) {
   return <ToolCallsList toolCalls={message.toolCalls ?? []} />;
 }
 
-function ToolCallsList({ toolCalls, compact = false }: { toolCalls: NonNullable<PiConversationMessage['toolCalls']>; compact?: boolean }) {
-  if (toolCalls.length === 0) return null;
+function ToolActivityList({ toolCalls, tools }: { toolCalls: NonNullable<PiConversationMessage['toolCalls']>; tools: PiToolExecution[] }) {
+  if (toolCalls.length === 0 && tools.length === 0) return null;
+  const executionsByID = new Map(tools.filter((tool) => tool.toolCallId).map((tool) => [tool.toolCallId, tool]));
+  const renderedExecutionIDs = new Set<string>();
+
   return (
-    <div className={`${compact ? '' : 'mt-3'} space-y-2`}>
-      {toolCalls.map((tool, index) => (
-        <details key={tool.id || index} className="group text-xs">
-          <summary className="flex cursor-pointer list-none items-center gap-2 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
-            <Command size={13} />
-            <span>{tool.name ? `Called ${tool.name}` : 'Called a tool'}</span>
-            <ChevronDown size={13} className="ml-auto transition-transform group-open:rotate-180" />
-          </summary>
-          {tool.arguments && <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap pl-5 font-mono text-[11px] text-[var(--color-text-secondary)]">{tool.arguments}</pre>}
-        </details>
+    <div className="space-y-1.5">
+      {toolCalls.map((tool, index) => {
+        const execution = executionsByID.get(tool.id);
+        if (execution?.toolCallId) renderedExecutionIDs.add(execution.toolCallId);
+        return (
+          <ToolEventRow
+            key={tool.id || index}
+            name={tool.name}
+            args={tool.arguments}
+            status={toolStatusFromExecution(execution) ?? 'called'}
+            output={execution?.output}
+          />
+        );
+      })}
+      {tools.filter((tool) => !tool.toolCallId || !renderedExecutionIDs.has(tool.toolCallId)).map((tool, index) => (
+        <ToolEventRow
+          key={tool.toolCallId || `${tool.toolName}-${index}`}
+          name={tool.toolName}
+          status={toolStatusFromExecution(tool) ?? 'running'}
+          output={tool.output}
+        />
       ))}
     </div>
   );
+}
+
+function ToolCallsList({ toolCalls, compact = false }: { toolCalls: NonNullable<PiConversationMessage['toolCalls']>; compact?: boolean }) {
+  if (toolCalls.length === 0) return null;
+  return (
+    <div className={`${compact ? '' : 'mt-3'} space-y-1.5`}>
+      {toolCalls.map((tool, index) => (
+        <ToolEventRow key={tool.id || index} name={tool.name} args={tool.arguments} status="called" compact={compact} />
+      ))}
+    </div>
+  );
+}
+
+function ToolEventRow({
+  conversationId,
+  skillManagerHref,
+  name,
+  args,
+  status,
+  output,
+  compact = false,
+  animate = false,
+  rowRef,
+  onOpenWorkspaceFile,
+}: {
+  conversationId?: string;
+  skillManagerHref?: string;
+  name: string;
+  args?: string;
+  status: ToolEventStatus;
+  output?: string;
+  compact?: boolean;
+  animate?: boolean;
+  rowRef?: (node: HTMLElement | null) => void;
+  onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void;
+}) {
+  const summary = toolCallSummary(name, args);
+  const prettyArgs = prettyToolArgs(args);
+  const hasDetails = Boolean(prettyArgs || output);
+  const label = toolStatusLabel(status, summary.name);
+
+  return (
+    <details ref={rowRef as ((node: HTMLDetailsElement | null) => void) | undefined} className={`group text-xs ${animate ? 'animate-message-enter' : ''}`}>
+      <summary className={`flex ${compact ? 'min-h-6' : 'min-h-7'} cursor-pointer list-none items-center gap-2 rounded-lg px-2 py-1 text-dim transition-colors hover:bg-secondary/70 hover:text-[var(--color-text-secondary)]`}>
+        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-secondary text-[var(--color-text-secondary)] ring-1 ring-[var(--color-card-border)]">
+          {toolStatusIcon(status)}
+        </span>
+        <span className="shrink-0 font-medium text-[var(--color-text-secondary)]">{label}</span>
+        {summary.detail && (
+          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-dim" title={summary.detail}>
+            {summary.detail}
+          </span>
+        )}
+        {status === 'error' && <span className="shrink-0 rounded-full bg-[var(--color-error)]/10 px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-error)]">error</span>}
+        {hasDetails && <ChevronDown size={13} className="ml-auto shrink-0 transition-transform group-open:rotate-180" />}
+      </summary>
+      {hasDetails && (
+        <div className="mt-1 space-y-2 rounded-lg bg-secondary/45 px-3 py-2 text-[var(--color-text-secondary)] ring-1 ring-[var(--color-card-border)]">
+          {prettyArgs && (
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-5">{prettyArgs}</pre>
+          )}
+          {output && conversationId && skillManagerHref ? (
+            <div className="max-h-56 overflow-auto">
+              <MarkdownRenderer conversationId={conversationId} skillManagerHref={skillManagerHref} enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{output}</MarkdownRenderer>
+            </div>
+          ) : output ? (
+            <pre className="max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-5">{output}</pre>
+          ) : null}
+        </div>
+      )}
+    </details>
+  );
+}
+
+function toolStatusFromExecution(tool?: PiToolExecution): ToolEventStatus | null {
+  if (!tool) return null;
+  if (tool.isError) return 'error';
+  if (tool.status === 'running') return 'running';
+  if (tool.status === 'completed' || tool.status === 'done') return 'completed';
+  return 'called';
+}
+
+function toolStatusIcon(status: ToolEventStatus) {
+  if (status === 'running') return <Loader2 size={12} className="animate-spin text-accent" />;
+  if (status === 'completed') return <Check size={12} className="text-[var(--color-success)]" />;
+  if (status === 'error') return <Wrench size={12} className="text-[var(--color-error)]" />;
+  return <Command size={12} />;
+}
+
+function toolStatusLabel(status: ToolEventStatus, name: string): string {
+  if (status === 'running') return `Running ${name}`;
+  if (status === 'completed') return `Ran ${name}`;
+  if (status === 'error') return `${name} failed`;
+  return `Called ${name}`;
+}
+
+function toolCallSummary(name: string, args?: string): { name: string; detail: string } {
+  const normalizedName = name || 'tool';
+  const parsed = parseToolArgs(args);
+  const lowerName = normalizedName.toLowerCase();
+  const detail = toolDetailForArgs(lowerName, parsed);
+  return { name: normalizedName, detail };
+}
+
+function toolDetailForArgs(name: string, args: unknown): string {
+  if (!args || typeof args !== 'object') return '';
+  const object = args as Record<string, unknown>;
+  if (name === 'bash') return stringArg(object, 'command');
+  if (name === 'read' || name === 'write' || name === 'edit') return stringArg(object, 'path') || stringArg(object, 'file');
+  if (name === 'web_search') return stringArg(object, 'query') || stringArrayArg(object, 'queries');
+  if (name === 'code_search') return stringArg(object, 'query');
+  if (name === 'fetch_content') return stringArg(object, 'url') || stringArrayArg(object, 'urls') || stringArg(object, 'prompt');
+  if (name === 'get_search_content') return stringArg(object, 'url') || stringArg(object, 'query') || stringArg(object, 'responseId');
+  if (name === 'multi_tool_use.parallel') {
+    const toolUses = object.tool_uses;
+    return Array.isArray(toolUses) ? `${toolUses.length} parallel calls` : '';
+  }
+  return firstUsefulArg(object);
+}
+
+function parseToolArgs(args?: string): unknown {
+  if (!args) return null;
+  try {
+    return JSON.parse(args) as unknown;
+  } catch {
+    return args;
+  }
+}
+
+function prettyToolArgs(args?: string): string {
+  const parsed = parseToolArgs(args);
+  if (!parsed) return '';
+  if (typeof parsed === 'string') return parsed;
+  return JSON.stringify(parsed, null, 2);
+}
+
+function stringArg(object: Record<string, unknown>, key: string): string {
+  const value = object[key];
+  return typeof value === 'string' ? collapseWhitespace(value) : '';
+}
+
+function stringArrayArg(object: Record<string, unknown>, key: string): string {
+  const value = object[key];
+  if (!Array.isArray(value)) return '';
+  return value.filter((item): item is string => typeof item === 'string' && item.trim() !== '').map(collapseWhitespace).join(', ');
+}
+
+function firstUsefulArg(object: Record<string, unknown>): string {
+  const preferredKeys = ['path', 'file', 'command', 'query', 'url', 'prompt'];
+  for (const key of preferredKeys) {
+    const value = stringArg(object, key);
+    if (value) return value;
+  }
+  const firstString = Object.values(object).find((value): value is string => typeof value === 'string' && value.trim() !== '');
+  if (firstString) return collapseWhitespace(firstString);
+  const count = Object.keys(object).length;
+  return count > 0 ? `${count} ${count === 1 ? 'parameter' : 'parameters'}` : '';
+}
+
+function collapseWhitespace(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
 }
 
 function CollapsibleEvent({ icon, title, body }: { icon: ReactNode; title: string; body: ReactNode }) {
@@ -3278,14 +3437,6 @@ function assistantActivitySummary(snapshot: PiConversationSnapshot): string {
   ].filter(Boolean);
   if (parts.length === 0) return snapshot.streaming ? 'Working' : 'Activity';
   return `${snapshot.streaming ? 'Working' : 'Activity'}: ${parts.join(', ')}`;
-}
-
-function toolActivityLabel(tool: PiToolExecution): string {
-  const name = tool.toolName || 'tool';
-  if (tool.status === 'running') return `Running ${name}`;
-  if (tool.isError) return `${name} failed`;
-  if (tool.status === 'completed' || tool.status === 'done') return `Ran ${name}`;
-  return `${name} ${tool.status}`;
 }
 
 function buildConversationItems(messages: PiConversationMessage[]): ConversationRenderItem[] {
@@ -3338,12 +3489,6 @@ function isTurnNoiseMessage(message: PiConversationMessage): boolean {
 
 function isToolMessage(message: PiConversationMessage): boolean {
   return message.role === 'toolResult' || message.role === 'bashExecution' || Boolean(message.toolName);
-}
-
-function toolMessageTitle(message: PiConversationMessage): string {
-  if (message.toolName) return `Tool result: ${message.toolName}`;
-  if (message.role === 'bashExecution') return 'Bash execution';
-  return `Tool response: ${message.role}`;
 }
 
 function messageCopyText(message: PiConversationMessage): string {
