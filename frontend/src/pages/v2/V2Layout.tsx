@@ -392,7 +392,6 @@ export function V2Layout() {
             conversationStateById={conversationStateById}
             pinnedConversationIds={safePinnedConversationIds}
             expansionCommand={projectExpansionCommand}
-            showAllConversations={projectTreeShow === 'all'}
             contextMenu={sidebarContextMenu}
             mobile={isMobile}
             onOpenContextMenu={openSidebarContextMenu}
@@ -716,7 +715,6 @@ function ProjectTree({
   conversationStateById,
   pinnedConversationIds,
   expansionCommand,
-  showAllConversations,
   contextMenu,
   mobile = false,
   onOpenContextMenu,
@@ -753,7 +751,6 @@ function ProjectTree({
   conversationStateById: Map<string, PiConversationSnapshot>;
   pinnedConversationIds: string[];
   expansionCommand: ProjectExpansionCommand | null;
-  showAllConversations: boolean;
   contextMenu: SidebarContextMenu | null;
   mobile?: boolean;
   onOpenContextMenu: (menu: SidebarContextMenu) => void;
@@ -802,8 +799,7 @@ function ProjectTree({
   });
   const recentProjectConversations = [...safeConversations]
     .filter((conversation) => !conversation.currentWorkspaceId && conversation.status === 'active')
-    .sort((a, b) => comparePinnedThenCreated(a, b, pinnedConversationIds))
-    .slice(0, showAllConversations ? undefined : 3);
+    .sort((a, b) => comparePinnedThenCreated(a, b, pinnedConversationIds));
   const projectMenuOpen = contextMenu?.type === 'project' && contextMenu.id === project.id;
   const workspaceMenuId = contextMenu?.type === 'workspace' ? contextMenu.id : null;
   const projectIsSelectedLeaf = (projectRouteActive && orderedWorkspaces.length === 0 && !selectedWorkspaceId) || projectTasksRouteActive;
@@ -979,8 +975,7 @@ function ProjectTree({
               : projectRouteActive && workspace.kind === 'main');
             const workspaceConversations = safeConversations
               .filter((conversation) => conversation.currentWorkspaceId === workspace.id && conversation.status === 'active')
-              .sort((a, b) => comparePinnedThenCreated(a, b, pinnedConversationIds))
-              .slice(0, showAllConversations ? undefined : 3);
+              .sort((a, b) => comparePinnedThenCreated(a, b, pinnedConversationIds));
             const workspaceMenuOpen = workspaceMenuId === workspace.id;
             const workspaceActionVisibility = mobile || workspaceMenuOpen ? 'opacity-100' : 'opacity-0 group-hover/workspace:opacity-100';
             const runWorkspaceAction = (action: () => void) => {

@@ -1998,7 +1998,7 @@ function ConversationSurface({
             onOpenWorkspaceFile={onOpenWorkspaceFile}
           />
 
-          <div className="flex min-h-10 items-center justify-between gap-2 px-2 pb-1.5 pt-0 md:px-2.5">
+          <div className="flex min-h-10 items-center justify-between gap-2 px-1 pb-1.5 pt-0 md:px-1.5">
             <div className="flex min-w-0 items-center gap-1.5">
               <input
                 ref={fileInputRef}
@@ -2528,6 +2528,7 @@ function ConversationMoreActions({
   onApplySnapshot: (snapshot: PiConversationSnapshot) => void;
 }) {
   const queryClient = useQueryClient();
+  const isMobile = useMobile();
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [compactInstructions, setCompactInstructions] = useState('');
@@ -2626,17 +2627,29 @@ function ConversationMoreActions({
         aria-expanded={open}
       >
         <MoreHorizontal size={16} />
-        <span className="hidden sm:inline">Conversation</span>
+        <span className="hidden sm:inline">Details</span>
         <ChevronDown size={15} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute bottom-full left-0 z-50 mb-2 w-[min(26rem,calc(100vw-1rem))] rounded-2xl border border-subtle bg-card p-3 shadow-[0_18px_60px_rgba(15,23,42,0.18)]">
-          <div className="px-1 pb-1">
+        <div className={isMobile
+          ? 'fixed inset-0 z-50 overflow-y-auto rounded-none border-0 bg-card p-5 shadow-none'
+          : 'absolute bottom-full left-0 z-50 mb-2 w-[min(34rem,calc(100vw-2rem))] rounded-2xl border border-subtle bg-card p-4 shadow-[0_18px_60px_rgba(15,23,42,0.18)]'}>
+          <div className="px-1 pb-2">
             <div className="flex min-w-0 items-center gap-2">
               <p className="truncate text-sm font-medium text-[var(--color-text-primary)]">{state?.sessionName || 'Conversation'}</p>
               {sessionQuery.isFetching && <Loader2 size={13} className="shrink-0 animate-spin text-dim" />}
+              {isMobile && (
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-full text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]"
+                  aria-label="Close details"
+                >
+                  <X size={17} />
+                </button>
+              )}
             </div>
-            <p className="mt-0.5 truncate text-xs text-dim">{state?.sessionFile || state?.workDir || 'Session details load when Pi is active.'}</p>
+            <p className="mt-1 truncate text-xs text-dim">{state?.sessionFile || state?.workDir || 'Session details load when Pi is active.'}</p>
           </div>
 
           <div className="space-y-3">
@@ -3210,14 +3223,14 @@ function PendingAssistant({ conversationId, skillManagerHref, snapshot, onOpenWo
   return (
     <article className="max-w-[74ch] animate-message-enter space-y-4 text-sm leading-6 text-[var(--color-text-primary)]">
       {hasActivity && (
-        <details className="group" open={!snapshot.pending?.text}>
+        <details className="group/activity-panel" open={!snapshot.pending?.text}>
           <summary className="flex cursor-pointer list-none items-center gap-2 text-sm text-dim transition-colors hover:text-[var(--color-text-secondary)]">
             <span className="relative flex h-2 w-2">
               {snapshot.streaming && <span className="absolute inline-flex h-full w-full rounded-full bg-accent/60 motion-safe:animate-ping" />}
               <span className={`relative inline-flex h-2 w-2 rounded-full ${snapshot.streaming ? 'bg-accent' : 'bg-[var(--color-text-dim)]'}`} />
             </span>
             <span>{activitySummary}</span>
-            <ChevronDown size={15} className="transition-transform group-open:rotate-180" />
+            <ChevronDown size={15} className="transition-transform group-open/activity-panel:rotate-180" />
           </summary>
           <div className="mt-3 max-h-[33vh] space-y-2 overflow-y-auto overscroll-contain pr-1 pl-4 text-sm text-dim [scrollbar-width:thin]">
             {snapshot.pending?.thinking && <ActivityDisclosure icon={<Sparkles size={14} />} title="Thinking" body={snapshot.pending.thinking} />}
@@ -3314,8 +3327,8 @@ function ToolEventRow({
   const label = toolStatusLabel(status, summary.name);
 
   return (
-    <details ref={rowRef as ((node: HTMLDetailsElement | null) => void) | undefined} className={`group text-xs ${animate ? 'animate-message-enter' : ''}`}>
-      <summary className={`flex ${compact ? 'min-h-6' : 'min-h-7'} cursor-pointer list-none items-center gap-2 rounded-lg px-2 py-1 text-dim transition-colors hover:bg-secondary/70 hover:text-[var(--color-text-secondary)]`}>
+    <details ref={rowRef as ((node: HTMLDetailsElement | null) => void) | undefined} className={`group/tool text-xs ${animate ? 'animate-message-enter' : ''}`}>
+      <summary className={`flex w-full ${compact ? 'min-h-6' : 'min-h-7'} cursor-pointer list-none items-center gap-2 rounded-lg px-2 py-1 text-dim transition-colors hover:bg-secondary/70 hover:text-[var(--color-text-secondary)]`}>
         <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-secondary text-[var(--color-text-secondary)] ring-1 ring-[var(--color-card-border)]">
           {toolStatusIcon(status)}
         </span>
@@ -3326,7 +3339,7 @@ function ToolEventRow({
           </span>
         )}
         {status === 'error' && <span className="shrink-0 rounded-full bg-[var(--color-error)]/10 px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-error)]">error</span>}
-        {hasDetails && <ChevronDown size={13} className="ml-auto shrink-0 transition-transform group-open:rotate-180" />}
+        {hasDetails && <ChevronDown size={13} className="ml-auto shrink-0 transition-transform group-open/tool:rotate-180" />}
       </summary>
       {hasDetails && (
         <div className="mt-1 space-y-2 rounded-lg bg-secondary/45 px-3 py-2 text-[var(--color-text-secondary)] ring-1 ring-[var(--color-card-border)]">
@@ -3441,14 +3454,15 @@ function CollapsibleEvent({ icon, title, body }: { icon: ReactNode; title: strin
 
 function ActivityDisclosure({ icon, title, body }: { icon: ReactNode; title: string; body: ReactNode }) {
   return (
-    <details className="group mb-3 text-xs">
-      <summary className="flex cursor-pointer list-none items-center gap-2 text-dim transition-colors hover:text-[var(--color-text-secondary)]">
-        {icon}
-        <span>{title}</span>
-        <span className="ml-auto">details</span>
-        <ChevronDown size={13} className="transition-transform group-open:rotate-180" />
+    <details className="group/activity text-xs">
+      <summary className="flex min-h-7 w-full cursor-pointer list-none items-center gap-2 rounded-lg px-2 py-1 text-dim transition-colors hover:bg-secondary/70 hover:text-[var(--color-text-secondary)]">
+        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-secondary text-[var(--color-text-secondary)] ring-1 ring-[var(--color-card-border)]">
+          {icon}
+        </span>
+        <span className="min-w-0 flex-1 truncate font-medium text-[var(--color-text-secondary)]">{title}</span>
+        <ChevronDown size={13} className="ml-auto shrink-0 transition-transform group-open/activity:rotate-180" />
       </summary>
-      {body && <div className="mt-1 whitespace-pre-wrap pl-5 text-[var(--color-text-secondary)]">{body}</div>}
+      {body && <div className="mt-1 rounded-lg bg-secondary/45 px-3 py-2 whitespace-pre-wrap text-[var(--color-text-secondary)] ring-1 ring-[var(--color-card-border)]">{body}</div>}
     </details>
   );
 }
