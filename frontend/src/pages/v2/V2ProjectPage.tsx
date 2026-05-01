@@ -9,7 +9,7 @@ import {
   SquareTerminal,
   X,
 } from 'lucide-react';
-import { projectsApi } from '../../api';
+import { preferencesApi, projectsApi } from '../../api';
 import type { Conversation, TerminalSession, Workspace } from '../../api/types';
 import { v2Api } from '../../api/v2';
 import { TerminalView } from '../../components/session/TerminalView';
@@ -97,9 +97,18 @@ export function V2ProjectPage() {
     },
     enabled: !!project && !!activeWorkspaceId,
   });
+  const { data: pinnedConversationIds = [] } = useQuery({
+    queryKey: ['v2-pinned-conversations'],
+    queryFn: getPinnedConversationIds,
+  });
 
   const safeTerminals = useMemo(() => Array.isArray(terminals) ? terminals : [], [terminals]);
-  const safeWorkspaceConversations = useMemo(() => Array.isArray(workspaceConversations) ? workspaceConversations : [], [workspaceConversations]);
+  const safePinnedConversationIds = useMemo(() => Array.isArray(pinnedConversationIds) ? pinnedConversationIds : [], [pinnedConversationIds]);
+  const safeWorkspaceConversations = useMemo(() => (
+    Array.isArray(workspaceConversations)
+      ? [...workspaceConversations].sort((a, b) => comparePinnedThenCreated(a, b, safePinnedConversationIds))
+      : []
+  ), [workspaceConversations, safePinnedConversationIds]);
   const sortedTerminals = useMemo(() => [...safeTerminals].sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [safeTerminals]);
   const activeTerminal = mainSurface?.type === 'terminal'
     ? sortedTerminals.find((terminal) => terminal.id === mainSurface.terminalId) ?? null
@@ -831,25 +840,27 @@ function MainTabBar({
           />
         ))}
       </div>
-      <div className="relative shrink-0">
+      <div className="flex shrink-0 items-center gap-1">
         <button
           type="button"
-          disabled={createTerminalDisabled && createConversationPending}
-          onClick={() => setNewTabOpen((value) => !value)}
-          className="inline-flex h-[44px] cursor-pointer items-center justify-center rounded-md px-3 text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50 md:h-7 md:px-2"
-          title="New tab"
+          disabled={createConversationPending}
+          onClick={onCreateConversation}
+          className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
+          title="New conversation in this workspace"
+          aria-label="New conversation in this workspace"
         >
-          <PlusCircle size={15} />
+          <MessageSquarePlus size={15} />
         </button>
-        {newTabOpen && (
-          <>
-            <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close new tab menu" onClick={() => setNewTabOpen(false)} />
-            <div className="fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-50 rounded-xl bg-card p-1 shadow-[var(--shadow-card)] md:absolute md:inset-auto md:left-0 md:top-8 md:w-44">
-              <NewTabMenuItem icon={<MessageSquarePlus size={14} />} disabled={createConversationPending} onClick={() => { setNewTabOpen(false); onCreateConversation(); }}>Conversation</NewTabMenuItem>
-              <NewTabMenuItem icon={<SquareTerminal size={14} />} disabled={createTerminalDisabled || createTerminalPending} onClick={() => { setNewTabOpen(false); onCreateTerminal(); }}>Terminal</NewTabMenuItem>
-            </div>
-          </>
-        )}
+        <button
+          type="button"
+          disabled={createTerminalDisabled || createTerminalPending}
+          onClick={onCreateTerminal}
+          className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
+          title="New terminal in this workspace"
+          aria-label="New terminal in this workspace"
+        >
+          <SquareTerminal size={15} />
+        </button>
       </div>
       {!toolsOpen && (
         <V2WorkspaceToolTabs
@@ -875,6 +886,20 @@ function NewTabMenuItem({ icon, children, disabled, onClick }: { icon: ReactNode
       <span>{children}</span>
     </button>
   );
+}
+
+function comparePinnedThenCreated(a: Conversation, b: Conversation, pinnedConversationIds: string[]) {
+  const pinnedA = pinnedConversationIds.includes(a.id);
+  const pinnedB = pinnedConversationIds.includes(b.id);
+  if (pinnedA !== pinnedB) return pinnedA ? -1 : 1;
+  const createdCompare = a.createdAt.localeCompare(b.createdAt);
+  if (createdCompare !== 0) return createdCompare;
+  return a.id.localeCompare(b.id);
+}
+
+async function getPinnedConversationIds() {
+  const pinned = await preferencesApi.get<string[]>('v2_pinned_conversations').catch(() => []);
+  return Array.isArray(pinned) ? pinned : [];
 }
 
 function confirmWorkspaceCleanupAction(workspace: Workspace, action: string) {

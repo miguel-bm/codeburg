@@ -801,7 +801,7 @@ function ProjectTree({
   });
   const recentProjectConversations = [...safeConversations]
     .filter((conversation) => !conversation.currentWorkspaceId && conversation.status === 'active')
-    .sort((a, b) => comparePinnedThenActivity(a, b, pinnedConversationIds))
+    .sort((a, b) => comparePinnedThenCreated(a, b, pinnedConversationIds))
     .slice(0, showAllConversations ? undefined : 3);
   const projectMenuOpen = contextMenu?.type === 'project' && contextMenu.id === project.id;
   const workspaceMenuId = contextMenu?.type === 'workspace' ? contextMenu.id : null;
@@ -978,7 +978,7 @@ function ProjectTree({
               : projectRouteActive && workspace.kind === 'main');
             const workspaceConversations = safeConversations
               .filter((conversation) => conversation.currentWorkspaceId === workspace.id && conversation.status === 'active')
-              .sort((a, b) => comparePinnedThenActivity(a, b, pinnedConversationIds))
+              .sort((a, b) => comparePinnedThenCreated(a, b, pinnedConversationIds))
               .slice(0, showAllConversations ? undefined : 3);
             const workspaceMenuOpen = workspaceMenuId === workspace.id;
             const workspaceActionVisibility = mobile || workspaceMenuOpen ? 'opacity-100' : 'opacity-0 group-hover/workspace:opacity-100';
@@ -1606,11 +1606,13 @@ function orderProjectsForTree(
   });
 }
 
-function comparePinnedThenActivity(a: Conversation, b: Conversation, pinnedConversationIds: string[]) {
+function comparePinnedThenCreated(a: Conversation, b: Conversation, pinnedConversationIds: string[]) {
   const pinnedA = pinnedConversationIds.includes(a.id);
   const pinnedB = pinnedConversationIds.includes(b.id);
   if (pinnedA !== pinnedB) return pinnedA ? -1 : 1;
-  return b.lastActivityAt.localeCompare(a.lastActivityAt);
+  const createdCompare = a.createdAt.localeCompare(b.createdAt);
+  if (createdCompare !== 0) return createdCompare;
+  return a.id.localeCompare(b.id);
 }
 
 function copyToClipboard(value: string | undefined, label: string) {
