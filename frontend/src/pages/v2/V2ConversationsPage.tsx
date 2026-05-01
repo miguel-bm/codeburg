@@ -848,8 +848,10 @@ function removeConversationFromListCaches(queryClient: QueryClient, conversation
       ...current,
       projects: current.projects.map((entry) => ({
         ...entry,
-        conversations: entry.conversations.filter((conversation) => conversation.id !== conversationId),
-        states: entry.states.filter((state) => state.conversationId !== conversationId),
+        conversations: (Array.isArray(entry.conversations) ? entry.conversations : [])
+          .filter((conversation) => conversation.id !== conversationId),
+        states: (Array.isArray(entry.states) ? entry.states : [])
+          .filter((state) => state.conversationId !== conversationId),
       })),
     };
   });

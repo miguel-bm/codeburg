@@ -104,6 +104,14 @@ interface QueuedFollowUp {
   createdAt: string;
 }
 
+interface OptimisticConversationPrompt {
+  id: string;
+  baseMessageCount: number;
+  text: string;
+  images: PiConversationImageAttachment[];
+  createdAt: string;
+}
+
 type DiagramEditorState =
   | { mode: 'new' }
   | { mode: 'edit'; attachmentId: string; source: ExcalidrawDiagramSource }
@@ -174,6 +182,7 @@ export function V2ConversationDetailPage() {
   const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUp[]>(() => loadQueuedFollowUps(conversationId));
   const [queuedFollowUpSendingId, setQueuedFollowUpSendingId] = useState<string | null>(null);
   const [queuedFollowUpError, setQueuedFollowUpError] = useState<{ id: string; message: string } | null>(null);
+  const [optimisticPrompts, setOptimisticPrompts] = useState<OptimisticConversationPrompt[]>([]);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [runtimeRequested, setRuntimeRequested] = useState(false);
@@ -274,7 +283,13 @@ export function V2ConversationDetailPage() {
     setMainSurface('conversation');
     setRuntimeRequested(false);
     setSendError(null);
+    setOptimisticPrompts([]);
   }, [conversationId, activeWorkspace?.id, resetWorkspaceTabs]);
+
+  useEffect(() => {
+    if (!snapshot || optimisticPrompts.length === 0) return;
+    setOptimisticPrompts((current) => current.filter((prompt) => !conversationMessagesIncludePrompt(snapshot.messages, prompt)));
+  }, [optimisticPrompts.length, snapshot]);
 
   useLayoutEffect(() => {
     setQueuedFollowUps(loadQueuedFollowUps(conversationId));
@@ -702,19 +717,31 @@ export function V2ConversationDetailPage() {
   ]);
 
   const handleSubmit = async (draftOverride?: string) => {
-    const trimmed = (draftOverride ?? draft).trim();
+    const currentDraft = draftOverride ?? draft;
+    const trimmed = currentDraft.trim();
     if ((!trimmed && attachments.length === 0) || !conversationId) return;
     if (!isActiveConversation) return;
     if (snapshot?.streaming) return;
+    const nextImages = attachments.map(({ image }) => image);
+    const previousAttachments = attachments;
+    const optimisticPrompt = createOptimisticConversationPrompt(
+      snapshot?.messages.length ?? 0,
+      trimmed,
+      nextImages,
+    );
     setRuntimeRequested(true);
     setSendError(null);
     setSending(true);
+    setDraft('');
+    setAttachments([]);
+    setMainSurface('conversation');
+    setOptimisticPrompts((current) => [...current, optimisticPrompt]);
     try {
-      await sendMessage(trimmed, attachments.map(({ image }) => image));
-      setDraft('');
-      setAttachments([]);
-      setMainSurface('conversation');
+      await sendMessage(trimmed, nextImages);
     } catch (err) {
+      setOptimisticPrompts((current) => current.filter((prompt) => prompt.id !== optimisticPrompt.id));
+      setDraft(currentDraft);
+      setAttachments(previousAttachments);
       setSendError(err instanceof Error ? err.message : 'Failed to send prompt');
     } finally {
       setSending(false);
@@ -878,6 +905,7 @@ export function V2ConversationDetailPage() {
                 conversationId={conversationId ?? ''}
                 activeWorkspaceId={activeWorkspaceId ?? undefined}
                 snapshot={snapshot}
+                optimisticPrompts={optimisticPrompts}
                 snapshotLoading={!snapshot && stateLoading}
                 snapshotFetching={stateFetching}
                 conversationTitle={conversation?.title ?? 'Conversation'}
@@ -980,6 +1008,7 @@ function ConversationSurface({
   conversationId,
   activeWorkspaceId,
   snapshot,
+  optimisticPrompts,
   snapshotLoading,
   snapshotFetching,
   conversationTitle,
@@ -1018,6 +1047,7 @@ function ConversationSurface({
   conversationId: string;
   activeWorkspaceId?: string;
   snapshot: PiConversationSnapshot | null;
+  optimisticPrompts: OptimisticConversationPrompt[];
   snapshotLoading?: boolean;
   snapshotFetching?: boolean;
   conversationTitle: string;
@@ -1091,7 +1121,10 @@ function ConversationSurface({
   const composerStyle = isMobile && keyboardVisible
     ? { paddingBottom: keyboardHeight + 12 }
     : undefined;
-  const messages = useMemo(() => snapshot?.messages ?? [], [snapshot?.messages]);
+  const messages = useMemo(
+    () => mergeOptimisticPrompts(snapshot?.messages ?? [], optimisticPrompts),
+    [optimisticPrompts, snapshot?.messages],
+  );
   const isStreaming = Boolean(snapshot?.streaming);
   const baseComposerDisabled = !isActiveConversation || sending;
   const pendingVisible = hasPendingAssistant(snapshot);
@@ -1746,7 +1779,7 @@ function ConversationSurface({
             <span className="rounded-full bg-card px-2.5 py-1 text-[11px] text-dim shadow-[var(--shadow-card)]">Updating…</span>
           </div>
         )}
-        {snapshotLoading ? (
+        {snapshotLoading && messages.length === 0 ? (
           <ConversationMessagesSkeleton />
         ) : messages.length ? (
           <div className="mx-auto max-w-4xl space-y-4 md:space-y-5">
@@ -3484,6 +3517,81 @@ function buildConversationItems(messages: PiConversationMessage[]): Conversation
   return items;
 }
 
+function createOptimisticConversationPrompt(
+  baseMessageCount: number,
+  text: string,
+  images: PiConversationImageAttachment[],
+): OptimisticConversationPrompt {
+  const createdAt = new Date().toISOString();
+  return {
+    id: createOptimisticPromptId(),
+    baseMessageCount,
+    text,
+    images,
+    createdAt,
+  };
+}
+
+function createOptimisticPromptId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `optimistic-prompt-${crypto.randomUUID()}`;
+  }
+  return `optimistic-prompt-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function mergeOptimisticPrompts(
+  messages: PiConversationMessage[],
+  optimisticPrompts: OptimisticConversationPrompt[],
+): PiConversationMessage[] {
+  const missingPrompts = optimisticPrompts.filter((prompt) => !conversationMessagesIncludePrompt(messages, prompt));
+  if (missingPrompts.length === 0) return messages;
+  const merged = [...messages];
+  const orderedPrompts = [...missingPrompts].sort((a, b) => a.baseMessageCount - b.baseMessageCount);
+  orderedPrompts.forEach((prompt, index) => {
+    merged.splice(Math.min(merged.length, prompt.baseMessageCount + index), 0, optimisticPromptToMessage(prompt));
+  });
+  return merged;
+}
+
+function optimisticPromptToMessage(prompt: OptimisticConversationPrompt): PiConversationMessage {
+  return {
+    id: prompt.id,
+    role: 'user',
+    text: prompt.text,
+    images: prompt.images,
+    timestamp: prompt.createdAt,
+  };
+}
+
+function conversationMessagesIncludePrompt(
+  messages: PiConversationMessage[],
+  prompt: OptimisticConversationPrompt,
+): boolean {
+  return messages
+    .slice(Math.max(0, prompt.baseMessageCount))
+    .some((message) => userMessageMatchesOptimisticPrompt(message, prompt));
+}
+
+function userMessageMatchesOptimisticPrompt(
+  message: PiConversationMessage,
+  prompt: OptimisticConversationPrompt,
+): boolean {
+  if (message.role !== 'user') return false;
+  const promptText = prompt.text.trim();
+  const messageText = (message.text ?? '').trim();
+  if (promptText) return messageText === promptText;
+  if (messageText) return false;
+  return imagesMatch(message.images ?? [], prompt.images);
+}
+
+function imagesMatch(left: PiConversationImageAttachment[], right: PiConversationImageAttachment[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((image, index) => {
+    const other = right[index];
+    return image.data === other.data && image.mimeType === other.mimeType;
+  });
+}
+
 function isFinalAssistantMessage(message: PiConversationMessage): boolean {
   return message.role === 'assistant' && Boolean(message.text?.trim());
 }
@@ -3986,7 +4094,8 @@ function MobileConversationSurfaceBar({
 function findSidebarConversation(queryClient: QueryClient, conversationId?: string): Conversation | undefined {
   if (!conversationId) return undefined;
   for (const project of sidebarProjects(queryClient)) {
-    const conversation = project.conversations.find((candidate) => candidate.id === conversationId);
+    const conversations = Array.isArray(project.conversations) ? project.conversations : [];
+    const conversation = conversations.find((candidate) => candidate.id === conversationId);
     if (conversation) return conversation;
   }
   return undefined;
@@ -4005,7 +4114,8 @@ function findSidebarWorkspaces(queryClient: QueryClient, projectId?: string): Wo
 function findSidebarWorkspaceConversations(queryClient: QueryClient, workspaceId?: string | null): Conversation[] | undefined {
   if (!workspaceId) return undefined;
   for (const project of sidebarProjects(queryClient)) {
-    const conversations = project.conversations.filter((candidate) => candidate.currentWorkspaceId === workspaceId && candidate.status === 'active');
+    const projectConversations = Array.isArray(project.conversations) ? project.conversations : [];
+    const conversations = projectConversations.filter((candidate) => candidate.currentWorkspaceId === workspaceId && candidate.status === 'active');
     if (conversations.length > 0) return conversations;
   }
   return undefined;
@@ -4067,8 +4177,10 @@ function removeConversationFromV2Caches(queryClient: QueryClient, conversationId
       ...current,
       projects: current.projects.map((entry) => ({
         ...entry,
-        conversations: entry.conversations.filter((conversation) => conversation.id !== conversationId),
-        states: entry.states.filter((state) => state.conversationId !== conversationId),
+        conversations: (Array.isArray(entry.conversations) ? entry.conversations : [])
+          .filter((conversation) => conversation.id !== conversationId),
+        states: (Array.isArray(entry.states) ? entry.states : [])
+          .filter((state) => state.conversationId !== conversationId),
       })),
     };
   });

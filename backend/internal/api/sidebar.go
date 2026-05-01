@@ -346,6 +346,9 @@ func (s *Server) handleV2Sidebar(w http.ResponseWriter, r *http.Request) {
 		}
 
 		projectConversations := conversationsByProject[project.ID]
+		if projectConversations == nil {
+			projectConversations = []db.Conversation{}
+		}
 		states := make([]piConversationSnapshot, 0, len(projectConversations))
 		for _, conversation := range projectConversations {
 			if state, ok := stateByConversation[conversation.ID]; ok {

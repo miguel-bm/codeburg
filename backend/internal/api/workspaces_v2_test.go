@@ -54,6 +54,27 @@ func createTestGitRepoWithOrigin(t *testing.T) (string, string) {
 	return repoPath, remotePath
 }
 
+func TestV2SidebarReturnsEmptyConversationArrays(t *testing.T) {
+	env := setupTestEnv(t)
+	env.setup("testpass123")
+	repoPath := createTestGitRepoWithMain(t)
+	createProjectAndWorkspace(t, env, repoPath)
+
+	for _, path := range []string{"/api/sidebar/v2", "/api/sidebar/v2?conversations=0"} {
+		resp := env.get(path)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("sidebar %s: %d %s", path, resp.Code, resp.Body.String())
+		}
+		body := resp.Body.String()
+		if strings.Contains(body, `"conversations":null`) {
+			t.Fatalf("sidebar %s returned null conversations: %s", path, body)
+		}
+		if strings.Contains(body, `"states":null`) {
+			t.Fatalf("sidebar %s returned null states: %s", path, body)
+		}
+	}
+}
+
 func TestWorkspaceTerminalLifecycle(t *testing.T) {
 	env := setupTestEnv(t)
 	env.setup("testpass123")
