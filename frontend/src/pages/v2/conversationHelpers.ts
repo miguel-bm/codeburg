@@ -93,7 +93,7 @@ function optimisticPromptToMessage(prompt: OptimisticConversationPrompt): PiConv
   };
 }
 
-function conversationMessagesIncludePrompt(
+export function conversationMessagesIncludePrompt(
   messages: PiConversationMessage[],
   prompt: OptimisticConversationPrompt,
 ): boolean {
@@ -451,7 +451,7 @@ export async function hydrateEmbeddedExcalidrawSources(attachments: ComposerAtta
   return hydrated;
 }
 
-function recoverCachedEmbeddedExcalidrawSource(image: PiConversationImageAttachment): Promise<ExcalidrawDiagramSource | undefined> {
+export function recoverCachedEmbeddedExcalidrawSource(image: PiConversationImageAttachment): Promise<ExcalidrawDiagramSource | undefined> {
   const key = embeddedSourceCacheKey(image);
   const cached = embeddedExcalidrawSourceCache.get(key);
   if (cached) return cached;
