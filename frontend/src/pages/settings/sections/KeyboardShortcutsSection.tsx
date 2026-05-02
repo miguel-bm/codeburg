@@ -1,5 +1,5 @@
 import { Keyboard } from 'lucide-react';
-import { workspaceShortcutDefinitions, type MacShortcutDefinition } from '../../../hooks/useMacTabShortcuts';
+import { shortcutDisplay, workspaceShortcutDefinitions, type ShortcutDefinition } from '../../../hooks/useMacTabShortcuts';
 import { FieldLabel, FieldRow, SectionBody, SectionCard, SectionHeader } from '../../../components/ui/settings';
 import {
   getLayoutDefaults,
@@ -37,7 +37,7 @@ export function KeyboardShortcutsSection() {
         <div className="mb-3 rounded-lg border border-[var(--color-card-border)] bg-secondary/45 px-3 py-2 text-xs leading-5 text-dim">
           Shortcut editing is only available for classic session tab cycling today. Workspace shortcuts are shown for reference and may become editable later.
         </div>
-        <ShortcutReferenceSection title="Workspace tabs" availability="Mac desktop app only" shortcuts={workspaceShortcuts} />
+        <ShortcutReferenceSection title="Workspace" availability="Mac desktop app only" shortcuts={workspaceShortcuts} />
       </SectionBody>
 
       <SectionBody bordered>
@@ -64,8 +64,8 @@ export function KeyboardShortcutsSection() {
           title="Classic session tabs"
           availability="Web and desktop"
           shortcuts={[
-            { id: 'classic.nextSession', label: 'Next session tab', shortcut: shortcutLabel(shortcuts.nextSession), key: shortcuts.nextSession },
-            { id: 'classic.prevSession', label: 'Previous session tab', shortcut: shortcutLabel(shortcuts.prevSession), key: shortcuts.prevSession },
+            { id: 'classic.nextSession', label: 'Next session tab', shortcut: shortcutLabel(shortcuts.nextSession) },
+            { id: 'classic.prevSession', label: 'Previous session tab', shortcut: shortcutLabel(shortcuts.prevSession) },
           ]}
         />
       </SectionBody>
@@ -112,7 +112,17 @@ export function KeyboardShortcutsSection() {
   );
 }
 
-function ShortcutReferenceSection({ title, availability, shortcuts }: { title: string; availability: string; shortcuts: MacShortcutDefinition[] }) {
+type ShortcutReference = ShortcutDefinition | {
+  id: string;
+  label: string;
+  shortcut: string;
+};
+
+function isShortcutDefinition(shortcut: ShortcutReference): shortcut is ShortcutDefinition {
+  return 'keys' in shortcut;
+}
+
+function ShortcutReferenceSection({ title, availability, shortcuts }: { title: string; availability: string; shortcuts: ShortcutReference[] }) {
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-3">
@@ -123,7 +133,7 @@ function ShortcutReferenceSection({ title, availability, shortcuts }: { title: s
         {shortcuts.map((shortcut) => (
           <div key={shortcut.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-subtle px-3 py-2 last:border-b-0">
             <div className="min-w-0 text-sm text-[var(--color-text-primary)]">{shortcut.label}</div>
-            <kbd className="rounded-md border border-subtle bg-primary px-2 py-1 font-mono text-xs text-accent shadow-sm">{shortcut.shortcut}</kbd>
+            <kbd className="rounded-md border border-subtle bg-primary px-2 py-1 font-mono text-xs text-accent shadow-sm">{isShortcutDefinition(shortcut) ? shortcutDisplay(shortcut) : shortcut.shortcut}</kbd>
           </div>
         ))}
       </div>

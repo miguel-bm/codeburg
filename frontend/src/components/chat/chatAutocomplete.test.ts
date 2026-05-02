@@ -26,6 +26,24 @@ describe('findActiveToken', () => {
     const selection = { start: 6, end: 6 };
     expect(findActiveToken(text, selection)).toBeNull();
   });
+
+  it('does not treat URL path separators as slash commands', () => {
+    const text = 'Read https://example.com/docs';
+    const selection = { start: text.length, end: text.length };
+    expect(findActiveToken(text, selection)).toBeNull();
+  });
+
+  it('does not treat markdown link paths as slash commands', () => {
+    const text = 'Read [docs](/guide';
+    const selection = { start: text.length, end: text.length };
+    expect(findActiveToken(text, selection)).toBeNull();
+  });
+
+  it('does not treat email addresses as file mentions', () => {
+    const text = 'Email hello@example.com';
+    const selection = { start: text.length, end: text.length };
+    expect(findActiveToken(text, selection)).toBeNull();
+  });
 });
 
 describe('applySuggestionToText', () => {

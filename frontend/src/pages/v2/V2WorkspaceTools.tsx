@@ -190,7 +190,7 @@ function HelperButton({
         >
           {icon}
         </button>
-        <ShortcutTooltip shortcut={shortcut?.shortcut} show={showShortcutHint && !disabled} />
+        <ShortcutTooltip shortcut={shortcut} show={showShortcutHint && !disabled} />
       </span>
     );
   }
@@ -200,7 +200,7 @@ function HelperButton({
         {icon}
         {children}
       </V2ToolbarButton>
-      <ShortcutTooltip shortcut={shortcut?.shortcut} show={showShortcutHint && !disabled} />
+      <ShortcutTooltip shortcut={shortcut} show={showShortcutHint && !disabled} />
     </span>
   );
 }

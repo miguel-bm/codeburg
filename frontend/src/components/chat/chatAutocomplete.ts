@@ -17,6 +17,11 @@ function isBoundaryChar(char: string): boolean {
   return char === '' || char === ' ' || char === '\n' || STOP_CHARS.has(char);
 }
 
+function prefixCanStartToken(prefix: string, prevChar: string): boolean {
+  if (prefix === '/') return prevChar === '' || /\s/.test(prevChar);
+  return isBoundaryChar(prevChar);
+}
+
 export function findActiveToken(text: string, selection: InputSelection, prefixes: string[] = ['@', '/']): ActiveToken | null {
   if (selection.start !== selection.end) return null;
   if (selection.start < 0 || selection.start > text.length) return null;
@@ -26,7 +31,7 @@ export function findActiveToken(text: string, selection: InputSelection, prefixe
     const char = text[start];
     if (prefixes.includes(char)) {
       const prevChar = start > 0 ? text[start - 1] : '';
-      if (!isBoundaryChar(prevChar)) {
+      if (!prefixCanStartToken(char, prevChar)) {
         start -= 1;
         continue;
       }

@@ -33,7 +33,7 @@ function tabSurface(active: boolean, tone: 'conversation' | 'terminal' | 'previe
 
 function TabShortcutTooltip({ index, show }: { index?: number; show?: boolean }) {
   const shortcut = index ? MAC_WORKSPACE_SHORTCUTS.selectTab(index) : null;
-  return <ShortcutTooltip shortcut={shortcut?.shortcut} label={shortcut?.label ?? 'Switch tab'} show={show} />;
+  return <ShortcutTooltip shortcut={shortcut ?? undefined} show={show} />;
 }
 
 export function WorkspaceConversationTab({

@@ -1,9 +1,8 @@
-import { forwardRef, startTransition, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import CodeMirror, { EditorView, type ReactCodeMirrorRef, type ViewUpdate } from '@uiw/react-codemirror';
-import { Decoration, keymap, type DecorationSet } from '@codemirror/view';
+import { Decoration, keymap, type DecorationSet, ViewPlugin } from '@codemirror/view';
 import { RangeSetBuilder, Prec, type Extension } from '@codemirror/state';
-import { WidgetType, ViewPlugin } from '@codemirror/view';
-import type { CodeburgReference, CodeburgReferenceRange } from './referenceTokens';
+import type { CodeburgReferenceRange } from './referenceTokens';
 import type { InputSelection } from './chatAutocomplete';
 
 export interface TokenAwareComposerHandle {
@@ -122,37 +121,30 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
         backgroundColor: 'var(--color-accent-glow)',
       },
       '.cm-codeburg-token': {
-        display: 'inline-flex',
-        alignItems: 'center',
-        maxWidth: '100%',
         borderRadius: '0.55rem',
-        padding: '0 0.38rem',
-        margin: '0 0.08rem',
+        padding: '0.08rem 0.24rem',
+        margin: '0 0.02rem',
         fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace)',
         fontSize: '0.92em',
         fontWeight: 500,
         lineHeight: '1.35rem',
-        verticalAlign: 'baseline',
-        whiteSpace: 'nowrap',
-        cursor: 'default',
+        whiteSpace: 'pre-wrap',
+        boxDecorationBreak: 'clone',
+        WebkitBoxDecorationBreak: 'clone',
       },
       '.cm-codeburg-token-skill': {
         backgroundColor: 'color-mix(in srgb, var(--color-accent) 12%, transparent)',
         color: 'var(--color-accent)',
-        cursor: 'pointer',
       },
       '.cm-codeburg-token-skill:hover': {
-        backgroundColor: 'color-mix(in srgb, var(--color-accent) 18%, transparent)',
+        backgroundColor: 'color-mix(in srgb, var(--color-accent) 16%, transparent)',
       },
       '.cm-codeburg-token-file': {
         backgroundColor: 'color-mix(in srgb, var(--color-warning) 12%, transparent)',
         color: 'var(--color-warning)',
       },
-      '.cm-codeburg-token-file[data-clickable="true"]': {
-        cursor: 'pointer',
-      },
-      '.cm-codeburg-token-file[data-clickable="true"]:hover': {
-        backgroundColor: 'color-mix(in srgb, var(--color-warning) 18%, transparent)',
+      '.cm-codeburg-token-file:hover': {
+        backgroundColor: 'color-mix(in srgb, var(--color-warning) 16%, transparent)',
         color: 'var(--color-warning)',
       },
     }),
@@ -169,7 +161,7 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
       { key: 'Tab', run: (view) => onKeyCommand(codeMirrorKeyCommand('Tab', view), editorSelection(view)) },
       { key: 'Escape', run: (view) => onKeyCommand(codeMirrorKeyCommand('Escape', view), editorSelection(view)) },
     ])),
-    codeburgReferenceDecorations(referenceRanges, activeTokenRange, onOpenWorkspaceFile),
+    codeburgReferenceDecorations(referenceRanges, activeTokenRange),
     EditorView.domEventHandlers({
       focus: () => {
         onFocus();
@@ -184,6 +176,19 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
         event.preventDefault();
         return true;
       },
+      mousedown: (event, view) => {
+        if (!onOpenWorkspaceFile || !(event.metaKey || event.ctrlKey)) return false;
+        const reference = referenceAtPointer(view, event, referenceRanges);
+        if (!reference || reference.kind !== 'file') return false;
+        event.preventDefault();
+        onOpenWorkspaceFile(reference.path, reference.line, reference.isDirectory);
+        return true;
+      },
+    }),
+    EditorView.contentAttributes.of({
+      'aria-label': 'Message composer',
+      'aria-multiline': 'true',
+      role: 'textbox',
     }),
     Prec.high(EditorView.editable.of(!disabled)),
   ], [activeTokenRange, disabled, editorTheme, onBlur, onFocus, onKeyCommand, onOpenWorkspaceFile, onPasteFiles, referenceRanges]);
@@ -238,9 +243,7 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
         const nextSelection = editorSelection(update.view);
         pendingEchoValuesRef.current.add(nextValue);
         setLocalValue(nextValue);
-        startTransition(() => {
-          onChange(nextValue, nextSelection);
-        });
+        onChange(nextValue, nextSelection);
       }}
       onUpdate={handleUpdate}
       className="codeburg-token-composer"
@@ -251,23 +254,21 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
 function codeburgReferenceDecorations(
   referenceRanges: CodeburgReferenceRange[],
   activeTokenRange: { from: number; to: number } | null | undefined,
-  onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void,
 ): Extension {
   const plugin = ViewPlugin.fromClass(class {
     decorations: DecorationSet;
 
     constructor(view: EditorView) {
-      this.decorations = buildReferenceDecorations(view, referenceRanges, activeTokenRange, onOpenWorkspaceFile);
+      this.decorations = buildReferenceDecorations(view, referenceRanges, activeTokenRange);
     }
 
     update(update: ViewUpdate) {
       if (update.docChanged || update.viewportChanged || update.selectionSet) {
-        this.decorations = buildReferenceDecorations(update.view, referenceRanges, activeTokenRange, onOpenWorkspaceFile);
+        this.decorations = buildReferenceDecorations(update.view, referenceRanges, activeTokenRange);
       }
     }
   }, {
     decorations: (value) => value.decorations,
-    provide: (pluginInstance) => EditorView.atomicRanges.of((view) => view.plugin(pluginInstance)?.decorations ?? Decoration.none),
   });
 
   return plugin;
@@ -277,69 +278,29 @@ function buildReferenceDecorations(
   view: EditorView,
   referenceRanges: CodeburgReferenceRange[],
   activeTokenRange: { from: number; to: number } | null | undefined,
-  onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void,
 ): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   const docLength = view.state.doc.length;
-  for (const range of referenceRanges) {
-    if (range.from < 0 || range.to > docLength || range.from >= range.to) continue;
+  let lastTo = 0;
+  const sortedRanges = [...referenceRanges].sort((a, b) => a.from - b.from || a.to - b.to);
+  for (const range of sortedRanges) {
+    if (range.from < lastTo || range.from < 0 || range.to > docLength || range.from >= range.to) continue;
     if (activeTokenRange && rangesOverlap(range.from, range.to, activeTokenRange.from, activeTokenRange.to)) continue;
+    const className = range.reference.kind === 'skill'
+      ? 'cm-codeburg-token cm-codeburg-token-skill'
+      : 'cm-codeburg-token cm-codeburg-token-file';
     builder.add(
       range.from,
       range.to,
-      Decoration.replace({
-        widget: new CodeburgReferenceWidget(range.reference, onOpenWorkspaceFile),
+      Decoration.mark({
+        class: className,
+        attributes: { title: range.reference.raw },
         inclusive: false,
       }),
     );
+    lastTo = range.to;
   }
   return builder.finish();
-}
-
-class CodeburgReferenceWidget extends WidgetType {
-  private readonly reference: CodeburgReference;
-  private readonly onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void;
-
-  constructor(reference: CodeburgReference, onOpenWorkspaceFile?: (path: string, line?: number, isDirectory?: boolean) => void) {
-    super();
-    this.reference = reference;
-    this.onOpenWorkspaceFile = onOpenWorkspaceFile;
-  }
-
-  eq(other: CodeburgReferenceWidget) {
-    return referenceKey(this.reference) === referenceKey(other.reference);
-  }
-
-  toDOM() {
-    const reference = this.reference;
-    const node = document.createElement('span');
-    node.className = reference.kind === 'skill'
-      ? 'cm-codeburg-token cm-codeburg-token-skill'
-      : 'cm-codeburg-token cm-codeburg-token-file';
-    node.textContent = referenceLabel(reference);
-    node.title = reference.raw;
-
-    if (reference.kind === 'file' && this.onOpenWorkspaceFile) {
-      node.dataset.clickable = 'true';
-      node.setAttribute('role', 'button');
-      node.setAttribute('aria-label', reference.isDirectory ? `Reveal ${reference.path} in Files` : `Open ${reference.path}`);
-      node.addEventListener('mousedown', (event) => event.preventDefault());
-      node.addEventListener('click', (event) => {
-        event.preventDefault();
-        this.onOpenWorkspaceFile?.(reference.path, reference.line, reference.isDirectory);
-      });
-    }
-    if (reference.kind === 'skill') {
-      node.setAttribute('role', 'button');
-      node.setAttribute('aria-label', `Skill ${reference.name}`);
-    }
-
-    return node;
-  }
-
-  ignoreEvent() {
-    return true;
-  }
 }
 
 function editorSelection(view: EditorView): InputSelection {
@@ -363,17 +324,12 @@ function clampOffset(value: number, max: number): number {
   return Math.max(0, Math.min(value, max));
 }
 
+function referenceAtPointer(view: EditorView, event: MouseEvent, referenceRanges: CodeburgReferenceRange[]) {
+  const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+  if (pos == null) return null;
+  return referenceRanges.find((range) => pos >= range.from && pos <= range.to)?.reference ?? null;
+}
+
 function rangesOverlap(aFrom: number, aTo: number, bFrom: number, bTo: number): boolean {
   return aFrom < bTo && bFrom < aTo;
-}
-
-function referenceLabel(reference: CodeburgReference): string {
-  if (reference.kind === 'skill') return reference.name;
-  if (reference.line) return `@${reference.path}:${reference.line}`;
-  return `@${reference.path}${reference.isDirectory ? '/' : ''}`;
-}
-
-function referenceKey(reference: CodeburgReference): string {
-  if (reference.kind === 'skill') return `skill:${reference.name}`;
-  return `file:${reference.path}:${reference.line ?? ''}:${reference.isDirectory ? 'dir' : 'file'}`;
 }

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { MessageSquarePlus, PlusCircle, SquareTerminal } from 'lucide-react';
-import { MAC_WORKSPACE_SHORTCUTS, type MacShortcutDefinition } from '../../hooks/useMacTabShortcuts';
+import { MAC_WORKSPACE_SHORTCUTS, shortcutDisplay, type MacShortcutDefinition } from '../../hooks/useMacTabShortcuts';
 import { ShortcutTooltip } from './V2ShortcutTooltip';
 
 export function WorkspaceNewTabIconActions({
@@ -90,12 +90,12 @@ function ShortcutIconButton({ children, disabled, onClick, title, shortcut, show
         disabled={disabled}
         onClick={onClick}
         className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
-        title={`${title} (${shortcut.shortcut})`}
+        title={`${title} (${shortcutDisplay(shortcut)})`}
         aria-label={title}
       >
         {children}
       </button>
-      <ShortcutTooltip shortcut={shortcut.shortcut} label={shortcut.label} show={showShortcut && !disabled} />
+      <ShortcutTooltip shortcut={shortcut} show={showShortcut && !disabled} />
     </span>
   );
 }

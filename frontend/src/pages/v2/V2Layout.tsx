@@ -67,7 +67,7 @@ export function V2Layout() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isMobile = useMobile();
-  const { keyboardVisible } = useVirtualKeyboard();
+  const { keyboardVisible, viewportHeight, viewportOffsetTop } = useVirtualKeyboard();
   const isMobileHome = isMobile && location.pathname === '/';
   const projectTreeScrollRef = useRef<HTMLDivElement>(null);
   const [showCreateProject, setShowCreateProject] = useState(false);
@@ -448,8 +448,15 @@ export function V2Layout() {
   );
 
   if (isMobile) {
+    const mobileViewportStyle = keyboardVisible
+      ? {
+          height: `${viewportHeight}px`,
+          transform: viewportOffsetTop ? `translateY(${viewportOffsetTop}px)` : undefined,
+        }
+      : undefined;
+
     return (
-      <div className="relative h-[100dvh] overflow-hidden bg-canvas text-[var(--color-text-primary)]">
+      <div className="relative h-[100dvh] overflow-hidden bg-canvas text-[var(--color-text-primary)]" style={mobileViewportStyle}>
         <main className={`h-full min-w-0 overflow-hidden ${keyboardVisible ? 'pb-0' : 'pb-[calc(64px+env(safe-area-inset-bottom))]'}`}>
           {isMobileHome ? (
             <section className="flex h-full min-h-0 flex-col bg-canvas">

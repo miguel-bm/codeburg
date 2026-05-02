@@ -17,6 +17,7 @@ import { EditorTab } from '../../components/workspace/EditorTab';
 import { WorkspaceProvider } from '../../components/workspace/WorkspaceContext';
 import { useMacNewTabShortcuts, useMacTabShortcuts, type MacTabShortcutItem } from '../../hooks/useMacTabShortcuts';
 import { useMobile } from '../../hooks/useMobile';
+import { useWorkspaceToolShortcuts } from '../../hooks/useWorkspaceToolShortcuts';
 import { useWorkspaceStore, type WorkspaceTab } from '../../stores/workspace';
 import {
   Button,
@@ -376,6 +377,11 @@ export function V2ProjectPage() {
     setToolsOpen(true);
   }, [helperTab, toolsOpen]);
 
+  useWorkspaceToolShortcuts({
+    enabled: !isMobile && !activePreviewTab,
+    onToggleTool: toggleHelperTab,
+  });
+
   const tabShortcutItems = useMemo<MacTabShortcutItem[]>(() => {
     const workspaceTabs = tabs
       .map((tab, index) => ({ tab, index }))
@@ -553,6 +559,7 @@ export function V2ProjectPage() {
           resizing={toolsResizing}
           helperTab={helperTab}
           disabled={!project || !activeWorkspace}
+          showShortcutHints={showTabShortcutHints}
           onToggleHelperTab={toggleHelperTab}
           onResizeStart={beginResize}
         >
@@ -798,6 +805,7 @@ function MainTabBar({
           helperTab={helperTab}
           toolsOpen={toolsOpen}
           disabled={toolsDisabled}
+          showShortcutHints={showShortcutHints}
           onToggleHelperTab={onToggleHelperTab}
         />
       </div>
@@ -850,6 +858,7 @@ function MainTabBar({
         createConversationPending={createConversationPending}
         createTerminalDisabled={createTerminalDisabled}
         createTerminalPending={createTerminalPending}
+        showShortcutHints={showShortcutHints}
         onCreateConversation={onCreateConversation}
         onCreateTerminal={onCreateTerminal}
       />
@@ -858,6 +867,7 @@ function MainTabBar({
           helperTab={helperTab}
           toolsOpen={toolsOpen}
           disabled={toolsDisabled}
+          showShortcutHints={showShortcutHints}
           onToggleHelperTab={onToggleHelperTab}
         />
       )}

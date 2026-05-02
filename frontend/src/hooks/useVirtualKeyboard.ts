@@ -4,6 +4,7 @@ interface VirtualKeyboardState {
   keyboardVisible: boolean;
   keyboardHeight: number;
   viewportHeight: number;
+  viewportOffsetTop: number;
 }
 
 /**
@@ -17,6 +18,9 @@ export function useVirtualKeyboard(threshold = 150): VirtualKeyboardState {
     viewportHeight: typeof window !== 'undefined'
       ? (window.visualViewport?.height ?? window.innerHeight)
       : 0,
+    viewportOffsetTop: typeof window !== 'undefined'
+      ? (window.visualViewport?.offsetTop ?? 0)
+      : 0,
   }));
 
   useEffect(() => {
@@ -26,13 +30,15 @@ export function useVirtualKeyboard(threshold = 150): VirtualKeyboardState {
     const update = () => {
       const fullHeight = window.innerHeight;
       const vpHeight = vv.height;
-      const diff = fullHeight - vpHeight;
-      const visible = diff > threshold;
+      const offsetTop = vv.offsetTop || 0;
+      const bottomOcclusion = Math.max(0, fullHeight - vpHeight - offsetTop);
+      const visible = bottomOcclusion > threshold;
 
       setState({
         keyboardVisible: visible,
-        keyboardHeight: visible ? diff : 0,
+        keyboardHeight: visible ? bottomOcclusion : 0,
         viewportHeight: vpHeight,
+        viewportOffsetTop: offsetTop,
       });
     };
 
