@@ -1,18 +1,31 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 interface ShortcutTooltipProps {
   shortcut?: string;
-  label: string;
+  label?: string;
   show?: boolean;
 }
 
-export function ShortcutTooltip({ shortcut, label, show }: ShortcutTooltipProps) {
+const SHORTCUT_TOOLTIP_DELAY_MS = 300;
+
+export function ShortcutTooltip({ shortcut, show }: ShortcutTooltipProps) {
   const anchorRef = useRef<HTMLSpanElement | null>(null);
+  const [delayedShow, setDelayedShow] = useState(false);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!show || !shortcut) {
+      setDelayedShow(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => setDelayedShow(true), SHORTCUT_TOOLTIP_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [show, shortcut]);
+
+  useLayoutEffect(() => {
+    if (!delayedShow || !shortcut) {
       setPosition(null);
       return;
     }
@@ -33,17 +46,16 @@ export function ShortcutTooltip({ shortcut, label, show }: ShortcutTooltipProps)
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };
-  }, [show, shortcut]);
+  }, [delayedShow, shortcut]);
 
   return (
     <span ref={anchorRef} className="pointer-events-none absolute inset-0" aria-hidden="true">
-      {show && shortcut && position && createPortal(
+      {delayedShow && shortcut && position && createPortal(
         <span
-          className="pointer-events-none fixed z-[90] inline-flex -translate-x-1/2 whitespace-nowrap rounded-lg bg-[var(--color-text-primary)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--color-card)] shadow-[0_8px_24px_oklch(0_0_0_/_0.18)] ring-1 ring-[var(--color-card-border)]"
+          className="pointer-events-none fixed z-[90] inline-flex -translate-x-1/2 whitespace-nowrap rounded-lg bg-[var(--color-text-primary)] px-2 py-1 text-[11px] font-medium text-[var(--color-card)] shadow-[0_8px_24px_oklch(0_0_0_/_0.18)] ring-1 ring-[var(--color-card-border)]"
           style={{ left: position.left, top: position.top }}
         >
-          <kbd className="mr-1.5 rounded bg-[var(--color-card)]/16 px-1.5 py-0.5 font-mono text-[10px]">{shortcut}</kbd>
-          {label}
+          <kbd className="rounded bg-[var(--color-card)]/16 px-1.5 py-0.5 font-mono text-[10px]">{shortcut}</kbd>
         </span>,
         document.body,
       )}
