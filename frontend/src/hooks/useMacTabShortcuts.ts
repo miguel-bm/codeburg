@@ -37,6 +37,26 @@ export const MAC_WORKSPACE_SHORTCUTS = {
     key: 't',
     shiftKey: true,
   }),
+  toggleFiles: defineMacShortcut({
+    id: 'workspace.toggleFiles',
+    label: 'Toggle files panel',
+    key: 'a',
+  }),
+  toggleSearch: defineMacShortcut({
+    id: 'workspace.toggleSearch',
+    label: 'Toggle search panel',
+    key: 'f',
+  }),
+  toggleChanges: defineMacShortcut({
+    id: 'workspace.toggleChanges',
+    label: 'Toggle changes panel',
+    key: 'g',
+  }),
+  togglePreview: defineMacShortcut({
+    id: 'workspace.togglePreview',
+    label: 'Toggle preview panel',
+    key: 'p',
+  }),
   selectTab: (index: number): MacShortcutDefinition => defineMacShortcut({
     id: `workspace.selectTab.${index}`,
     label: `Switch to tab ${index}`,
@@ -49,6 +69,10 @@ export function workspaceShortcutDefinitions(tabCount = 9): MacShortcutDefinitio
     ...Array.from({ length: Math.min(Math.max(tabCount, 0), 9) }, (_, index) => MAC_WORKSPACE_SHORTCUTS.selectTab(index + 1)),
     MAC_WORKSPACE_SHORTCUTS.newConversation,
     MAC_WORKSPACE_SHORTCUTS.newTerminal,
+    MAC_WORKSPACE_SHORTCUTS.toggleFiles,
+    MAC_WORKSPACE_SHORTCUTS.toggleSearch,
+    MAC_WORKSPACE_SHORTCUTS.toggleChanges,
+    MAC_WORKSPACE_SHORTCUTS.togglePreview,
   ];
 }
 
@@ -56,7 +80,7 @@ function isCommandOnly(event: KeyboardEvent): boolean {
   return event.metaKey && !event.altKey && !event.ctrlKey;
 }
 
-function matchesMacShortcut(event: KeyboardEvent, shortcut: MacShortcutDefinition): boolean {
+export function matchesMacShortcut(event: KeyboardEvent, shortcut: MacShortcutDefinition): boolean {
   return isCommandOnly(event)
     && event.shiftKey === Boolean(shortcut.shiftKey)
     && event.key.toLowerCase() === shortcut.key.toLowerCase();

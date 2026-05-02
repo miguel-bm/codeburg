@@ -48,7 +48,7 @@ import { Modal } from '../../components/ui/Modal';
 import { DiffTab } from '../../components/workspace/DiffTab';
 import { EditorTab } from '../../components/workspace/EditorTab';
 import { WorkspaceProvider } from '../../components/workspace/WorkspaceContext';
-import { useMacNewTabShortcuts, useMacTabShortcuts, type MacTabShortcutItem } from '../../hooks/useMacTabShortcuts';
+import { MAC_WORKSPACE_SHORTCUTS, matchesMacShortcut, useMacNewTabShortcuts, useMacTabShortcuts, type MacShortcutDefinition, type MacTabShortcutItem } from '../../hooks/useMacTabShortcuts';
 import { useMobile } from '../../hooks/useMobile';
 import { usePiConversation } from '../../hooks/usePiConversation';
 import { useVirtualKeyboard } from '../../hooks/useVirtualKeyboard';
@@ -140,6 +140,18 @@ const EMPTY_FILE_ENTRIES: V2FileEntry[] = [];
 const EMPTY_COMPOSER_ATTACHMENTS: ComposerAttachment[] = [];
 const embeddedExcalidrawSourceCache = new Map<string, Promise<ExcalidrawDiagramSource | undefined>>();
 const conversationScopedStateCache = new Map<string, unknown>();
+
+function isEditableShortcutTarget(target: EventTarget | null): boolean {
+  const element = target instanceof HTMLElement ? target : null;
+  const tagName = element?.tagName.toLowerCase();
+  return Boolean(
+    element?.isContentEditable
+      || tagName === 'input'
+      || tagName === 'textarea'
+      || tagName === 'select'
+      || element?.closest('.cm-editor'),
+  );
+}
 
 function useConversationScopedState<T>(
   namespace: string,
@@ -762,6 +774,27 @@ export function V2ConversationDetailPage() {
     setToolsOpen(true);
   }, [helperTab, toolsOpen]);
 
+  useEffect(() => {
+    if (!isDesktopShell() || isMobile || activePreviewTab) return;
+    const shortcuts: Array<[V2HelperTab, MacShortcutDefinition]> = [
+      ['files', MAC_WORKSPACE_SHORTCUTS.toggleFiles],
+      ['search', MAC_WORKSPACE_SHORTCUTS.toggleSearch],
+      ['git', MAC_WORKSPACE_SHORTCUTS.toggleChanges],
+      ['preview', MAC_WORKSPACE_SHORTCUTS.togglePreview],
+    ];
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || isEditableShortcutTarget(event.target)) return;
+      const match = shortcuts.find(([, shortcut]) => matchesMacShortcut(event, shortcut));
+      if (!match) return;
+      event.preventDefault();
+      toggleHelperTab(match[0]);
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activePreviewTab, isMobile, toggleHelperTab]);
+
   const pendingWorkspace = typeof pendingWorkspaceId === 'string'
     ? safeWorkspaces.find((workspace) => workspace.id === pendingWorkspaceId) ?? null
     : null;
@@ -870,6 +903,7 @@ export function V2ConversationDetailPage() {
                   helperTab={helperTab}
                   toolsOpen={toolsOpen}
                   disabled={!project || !activeWorkspace}
+                  showShortcutHints={showTabShortcutHints}
                   onToggleHelperTab={toggleHelperTab}
                 />
               )}
@@ -953,6 +987,7 @@ export function V2ConversationDetailPage() {
           resizing={toolsResizing}
           helperTab={helperTab}
           disabled={!project || !activeWorkspace}
+          showShortcutHints={showTabShortcutHints}
           onToggleHelperTab={toggleHelperTab}
           onResizeStart={beginResize}
         >

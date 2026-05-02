@@ -6,6 +6,8 @@ import { FileSearchPanel } from '../../components/workspace/FileSearchPanel';
 import { GitPanel } from '../../components/workspace/GitPanel';
 import { WorkspacePreviewPanel } from '../../components/workspace/WorkspacePreviewPanel';
 import { useMobile } from '../../hooks/useMobile';
+import { MAC_WORKSPACE_SHORTCUTS, type MacShortcutDefinition } from '../../hooks/useMacTabShortcuts';
+import { ShortcutTooltip } from './V2ShortcutTooltip';
 import { V2ToolbarButton } from './v2-ui';
 
 export type V2HelperTab = 'files' | 'search' | 'git' | 'preview';
@@ -16,21 +18,23 @@ export function V2WorkspaceToolTabs({
   onToggleHelperTab,
   disabled,
   placement = 'inline',
+  showShortcutHints = false,
 }: {
   helperTab: V2HelperTab;
   toolsOpen: boolean;
   onToggleHelperTab: (tab: V2HelperTab) => void;
   disabled?: boolean;
   placement?: 'inline' | 'panel';
+  showShortcutHints?: boolean;
 }) {
   const isMobile = useMobile();
   const compact = isMobile && placement === 'inline';
   return (
     <div className="flex shrink-0 items-center gap-0.5">
-      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'files'} icon={<Files size={14} />} onClick={() => onToggleHelperTab('files')}>Files</HelperButton>
-      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'search'} icon={<Search size={14} />} onClick={() => onToggleHelperTab('search')}>Search</HelperButton>
-      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'git'} icon={<GitBranch size={14} />} onClick={() => onToggleHelperTab('git')}>Changes</HelperButton>
-      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'preview'} icon={<Globe2 size={14} />} onClick={() => onToggleHelperTab('preview')}>Preview</HelperButton>
+      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'files'} icon={<Files size={14} />} shortcut={MAC_WORKSPACE_SHORTCUTS.toggleFiles} showShortcutHint={showShortcutHints} onClick={() => onToggleHelperTab('files')}>Files</HelperButton>
+      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'search'} icon={<Search size={14} />} shortcut={MAC_WORKSPACE_SHORTCUTS.toggleSearch} showShortcutHint={showShortcutHints} onClick={() => onToggleHelperTab('search')}>Search</HelperButton>
+      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'git'} icon={<GitBranch size={14} />} shortcut={MAC_WORKSPACE_SHORTCUTS.toggleChanges} showShortcutHint={showShortcutHints} onClick={() => onToggleHelperTab('git')}>Changes</HelperButton>
+      <HelperButton compact={compact} disabled={disabled} active={toolsOpen && helperTab === 'preview'} icon={<Globe2 size={14} />} shortcut={MAC_WORKSPACE_SHORTCUTS.togglePreview} showShortcutHint={showShortcutHints} onClick={() => onToggleHelperTab('preview')}>Preview</HelperButton>
     </div>
   );
 }
@@ -54,6 +58,7 @@ export function V2WorkspaceToolsSurface({
   disabled,
   onToggleHelperTab,
   onResizeStart,
+  showShortcutHints = false,
   children,
 }: {
   open: boolean;
@@ -63,6 +68,7 @@ export function V2WorkspaceToolsSurface({
   disabled?: boolean;
   onToggleHelperTab: (tab: V2HelperTab) => void;
   onResizeStart: (event: ReactMouseEvent) => void;
+  showShortcutHints?: boolean;
   children: ReactNode;
 }) {
   const isMobile = useMobile();
@@ -86,6 +92,7 @@ export function V2WorkspaceToolsSurface({
                 toolsOpen={open}
                 disabled={disabled}
                 placement="panel"
+                showShortcutHints={showShortcutHints}
                 onToggleHelperTab={onToggleHelperTab}
               />
               <button
@@ -132,6 +139,7 @@ export function V2WorkspaceToolsSurface({
                   toolsOpen={open}
                   disabled={disabled}
                   placement="panel"
+                  showShortcutHints={showShortcutHints}
                   onToggleHelperTab={onToggleHelperTab}
                 />
               </div>
@@ -151,6 +159,8 @@ function HelperButton({
   compact,
   disabled,
   icon,
+  shortcut,
+  showShortcutHint,
   onClick,
   children,
 }: {
@@ -158,31 +168,39 @@ function HelperButton({
   compact?: boolean;
   disabled?: boolean;
   icon: ReactNode;
+  shortcut?: MacShortcutDefinition;
+  showShortcutHint?: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
   if (compact) {
     return (
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={onClick}
-        className={`inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-md transition-colors disabled:opacity-50 ${
-          active
-            ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
-            : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
-        }`}
-        title={typeof children === 'string' ? children : undefined}
-        aria-label={typeof children === 'string' ? children : undefined}
-      >
-        {icon}
-      </button>
+      <span className="relative inline-flex shrink-0">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onClick}
+          className={`inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-md transition-colors disabled:opacity-50 ${
+            active
+              ? 'bg-[var(--color-card-hover)] text-[var(--color-text-primary)]'
+              : 'text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)]'
+          }`}
+          title={typeof children === 'string' ? children : undefined}
+          aria-label={typeof children === 'string' ? children : undefined}
+        >
+          {icon}
+        </button>
+        <ShortcutTooltip shortcut={shortcut?.shortcut} show={showShortcutHint && !disabled} />
+      </span>
     );
   }
   return (
-    <V2ToolbarButton active={active} disabled={disabled} onClick={onClick}>
-      {icon}
-      {children}
-    </V2ToolbarButton>
+    <span className="relative inline-flex shrink-0">
+      <V2ToolbarButton active={active} disabled={disabled} onClick={onClick}>
+        {icon}
+        {children}
+      </V2ToolbarButton>
+      <ShortcutTooltip shortcut={shortcut?.shortcut} show={showShortcutHint && !disabled} />
+    </span>
   );
 }
