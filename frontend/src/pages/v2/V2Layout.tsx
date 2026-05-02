@@ -45,6 +45,7 @@ import { CreateProjectModal } from '../../components/common/CreateProjectModal';
 import { openCommandPalette } from '../../components/common/CommandPalette';
 import { CodeburgIcon, CodeburgWordmark } from '../../components/ui/CodeburgIcon';
 import { useMobile } from '../../hooks/useMobile';
+import { useVirtualKeyboard } from '../../hooks/useVirtualKeyboard';
 import { isDesktopShell } from '../../platform/runtimeConfig';
 import { selectIsExpanded, useSidebarStore } from '../../stores/sidebar';
 import { useSharedWebSocket } from '../../hooks/useSharedWebSocket';
@@ -66,6 +67,7 @@ export function V2Layout() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isMobile = useMobile();
+  const { keyboardVisible } = useVirtualKeyboard();
   const isMobileHome = isMobile && location.pathname === '/';
   const projectTreeScrollRef = useRef<HTMLDivElement>(null);
   const [showCreateProject, setShowCreateProject] = useState(false);
@@ -448,7 +450,7 @@ export function V2Layout() {
   if (isMobile) {
     return (
       <div className="relative h-[100dvh] overflow-hidden bg-canvas text-[var(--color-text-primary)]">
-        <main className="h-full min-w-0 overflow-hidden pb-[calc(64px+env(safe-area-inset-bottom))]">
+        <main className={`h-full min-w-0 overflow-hidden ${keyboardVisible ? 'pb-0' : 'pb-[calc(64px+env(safe-area-inset-bottom))]'}`}>
           {isMobileHome ? (
             <section className="flex h-full min-h-0 flex-col bg-canvas">
               <header className="flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.8rem)]">
@@ -468,12 +470,14 @@ export function V2Layout() {
           )}
         </main>
 
-        <V2MobileBottomNav
-          pathname={location.pathname}
-          onHome={() => navigate('/')}
-          onConversations={() => navigate('/conversations')}
-          onSettings={() => navigate('/settings')}
-        />
+        {!keyboardVisible && (
+          <V2MobileBottomNav
+            pathname={location.pathname}
+            onHome={() => navigate('/')}
+            onConversations={() => navigate('/conversations')}
+            onSettings={() => navigate('/settings')}
+          />
+        )}
       </div>
     );
   }

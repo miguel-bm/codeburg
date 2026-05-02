@@ -1085,7 +1085,7 @@ function ConversationSurface({
   onApplySnapshot: (snapshot: PiConversationSnapshot) => void;
 }) {
   const isMobile = useMobile();
-  const { keyboardVisible, keyboardHeight } = useVirtualKeyboard();
+  const { keyboardVisible } = useVirtualKeyboard();
   const composerRef = useRef<TokenAwareComposerHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
@@ -1119,9 +1119,7 @@ function ConversationSurface({
   const [editError, setEditError] = useState<string | null>(null);
   const [branchSwitching, setBranchSwitching] = useState(false);
   const imageDragDepth = useRef(0);
-  const composerStyle = isMobile && keyboardVisible
-    ? { paddingBottom: keyboardHeight + 12 }
-    : undefined;
+  const composerActionsVisible = !(isMobile && keyboardVisible);
   const messages = useMemo(
     () => mergeOptimisticPrompts(snapshot?.messages ?? [], optimisticPrompts),
     [optimisticPrompts, snapshot?.messages],
@@ -1867,7 +1865,7 @@ function ConversationSurface({
         )}
       </div>
 
-      <div className="shrink-0 bg-primary px-2 pb-2 md:px-3 md:pb-3" style={composerStyle}>
+      <div className="shrink-0 bg-primary px-2 pb-2 md:px-3 md:pb-3">
         {queuedFollowUps.length > 0 && (
           <div className="relative z-0 mx-auto mb-1 flex max-w-[60rem] flex-col gap-1.5 px-1 md:-mb-5 md:px-0">
             {queuedFollowUps.map((item) => (
@@ -2184,26 +2182,28 @@ function ConversationSurface({
             </div>
           </div>
         </div>
-        <ConversationComposerActions
-          workspaces={workspaces}
-          activeWorkspace={activeWorkspace}
-          movePending={movePending}
-          forkPending={forkConversationPending}
-          archivePending={archivePending}
-          archiveDisabled={archiveDisabled}
-          onRequestWorkspaceChange={onRequestWorkspaceChange}
-          onForkConversation={() => requestForkConversation({ kind: 'current' })}
-          onArchiveConversation={onArchiveConversation}
-          conversationActions={(
-            <ConversationMoreActions
-              conversationId={conversationId}
-              snapshot={snapshot}
-              active={isActiveConversation}
-              onOpenSettings={onOpenPiSettings}
-              onApplySnapshot={onApplySnapshot}
-            />
-          )}
-        />
+        {composerActionsVisible && (
+          <ConversationComposerActions
+            workspaces={workspaces}
+            activeWorkspace={activeWorkspace}
+            movePending={movePending}
+            forkPending={forkConversationPending}
+            archivePending={archivePending}
+            archiveDisabled={archiveDisabled}
+            onRequestWorkspaceChange={onRequestWorkspaceChange}
+            onForkConversation={() => requestForkConversation({ kind: 'current' })}
+            onArchiveConversation={onArchiveConversation}
+            conversationActions={(
+              <ConversationMoreActions
+                conversationId={conversationId}
+                snapshot={snapshot}
+                active={isActiveConversation}
+                onOpenSettings={onOpenPiSettings}
+                onApplySnapshot={onApplySnapshot}
+              />
+            )}
+          />
+        )}
       </div>
       <ForkConversationDialog
         state={forkDialog}
