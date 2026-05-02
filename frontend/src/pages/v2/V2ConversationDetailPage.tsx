@@ -241,7 +241,7 @@ export function V2ConversationDetailPage() {
   const activeWorkspaceId = activeWorkspace?.id ?? null;
   const shouldConnectRuntime = isActiveConversation && (runtimeRequested || Boolean(stateSnapshot?.runtimeActive));
   const activateRuntime = runtimeRequested;
-  const { snapshot: liveSnapshot, connected, connecting, error, sendMessage, abort, applySnapshot } = usePiConversation(conversationId ?? '', shouldConnectRuntime, { activate: activateRuntime, resetKey: activeWorkspaceId });
+  const { snapshot: liveSnapshot, connected, sendMessage, abort, applySnapshot } = usePiConversation(conversationId ?? '', shouldConnectRuntime, { activate: activateRuntime, resetKey: activeWorkspaceId });
   const snapshot: PiConversationSnapshot | null = liveSnapshot ?? stateSnapshot ?? null;
   const activeWorkspaceTab = mainSurface !== 'conversation' ? tabs[mainSurface.index] : null;
   const activePreviewTab = activeWorkspaceTab?.type === 'editor' || activeWorkspaceTab?.type === 'diff'
@@ -801,7 +801,6 @@ export function V2ConversationDetailPage() {
           workspace={activeWorkspace}
           pending={workspaceActionPending}
           currentConversationAvailable={Boolean(conversationId && isActiveConversation)}
-          detail={connected ? <span className="text-[var(--color-success)]">connected</span> : connecting ? <span>connecting</span> : error ? <span className="text-[var(--color-error)]">{error}</span> : null}
           onUpdateFromBase={() => syncWorkspace.mutate(activeWorkspace.id)}
           onMerge={(mergeInput) => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'merge', mergeInput })}
           onCloseWithoutMerging={() => mutateWorkspaceStatus.mutate({ workspaceId: activeWorkspace.id, action: 'abandon' })}
@@ -827,7 +826,6 @@ export function V2ConversationDetailPage() {
           <div className="flex min-w-0 items-center gap-2 text-xs text-dim">
             <GitBranch size={14} />
             <span className="truncate font-medium text-[var(--color-text-primary)]">Workspace</span>
-            {connected ? <span className="text-[var(--color-success)]">connected</span> : connecting ? <span>connecting</span> : error ? <span className="text-[var(--color-error)]">{error}</span> : null}
           </div>
         </div>
       )}
@@ -911,6 +909,7 @@ export function V2ConversationDetailPage() {
                 snapshotFetching={stateFetching}
                 conversationTitle={conversation?.title ?? 'Conversation'}
                 isActiveConversation={isActiveConversation}
+                conversationSendReady={connected || !shouldConnectRuntime}
                 sending={sending}
                 draft={draft}
                 setDraft={setDraft}
@@ -1014,6 +1013,7 @@ function ConversationSurface({
   snapshotFetching,
   conversationTitle,
   isActiveConversation,
+  conversationSendReady,
   sending,
   draft,
   setDraft,
@@ -1053,6 +1053,7 @@ function ConversationSurface({
   snapshotFetching?: boolean;
   conversationTitle: string;
   isActiveConversation: boolean;
+  conversationSendReady: boolean;
   sending: boolean;
   draft: string;
   setDraft: Dispatch<SetStateAction<string>>;
@@ -1126,6 +1127,7 @@ function ConversationSurface({
   );
   const isStreaming = Boolean(snapshot?.streaming);
   const baseComposerDisabled = !isActiveConversation || sending;
+  const sendDisabled = baseComposerDisabled || !conversationSendReady;
   const pendingVisible = hasPendingAssistant(snapshot);
   const messageItems = useMemo(() => buildConversationItems(messages), [messages]);
   const messageActivityKey = `${messages.length}:${snapshot?.updatedAt ?? ''}:${snapshot?.pending?.text?.length ?? 0}:${snapshot?.pending?.thinking?.length ?? 0}:${snapshot?.tools?.map((tool) => `${tool.toolCallId}:${tool.status}:${tool.output?.length ?? 0}`).join('|') ?? ''}`;
@@ -1508,7 +1510,7 @@ function ConversationSurface({
     try {
       await abort();
     } catch {
-      // usePiConversation surfaces the error in the connection status.
+      // Abort errors are non-fatal here; the next snapshot/send attempt will surface any remaining issue.
     } finally {
       setAbortPending(false);
     }
@@ -1579,7 +1581,7 @@ function ConversationSurface({
       : enrichComposerReferenceRangeTypes(findCodeburgReferenceRanges(draftOverride), fileEntries);
     if (editingMessage) {
       const trimmed = normalizeComposerPromptText(draftOverride, currentReferenceRanges).trim();
-      if ((!trimmed && attachments.length === 0) || isStreaming || composerDisabled) return;
+      if ((!trimmed && attachments.length === 0) || isStreaming || composerDisabled || !conversationSendReady) return;
       setEditError(null);
       editTreeMessage.mutate({
         entryId: editingMessage.entryId,
@@ -1590,7 +1592,7 @@ function ConversationSurface({
     }
     if (isStreaming) {
       const trimmed = normalizeComposerPromptText(draftOverride, currentReferenceRanges).trim();
-      if ((!trimmed && attachments.length === 0) || composerDisabled) return;
+      if ((!trimmed && attachments.length === 0) || composerDisabled || !conversationSendReady) return;
       onQueueFollowUp({
         message: trimmed,
         images: attachments.map(({ image }) => image),
@@ -1605,7 +1607,7 @@ function ConversationSurface({
     }
     const normalizedDraft = normalizeComposerPromptText(draftOverride, currentReferenceRanges);
     const trimmed = normalizedDraft.trim();
-    if ((!trimmed && attachments.length === 0) || composerDisabled) return;
+    if ((!trimmed && attachments.length === 0) || composerDisabled || !conversationSendReady) return;
     composerRef.current?.setValue('');
     submit(normalizedDraft);
     requestAnimationFrame(() => composerRef.current?.focus());
@@ -1736,7 +1738,7 @@ function ConversationSurface({
     }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
-      if (!composerDisabled) submitComposer(event.value);
+      if (!sendDisabled) submitComposer(event.value);
       return true;
     }
     if (event.key === 'Escape') {
@@ -2172,7 +2174,7 @@ function ConversationSurface({
               <button
                 type="button"
                 onClick={() => submitComposer()}
-                disabled={(!draft.trim() && attachments.length === 0) || composerDisabled}
+                disabled={(!draft.trim() && attachments.length === 0) || sendDisabled}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-text-primary)] text-[var(--color-card)] shadow-[0_7px_16px_rgba(15,23,42,0.16)] transition-transform duration-150 ease-out-quart hover:scale-[1.03] active:scale-95 disabled:scale-100 disabled:opacity-35"
                 title={isStreaming ? 'Queue follow-up' : 'Send'}
                 aria-label={isStreaming ? 'Queue follow-up' : 'Send'}

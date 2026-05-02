@@ -189,19 +189,21 @@ export function V2WorkspaceActionHeader({
   return (
     <>
       <header className="shrink-0 bg-canvas px-3 py-2 md:px-4">
-        <div className="grid min-h-10 gap-2 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-center">
-          <WorkspaceIdentity
-            workspace={workspace}
-            branchLabel={branchLabel}
-            pr={pr}
-            detail={detail}
-          />
+        <div className="flex min-h-10 flex-wrap items-center gap-2 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+          <div className="min-w-0 flex-1 basis-40 lg:basis-auto">
+            <WorkspaceIdentity
+              workspace={workspace}
+              branchLabel={branchLabel}
+              pr={pr}
+              detail={detail}
+            />
+          </div>
 
-          <div className="flex min-w-0 lg:justify-center">
+          <div className="flex min-w-0 max-w-full lg:justify-center">
             <WorkspaceStatePill summary={stateSummary} />
           </div>
 
-          <div className="flex min-w-0 items-center justify-end gap-1">
+          <div className="ml-auto flex min-w-0 items-center justify-end gap-1 lg:ml-0">
             {primaryAction && (
               <Button
                 size="xs"
@@ -395,12 +397,15 @@ function WorkspaceIdentity({
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-medium text-[var(--color-text-primary)]">{workspace.name}</span>
-          <Badge variant="label" color={statusColor(workspace.status)} className="shrink-0">{workspace.status}</Badge>
+          {workspace.status !== 'active' && (
+            <Badge variant="label" color={statusColor(workspace.status)} className="shrink-0">{workspace.status}</Badge>
+          )}
         </div>
         {workspace.branchName !== workspace.name && (
           <div className="truncate font-mono text-[11px] text-dim">{branchLabel}</div>
         )}
       </div>
+      {detail && <span className="hidden shrink-0 sm:inline-flex">{detail}</span>}
       {pr?.exists && pr.url && (
         <a
           href={pr.url}
@@ -413,7 +418,6 @@ function WorkspaceIdentity({
           PR {pr.state ? pr.state.toLowerCase() : 'open'}
         </a>
       )}
-      {detail && <span className="hidden shrink-0 sm:inline-flex">{detail}</span>}
     </div>
   );
 }
