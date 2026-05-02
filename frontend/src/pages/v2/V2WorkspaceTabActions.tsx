@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { MessageSquarePlus, PlusCircle, SquareTerminal } from 'lucide-react';
+import { MAC_WORKSPACE_SHORTCUTS, type MacShortcutDefinition } from '../../hooks/useMacTabShortcuts';
+import { ShortcutTooltip } from './V2ShortcutTooltip';
 
 export function WorkspaceNewTabIconActions({
   onCreateConversation,
@@ -7,35 +9,35 @@ export function WorkspaceNewTabIconActions({
   createConversationPending,
   createTerminalDisabled,
   createTerminalPending,
+  showShortcutHints = false,
 }: {
   onCreateConversation: () => void;
   onCreateTerminal: () => void;
   createConversationPending: boolean;
   createTerminalDisabled: boolean;
   createTerminalPending: boolean;
+  showShortcutHints?: boolean;
 }) {
   return (
     <div className="flex shrink-0 items-center gap-1">
-      <button
-        type="button"
+      <ShortcutIconButton
         disabled={createConversationPending}
         onClick={onCreateConversation}
-        className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
         title="New conversation in this workspace"
-        aria-label="New conversation in this workspace"
+        shortcut={MAC_WORKSPACE_SHORTCUTS.newConversation}
+        showShortcut={showShortcutHints}
       >
         <MessageSquarePlus size={15} />
-      </button>
-      <button
-        type="button"
+      </ShortcutIconButton>
+      <ShortcutIconButton
         disabled={createTerminalDisabled || createTerminalPending}
         onClick={onCreateTerminal}
-        className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
         title="New terminal in this workspace"
-        aria-label="New terminal in this workspace"
+        shortcut={MAC_WORKSPACE_SHORTCUTS.newTerminal}
+        showShortcut={showShortcutHints}
       >
         <SquareTerminal size={15} />
-      </button>
+      </ShortcutIconButton>
     </div>
   );
 }
@@ -77,6 +79,24 @@ export function WorkspaceNewTabMenuButton({
         </>
       )}
     </div>
+  );
+}
+
+function ShortcutIconButton({ children, disabled, onClick, title, shortcut, showShortcut }: { children: ReactNode; disabled?: boolean; onClick: () => void; title: string; shortcut: MacShortcutDefinition; showShortcut: boolean }) {
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onClick}
+        className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-dim hover:bg-[var(--color-card)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-50"
+        title={`${title} (${shortcut.shortcut})`}
+        aria-label={title}
+      >
+        {children}
+      </button>
+      <ShortcutTooltip shortcut={shortcut.shortcut} label={shortcut.label} show={showShortcut && !disabled} />
+    </span>
   );
 }
 

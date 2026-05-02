@@ -19,6 +19,7 @@ import {
   PackagePlus,
   PlugZap,
   Search,
+  Keyboard,
   Settings,
   Sparkles,
   SquareStack,
@@ -394,6 +395,15 @@ export function CommandPalette({ initialSearch = '', onClose }: CommandPalettePr
         meta: 'Advanced JSON editors',
         badge: 'route',
         onSelect: () => navigateTo('/harness/config'),
+      },
+      {
+        id: 'route-settings-keyboard',
+        searchText: 'keyboard shortcuts hotkeys command tabs mac settings preferences',
+        icon: <Keyboard className="h-4 w-4 shrink-0 text-dim" />,
+        title: 'Keyboard shortcuts',
+        meta: 'View current shortcuts',
+        badge: 'settings',
+        onSelect: () => navigateTo('/settings#keyboard'),
       },
       {
         id: 'route-settings',

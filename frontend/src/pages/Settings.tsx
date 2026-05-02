@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import type { ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Archive, Bell, Code2, Fingerprint, Keyboard, Lock, LogOut, Send, SunMoon, Terminal, X } from 'lucide-react';
 import { Header, HeaderProvider, useSetHeader } from '../components/layout/Header';
 import { Breadcrumb } from '../components/ui/Breadcrumb';
@@ -51,6 +51,7 @@ export function Settings() {
 
 function SettingsInner() {
   const navigate = useNavigate();
+  const location = useLocation();
   const logout = useAuthStore((s) => s.logout);
 
   const handleClose = useCallback(() => {
@@ -103,8 +104,8 @@ function SettingsInner() {
         id: 'keyboard',
         group: 'general',
         title: 'Keyboard',
-        description: 'Session tab switching shortcuts and layout defaults',
-        keywords: ['shortcuts', 'layout', 'bindings'],
+        description: 'Keyboard shortcuts, tab switching, and layout defaults',
+        keywords: ['shortcuts', 'keyboard', 'hotkeys', 'bindings', 'layout', 'command', 'mac'],
         icon: <Keyboard size={15} />,
         content: <KeyboardShortcutsSection />,
       },
@@ -183,7 +184,7 @@ function SettingsInner() {
           sections={sections}
           groupOrder={SETTINGS_GROUP_ORDER}
           groupLabels={SETTINGS_GROUP_LABELS}
-          initialSectionId="notifications"
+          initialSectionId={location.hash === '#keyboard' ? 'keyboard' : 'notifications'}
           navTitle="All settings"
           searchPlaceholder="Search settings"
           emptyMessage="No settings sections match your search."

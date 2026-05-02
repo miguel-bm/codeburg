@@ -1,4 +1,4 @@
-import { forwardRef, startTransition, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { forwardRef, startTransition, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import CodeMirror, { EditorView, type ReactCodeMirrorRef, type ViewUpdate } from '@uiw/react-codemirror';
 import { Decoration, keymap, type DecorationSet } from '@codemirror/view';
 import { RangeSetBuilder, Prec, type Extension } from '@codemirror/state';
@@ -11,6 +11,7 @@ export interface TokenAwareComposerHandle {
   blur: () => void;
   setSelection: (selection: InputSelection) => void;
   getSelection: () => InputSelection;
+  setValue: (value: string) => void;
 }
 
 export interface ComposerKeyCommand {
@@ -79,7 +80,7 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
   const [localValue, setLocalValue] = useState(value);
   const pendingEchoValuesRef = useRef<Set<string>>(new Set());
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (pendingEchoValuesRef.current.delete(value)) return;
     setLocalValue(value);
   }, [value]);
@@ -202,6 +203,15 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
     getSelection: () => {
       const view = cmRef.current?.view;
       return view ? editorSelection(view) : { start: 0, end: 0 };
+    },
+    setValue: (nextValue: string) => {
+      const view = cmRef.current?.view;
+      setLocalValue(nextValue);
+      if (!view) return;
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: nextValue },
+        selection: { anchor: nextValue.length },
+      });
     },
   }), []);
 

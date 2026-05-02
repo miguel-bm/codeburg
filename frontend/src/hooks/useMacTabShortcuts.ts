@@ -10,6 +10,58 @@ export interface MacTabShortcutItem {
 export const MAC_NEW_CONVERSATION_TAB_EVENT = 'codeburg:mac-new-conversation-tab';
 export const MAC_NEW_TERMINAL_TAB_EVENT = 'codeburg:mac-new-terminal-tab';
 
+export interface MacShortcutDefinition {
+  id: string;
+  label: string;
+  key: string;
+  shiftKey?: boolean;
+  shortcut: string;
+}
+
+function defineMacShortcut(input: Omit<MacShortcutDefinition, 'shortcut'>): MacShortcutDefinition {
+  return {
+    ...input,
+    shortcut: `⌘${input.shiftKey ? '⇧' : ''}${input.key.toUpperCase()}`,
+  };
+}
+
+export const MAC_WORKSPACE_SHORTCUTS = {
+  newConversation: defineMacShortcut({
+    id: 'workspace.newConversation',
+    label: 'New conversation tab',
+    key: 't',
+  }),
+  newTerminal: defineMacShortcut({
+    id: 'workspace.newTerminal',
+    label: 'New terminal tab',
+    key: 't',
+    shiftKey: true,
+  }),
+  selectTab: (index: number): MacShortcutDefinition => defineMacShortcut({
+    id: `workspace.selectTab.${index}`,
+    label: `Switch to tab ${index}`,
+    key: String(index),
+  }),
+} as const;
+
+export function workspaceShortcutDefinitions(tabCount = 9): MacShortcutDefinition[] {
+  return [
+    ...Array.from({ length: Math.min(Math.max(tabCount, 0), 9) }, (_, index) => MAC_WORKSPACE_SHORTCUTS.selectTab(index + 1)),
+    MAC_WORKSPACE_SHORTCUTS.newConversation,
+    MAC_WORKSPACE_SHORTCUTS.newTerminal,
+  ];
+}
+
+function isCommandOnly(event: KeyboardEvent): boolean {
+  return event.metaKey && !event.altKey && !event.ctrlKey;
+}
+
+function matchesMacShortcut(event: KeyboardEvent, shortcut: MacShortcutDefinition): boolean {
+  return isCommandOnly(event)
+    && event.shiftKey === Boolean(shortcut.shiftKey)
+    && event.key.toLowerCase() === shortcut.key.toLowerCase();
+}
+
 export interface MacNewTabShortcutOptions {
   onNewConversation: () => void;
   onNewTerminal: () => void;
@@ -49,12 +101,15 @@ export function useMacNewTabShortcuts({
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
-      if (!event.metaKey || event.altKey || event.ctrlKey) return;
-      if (event.key.toLowerCase() !== 't') return;
-
-      event.preventDefault();
-      if (event.shiftKey) runTerminal();
-      else runConversation();
+      if (matchesMacShortcut(event, MAC_WORKSPACE_SHORTCUTS.newTerminal)) {
+        event.preventDefault();
+        runTerminal();
+        return;
+      }
+      if (matchesMacShortcut(event, MAC_WORKSPACE_SHORTCUTS.newConversation)) {
+        event.preventDefault();
+        runConversation();
+      }
     };
 
     window.addEventListener('keydown', onKeyDown);
@@ -84,7 +139,7 @@ export function useMacTabShortcuts(items: MacTabShortcutItem[], enabled = true):
       }
 
       if (event.defaultPrevented || event.isComposing) return;
-      if (!event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return;
+      if (!isCommandOnly(event) || event.shiftKey) return;
 
       const index = shortcutIndex(event);
       if (index < 0) return;

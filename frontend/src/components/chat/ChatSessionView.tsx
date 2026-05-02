@@ -507,16 +507,28 @@ export function ChatSessionView({ session, onResume }: ChatSessionViewProps) {
 
   const submit = async () => {
     const sessionId = session.id;
-    const content = input.trim();
+    const previousDraft = input;
+    const content = previousDraft.trim();
     if (!content || sending || !canSend(session.status)) return;
     setSending(true);
+    clearDraft(sessionId);
+    setSelection({ start: 0, end: 0 });
+    setDismissedTokenKey(null);
+    autoStickRef.current = true;
+    requestAnimationFrame(() => scrollToBottom('smooth'));
     try {
       await sendMessage(content);
-      clearDraft(sessionId);
-      setSelection({ start: 0, end: 0 });
-      setDismissedTokenKey(null);
-      autoStickRef.current = true;
-      requestAnimationFrame(() => scrollToBottom('smooth'));
+    } catch (err) {
+      setDraft(sessionId, previousDraft);
+      requestAnimationFrame(() => {
+        const node = textareaRef.current;
+        if (!node) return;
+        const cursor = previousDraft.length;
+        node.focus();
+        node.setSelectionRange(cursor, cursor);
+        setSelection({ start: cursor, end: cursor });
+      });
+      throw err;
     } finally {
       setSending(false);
     }

@@ -10,6 +10,8 @@ import {
   X,
 } from 'lucide-react';
 import type { Conversation, PiConversationSnapshot, TerminalSession } from '../../api/types';
+import { MAC_WORKSPACE_SHORTCUTS } from '../../hooks/useMacTabShortcuts';
+import { ShortcutTooltip } from './V2ShortcutTooltip';
 import { workspacePreviewTabLabel, type PreviewWorkspaceTab } from './V2WorkspaceTabHelpers';
 
 function tabSurface(active: boolean, tone: 'conversation' | 'terminal' | 'preview') {
@@ -21,7 +23,7 @@ function tabSurface(active: boolean, tone: 'conversation' | 'terminal' | 'previe
 
   return [
     toneClass,
-    'group/tab relative isolate inline-flex h-[44px] max-w-[15rem] shrink-0 items-center overflow-hidden rounded-md text-sm transition-[background-color,box-shadow,color] duration-150 ease-out-quart animate-tab-enter md:h-7 md:text-xs',
+    'group/tab relative isolate inline-flex h-[44px] max-w-[15rem] shrink-0 items-center rounded-md text-sm transition-[background-color,box-shadow,color] duration-150 ease-out-quart animate-tab-enter md:h-7 md:text-xs',
     'hover:bg-[var(--color-card-hover)] hover:text-[var(--color-text-primary)]',
     active
       ? 'bg-[var(--color-card)] text-[var(--color-text-primary)] shadow-[inset_0_0_0_1px_var(--color-card-border),0_1px_2px_oklch(0_0_0_/_0.08)] before:absolute before:inset-x-2 before:top-0 before:h-px before:bg-[var(--tab-accent,var(--color-accent))]/75'
@@ -29,14 +31,9 @@ function tabSurface(active: boolean, tone: 'conversation' | 'terminal' | 'previe
   ].join(' ');
 }
 
-function ShortcutHint({ index, show }: { index?: number; show?: boolean }) {
-  if (!show || !index || index < 1 || index > 9) return null;
-
-  return (
-    <span className="pointer-events-none absolute left-1 top-1/2 z-20 inline-flex min-w-8 -translate-y-1/2 items-center justify-center rounded-md bg-[var(--color-bg-primary)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--color-text-primary)] shadow-[0_1px_4px_oklch(0_0_0_/_0.16)] ring-1 ring-[var(--color-card-border)]">
-      ⌘{index}
-    </span>
-  );
+function TabShortcutTooltip({ index, show }: { index?: number; show?: boolean }) {
+  const shortcut = index ? MAC_WORKSPACE_SHORTCUTS.selectTab(index) : null;
+  return <ShortcutTooltip shortcut={shortcut?.shortcut} label={shortcut?.label ?? 'Switch tab'} show={show} />;
 }
 
 export function WorkspaceConversationTab({
@@ -79,7 +76,7 @@ export function WorkspaceConversationTab({
 
   return (
     <div className={tabSurface(active, 'conversation')} data-tone="conversation">
-      <ShortcutHint index={shortcutIndex} show={showShortcutHint} />
+      <TabShortcutTooltip index={shortcutIndex} show={showShortcutHint} />
       <ConversationTabIndicator conversation={conversation} snapshot={snapshot} />
       {editing ? (
         <input
@@ -187,7 +184,7 @@ export function WorkspaceTerminalTab({
 
   return (
     <div className={tabSurface(active, 'terminal')} data-tone="terminal">
-      <ShortcutHint index={shortcutIndex} show={showShortcutHint} />
+      <TabShortcutTooltip index={shortcutIndex} show={showShortcutHint} />
       <SquareTerminal size={13} className="ml-2.5 shrink-0 text-[var(--tab-accent,var(--color-success))] md:ml-2" />
       {editing ? (
         <input
@@ -241,7 +238,7 @@ export function WorkspacePreviewTab({
       className={tabSurface(active, 'preview')}
       data-tone="preview"
     >
-      <ShortcutHint index={shortcutIndex} show={showShortcutHint} />
+      <TabShortcutTooltip index={shortcutIndex} show={showShortcutHint} />
       <span className="ml-2.5 shrink-0 text-[var(--tab-accent,var(--color-warning))] md:ml-2">
         {tab.type === 'editor' ? <Files size={13} /> : <GitCommitHorizontal size={13} />}
       </span>

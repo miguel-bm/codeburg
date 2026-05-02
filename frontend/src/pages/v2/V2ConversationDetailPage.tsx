@@ -863,6 +863,7 @@ export function V2ConversationDetailPage() {
                 createConversationPending={createConversation.isPending}
                 createTerminalDisabled={!activeWorkspace || activeWorkspace.status !== 'active'}
                 createTerminalPending={createTerminal.isPending}
+                showShortcutHints={showTabShortcutHints}
                 onCreateConversation={() => createConversation.mutate()}
                 onCreateTerminal={() => createTerminal.mutate()}
               />
@@ -1596,6 +1597,7 @@ function ConversationSurface({
         message: trimmed,
         images: attachments.map(({ image }) => image),
       });
+      composerRef.current?.setValue('');
       setDraftWithSelection('', { start: 0, end: 0 });
       setAttachments([]);
       requestAnimationFrame(() => {
@@ -1603,7 +1605,11 @@ function ConversationSurface({
       });
       return;
     }
-    submit(normalizeComposerPromptText(draftOverride, currentReferenceRanges));
+    const normalizedDraft = normalizeComposerPromptText(draftOverride, currentReferenceRanges);
+    const trimmed = normalizedDraft.trim();
+    if ((!trimmed && attachments.length === 0) || composerDisabled) return;
+    composerRef.current?.setValue('');
+    submit(normalizedDraft);
     requestAnimationFrame(() => composerRef.current?.focus());
   };
 
@@ -2847,6 +2853,7 @@ function MessageRow({
               editDisabled={editDisabled}
               version={version}
               versionPending={versionPending}
+              timestamp={message.timestamp}
               onCopy={onCopy}
               onEdit={onEdit}
               onSelectVersion={onSelectVersion}
@@ -2868,6 +2875,7 @@ function MessageRow({
           copied={copied}
           canFork={Boolean(forkTarget && onRequestFork)}
           forkPending={forkPending}
+          timestamp={message.timestamp}
           onCopy={onCopy}
           onFork={() => forkTarget && onRequestFork?.(forkTarget)}
         />
@@ -3147,6 +3155,33 @@ function CollapsedTurnEvents({
   );
 }
 
+function parseConversationMessageDate(value?: string): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isSameLocalDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate();
+}
+
+function formatConversationMessageTime(value?: string): string {
+  const date = parseConversationMessageDate(value);
+  if (!date) return '';
+  if (isSameLocalDay(date, new Date())) {
+    return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function formatConversationMessageFullTime(value?: string): string {
+  const date = parseConversationMessageDate(value);
+  if (!date) return '';
+  return date.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'long' });
+}
+
 function MessageActions({
   copied,
   align = 'left',
@@ -3156,6 +3191,7 @@ function MessageActions({
   editDisabled = false,
   version,
   versionPending = false,
+  timestamp,
   onCopy,
   onFork,
   onEdit,
@@ -3169,13 +3205,21 @@ function MessageActions({
   editDisabled?: boolean;
   version?: PiConversationMessageVersionInfo;
   versionPending?: boolean;
+  timestamp?: string;
   onCopy: () => void;
   onFork?: () => void;
   onEdit?: () => void;
   onSelectVersion?: (leafId: string) => void;
 }) {
+  const timeLabel = formatConversationMessageTime(timestamp);
+  const fullTimeLabel = formatConversationMessageFullTime(timestamp);
   return (
     <div className={`mt-1.5 flex h-7 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${align === 'right' ? 'justify-end' : ''}`}>
+      {timeLabel && (
+        <time dateTime={timestamp} title={fullTimeLabel || undefined} className="px-1 text-[11px] leading-7 text-dim tabular-nums">
+          {timeLabel}
+        </time>
+      )}
       <button type="button" onClick={onCopy} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-dim hover:bg-secondary hover:text-[var(--color-text-primary)]" title="Copy message" aria-label="Copy message">
         {copied ? <Check size={14} /> : <Clipboard size={14} />}
       </button>
