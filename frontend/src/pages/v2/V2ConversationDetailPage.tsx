@@ -2857,7 +2857,7 @@ function MessageRow({
     );
   }
   return (
-    <article ref={rowRef as ((node: HTMLElement | null) => void) | undefined} className={`group w-full max-w-[74ch] text-sm leading-6 ${animate ? 'animate-message-enter' : ''} ${message.isError ? 'text-[var(--color-error)]' : 'text-[var(--color-text-primary)]'}`}>
+    <article ref={rowRef as ((node: HTMLElement | null) => void) | undefined} className={`group w-full ${compact ? 'max-w-none text-xs leading-normal' : 'max-w-[74ch] text-sm leading-6'} ${animate ? 'animate-message-enter' : ''} ${message.isError ? 'text-[var(--color-error)]' : 'text-[var(--color-text-primary)]'}`}>
       <div>
         {message.thinking && <CollapsibleEvent icon={<Sparkles size={14} />} title="Thinking" body={message.thinking} />}
         {message.text && <MarkdownRenderer conversationId={conversationId} skillManagerHref={skillManagerHref} enhanceCodeburgRefs onOpenWorkspaceFile={onOpenWorkspaceFile}>{message.text}</MarkdownRenderer>}
@@ -3128,7 +3128,7 @@ function CollapsedTurnEvents({
         <span>{labelParts.join(', ') || `${messages.length} background ${messages.length === 1 ? 'event' : 'events'}`}</span>
         <ChevronDown size={13} className="transition-transform group-open:rotate-180" />
       </summary>
-      <div className="mt-2 space-y-3 pl-4 text-[var(--color-text-secondary)]">
+      <div className="mt-2 space-y-1.5 pl-4 text-[var(--color-text-secondary)]">
         {messages.map((message, index) => (
           <MessageRow
             key={message.id || `${message.role}-${index}`}
@@ -3232,7 +3232,7 @@ function PendingAssistant({ conversationId, skillManagerHref, snapshot, onOpenWo
             <span>{activitySummary}</span>
             <ChevronDown size={15} className="transition-transform group-open/activity-panel:rotate-180" />
           </summary>
-          <div className="mt-3 max-h-[33vh] space-y-2 overflow-y-auto overscroll-contain pr-1 pl-4 text-sm text-dim [scrollbar-width:thin]">
+          <div className="mt-3 max-h-[33vh] space-y-1.5 overflow-y-auto overscroll-contain pr-1 pl-4 text-sm text-dim [scrollbar-width:thin]">
             {snapshot.pending?.thinking && <ActivityDisclosure icon={<Sparkles size={14} />} title="Thinking" body={snapshot.pending.thinking} />}
             <ToolActivityList toolCalls={snapshot.pending?.toolCalls ?? []} tools={snapshot.tools ?? []} />
           </div>
@@ -3261,7 +3261,7 @@ function ToolActivityList({ toolCalls, tools }: { toolCalls: NonNullable<PiConve
   const renderedExecutionIDs = new Set<string>();
 
   return (
-    <div className="space-y-1.5">
+    <div className="w-full space-y-1.5">
       {toolCalls.map((tool, index) => {
         const execution = executionsByID.get(tool.id);
         if (execution?.toolCallId) renderedExecutionIDs.add(execution.toolCallId);
@@ -3327,7 +3327,7 @@ function ToolEventRow({
   const label = toolStatusLabel(status, summary.name);
 
   return (
-    <details ref={rowRef as ((node: HTMLDetailsElement | null) => void) | undefined} className={`group/tool text-xs ${animate ? 'animate-message-enter' : ''}`}>
+    <details ref={rowRef as ((node: HTMLDetailsElement | null) => void) | undefined} className={`group/tool w-full text-xs ${animate ? 'animate-message-enter' : ''}`}>
       <summary className={`flex w-full ${compact ? 'min-h-6' : 'min-h-7'} cursor-pointer list-none items-center gap-2 rounded-lg px-2 py-1 text-dim transition-colors hover:bg-secondary/70 hover:text-[var(--color-text-secondary)]`}>
         <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-secondary text-[var(--color-text-secondary)] ring-1 ring-[var(--color-card-border)]">
           {toolStatusIcon(status)}
@@ -3454,7 +3454,7 @@ function CollapsibleEvent({ icon, title, body }: { icon: ReactNode; title: strin
 
 function ActivityDisclosure({ icon, title, body }: { icon: ReactNode; title: string; body: ReactNode }) {
   return (
-    <details className="group/activity text-xs">
+    <details className="group/activity w-full text-xs">
       <summary className="flex min-h-7 w-full cursor-pointer list-none items-center gap-2 rounded-lg px-2 py-1 text-dim transition-colors hover:bg-secondary/70 hover:text-[var(--color-text-secondary)]">
         <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-secondary text-[var(--color-text-secondary)] ring-1 ring-[var(--color-card-border)]">
           {icon}

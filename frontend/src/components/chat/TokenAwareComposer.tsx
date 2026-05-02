@@ -105,7 +105,7 @@ export const TokenAwareComposer = forwardRef<TokenAwareComposerHandle, TokenAwar
       },
       '.cm-content': {
         minHeight: `calc(${minHeight}px - 1.3rem)`,
-        padding: '0.75rem 1.5rem 0.55rem',
+        padding: '0.75rem 1.125rem 0.55rem',
         caretColor: 'var(--color-accent)',
       },
       '.cm-line': {
