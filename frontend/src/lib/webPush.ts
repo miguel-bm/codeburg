@@ -19,11 +19,11 @@ export async function registerCodeburgServiceWorker(): Promise<ServiceWorkerRegi
 }
 
 export async function enableWebPushNotifications(): Promise<boolean> {
-  if (!isWebPushSupported()) return false;
+  if (!isWebPushSupported()) throw new Error('This browser does not support Web Push notifications. Use Chrome/Chromium on Android.');
   const permission = await Notification.requestPermission();
-  if (permission !== 'granted') return false;
+  if (permission !== 'granted') throw new Error('Notification permission was not granted. Check Android app/site notification settings.');
   const registration = await registerCodeburgServiceWorker();
-  if (!registration) return false;
+  if (!registration) throw new Error('Could not register the Codeburg service worker.');
   const { publicKey } = await notificationsApi.getVapidPublicKey();
   const existing = await registration.pushManager.getSubscription();
   const subscription = existing ?? await registration.pushManager.subscribe({

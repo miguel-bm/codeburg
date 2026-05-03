@@ -517,6 +517,9 @@ func (s *Server) serveFrontend(r chi.Router) {
 			stat, _ := f.Stat()
 			f.Close()
 			if !stat.IsDir() {
+				if path == "/sw.js" {
+					w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+				}
 				http.FileServer(fsys).ServeHTTP(w, r)
 				return
 			}

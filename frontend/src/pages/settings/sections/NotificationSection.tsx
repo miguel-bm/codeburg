@@ -13,6 +13,7 @@ export function NotificationSection() {
   const [suppressWhenActive, setSuppressWhenActive] = useState(true);
   const [loading, setLoading] = useState(true);
   const [pushBusy, setPushBusy] = useState(false);
+  const [pushMessage, setPushMessage] = useState<string | null>(null);
 
   const handleSoundToggle = (enabled: boolean) => {
     setSoundEnabled(enabled);
@@ -68,13 +69,19 @@ export function NotificationSection() {
 
   const handleRegisterPush = async () => {
     setPushBusy(true);
+    setPushMessage('Requesting notification permission...');
     try {
       const ok = await enableWebPushNotifications();
       setWebPushRegistered(ok);
       if (ok) {
         setWebPushEnabled(true);
         await preferencesApi.set('web_push_notifications_enabled', true).catch(() => undefined);
+        setPushMessage('This device is registered for push notifications.');
+      } else {
+        setPushMessage('Could not register this device.');
       }
+    } catch (err) {
+      setPushMessage(err instanceof Error ? err.message : 'Could not register this device.');
     } finally {
       setPushBusy(false);
     }
@@ -82,9 +89,13 @@ export function NotificationSection() {
 
   const handleUnregisterPush = async () => {
     setPushBusy(true);
+    setPushMessage('Unregistering this device...');
     try {
       await disableWebPushNotifications();
       setWebPushRegistered(false);
+      setPushMessage('This device is no longer registered.');
+    } catch (err) {
+      setPushMessage(err instanceof Error ? err.message : 'Could not unregister this device.');
     } finally {
       setPushBusy(false);
     }
@@ -118,9 +129,14 @@ export function NotificationSection() {
               className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-card hover:bg-card-hover text-sm text-[var(--color-text-primary)] disabled:opacity-50"
             >
               <Smartphone size={15} />
-              {webPushRegistered ? 'Unregister' : 'Register'}
+              {pushBusy ? 'Working...' : webPushRegistered ? 'Unregister' : 'Register'}
             </button>
           </FieldRow>
+        )}
+        {pushMessage && (
+          <div className="px-4 pb-2 text-xs text-dim">
+            {pushMessage}
+          </div>
         )}
         <FieldRow>
           <FieldLabel label="Suppress while active" description="Skip external alerts when the same session or conversation is open and focused" />
