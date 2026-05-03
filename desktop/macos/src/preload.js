@@ -15,4 +15,6 @@ contextBridge.exposeInMainWorld('codeburgDesktop', {
   getConnectionConfig: () => ipcRenderer.invoke('desktop:get-connection-config'),
   saveConnectionConfig: (serverOrigin) => ipcRenderer.invoke('desktop:set-server-origin', serverOrigin),
   launchApp: () => ipcRenderer.invoke('desktop:launch-app'),
+  notify: (payload) => ipcRenderer.invoke('desktop:notify', payload),
+  setDockBadge: (count) => ipcRenderer.invoke('desktop:set-dock-badge', count),
 });

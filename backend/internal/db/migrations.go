@@ -545,4 +545,21 @@ var migrations = []migration{
 			CREATE INDEX IF NOT EXISTS idx_task_links_target ON task_links(target_type, target_id);
 		`,
 	},
+	{
+		version: 26,
+		sql: `
+			-- Browser/PWA Web Push device subscriptions for background notifications.
+			CREATE TABLE IF NOT EXISTS web_push_subscriptions (
+				id TEXT PRIMARY KEY,
+				user_id TEXT NOT NULL DEFAULT 'default',
+				endpoint TEXT NOT NULL UNIQUE,
+				p256dh TEXT NOT NULL,
+				auth TEXT NOT NULL,
+				user_agent TEXT,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_user ON web_push_subscriptions(user_id, updated_at DESC);
+		`,
+	},
 }

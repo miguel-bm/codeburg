@@ -11,9 +11,10 @@ import (
 )
 
 var privatePreferenceKeys = map[string]struct{}{
-	"telegram_bot_token":      {},
-	"telegram_openai_api_key": {},
-	"telegram_llm_api_key":    {},
+	"telegram_bot_token":             {},
+	"telegram_openai_api_key":        {},
+	"telegram_llm_api_key":           {},
+	"notification_vapid_private_key": {},
 }
 
 func isPrivatePreferenceKey(key string) bool {

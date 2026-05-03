@@ -116,6 +116,7 @@ func NewServer(database *db.DB) *Server {
 		telegramFocusedSession: make(map[string]time.Time),
 		telegramMemory:         make(map[int64][]telegramAssistantMemoryTurn),
 	}
+	s.pi.onNeedsAttention = s.notifyConversationNeedsAttention
 
 	// Initialize WebAuthn + CORS if origin is configured
 	if config, err := authSvc.loadConfig(); err == nil && config.Auth.Origin != "" {
@@ -459,6 +460,13 @@ func (s *Server) setupRoutes() {
 
 		// Telegram bot management
 		r.Post("/api/telegram/bot/restart", s.handleRestartTelegramBot)
+
+		// Notifications
+		r.Get("/api/notifications/vapid-public-key", s.handleGetVAPIDPublicKey)
+		r.Get("/api/notifications/push-subscriptions", s.handleListWebPushSubscriptions)
+		r.Post("/api/notifications/push-subscriptions", s.handleSubscribeWebPush)
+		r.Delete("/api/notifications/push-subscriptions/{id}", s.handleDeleteWebPushSubscription)
+		r.Post("/api/notifications/test", s.handleTestNotification)
 
 		// Preferences
 		r.Get("/api/preferences/{key}/configured", s.handleGetPreferenceConfigured)

@@ -149,10 +149,11 @@ type piExportResponse struct {
 type piConversationManager struct {
 	db *db.DB
 
-	mu             sync.Mutex
-	runtimes       map[string]*piConversationRuntime
-	starts         map[string]*piRuntimeStart
-	startRuntimeFn func(*db.Conversation, string) (*piConversationRuntime, error)
+	mu               sync.Mutex
+	runtimes         map[string]*piConversationRuntime
+	starts           map[string]*piRuntimeStart
+	startRuntimeFn   func(*db.Conversation, string) (*piConversationRuntime, error)
+	onNeedsAttention func(conversationID, reason string)
 }
 
 type piRuntimeStart struct {
@@ -1773,6 +1774,8 @@ func (rt *piConversationRuntime) handleEvent(event map[string]any) {
 	if eventType == "agent_end" {
 		if _, err := rt.manager.db.MarkConversationUnread(rt.conversationID, time.Now().UTC()); err != nil {
 			slog.Warn("failed to mark pi conversation unread after agent end", "conversation_id", rt.conversationID, "error", err)
+		} else if rt.manager.onNeedsAttention != nil {
+			rt.manager.onNeedsAttention(rt.conversationID, "pi agent turn completed")
 		}
 	}
 	rt.broadcast()

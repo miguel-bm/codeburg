@@ -411,6 +411,8 @@ func (s *Server) handleMarkConversationRead(w http.ResponseWriter, r *http.Reque
 		writeDBError(w, err, "conversation")
 		return
 	}
+	s.wsHub.BroadcastGlobal("conversation_updated", map[string]string{"conversationId": conversationID, "unread": "false"})
+	s.wsHub.BroadcastGlobal("sidebar_update", map[string]string{"targetType": "conversation", "targetId": conversationID, "projectId": updated.ProjectID})
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -421,6 +423,8 @@ func (s *Server) handleMarkConversationUnread(w http.ResponseWriter, r *http.Req
 		writeDBError(w, err, "conversation")
 		return
 	}
+	s.wsHub.BroadcastGlobal("conversation_updated", map[string]string{"conversationId": conversationID, "unread": "true"})
+	s.wsHub.BroadcastGlobal("sidebar_update", map[string]string{"targetType": "conversation", "targetId": conversationID, "projectId": updated.ProjectID})
 	writeJSON(w, http.StatusOK, updated)
 }
 

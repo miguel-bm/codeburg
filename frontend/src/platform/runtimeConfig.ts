@@ -8,6 +8,15 @@ interface RuntimeConfig {
 declare global {
   interface Window {
     __CODEBURG_CONFIG__?: RuntimeConfig;
+    codeburgDesktop?: {
+      isDesktop?: boolean;
+      getRuntimeConfig?: () => Promise<RuntimeConfig>;
+      getConnectionConfig?: () => Promise<{ serverOrigin?: string }>;
+      saveConnectionConfig?: (serverOrigin: string) => Promise<unknown>;
+      launchApp?: () => Promise<unknown>;
+      notify?: (payload: { title?: string; body: string; url?: string; silent?: boolean }) => Promise<boolean>;
+      setDockBadge?: (count: number) => Promise<boolean>;
+    };
   }
 }
 

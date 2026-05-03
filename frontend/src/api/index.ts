@@ -8,6 +8,8 @@ export { recipesApi } from './recipes';
 export { portsApi } from './ports';
 export { tunnelsApi } from './tunnels';
 export { sidebarApi } from './sidebar';
+export { notificationsApi } from './notifications';
+export type { AttentionEvent, WebPushSubscriptionRecord } from './notifications';
 export { preferencesApi } from './preferences';
 export type { EditorConfig, EditorType } from './preferences';
 export { gitApi } from './git';

@@ -38,6 +38,7 @@ import {
   V2HarnessShell,
 } from './pages/v2/V2HarnessPage';
 import { useSessionFocusPresence } from './hooks/useSessionFocusPresence';
+import { useConversationFocusPresence } from './hooks/useConversationFocusPresence';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -74,6 +75,7 @@ function MainAppShell() {
   useSidebarRealtimeUpdates();
   useNotifications();
   useSessionFocusPresence();
+  useConversationFocusPresence();
   const { open: paletteOpen, initialSearch: paletteInitialSearch, setOpen: setPaletteOpen } = useCommandPalette();
 
   return (

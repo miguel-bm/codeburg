@@ -387,13 +387,16 @@ func (c *WSClient) writePump() {
 // handleMessage processes an incoming WebSocket message
 func (c *WSClient) handleMessage(s *Server, message []byte) {
 	var msg struct {
-		Type      string `json:"type"`
-		Channel   string `json:"channel"`
-		ID        string `json:"id"`
-		SessionID string `json:"sessionId"`
-		Content   string `json:"content"`
-		Focused   bool   `json:"focused"`
-		Token     string `json:"token"`
+		Type           string `json:"type"`
+		Channel        string `json:"channel"`
+		ID             string `json:"id"`
+		SessionID      string `json:"sessionId"`
+		ConversationID string `json:"conversationId"`
+		TargetType     string `json:"targetType"`
+		TargetID       string `json:"targetId"`
+		Content        string `json:"content"`
+		Focused        bool   `json:"focused"`
+		Token          string `json:"token"`
 	}
 
 	if err := json.Unmarshal(message, &msg); err != nil {
@@ -469,6 +472,20 @@ func (c *WSClient) handleMessage(s *Server, message []byte) {
 			return
 		}
 		s.telegramUpdateSessionFocus(strings.TrimSpace(msg.SessionID), msg.Focused)
+
+	case "conversation_focus":
+		if !c.isAuthenticated() {
+			c.closeUnauthorized("authentication required")
+			return
+		}
+		s.updateFocusedTarget(AttentionTargetConversation, strings.TrimSpace(msg.ConversationID), msg.Focused)
+
+	case "focus_presence":
+		if !c.isAuthenticated() {
+			c.closeUnauthorized("authentication required")
+			return
+		}
+		s.updateFocusedTarget(AttentionTargetType(strings.TrimSpace(msg.TargetType)), strings.TrimSpace(msg.TargetID), msg.Focused)
 
 	case "ping":
 		c.sendJSON(map[string]string{"type": "pong"})

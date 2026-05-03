@@ -1,6 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { app, BrowserWindow, Menu, ipcMain, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, safeStorage, shell, Notification } = require('electron');
 
 const FRONTEND_DEV_URL = process.env.ELECTRON_RENDERER_URL ?? 'http://localhost:3000';
 const CONFIG_FILENAME = 'desktop-config.json';
@@ -517,6 +517,51 @@ ipcMain.handle('desktop:launch-app', async () => {
     return false;
   }
   await loadRenderer(mainWindow);
+  return true;
+});
+
+ipcMain.handle('desktop:notify', (_event, payload) => {
+  if (!Notification.isSupported()) {
+    return false;
+  }
+  const body = typeof payload?.body === 'string' ? payload.body : '';
+  if (!body) {
+    return false;
+  }
+  const notification = new Notification({
+    title: typeof payload?.title === 'string' && payload.title ? payload.title : 'Codeburg',
+    body,
+    silent: payload?.silent === true,
+  });
+  notification.on('click', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.focus();
+    if (typeof payload?.url === 'string' && payload.url) {
+      const target = payload.url.startsWith('http') ? payload.url : payload.url;
+      mainWindow.webContents.executeJavaScript(
+        `window.location.assign(${JSON.stringify(target)});`,
+        true,
+      ).catch(() => {});
+    }
+  });
+  notification.show();
+  if (process.platform === 'darwin') {
+    app.dock?.bounce('informational');
+  }
+  return true;
+});
+
+ipcMain.handle('desktop:set-dock-badge', (_event, count) => {
+  if (process.platform !== 'darwin') {
+    return false;
+  }
+  const n = Number(count);
+  app.dock?.setBadge(Number.isFinite(n) && n > 0 ? String(Math.min(99, Math.floor(n))) : '');
   return true;
 });
 
