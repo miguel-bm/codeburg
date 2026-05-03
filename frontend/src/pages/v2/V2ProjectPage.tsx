@@ -24,6 +24,7 @@ import {
   V2Empty,
   V2Input,
   V2Screen,
+  V2Select,
 } from './v2-ui';
 import { V2WorkspaceActionHeader } from './V2WorkspaceActionHeader';
 import { V2WorkspaceToolTabs, V2WorkspaceTools, V2WorkspaceToolsSurface, type V2HelperTab } from './V2WorkspaceTools';
@@ -52,6 +53,8 @@ export function V2ProjectPage() {
   const [toolsResizing, setToolsResizing] = useState(false);
   const [composerMode, setComposerMode] = useState<'create' | 'fork' | null>(null);
   const [workspaceName, setWorkspaceName] = useState('');
+  const [workspaceBranchName, setWorkspaceBranchName] = useState('');
+  const [workspaceBranchMode, setWorkspaceBranchMode] = useState<'create' | 'adopt_existing'>('create');
   const [workspaceBaseBranch, setWorkspaceBaseBranch] = useState('');
   const [mainSurface, setMainSurface] = useState<MainSurface>(null);
   const resizeStart = useRef<{ x: number; width: number } | null>(null);
@@ -230,7 +233,7 @@ export function V2ProjectPage() {
   });
 
   const createWorkspace = useMutation({
-    mutationFn: (input: { name: string; baseBranch?: string }) => v2Api.createWorkspace(id!, input),
+    mutationFn: (input: { name: string; branchName?: string; branchMode?: 'create' | 'adopt_existing'; baseBranch?: string }) => v2Api.createWorkspace(id!, input),
     onSuccess: async (response) => {
       closeComposer(response.workspace.id);
       await queryClient.invalidateQueries({ queryKey: workspacesQueryKey });
@@ -238,7 +241,7 @@ export function V2ProjectPage() {
   });
 
   const forkWorkspace = useMutation({
-    mutationFn: (input: { name: string; baseBranch?: string }) =>
+    mutationFn: (input: { name: string; branchName?: string; branchMode?: 'create' | 'adopt_existing'; baseBranch?: string }) =>
       v2Api.forkWorkspace(activeWorkspaceId!, input),
     onSuccess: async (response) => {
       closeComposer(response.workspace.id);
@@ -302,10 +305,14 @@ export function V2ProjectPage() {
     if (composerMode === 'create') {
       setWorkspaceBaseBranch(project?.defaultBranch ?? activeWorkspace?.branchName ?? 'main');
       setWorkspaceName('');
+      setWorkspaceBranchName('');
+      setWorkspaceBranchMode('create');
     }
     if (composerMode === 'fork') {
       setWorkspaceBaseBranch(activeWorkspace?.branchName ?? project?.defaultBranch ?? 'main');
       setWorkspaceName(activeWorkspace ? `${activeWorkspace.name} fork` : '');
+      setWorkspaceBranchName('');
+      setWorkspaceBranchMode('create');
     }
   }, [composerMode, activeWorkspace, project]);
 
@@ -353,11 +360,18 @@ export function V2ProjectPage() {
     navigate(`/projects/${id}${next.toString() ? `?${next.toString()}` : ''}`, { replace: true });
     setComposerMode(null);
     setWorkspaceName('');
+    setWorkspaceBranchName('');
+    setWorkspaceBranchMode('create');
     setWorkspaceBaseBranch('');
   };
 
   const submitWorkspaceComposer = () => {
-    const payload = { name: workspaceName.trim(), baseBranch: workspaceBaseBranch.trim() || undefined };
+    const payload = {
+      name: workspaceName.trim(),
+      branchName: workspaceBranchName.trim() || undefined,
+      branchMode: workspaceBranchMode === 'adopt_existing' || workspaceBranchName.trim() ? workspaceBranchMode : undefined,
+      baseBranch: workspaceBranchMode === 'create' ? workspaceBaseBranch.trim() || undefined : undefined,
+    };
     if (!payload.name) return;
     if (composerMode === 'fork') forkWorkspace.mutate(payload);
     else createWorkspace.mutate(payload);
@@ -442,10 +456,14 @@ export function V2ProjectPage() {
           defaultBranch={project?.defaultBranch ?? 'main'}
           activeWorkspace={activeWorkspace}
           name={workspaceName}
+          branchName={workspaceBranchName}
+          branchMode={workspaceBranchMode}
           baseBranch={workspaceBaseBranch}
           pending={workspacePending}
           error={workspaceError instanceof Error ? workspaceError.message : undefined}
           onNameChange={setWorkspaceName}
+          onBranchNameChange={setWorkspaceBranchName}
+          onBranchModeChange={setWorkspaceBranchMode}
           onBaseBranchChange={setWorkspaceBaseBranch}
           onSubmit={submitWorkspaceComposer}
           onCancel={() => closeComposer()}
@@ -592,10 +610,14 @@ function WorkspaceComposerModal({
   defaultBranch,
   activeWorkspace,
   name,
+  branchName,
+  branchMode,
   baseBranch,
   pending,
   error,
   onNameChange,
+  onBranchNameChange,
+  onBranchModeChange,
   onBaseBranchChange,
   onSubmit,
   onCancel,
@@ -605,10 +627,14 @@ function WorkspaceComposerModal({
   defaultBranch: string;
   activeWorkspace: Workspace | null;
   name: string;
+  branchName: string;
+  branchMode: 'create' | 'adopt_existing';
   baseBranch: string;
   pending: boolean;
   error?: string;
   onNameChange: (value: string) => void;
+  onBranchNameChange: (value: string) => void;
+  onBranchModeChange: (value: 'create' | 'adopt_existing') => void;
   onBaseBranchChange: (value: string) => void;
   onSubmit: () => void;
   onCancel: () => void;
@@ -671,15 +697,44 @@ function WorkspaceComposerModal({
               className="w-full"
             />
           </label>
-          <label className="block">
-            <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Base branch</span>
-            <V2Input
-              value={baseBranch}
-              onChange={(event) => onBaseBranchChange(event.target.value)}
-              placeholder={defaultBranch}
-              className="w-full"
-            />
-          </label>
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Branch name</span>
+              <V2Input
+                value={branchName}
+                onChange={(event) => onBranchNameChange(event.target.value)}
+                placeholder="Auto from workspace name"
+                className="w-full"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Branch mode</span>
+              <V2Select
+                value={branchMode}
+                onChange={(event) => onBranchModeChange(event.target.value as 'create' | 'adopt_existing')}
+                className="w-full"
+              >
+                <option value="create">Create new branch</option>
+                <option value="adopt_existing">Use existing branch</option>
+              </V2Select>
+            </label>
+          </div>
+          {branchMode === 'create' ? (
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Start from branch/ref</span>
+              <V2Input
+                value={baseBranch}
+                onChange={(event) => onBaseBranchChange(event.target.value)}
+                placeholder={defaultBranch}
+                className="w-full"
+              />
+              <span className="mt-1.5 block text-xs text-dim">Use a local branch, origin branch name, or remote ref like origin/release.</span>
+            </label>
+          ) : (
+            <p className="rounded-md bg-[var(--color-card-hover)] px-3 py-2 text-xs leading-5 text-dim">
+              Enter the existing branch name above. Codeburg will fetch origin, then use a local branch or create one from origin/&lt;branch&gt;.
+            </p>
+          )}
           {error && (
             <div className="rounded-md border border-[var(--color-error)]/30 bg-[var(--color-error)]/10 px-3 py-2 text-xs leading-5 text-[var(--color-error)]">
               {error}
@@ -689,7 +744,7 @@ function WorkspaceComposerModal({
 
         <div className="flex items-center justify-end gap-2 border-t border-[var(--color-card-border)] px-4 py-3 md:px-5">
           <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={onCancel}>Cancel</Button>
-          <Button type="submit" size="sm" variant="primary" loading={pending} disabled={!name.trim()}>
+          <Button type="submit" size="sm" variant="primary" loading={pending} disabled={!name.trim() || (branchMode === 'adopt_existing' && !branchName.trim())}>
             {mode === 'fork' ? 'Create fork' : 'Create workspace'}
           </Button>
         </div>

@@ -72,6 +72,8 @@ type CreateResult struct {
 	WorktreePath string
 	// BranchName is the name of the created branch
 	BranchName string
+	// BaseBranch is the normalized base branch/ref used for future workspace syncs.
+	BaseBranch string
 	// Warnings contains non-fatal issues encountered during creation
 	// (e.g. failed to fetch or fast-forward base branch)
 	Warnings []string
@@ -124,26 +126,22 @@ func (m *Manager) Create(opts CreateOptions) (*CreateResult, error) {
 		return nil, fmt.Errorf("repository has no commits - please make an initial commit before creating worktrees")
 	}
 
-	// Verify the base branch exists
-	if !m.branchExists(opts.ProjectPath, opts.BaseBranch) {
-		return nil, fmt.Errorf("base branch '%s' does not exist - check project's default branch setting", opts.BaseBranch)
-	}
-
 	var warnings []string
 
-	// Fetch latest from remote to ensure we have up-to-date refs
-	fetchFailed := false
+	// Fetch latest from remote before resolving branch names so origin-only bases
+	// can be used immediately (for example, baseBranch: "release/1.2").
 	if err := m.gitFetch(opts.ProjectPath); err != nil {
-		fetchFailed = true
 		warnings = append(warnings, fmt.Sprintf("could not fetch from remote: %v — worktree may be based on stale %s", err, opts.BaseBranch))
 	}
 
-	// Prefer creating from origin/<base> when available so we don't depend on
-	// mutating local checked-out refs (which can be blocked by git/worktree rules).
 	baseRef := opts.BaseBranch
-	remoteBaseRef := "origin/" + opts.BaseBranch
-	if !fetchFailed && m.branchExists(opts.ProjectPath, remoteBaseRef) {
-		baseRef = remoteBaseRef
+	normalizedBaseBranch := normalizeBaseBranchName(opts.BaseBranch)
+	if !opts.AdoptBranch {
+		var err error
+		baseRef, normalizedBaseBranch, err = m.resolveBaseRef(opts.ProjectPath, opts.BaseBranch)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// When adopting a pre-existing branch, ensure it exists locally.
@@ -243,6 +241,7 @@ func (m *Manager) Create(opts CreateOptions) (*CreateResult, error) {
 	return &CreateResult{
 		WorktreePath: worktreePath,
 		BranchName:   branchName,
+		BaseBranch:   normalizedBaseBranch,
 		Warnings:     warnings,
 	}, nil
 }
@@ -357,6 +356,38 @@ func (m *Manager) branchExists(repoPath, branchName string) bool {
 	cmd := exec.Command("git", "rev-parse", "--verify", branchName)
 	cmd.Dir = repoPath
 	return cmd.Run() == nil
+}
+
+func (m *Manager) resolveBaseRef(repoPath, baseBranch string) (string, string, error) {
+	baseBranch = strings.TrimSpace(baseBranch)
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
+
+	// Common convenience: entering "foo" uses origin/foo when present so newly
+	// created workspaces start from the freshest remote base without mutating a
+	// checked-out local branch. Fall back to the local branch when no origin ref exists.
+	if !strings.HasPrefix(baseBranch, "origin/") && !strings.HasPrefix(baseBranch, "refs/") {
+		remoteRef := "origin/" + baseBranch
+		if m.branchExists(repoPath, remoteRef) {
+			return remoteRef, baseBranch, nil
+		}
+	}
+
+	// Exact refs: local branch, remote ref like origin/foo, full ref, tag, or SHA.
+	if m.branchExists(repoPath, baseBranch) {
+		return baseBranch, normalizeBaseBranchName(baseBranch), nil
+	}
+
+	return "", "", fmt.Errorf("base branch '%s' does not exist - check project's default branch setting", baseBranch)
+}
+
+func normalizeBaseBranchName(ref string) string {
+	ref = strings.TrimSpace(ref)
+	ref = strings.TrimPrefix(ref, "refs/heads/")
+	ref = strings.TrimPrefix(ref, "refs/remotes/origin/")
+	ref = strings.TrimPrefix(ref, "origin/")
+	return ref
 }
 
 func (m *Manager) createBranchAndWorktree(repoPath, worktreePath, branchName, baseBranch string) error {

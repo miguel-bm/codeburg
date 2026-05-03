@@ -49,6 +49,7 @@ func (s *Server) handleGetWorkspace(w http.ResponseWriter, r *http.Request) {
 type createWorkspaceRequest struct {
 	Name            string  `json:"name"`
 	BranchName      *string `json:"branchName,omitempty"`
+	BranchMode      *string `json:"branchMode,omitempty"` // "create" | "adopt_existing"
 	BaseBranch      *string `json:"baseBranch,omitempty"`
 	SourceWorkspace *string `json:"sourceWorkspaceId,omitempty"`
 }
@@ -236,7 +237,7 @@ func (s *Server) createWorkspaceFromRequest(project *db.Project, source *db.Work
 		return nil, nil, fmt.Errorf("workspace name is required")
 	}
 
-	branchName := strings.TrimSpace(ptrToString(req.BranchName))
+	branchName := normalizeWorkspaceBranchInput(ptrToString(req.BranchName))
 	baseBranch := project.DefaultBranch
 	origin := db.WorkspaceOriginDirect
 	var parentWorkspaceID *string
@@ -265,8 +266,8 @@ func (s *Server) createWorkspaceFromRequest(project *db.Project, source *db.Work
 	}
 
 	adoptBranch := false
-	if branchName != "" {
-		adoptBranch, err = resolveAdoptMode(project.Path, branchName, nil)
+	if branchName != "" || req.BranchMode != nil {
+		adoptBranch, err = resolveWorkspaceBranchMode(project.Path, branchName, req.BranchMode)
 		if err != nil {
 			_ = s.db.DeleteWorkspace(workspace.ID)
 			return nil, nil, err
@@ -291,15 +292,43 @@ func (s *Server) createWorkspaceFromRequest(project *db.Project, source *db.Work
 		return nil, nil, fmt.Errorf("create workspace worktree: %w", err)
 	}
 
+	storedBaseBranch := defaultString(result.BaseBranch, baseBranch)
 	workspace, err = s.db.UpdateWorkspace(workspace.ID, db.UpdateWorkspaceInput{
 		BranchName:   &result.BranchName,
-		BaseBranch:   &baseBranch,
+		BaseBranch:   &storedBaseBranch,
 		WorktreePath: &result.WorktreePath,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("update workspace record: %w", err)
 	}
 	return workspace, result.Warnings, nil
+}
+
+func normalizeWorkspaceBranchInput(branchName string) string {
+	branchName = strings.TrimSpace(branchName)
+	branchName = strings.TrimPrefix(branchName, "refs/heads/")
+	branchName = strings.TrimPrefix(branchName, "refs/remotes/origin/")
+	branchName = strings.TrimPrefix(branchName, "origin/")
+	return branchName
+}
+
+func resolveWorkspaceBranchMode(repoPath, branchName string, mode *string) (bool, error) {
+	branchName = strings.TrimSpace(branchName)
+	if mode == nil || strings.TrimSpace(*mode) == "" {
+		// Backward-compatible behavior: an explicitly supplied branch name adopts
+		// an existing local/origin branch when one is found, otherwise creates it.
+		return resolveAdoptMode(repoPath, branchName, nil)
+	}
+
+	switch strings.TrimSpace(*mode) {
+	case "create":
+		return false, nil
+	case "adopt_existing":
+		adopt := db.TaskBranchModeAdoptExisting
+		return resolveAdoptMode(repoPath, branchName, &adopt)
+	default:
+		return false, fmt.Errorf("invalid branchMode")
+	}
 }
 
 func defaultString(value, fallback string) string {

@@ -60,6 +60,7 @@ export interface V2FileReadResponse {
 export interface CreateWorkspaceInput {
   name: string;
   branchName?: string;
+  branchMode?: 'create' | 'adopt_existing';
   baseBranch?: string;
   sourceWorkspaceId?: string;
 }
