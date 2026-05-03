@@ -135,6 +135,7 @@ export function V2ConversationDetailPage() {
   const closeTab = useWorkspaceStore((state) => state.closeTab);
   const openFile = useWorkspaceStore((state) => state.openFile);
   const isMobile = useMobile();
+  const { keyboardVisible: mobileKeyboardVisible } = useVirtualKeyboard();
 
   const [draft, setDraft] = useConversationScopedState<string>('draft', conversationId, '');
   const [attachments, setAttachments] = useConversationScopedState<ComposerAttachment[]>('attachments', conversationId, EMPTY_COMPOSER_ATTACHMENTS);
@@ -840,7 +841,7 @@ export function V2ConversationDetailPage() {
               )}
             </div>
           )}
-          {!activePreviewTab && isMobile && (
+          {!activePreviewTab && isMobile && !mobileKeyboardVisible && (
             <MobileConversationSurfaceBar
               conversations={mobileConversations}
               activeConversationId={conversationId}
